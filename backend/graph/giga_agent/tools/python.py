@@ -7,10 +7,10 @@ import plotly
 from pydantic import BaseModel, Field
 
 from giga_agent.utils.llm import is_llm_image_inline, load_llm
+from giga_agent.settings import settings
 from giga_agent.utils.jupyter import JupyterClient
 from langchain_core.tools import BaseTool
 import re
-import os
 
 
 class CodeInput(BaseModel):
@@ -33,9 +33,7 @@ class ExecuteTool(BaseTool):
         return {}
 
     async def _arun(self, code: str):
-        client = JupyterClient(
-            base_url=os.getenv("JUPYTER_CLIENT_API", "http://127.0.0.1:9090")
-        )
+        client = JupyterClient(base_url=settings.internal.jupyter_client_api)
 
         if INPUT_REGEX.search(code):
             return {

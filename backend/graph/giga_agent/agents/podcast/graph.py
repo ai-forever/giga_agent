@@ -32,10 +32,8 @@ from giga_agent.agents.podcast.tts_sber import (
 )
 from giga_agent.agents.podcast.utils import parse_url, generate_script
 from giga_agent.utils.lang import LANG
-from giga_agent.utils.env import load_project_env
+from giga_agent.settings import settings
 from giga_agent.utils.messages import filter_tool_calls
-
-load_project_env()
 
 
 async def download_url(state: PodcastState):
@@ -99,7 +97,6 @@ async def audio_gen(state: PodcastState):
     llm_output = state.get("dialogue")
 
     for line in llm_output.dialogue:
-
         if line.speaker == "Ведущая (Жанна)":
             speaker_label = f"**Ведущая**: {line.text}"
         else:
@@ -107,9 +104,11 @@ async def audio_gen(state: PodcastState):
 
         transcript += speaker_label + "\n\n"
         total_characters += len(line.text)
-        sber_auth_token = os.getenv("SALUTE_SPEECH")
-        salute_speech_scope = os.getenv("SALUTE_SPEECH_SCOPE", "SALUTE_SPEECH_PERS")
-        salute_access_token = await get_sber_tts_token(sber_auth_token, scope=salute_speech_scope)
+        sber_auth_token = settings.external.salute_speech
+        salute_speech_scope = settings.external.salute_speech_scope
+        salute_access_token = await get_sber_tts_token(
+            sber_auth_token, scope=salute_speech_scope
+        )
         try:
             audio_data = await generate_podcast_audio(
                 line.text, salute_access_token, line.speaker
@@ -169,6 +168,8 @@ async def podcast_generate(
         url: Ссылка на страницу из которой будет создан подкаст
         use_messages: Использовать переписку с пользователем для генерации подкаста?
     """
+    from giga_agent.settings import settings
+
     if not url and not use_messages:
         raise ValueError("You must specify either url or use_messages!")
     conf = {
@@ -187,7 +188,8 @@ async def podcast_generate(
         input_["messages"] = state["messages"][:-1] + [last_mes]
     if url:
         input_["url"] = url
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+
+    client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     state = {}

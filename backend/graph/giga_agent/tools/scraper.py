@@ -8,7 +8,7 @@ from langchain_core.tools import tool
 from langchain_tavily import TavilyExtract
 from langgraph.prebuilt import InjectedState
 
-from giga_agent.utils.env import load_project_env
+
 from giga_agent.utils.llm import load_llm, is_llm_image_inline, is_llm_gigachat
 from giga_agent.utils.messages import filter_tool_calls
 

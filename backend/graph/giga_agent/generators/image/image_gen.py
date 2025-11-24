@@ -1,7 +1,7 @@
 import abc
 import asyncio
-import os
 from typing import Optional
+from giga_agent.settings import settings
 
 
 class ImageGen(abc.ABC):
@@ -15,7 +15,7 @@ class ImageGen(abc.ABC):
     ) -> None:
         self.model = model
         self.semaphore: asyncio.Semaphore = semaphore or asyncio.Semaphore(
-            int(os.getenv("IMAGE_GEN_PARALLEL", 1))
+            settings.image_gen.image_gen_parallel
         )
         self._initialized: bool = False
 

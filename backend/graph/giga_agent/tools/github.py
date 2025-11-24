@@ -1,8 +1,9 @@
 import httpx
-import os
 from typing import Any, Dict, Optional, Union, Literal
 
 from langchain_core.tools import tool
+
+from giga_agent.settings import settings
 
 
 @tool(parse_docstring=True)
@@ -55,7 +56,7 @@ async def get_workflow_runs(
     url = f"https://api.github.com/repos/{owner}/{repo}/actions/runs"
     headers = {
         "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {os.environ['GITHUB_PERSONAL_ACCESS_TOKEN']}",
+        "Authorization": f"Bearer {settings.external.github_personal_access_token}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
@@ -97,7 +98,7 @@ async def list_pull_requests(
 ) -> Dict[str, Any]:
     """
     Список Pull Requests репозитория
-    
+
     Args:
         owner: Владелец репозитория (без .git)
         repo: Имя репозитория (без .git)
@@ -114,7 +115,7 @@ async def list_pull_requests(
     url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
     headers = {
         "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {os.environ['GITHUB_PERSONAL_ACCESS_TOKEN']}",
+        "Authorization": f"Bearer {settings.external.github_personal_access_token}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
@@ -153,7 +154,7 @@ async def get_pull_request(
     url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pull_number}"
     headers = {
         "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {os.environ['GITHUB_PERSONAL_ACCESS_TOKEN']}",
+        "Authorization": f"Bearer {settings.external.github_personal_access_token}",
         "X-GitHub-Api-Version": "2022-11-28",
     }
 

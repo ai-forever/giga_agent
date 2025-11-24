@@ -1,10 +1,11 @@
-import os
 from typing import Optional
 
 import httpx
 import asyncio
 from langchain_core.tools import tool
 from pydantic import Field
+
+from giga_agent.settings import settings
 
 
 @tool
@@ -30,7 +31,7 @@ async def vk_get_posts(
         "domain": domain,
         "offset": offset,
         "count": count,
-        "access_token": os.environ["VK_TOKEN"],
+        "access_token": settings.external.vk_token,
         "v": "5.199",
     }
     async with httpx.AsyncClient() as client:
@@ -65,7 +66,7 @@ async def vk_get_comments(
         "post_id": post_id,
         "offset": offset,
         "count": count,
-        "access_token": os.environ["VK_TOKEN"],
+        "access_token": settings.external.vk_token,
         "v": "5.199",
     }
     async with httpx.AsyncClient() as client:
@@ -88,7 +89,7 @@ async def get_page_id(domain: str):
     url = "https://api.vk.com/method/utils.resolveScreenName"
     data = {
         "screen_name": domain,
-        "access_token": os.environ["VK_TOKEN"],
+        "access_token": settings.external.vk_token,
         "v": "5.199",
     }
     async with httpx.AsyncClient() as client:
@@ -143,7 +144,7 @@ return {{"comments": postComments, "ids": postIds}};
     url = "https://api.vk.com/method/execute"
     data = {
         "code": script,
-        "access_token": os.environ["VK_TOKEN"],
+        "access_token": settings.external.vk_token,
         "v": "5.199",
     }
     async with httpx.AsyncClient() as client:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from typing import Tuple
 
+from giga_agent.settings import settings
 from giga_agent.generators.image.image_gen import ImageGen
 from giga_agent.generators.image.openai import OpenAIImageGen
 from giga_agent.generators.image.gigachat import GigaChatImageGen
@@ -20,7 +20,7 @@ def load_image_gen(name: str = None) -> ImageGen:
     """
 
     if name is None:
-        name = os.getenv("IMAGE_GEN_NAME")
+        name = settings.image_gen.image_gen_name
     if name is None:
         raise ValueError(
             "Specify the image provider in the IMAGE_GEN_NAME environment variable"
@@ -44,9 +44,7 @@ def load_image_gen(name: str = None) -> ImageGen:
 
 def _parse_name(name: str) -> Tuple[str, str]:
     if ":" not in name:
-        raise ValueError(
-            "Invalid generator name format. Use 'provider:model'"
-        )
+        raise ValueError("Invalid generator name format. Use 'provider:model'")
     provider, model = name.split(":", 1)
     provider = provider.strip().lower()
     model = model.strip()

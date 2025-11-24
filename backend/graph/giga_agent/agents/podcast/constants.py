@@ -1,4 +1,4 @@
-import os
+from giga_agent.settings import settings
 
 CHARACTER_LIMIT = 500_000
 
@@ -20,7 +20,7 @@ GIGACHAT_TEMPERATURE = 0.1
 GIGACHAT_SCOPE = "GIGACHAT_API_CORP"
 
 # Sber TTS constants
-SBER_AUTH_TOKEN = os.getenv("SALUTE_SPEECH")
+SBER_AUTH_TOKEN = settings.external.salute_speech
 SBER_TTS_RETRY_ATTEMPTS = 3
 SBER_TTS_RETRY_DELAY = 5  # in seconds
 

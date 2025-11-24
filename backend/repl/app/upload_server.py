@@ -9,11 +9,10 @@ from fastapi import FastAPI, HTTPException, File, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from langchain_gigachat import GigaChat
-from dotenv import load_dotenv
 
 from PIL import Image, ImageOps
 
-load_dotenv("../../.env")
+from app.settings import settings
 
 app = FastAPI()
 
@@ -27,7 +26,7 @@ app.add_middleware(
     allow_headers=["*"],  # какие заголовки
 )
 
-FILES_DIR = os.environ.get("FILES_DIR", "files")
+FILES_DIR = settings.files_dir
 os.makedirs(FILES_DIR, exist_ok=True)
 
 llm = GigaChat(
@@ -35,11 +34,11 @@ llm = GigaChat(
     verify_ssl_certs=False,
     timeout=100000,
     max_tokens=32000,
-    user=os.getenv("MAIN_GIGACHAT_USER"),
-    password=os.getenv("MAIN_GIGACHAT_PASSWORD"),
-    credentials=os.getenv("MAIN_GIGACHAT_CREDENTIALS"),
-    scope=os.getenv("MAIN_GIGACHAT_SCOPE"),
-    base_url=os.getenv("MAIN_GIGACHAT_BASE_URL"),
+    user=settings.main_gigachat_user,
+    password=settings.main_gigachat_password,
+    credentials=settings.main_gigachat_credentials,
+    scope=settings.main_gigachat_scope,
+    base_url=settings.main_gigachat_base_url,
 )
 
 if not Path(FILES_DIR).exists():

@@ -1,10 +1,9 @@
 import asyncio
 from typing import Optional
-
-import os
 import httpx
 
 from giga_agent.generators.image.image_gen import ImageGen
+from giga_agent.settings import settings
 
 # Поддерживаемые размеры для моделей OpenAI Images
 # Ключи — подстроки, ожидаемые в имени модели (в нижнем регистре)
@@ -48,12 +47,8 @@ class OpenAIImageGen(ImageGen):
         max_retries: int = 3,
     ) -> None:
         super().__init__(model=model, semaphore=semaphore)
-        self._api_key: Optional[str] = api_key or os.getenv("OPENAI_API_KEY")
-        self._base_url = (
-            base_url
-            if base_url
-            else os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        )
+        self._api_key: Optional[str] = api_key or settings.providers.openai_api_key
+        self._base_url = base_url if base_url else "https://api.openai.com/v1"
         self._timeout = timeout
         self._max_retries = max_retries
         self._client: Optional[httpx.AsyncClient] = None

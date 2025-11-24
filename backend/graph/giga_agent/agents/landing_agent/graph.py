@@ -24,17 +24,14 @@ from giga_agent.agents.landing_agent.nodes.image import image_node
 from giga_agent.agents.landing_agent.nodes.plan import plan_node
 from giga_agent.agents.landing_agent.tools import plan, image, coder, done
 from giga_agent.agents.landing_agent.prompts.ru import AGENT_PROMPT
-from giga_agent.utils.lang import LANG
-from giga_agent.utils.env import load_project_env
 from giga_agent.utils.messages import filter_tool_messages
-
-load_project_env()
+from giga_agent.settings import settings
 
 
 async def agent(state: LandingState, config: RunnableConfig):
     prompt = ChatPromptTemplate.from_messages(
         [("system", AGENT_PROMPT), MessagesPlaceholder("messages")]
-    ).partial(language=LANG)
+    ).partial(language=settings.llm.giga_agent_lang)
     chain = prompt | llm.bind_tools(
         [plan, image, coder, done], parallel_tool_calls=False
     )
@@ -132,7 +129,7 @@ async def create_landing(
         task: Детальное описание веб-страницы, которую пользователь хочет сделать
         thread_id: Предыдущий thread_id. Используй, если пользователю, нужно продолжить работу над веб-страницей
     """
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.llm.langgraph_api_url)
     if not thread_id:
         thread_id = str(uuid.uuid4())
     result_state = {}
