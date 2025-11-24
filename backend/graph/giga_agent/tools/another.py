@@ -13,6 +13,8 @@ from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from pydantic import Field
 
+from giga_agent.settings import settings
+
 from langgraph_sdk import get_client
 
 from giga_agent.utils.llm import is_llm_image_inline, load_llm
@@ -36,7 +38,7 @@ async def search(queries: List[str] = Field(description="Поисковые за
     Обязательно разбивай сложные запросы на более легкие.
     При формировании ответа обязательно прикладывай полные ссылки на источники, которые ты получил из инструмента `search`
     """
-    search = TavilySearch()
+    search = TavilySearch(tavily_api_key=settings.external.tavily_api_key)
 
     return await search.abatch(
         [

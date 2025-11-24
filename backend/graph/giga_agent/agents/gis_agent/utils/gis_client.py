@@ -179,7 +179,9 @@ async def fetch_attractions(point: Point):
 
 
 async def location_to_description(location: Location, city: str) -> Optional[str]:
-    search = TavilySearch(include_answer="advanced")
+    search = TavilySearch(
+        include_answer="advanced", tavily_api_key=settings.external.tavily_api_key
+    )
     result = await search.ainvoke(
         {
             "query": f"{location['name']} номер телефона; {city}, {location['address']}",

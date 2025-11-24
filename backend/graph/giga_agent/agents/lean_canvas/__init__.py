@@ -204,7 +204,9 @@ async def check_unique(
         [("system", COMPETITION_ANALYSIS_TEMPLATE)]
     ).partial(format_instructions=parser.get_format_instructions(), language=LANG)
 
-    search_results_text = await TavilySearch().arun(state["unique_value_proposition"])
+    search_results_text = await TavilySearch(
+        tavily_api_key=settings.external.tavily_api_key
+    ).arun(state["unique_value_proposition"])
 
     chain = prompt | llm | parser
     res = await chain.ainvoke(
@@ -507,7 +509,7 @@ async def lean_canvas(
             "configurable": {
                 "thread_id": thread_id,
                 "need_interrupt": False,
-                "skip_search": False if settings.internal.tavily_api_key else True,
+                "skip_search": False if settings.external.tavily_api_key else True,
             }
         },
     ):

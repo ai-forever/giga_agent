@@ -21,7 +21,7 @@ class ReplSettings(BaseSettings):
     main_gigachat_user: Optional[str] = Field(default=None)
     main_gigachat_password: Optional[str] = Field(default=None)
     main_gigachat_credentials: Optional[str] = Field(default=None)
-    main_gigachat_scope: Optional[str] = Field(default=None)
+    main_gigachat_scope: str = Field(default="GIGACHAT_API_PERS")
     main_gigachat_base_url: Optional[str] = Field(default=None)
     repl_gigachat_timeout: float = Field(default=100000.0)
     main_gigachat_top_p: float = Field(default=0.5)

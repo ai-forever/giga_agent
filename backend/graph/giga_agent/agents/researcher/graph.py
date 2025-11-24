@@ -9,7 +9,6 @@ from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 from giga_agent.settings import settings
 
-from giga_agent.agents.researcher.config import ResearcherState, ConfigSchema
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.messages import filter_tool_calls
 
@@ -25,7 +24,10 @@ async def internet_search(
 ):
     """Функция поиска в интернете"""
     search = TavilySearch(
-        include_raw_content=include_raw_content, max_results=max_results, topic=topic
+        include_raw_content=include_raw_content,
+        max_results=max_results,
+        topic=topic,
+        tavily_api_key=settings.external.tavily_api_key,
     )
     result = await search.ainvoke({"query": query})
     return result

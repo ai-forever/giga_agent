@@ -51,6 +51,11 @@ def load_gigachat_embeddings():
     llm_str = settings.llm.giga_agent_embeddings
     return GigaChatEmbeddings(
         model=llm_str[len(GIGACHAT_PROVIDER) :],
+        user=settings.providers.gigachat_user,
+        password=settings.providers.gigachat_password,
+        credentials=settings.providers.gigachat_credentials,
+        scope=settings.providers.gigachat_scope,
+        verify_ssl_certs=settings.providers.gigachat_verify_ssl_certs,
     )
 
 
