@@ -1,56 +1,61 @@
-import os
 from typing import Dict, Optional
 
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_gigachat import GigaChat, GigaChatEmbeddings
 
-from giga_agent.utils.env import load_project_env
+from giga_agent.settings import settings
 
 GIGACHAT_PROVIDER = "gigachat:"
 
-load_project_env()
 
-
-def get_agent_env(tag: str = None):
-    if tag is None:
-        return "GIGA_AGENT_LLM"
-    else:
-        return f"GIGA_AGENT_LLM_{tag.upper()}"
+def _get_llm_model(tag: str = None) -> str:
+    if tag == "fast":
+        return settings.llm.giga_agent_llm_fast
+    return settings.llm.giga_agent_llm
 
 
 def load_gigachat(tag: str = None, is_main: bool = False):
-    llm_str = os.getenv(get_agent_env(tag))
-    kwargs = {}
+    llm_str = _get_llm_model(tag)
+
+    # Настройки по умолчанию
+    kwargs = dict(
+        timeout=settings.providers.gigachat_timeout,
+        user=settings.providers.gigachat_user,
+        password=settings.providers.gigachat_password,
+        credentials=settings.providers.gigachat_credentials,
+        scope=settings.providers.gigachat_scope,
+        verify_ssl_certs=settings.providers.gigachat_verify_ssl_certs,
+    )
+
     if is_main:
         kwargs = dict(
-            timeout=os.getenv("MAIN_GIGACHAT_TIMEOUT", 70),
-            user=os.getenv("MAIN_GIGACHAT_USER"),
-            password=os.getenv("MAIN_GIGACHAT_PASSWORD"),
-            credentials=os.getenv("MAIN_GIGACHAT_CREDENTIALS"),
-            scope=os.getenv("MAIN_GIGACHAT_SCOPE"),
-            base_url=os.getenv("MAIN_GIGACHAT_BASE_URL"),
-            top_p=os.getenv("MAIN_GIGACHAT_TOP_P", 0.5),
-            verbose=os.getenv("MAIN_GIGACHAT_VERBOSE", "False"),
+            timeout=settings.providers.main_gigachat_timeout,
+            user=settings.providers.main_gigachat_user,
+            password=settings.providers.main_gigachat_password,
+            credentials=settings.providers.main_gigachat_credentials,
+            scope=settings.providers.main_gigachat_scope,
+            base_url=settings.providers.main_gigachat_base_url,
+            top_p=settings.providers.main_gigachat_top_p,
+            verbose=settings.providers.main_gigachat_verbose,
         )
     return GigaChat(
         model=llm_str[len(GIGACHAT_PROVIDER) :],
         profanity_check=False,
-        verify_ssl_certs=False,
         max_tokens=1280000,
         **kwargs,
     )
 
 
 def load_gigachat_embeddings():
-    llm_str = os.getenv("GIGA_AGENT_EMBEDDINGS")
+    llm_str = settings.llm.giga_agent_embeddings
     return GigaChatEmbeddings(
         model=llm_str[len(GIGACHAT_PROVIDER) :],
     )
 
 
 def is_llm_gigachat(tag: str = None):
-    llm_str = os.getenv(get_agent_env(tag))
+    llm_str = _get_llm_model(tag)
     return llm_str.startswith(GIGACHAT_PROVIDER)
 
 
@@ -60,17 +65,16 @@ _EMBEDDINGS_SINGLETON: Optional[object] = None
 
 
 def load_llm(tag: str = None, is_main: bool = False):
-    env_key = get_agent_env(tag)
+    env_key = "GIGA_AGENT_LLM_FAST" if tag == "fast" else "GIGA_AGENT_LLM"
     # TODO: Поправить логику загрузки LLM кредов (сейчас это вообще что-то страшное)
     singleton_key = env_key
     if is_main:
         singleton_key = "MAIN_" + singleton_key
+
     if singleton_key in _LLM_SINGLETONS:
         return _LLM_SINGLETONS[singleton_key]
 
-    llm_str = os.getenv(env_key)
-    if llm_str is None:
-        raise RuntimeError(f"{env_key} is empty! Fill it with your model")
+    llm_str = _get_llm_model(tag)
 
     if llm_str.startswith(GIGACHAT_PROVIDER):
         llm = load_gigachat(tag=tag, is_main=is_main)
@@ -87,9 +91,7 @@ def load_embeddings():
     if _EMBEDDINGS_SINGLETON is not None:
         return _EMBEDDINGS_SINGLETON
 
-    emb_str = os.getenv("GIGA_AGENT_EMBEDDINGS")
-    if emb_str is None:
-        raise RuntimeError("GIGA_AGENT_EMBEDDINGS is empty! Fill it with your model")
+    emb_str = settings.llm.giga_agent_embeddings
 
     if emb_str.startswith(GIGACHAT_PROVIDER):
         embeddings = load_gigachat_embeddings()
@@ -101,7 +103,5 @@ def load_embeddings():
 
 
 def is_llm_image_inline():
-    llm_str = os.getenv("GIGA_AGENT_LLM")
-    if llm_str is None:
-        raise RuntimeError("GIGA_AGENT_LLM is empty! Fill it with your model")
+    llm_str = settings.llm.giga_agent_llm
     return llm_str.startswith(GIGACHAT_PROVIDER)

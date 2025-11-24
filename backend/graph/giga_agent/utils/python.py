@@ -1,7 +1,7 @@
 import copy
-import os
 
 from giga_agent.config import REPL_TOOLS
+from giga_agent.settings import settings
 
 
 def prepend_code(code: str, state: dict):
@@ -12,7 +12,7 @@ def prepend_code(code: str, state: dict):
         tools_code.append(
             f"""
 @tool_client.call_tool
-def {tool['name']}(**kwargs):
+def {tool["name"]}(**kwargs):
     pass
 """
         )
@@ -24,7 +24,7 @@ def {tool.__name__}(**kwargs):
     pass
 """
         )
-    tool_url = os.getenv("TOOL_CLIENT_API", "http://127.0.0.1:8811")
+    tool_url = settings.internal.tool_client_api
     state.pop("tools")
     prepend = f"""import importlib
 importlib.invalidate_caches()

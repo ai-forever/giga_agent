@@ -1,6 +1,5 @@
 import copy
 import json
-import os
 import re
 import traceback
 from datetime import datetime
@@ -57,11 +56,7 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM_PROMPT),
     ]
-    + (
-        FEW_SHOTS_ORIGINAL
-        if os.getenv("REPL_FROM_MESSAGE", "1") == "1"
-        else FEW_SHOTS_UPDATED
-    )
+    + (FEW_SHOTS_ORIGINAL if settings.features.repl_from_message else FEW_SHOTS_UPDATED)
     + [MessagesPlaceholder("messages", optional=True)]
 ).partial(repl_inner_tools=generate_repl_tools_description(), language=LANG)
 

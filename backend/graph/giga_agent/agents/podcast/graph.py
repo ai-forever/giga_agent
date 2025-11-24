@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import os
 import uuid
 from typing import Optional, Annotated
 

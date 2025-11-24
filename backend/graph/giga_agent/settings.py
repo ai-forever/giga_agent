@@ -20,22 +20,52 @@ class LLMSettings(BaseSettings):
 
 class ProviderSettings(BaseSettings):
     # GigaChat
-    gigachat_credentials: str
+    gigachat_credentials: Optional[str] = Field(default=None)
+    gigachat_user: Optional[str] = Field(default=None)
+    gigachat_password: Optional[str] = Field(default=None)
     gigachat_scope: Optional[str] = Field(default=None)
     gigachat_verify_ssl_certs: bool = Field(default=False)
     gigachat_timeout: float = Field(default=60.0)
 
-    # Main GigaChat (Specific overrides)
+    # Main GigaChat
+    main_gigachat_user: Optional[str] = Field(default=None)
+    main_gigachat_password: Optional[str] = Field(default=None)
     main_gigachat_credentials: Optional[str] = Field(default=None)
     main_gigachat_scope: Optional[str] = Field(default=None)
+    main_gigachat_base_url: Optional[str] = Field(default=None)
     main_gigachat_timeout: float = Field(default=15.0)
     main_gigachat_top_p: float = Field(default=0.5)
+    main_gigachat_verbose: Optional[str] = Field(default=None)
 
     # OpenAI - for image generation only
     openai_api_key: Optional[str] = Field(default=None)
 
     # LangSmith
     langsmith_api_key: Optional[str] = Field(default=None)
+
+    def model_post_init(self, __context) -> None:
+        """Validate GigaChat authentication configuration."""
+        # Check standard GigaChat auth
+        has_creds = bool(self.gigachat_credentials)
+        has_up = bool(self.gigachat_user and self.gigachat_password)
+
+        if not (has_creds or has_up):
+            raise ValueError(
+                "GigaChat authentication not configured. Provide either:\n"
+                "  - GIGACHAT_CREDENTIALS (OAuth token), OR\n"
+                "  - GIGACHAT_USER + GIGACHAT_PASSWORD (basic auth)"
+            )
+
+        # Check that at least one auth method is provided for main GigaChat
+        has_main_creds = bool(self.main_gigachat_credentials)
+        has_main_up = bool(self.main_gigachat_user and self.main_gigachat_password)
+
+        if not (has_main_creds or has_main_up):
+            raise ValueError(
+                "Main GigaChat authentication not configured. Provide either:\n"
+                "  - MAIN_GIGACHAT_CREDENTIALS (OAuth token), OR\n"
+                "  - MAIN_GIGACHAT_USER + MAIN_GIGACHAT_PASSWORD (basic auth)"
+            )
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
@@ -66,6 +96,7 @@ class ExternalServicesSettings(BaseSettings):
     owm_api_key: Optional[str] = Field(default=None)
     twogis_token: Optional[str] = Field(default=None)
     salute_speech: Optional[str] = Field(default=None)
+    salute_speech_scope: str = Field(default="SALUTE_SPEECH_PERS")
     sber_tts_timeout: float = Field(default=30.0)
 
     model_config = SettingsConfigDict(

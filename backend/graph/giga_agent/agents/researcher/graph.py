@@ -1,5 +1,4 @@
 import asyncio
-import os
 from typing import Annotated, Literal
 
 from deepagents import async_create_deep_agent
@@ -8,9 +7,12 @@ from langchain_tavily import TavilySearch
 from langgraph.graph.ui import push_ui_message
 from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
+from giga_agent.settings import settings
 
+from giga_agent.agents.researcher.config import ResearcherState, ConfigSchema
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.messages import filter_tool_calls
+
 
 llm = load_llm().bind(timeout=600).with_config(tags=["nostream"])
 
@@ -22,12 +24,10 @@ async def internet_search(
     include_raw_content: bool = False,
 ):
     """Функция поиска в интернете"""
-    search = TavilySearch(include_raw_content=include_raw_content, max_results=max_results, topic=topic)
-    result = await search.ainvoke(
-        {
-            "query": query
-        }
+    search = TavilySearch(
+        include_raw_content=include_raw_content, max_results=max_results, topic=topic
     )
+    result = await search.ainvoke({"query": query})
     return result
 
 
@@ -172,14 +172,11 @@ agent = async_create_deep_agent(
 
 
 @tool
-async def researcher_agent(
-    question: str,
-    state: Annotated[dict, InjectedState] = None
-):
+async def researcher_agent(question: str, state: Annotated[dict, InjectedState] = None):
     """Проводит исследование и создает на его основе отчёт по запросу пользователя"""
 
     last_mes = filter_tool_calls(state["messages"][-1])
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(
@@ -194,22 +191,16 @@ async def researcher_agent(
     async for chunk in client.runs.stream(
         thread_id=thread_id,
         assistant_id="researcher",
-        input={"messages": state["messages"][:-1]
+        input={
+            "messages": state["messages"][:-1]
             + [
                 last_mes,
-                (
-                    "user",
-                    question
-                ),
+                ("user", question),
             ],
-               },
+        },
         stream_mode=["values", "updates"],
         on_disconnect="cancel",
-        config={
-            "configurable": {
-                "thread_id": thread_id
-            }
-        },
+        config={"configurable": {"thread_id": thread_id}},
     ):
         if chunk.event == "values":
             result_state = chunk.data
@@ -231,13 +222,14 @@ async def researcher_agent(
 
     return {
         "text": final_report,
-        "message": f'В результате выполнения был получен следующий отчёт: {final_report}. Покажи его пользователю целиком, не сокращая. Обязательно возьми из отчета источники и добавь их в свой ответ! Оставляй формат источников [Title](URL). Если отчёта нет, попробуй вызвать агента ещё раз.',
+        "message": f"В результате выполнения был получен следующий отчёт: {final_report}. Покажи его пользователю целиком, не сокращая. Обязательно возьми из отчета источники и добавь их в свой ответ! Оставляй формат источников [Title](URL). Если отчёта нет, попробуй вызвать агента ещё раз.",
     }
 
 
 async def chat_with_agent(message):
     async for s in agent.astream({"messages": [{"role": "user", "content": message}]}):
         print(s)
+
 
 if __name__ == "__main__":
     message = "что такое gigachain"
