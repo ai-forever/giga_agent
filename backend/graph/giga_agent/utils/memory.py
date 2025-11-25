@@ -1,4 +1,5 @@
 from mem0 import AsyncMemory
+import os
 
 from giga_agent.utils.llm import load_llm, load_embeddings
 
@@ -6,7 +7,8 @@ from giga_agent.utils.llm import load_llm, load_embeddings
 async def get_memory_from_config() -> AsyncMemory:
     llm_model = load_llm()
     embedding_model = load_embeddings()
-    result = embedding_model.embed_query("Init") # Чтобы не хардкодить размер эмбеддинга, легче кинуть один запрос
+    result = await embedding_model.aembed_query("Init") # Чтобы не хардкодить размер эмбеддинга, легче кинуть один запрос
+    # Общий путь к базе данных для персистентного хранилища памяти
     config = {
         "embedder": {
             "provider": "langchain",
@@ -22,8 +24,11 @@ async def get_memory_from_config() -> AsyncMemory:
             }
         },
         "vector_store": {
+            "provider": "qdrant",
             "config": {
-                "embedding_model_dims": len(result)
+                "embedding_model_dims": len(result),
+                "host": "qdrant",
+                "port": 6333
             }
         }
 
