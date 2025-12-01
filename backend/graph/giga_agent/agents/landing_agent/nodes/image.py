@@ -15,7 +15,6 @@ from giga_agent.agents.landing_agent.config import llm, LandingState
 from giga_agent.agents.landing_agent.prompts.ru import IMAGE_PROMPT
 from giga_agent.utils.lang import LANG
 from giga_agent.generators.image import load_image_gen
-from giga_agent.utils.env import load_project_env
 
 
 async def image_node(state: LandingState, config: RunnableConfig):
@@ -116,7 +115,6 @@ async def image_node(state: LandingState, config: RunnableConfig):
 
 
 if __name__ == "__main__":
-    load_project_env()
     prompt = ChatPromptTemplate.from_messages(
         [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")]
     )

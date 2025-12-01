@@ -1,9 +1,9 @@
-import os
 from typing import List
 
 import aiohttp
-from pydantic import Field
 from langchain_core.tools import tool
+
+from giga_agent.settings import settings
 
 
 OWM_CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
@@ -82,7 +82,7 @@ async def weather(city: str, units: str = "c", lang: str = "en") -> str:
         units: Единицы измерения температуры (c - celsius | f - fahrenheit | k - kelvin). По умолчанию: c
         lang: Язык описаний погоды. По умолчанию: en
     """
-    api_key = os.getenv("OWM_API_KEY")
+    api_key = settings.external.owm_api_key
     if not api_key:
         return "Не задан OWM_API_KEY. Установи переменную окружения OWM_API_KEY со своим ключом OpenWeatherMap."
 

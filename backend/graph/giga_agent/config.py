@@ -14,6 +14,7 @@ from giga_agent.agents.presentation_agent.graph import generate_presentation
 from giga_agent.agents.researcher.graph import researcher_agent
 from giga_agent.repl_tools.llm import summarize
 from giga_agent.repl_tools.sentiment import get_embeddings, predict_sentiments
+from giga_agent.settings import settings
 from giga_agent.tools.another import ask_about_image, gen_image, search
 from giga_agent.tools.github import (
     get_pull_request,
@@ -24,12 +25,9 @@ from giga_agent.tools.repl import shell
 from giga_agent.tools.scraper import get_urls
 from giga_agent.tools.vk import vk_get_comments, vk_get_last_comments, vk_get_posts
 from giga_agent.tools.weather import weather
-from giga_agent.utils.env import load_project_env
 from giga_agent.utils.llm import load_llm
 
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
-
-load_project_env()
 
 
 class AgentState(TypedDict):  # noqa: D101
@@ -42,7 +40,7 @@ class AgentState(TypedDict):  # noqa: D101
 
 llm = load_llm()
 
-if os.getenv("REPL_FROM_MESSAGE", "1") == "1":
+if settings.features.repl_from_message:
     from giga_agent.tools.repl.message_tool import python
 else:
     from giga_agent.tools.repl.args_tool import python
@@ -50,38 +48,36 @@ else:
 
 MCP_CONFIG = {}
 
-TOOLS_REQUIRED_ENVS = {
-    gen_image.name: ["IMAGE_GEN_NAME"],
-    get_urls.name: ["TAVILY_API_KEY"],
-    search.name: ["TAVILY_API_KEY"],
-    lean_canvas.name: [],
-    generate_presentation.name: ["IMAGE_GEN_NAME"],
-    create_landing.name: ["IMAGE_GEN_NAME"],
-    podcast_generate.name: ["SALUTE_SPEECH"],
-    create_meme.name: ["IMAGE_GEN_NAME"],
-    city_explore.name: ["TWOGIS_TOKEN"],
-    vk_get_posts.name: ["VK_TOKEN"],
-    vk_get_comments.name: ["VK_TOKEN"],
-    vk_get_last_comments.name: ["VK_TOKEN"],
-    get_workflow_runs.name: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    list_pull_requests.name: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    get_pull_request.name: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    researcher_agent.name: ["TAVILY_API_KEY"]
-}
-
 
 def has_required_envs(tool) -> bool:
-    """Проверяет, что для `tool` установлены все обязательные переменные окружения.
+    """Проверяет, что для `tool` установлены все обязательные переменные окружения."""
+    if tool.name == gen_image.name:
+        return bool(settings.image_gen.image_gen_name)
+    if tool.name in [get_urls.name, search.name, researcher_agent.name]:
+        return bool(settings.external.tavily_api_key)
+    if tool.name == generate_presentation.name:
+        return bool(settings.image_gen.image_gen_name)
+    if tool.name == create_landing.name:
+        return bool(settings.image_gen.image_gen_name)
+    if tool.name == podcast_generate.name:
+        return bool(settings.external.salute_speech)
+    if tool.name == create_meme.name:
+        return bool(settings.image_gen.image_gen_name)
+    if tool.name == city_explore.name:
+        return bool(settings.external.twogis_token)
+    if tool.name in [
+        vk_get_posts.name,
+        vk_get_comments.name,
+        vk_get_last_comments.name,
+    ]:
+        return bool(settings.external.vk_token)
+    if tool.name in [
+        get_workflow_runs.name,
+        list_pull_requests.name,
+        get_pull_request.name,
+    ]:
+        return bool(settings.external.github_personal_access_token)
 
-    Если тул не указан в `TOOLS_REQUIRED_ENVS`, считаем, что у него нет обязательных
-    переменных окружения и включаем его.
-    """
-    required_env_names = TOOLS_REQUIRED_ENVS.get(tool.name)
-    if required_env_names is None:
-        return True
-    for env_name in required_env_names:
-        if not os.getenv(env_name):
-            return False
     return True
 
 

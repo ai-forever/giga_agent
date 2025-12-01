@@ -4,6 +4,7 @@ import joblib
 import numpy as np
 
 from giga_agent.utils.llm import load_embeddings
+from giga_agent.settings import settings
 
 
 def probs_to_labels(probas, classes):
@@ -20,7 +21,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 clf = joblib.load(
     os.path.join(
         __location__,
-        os.getenv("GIGA_AGENT_SENTIMENT_MODEL", "models/sentiment_gigachat.joblib"),
+        settings.llm.giga_agent_sentiment_model,
     )
 )
 

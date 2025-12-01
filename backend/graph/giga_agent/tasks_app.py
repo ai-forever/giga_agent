@@ -19,7 +19,6 @@ from sqlalchemy.orm import sessionmaker
 
 from langgraph_sdk import get_client
 
-from giga_agent.utils.env import load_project_env
 from giga_agent.utils.llm import is_llm_image_inline
 
 from giga_agent.config import llm

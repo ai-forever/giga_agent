@@ -5,11 +5,9 @@ import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
 from app.run_jupyter import StatefulKernel
-
-load_dotenv("../.env")
+from app.settings import settings
 
 app = FastAPI()
 
@@ -26,10 +24,10 @@ app.add_middleware(
 app.kernels = {}
 app.kernels_last_request = {}
 
-STATE_DIR = os.environ.get("STATE_DIR", "kernel_states")
+STATE_DIR = settings.state_dir
 os.makedirs(STATE_DIR, exist_ok=True)
 
-MAX_IDLE = float(os.environ.get("MAX_KERNEL_LIVE", 300))
+MAX_IDLE = settings.max_kernel_live
 
 
 class CodeRequest(BaseModel):

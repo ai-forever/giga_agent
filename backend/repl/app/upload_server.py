@@ -9,11 +9,10 @@ from fastapi import FastAPI, HTTPException, File, UploadFile, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from langchain_gigachat import GigaChat
-from dotenv import load_dotenv
 
 from PIL import Image, ImageOps
 
-load_dotenv("../../.env")
+from app.settings import settings
 
 app = FastAPI()
 
@@ -27,19 +26,21 @@ app.add_middleware(
     allow_headers=["*"],  # какие заголовки
 )
 
-FILES_DIR = os.environ.get("FILES_DIR", "files")
+FILES_DIR = settings.files_dir
 os.makedirs(FILES_DIR, exist_ok=True)
 
 llm = GigaChat(
     profanity_check=False,
-    verify_ssl_certs=False,
-    timeout=100000,
-    max_tokens=32000,
-    user=os.getenv("MAIN_GIGACHAT_USER"),
-    password=os.getenv("MAIN_GIGACHAT_PASSWORD"),
-    credentials=os.getenv("MAIN_GIGACHAT_CREDENTIALS"),
-    scope=os.getenv("MAIN_GIGACHAT_SCOPE"),
-    base_url=os.getenv("MAIN_GIGACHAT_BASE_URL"),
+    verify_ssl_certs=settings.main_gigachat_verify_ssl_certs,
+    timeout=settings.repl_gigachat_timeout,
+    max_tokens=settings.main_gigachat_max_tokens,
+    user=settings.main_gigachat_user,
+    password=settings.main_gigachat_password,
+    credentials=settings.main_gigachat_credentials,
+    scope=settings.main_gigachat_scope,
+    base_url=settings.main_gigachat_base_url,
+    top_p=settings.main_gigachat_top_p,
+    verbose=settings.main_gigachat_verbose,
 )
 
 if not Path(FILES_DIR).exists():
@@ -91,7 +92,7 @@ def upload(file: UploadFile = File(...)):
                 progressive=True,
             )
             buf.seek(0)
-            api_url_base = os.getenv("LANGGRAPH_API_URL", "").rstrip("/")
+            api_url_base = settings.langgraph_api_url.rstrip("/")
             if not api_url_base:
                 raise RuntimeError("LANGGRAPH_API_URL is not set")
             url = f"{api_url_base}/upload/image/"

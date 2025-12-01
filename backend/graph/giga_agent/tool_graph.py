@@ -1,6 +1,5 @@
 import copy
 import json
-import os
 import re
 import traceback
 from datetime import datetime
@@ -29,12 +28,12 @@ from giga_agent.prompts.few_shots import FEW_SHOTS_ORIGINAL, FEW_SHOTS_UPDATED
 from giga_agent.prompts.main_prompt import SYSTEM_PROMPT
 from giga_agent.repl_tools.utils import describe_repl_tool
 from giga_agent.tool_server.tool_client import ToolClient
-from giga_agent.utils.env import load_project_env
+from giga_agent.settings import settings
+
 from giga_agent.utils.jupyter import JupyterClient
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.python import prepend_code
 
-load_project_env()
 
 llm = load_llm(is_main=True)
 
@@ -57,11 +56,7 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM_PROMPT),
     ]
-    + (
-        FEW_SHOTS_ORIGINAL
-        if os.getenv("REPL_FROM_MESSAGE", "1") == "1"
-        else FEW_SHOTS_UPDATED
-    )
+    + (FEW_SHOTS_ORIGINAL if settings.features.repl_from_message else FEW_SHOTS_UPDATED)
     + [MessagesPlaceholder("messages", optional=True)]
 ).partial(repl_inner_tools=generate_repl_tools_description(), language=LANG)
 
@@ -80,15 +75,11 @@ def get_code_arg(message):
         return "\n".join(matches).strip()
 
 
-client = JupyterClient(
-    base_url=os.getenv("JUPYTER_CLIENT_API", "http://127.0.0.1:9090")
-)
+client = JupyterClient(base_url=settings.internal.jupyter_client_api)
 
 
 async def agent(state: AgentState):
-    tool_client = ToolClient(
-        base_url=os.getenv("TOOL_CLIENT_API", "http://127.0.0.1:8811")
-    )
+    tool_client = ToolClient(base_url=settings.internal.tool_client_api)
     kernel_id = state.get("kernel_id")
     tools = state.get("tools")
     file_ids = []
@@ -104,12 +95,12 @@ async def agent(state: AgentState):
         file_prompt = []
         for idx, file in enumerate(files):
             file_prompt.append(
-                f"""Файл ![](graph:{idx})\nЗагружен по пути: '{file['path']}'"""
+                f"""Файл ![](graph:{idx})\nЗагружен по пути: '{file["path"]}'"""
             )
             if "file_id" in file:
-                file_prompt[
-                    -1
-                ] += f"\nФайл является изображением его id: '{file['file_id']}'"
+                file_prompt[-1] += (
+                    f"\nФайл является изображением его id: '{file['file_id']}'"
+                )
                 file_ids.append(file["file_id"])
         file_prompt = (
             "<files_data>" + "\n----\n".join(file_prompt) + "</files_data>"
@@ -144,9 +135,7 @@ async def tool_call(
     state: AgentState,
     store: BaseStore,
 ):
-    tool_client = ToolClient(
-        base_url=os.getenv("TOOL_CLIENT_API", "http://127.0.0.1:8811")
-    )
+    tool_client = ToolClient(base_url=settings.internal.tool_client_api)
     action = copy.deepcopy(state["messages"][-1].tool_calls[0])
     value = interrupt({"type": "approve"})
     if value.get("type") == "comment":
@@ -163,7 +152,7 @@ async def tool_call(
         }
     tool_call_index = state.get("tool_call_index", -1)
     if action.get("name") == "python":
-        if os.getenv("REPL_FROM_MESSAGE", "1") == "1":
+        if settings.features.repl_from_message:
             action["args"]["code"] = get_code_arg(state["messages"][-1].content)
         else:
             # На случай если гига отправить в аргумент ```python(.+)``` строку
@@ -215,9 +204,9 @@ async def tool_call(
             ):
                 schema = SchemaBuilder()
                 schema.add_object(obj=add_data.pop("data"))
-                add_data[
-                    "message"
-                ] += f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
+                add_data["message"] += (
+                    f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
+                )
                 add_data["schema"] = schema.to_schema()
             if action.get("name") == "get_urls":
                 add_data["message"] += result.pop("attention")

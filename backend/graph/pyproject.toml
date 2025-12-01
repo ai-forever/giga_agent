@@ -37,6 +37,7 @@ dependencies = [
     "sqlmodel>=0.0.24",
     "typing-extensions>=4.14.1",
     "deepagents==0.0.5",
+    "pydantic-settings>=2.10.1",
 ]
 
 [build-system]
