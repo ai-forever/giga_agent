@@ -37,11 +37,11 @@ from giga_agent.utils.env import load_project_env
 from giga_agent.utils.jupyter import JupyterClient, prepend_code
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.mcp import process_mcp_content
+from giga_agent.utils.memory import format_memories, get_memory
 
 load_project_env()
 
 llm = load_llm(is_main=True)
-
 
 def generate_repl_tools_description():
     repl_tools = []
@@ -88,10 +88,9 @@ def get_code_arg(message):
 
 
 client = JupyterClient()
-
-
 async def before_agent(state: AgentState):
     tool_client = ToolClient()
+    memory = await get_memory()
     kernel_id = state.get("kernel_id")
     tools = state.get("tools")
     if not kernel_id:
@@ -124,9 +123,11 @@ async def before_agent(state: AgentState):
             selected_prompt = (
                 f"Пользователь указал на следующие вложения: \n{selected_items}"
             )
+        retrieved_memories = await memory.search(user_input, user_id="default_user")
+        memory_context = format_memories(retrieved_memories)
         state["messages"][
             -1
-        ].content = f"<task>{user_input}</task> Активно планируй и следуй своему плану! Действуй по простым шагам!{generate_user_info(state)}\n{file_prompt}\n{selected_prompt}\nСледующий шаг: "
+        ].content = f"<task>{user_input}</task> Активно планируй и следуй своему плану! Действуй по простым шагам!{generate_user_info(state)}\n<memory>{memory_context}</memory>\n{file_prompt}\n{selected_prompt}\nСледующий шаг: "
     filtered_tools = []
     for tool in tools:
         if tool["name"] in TOOLS_AGENT_CHECKS:
@@ -216,7 +217,6 @@ async def get_user_secrets(state: AgentState):
         code_parts.append(f"SECRETS['{name}'] = '{value}'")
     await client.execute(state.get("kernel_id"), "\n".join(code_parts))
     return SECRETS_PROMPTS.format("\n".join(secret_parts))
-
 
 async def agent(state: AgentState):
     mcp_tools = [
@@ -382,21 +382,46 @@ async def tool_call(state: AgentState, config: RunnableConfig):
     }
 
 
-def router(state: AgentState) -> Literal["tool_call", "__end__"]:
+async def save_memory(state: AgentState):
+    """
+    Сохраняет сообщения пользователя
+    """
+    messages = state["messages"]
+    last_human = next((m for m in reversed(messages) if m.type == "human"), None)
+    last_ai = messages[-1]
+
+    if last_human and last_ai.type == "ai":
+        memory = await get_memory()
+        interaction = [
+            {"role": "user", "content": last_human.content},
+            {"role": "assistant", "content": last_ai.content}
+        ]
+        await memory.add(interaction, user_id="default_user")
+    return {}
+
+
+def router(state: AgentState) -> Literal["tool_call", "save_memory"]:
     if state["messages"][-1].tool_calls:
         return "tool_call"
     else:
-        return "__end__"
+        return "save_memory"
 
 
 workflow = StateGraph(AgentState)
 workflow.add_node(before_agent)
 workflow.add_node(agent)
 workflow.add_node(tool_call)
+workflow.add_node(save_memory)
 workflow.add_edge("__start__", "before_agent")
 workflow.add_edge("before_agent", "agent")
-workflow.add_conditional_edges("agent", router)
+workflow.add_conditional_edges("agent",
+                               router,
+                               {
+                                   "tool_call": "tool_call",
+                                   "save_memory": "save_memory"
+                               }
+                               )
 workflow.add_edge("tool_call", "agent")
-
+workflow.add_edge("save_memory", "__end__")
 
 graph = workflow.compile()

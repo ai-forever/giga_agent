@@ -58,3 +58,11 @@ services:
             - ./front/src:/app/src:rw
             - ./front/index.html:/app/index.html:ro
             - ./front/vite.config.ts:/app/vite.config.ts:ro
+
+    qdrant:
+      image: qdrant/qdrant
+      ports:
+        - "6333:6333" # Qdrant REST API
+        - "6334:6334" # Qdrant gRPC API
+      volumes:
+        - ./qdrant_storage:/qdrant/storage # Persistent storage for Qdrant data

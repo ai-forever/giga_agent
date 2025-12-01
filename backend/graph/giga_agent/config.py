@@ -30,6 +30,7 @@ from giga_agent.tools.weather import weather
 from giga_agent.utils.env import load_project_env
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import Collection
+from giga_agent.utils.llm import load_embeddings
 
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -54,7 +55,7 @@ class AgentState(TypedDict):  # noqa: D101
 
 
 llm = load_llm()
-
+emb = load_embeddings()
 if os.getenv("REPL_FROM_MESSAGE", "1") == "1":
     from giga_agent.tools.repl.message_tool import python
 else:

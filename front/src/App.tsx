@@ -13,6 +13,7 @@ import RAGInterface from "@/components/rag";
 import { OAuthCallback } from "@/components/mcp/oauth-callback.tsx";
 import { UserInfoProvider } from "@/components/providers/user-info.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
+import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 
 const InnerApp: React.FC = () => {
   const { demoItemsLoaded } = useDemoItems();
@@ -76,6 +77,7 @@ const InnerApp: React.FC = () => {
         />
         <Route path="/oauth/callback" element={<OAuthCallback />} />
         <Route path="/rag" element={<RAGInterface />} />
+        <Route path="/memories" element={<MemoriesPage />} />
         <Route path="/demo/settings" element={<DemoSettings />} />
       </Routes>
     </Sidebar>

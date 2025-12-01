@@ -7,6 +7,7 @@ import {
   Printer,
   Files,
   Settings as SettingsIcon,
+  Brain,
 } from "lucide-react";
 import LogoImage from "../assets/logo.png";
 import LogoWhiteImage from "../assets/logo-white.png";
@@ -109,6 +110,11 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
     navigate("/rag");
   };
 
+  const handleMemories = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate("/memories");
+  };
+
   const handleNewChat = () => {
     navigate("/");
     onNewChat();
@@ -169,6 +175,14 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
             База знаний
           </div>
         )}
+
+        <div
+          className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"
+          onClick={handleMemories}
+        >
+          <Brain size={24} className="mr-2" />
+          Долгосрочная память
+        </div>
 
         <div
           className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"

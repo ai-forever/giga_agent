@@ -20,6 +20,7 @@ from langgraph_sdk import get_client
 
 from giga_agent.utils.env import load_project_env
 from giga_agent.utils.llm import is_llm_image_inline, upload_file_with_retry
+from giga_agent.utils.memory import get_memory
 
 load_project_env()
 
@@ -217,3 +218,10 @@ async def upload_image(file: UploadFile = File(...)):
     else:
         uploaded_id = str(uuid.uuid4())
     return {"id": uploaded_id}
+
+@app.get("/memories")
+async def get_memories():
+    memory = await get_memory()
+    results = await memory.get_all(user_id="default_user")
+    return results
+

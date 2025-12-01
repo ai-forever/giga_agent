@@ -38,6 +38,7 @@ dependencies = [
     "typing-extensions>=4.14.1",
     "websockets>=15.0.1",
     "deepagents==0.0.5",
+    "mem0ai>=1.0.1",
 ]
 
 [build-system]
