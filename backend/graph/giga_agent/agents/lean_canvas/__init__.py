@@ -1,5 +1,3 @@
-import os
-
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables.config import RunnableConfig
@@ -10,9 +8,11 @@ from langgraph.types import interrupt
 from langgraph_sdk import get_client
 from typing_extensions import Annotated, TypedDict
 
+from giga_agent.settings import settings
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.llm import load_llm
+
 
 llm = load_llm().with_config(tags=["nostream"])
 
@@ -205,7 +205,9 @@ async def check_unique(
         [("system", COMPETITION_ANALYSIS_TEMPLATE)]
     ).partial(format_instructions=parser.get_format_instructions(), language=LANG)
 
-    search_results_text = await TavilySearch().arun(state["unique_value_proposition"])
+    search_results_text = await TavilySearch(
+        tavily_api_key=settings.external.tavily_api_key
+    ).arun(state["unique_value_proposition"])
 
     chain = prompt | llm | parser
     res = await chain.ainvoke(
@@ -355,31 +357,31 @@ NEW_LINE = "\n"
 
 def lean_canvas_to_text(state) -> str:
     return f"""1. Customer Segments
-{state['customer_segments']}
+{state["customer_segments"]}
 
 2. Problem
-{state['problem']}
+{state["problem"]}
 
 3. Unique Value Proposition
-{state['unique_value_proposition']}
+{state["unique_value_proposition"]}
 
 4. Solution
-{state['solution']}
+{state["solution"]}
 
 5. Channels
-{state['channels']}
+{state["channels"]}
 
 6. Revenue Streams
-{state['revenue_streams']}
+{state["revenue_streams"]}
 
 7. Cost Structure
-{state['cost_structure']}
+{state["cost_structure"]}
 
 8. Key Metrics
-{state['key_metrics']}
+{state["key_metrics"]}
 
 9. Unfair Advantage
-{state['unfair_advantage']}"""
+{state["unfair_advantage"]}"""
 
 
 def lean_canvas_to_html(state) -> str:
@@ -430,51 +432,51 @@ def lean_canvas_to_html(state) -> str:
     html = f"""
     {css}
     <div class="canvas">
-        <div class="canvas-title-cell">{state['main_task'].replace(NEW_LINE, "<br>")}</div>
+        <div class="canvas-title-cell">{state["main_task"].replace(NEW_LINE, "<br>")}</div>
 
         <div class="box problem">
             <div class="title">2. Problem</div>
-            {state['problem'].replace(NEW_LINE, "<br>")}
+            {state["problem"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box solution">
             <div class="title">4. Solution</div>
-            {state['solution'].replace(NEW_LINE, "<br>")}
+            {state["solution"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box key_metrics">
             <div class="title">8. Key Metrics</div>
-            {state['key_metrics'].replace(NEW_LINE, "<br>")}
+            {state["key_metrics"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box uvp">
             <div class="title">3. Unique Value Proposition</div>
-            {state['unique_value_proposition'].replace(NEW_LINE, "<br>")}
+            {state["unique_value_proposition"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box unfair">
             <div class="title">9. Unfair Advantage</div>
-            {state['unfair_advantage'].replace(NEW_LINE, "<br>")}
+            {state["unfair_advantage"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box channels">
             <div class="title">5. Channels</div>
-            {state['channels'].replace(NEW_LINE, "<br>")}
+            {state["channels"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box customer_segments">
             <div class="title">1. Customer Segments</div>
-            {state['customer_segments'].replace(NEW_LINE, "<br>")}
+            {state["customer_segments"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box cost_structure">
             <div class="title">7. Cost Structure</div>
-            {state['cost_structure'].replace(NEW_LINE, "<br>")}
+            {state["cost_structure"].replace(NEW_LINE, "<br>")}
         </div>
 
         <div class="box revenue_streams">
             <div class="title">6. Revenue Streams</div>
-            {state['revenue_streams'].replace(NEW_LINE, "<br>")}
+            {state["revenue_streams"].replace(NEW_LINE, "<br>")}
         </div>
 
     </div>
@@ -487,7 +489,7 @@ async def lean_canvas(
     theme: str = Field(description="На какую тему создаем Lean Canvas"),
 ):
     """Создает Lean Canvas под задачу пользователя. Полезно для проработки стартапов."""
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(
@@ -508,7 +510,7 @@ async def lean_canvas(
             "configurable": {
                 "thread_id": thread_id,
                 "need_interrupt": False,
-                "skip_search": False if os.getenv("TAVILY_API_KEY") else True,
+                "skip_search": False if settings.external.tavily_api_key else True,
             }
         },
     ):

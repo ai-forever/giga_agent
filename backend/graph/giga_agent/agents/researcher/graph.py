@@ -1,5 +1,4 @@
 import asyncio
-import os
 from typing import Annotated, Literal
 
 from deepagents import async_create_deep_agent
@@ -8,10 +7,12 @@ from langchain_tavily import TavilySearch
 from langgraph.graph.ui import push_ui_message
 from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
+from giga_agent.settings import settings
 
 from giga_agent.utils.jupyter import RunUploadFile, REPLUploader
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.messages import filter_tool_calls
+
 
 llm = load_llm().bind(timeout=120).with_config(tags=["nostream"])
 
@@ -24,7 +25,10 @@ async def internet_search(
 ):
     """Функция поиска в интернете"""
     search = TavilySearch(
-        include_raw_content=include_raw_content, max_results=max_results, topic=topic
+        include_raw_content=include_raw_content,
+        max_results=max_results,
+        topic=topic,
+        tavily_api_key=settings.external.tavily_api_key,
     )
     result = await search.ainvoke({"query": query})
     return result
@@ -175,7 +179,7 @@ async def researcher_agent(question: str, state: Annotated[dict, InjectedState] 
     """Проводит исследование и создает на его основе отчёт по запросу пользователя"""
 
     last_mes = filter_tool_calls(state["messages"][-1])
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
 

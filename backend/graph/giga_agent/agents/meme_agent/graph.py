@@ -14,10 +14,9 @@ from langgraph_sdk import get_client
 from giga_agent.agents.meme_agent.config import MemeState, ConfigSchema
 from giga_agent.agents.meme_agent.nodes.images import image_node
 from giga_agent.agents.meme_agent.nodes.text import text_node
-from giga_agent.utils.env import load_project_env
-from giga_agent.utils.messages import filter_tool_calls
+from giga_agent.utils.llm import is_llm_image_inline
 
-load_project_env()
+from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(MemeState, ConfigSchema)
 
@@ -43,9 +42,10 @@ async def create_meme(
         task: Описание мема
     """
     from giga_agent.config import llm
+    from giga_agent.settings import settings
 
     last_mes = filter_tool_calls(state["messages"][-1])
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(

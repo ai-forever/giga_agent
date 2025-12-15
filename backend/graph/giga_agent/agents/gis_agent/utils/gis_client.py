@@ -1,10 +1,10 @@
 import json
-import os
 import asyncio
 import httpx
 from typing import TypedDict, Optional, List
 from langchain_tavily import TavilySearch
 from markdownify import markdownify as md
+from giga_agent.settings import settings
 
 
 class GISException(Exception):
@@ -42,7 +42,7 @@ async def fetch_city_cords(city_name: str) -> Point:
         "type": "adm_div",
         "page_size": 10,
         "page": 1,
-        "key": os.environ["TWOGIS_TOKEN"],
+        "key": settings.external.twogis_token,
         "fields": "items.external_content,items.point",
     }
     headers = {}
@@ -72,10 +72,10 @@ async def fetch_branches(q: str, point: Point, district_id=None):
         "search_nearby": True,
         "page": 1,
         "sort": "rating",
-        "key": os.environ["TWOGIS_TOKEN"],
+        "key": settings.external.twogis_token,
         "fields": "items.context,items.rubrics,items.external_content,items.attribute_groups,items.point",
-        "location": f'{point["lon"]},{point["lat"]}',
-        "point": f'{point["lon"]},{point["lat"]}',
+        "location": f"{point['lon']},{point['lat']}",
+        "point": f"{point['lon']},{point['lat']}",
     }
     if district_id is not None:
         params["district_id"] = district_id
@@ -138,9 +138,9 @@ async def fetch_attractions(point: Point):
         "radius": 3000,
         "sort": "rating",
         "page": 1,
-        "key": os.environ["TWOGIS_TOKEN"],
+        "key": settings.external.twogis_token,
         "fields": "items.description,items.context,items.rubrics,items.external_content,items.attribute_groups,items.point",
-        "point": f'{point["lon"]},{point["lat"]}',
+        "point": f"{point['lon']},{point['lat']}",
     }
     headers = {}
     result_items: list[Attraction] = []
@@ -179,10 +179,12 @@ async def fetch_attractions(point: Point):
 
 
 async def location_to_description(location: Location, city: str) -> Optional[str]:
-    search = TavilySearch(include_answer="advanced")
+    search = TavilySearch(
+        include_answer="advanced", tavily_api_key=settings.external.tavily_api_key
+    )
     result = await search.ainvoke(
         {
-            "query": f'{location["name"]} номер телефона; {city}, {location["address"]}',
+            "query": f"{location['name']} номер телефона; {city}, {location['address']}",
         }
     )
     return result["answer"]

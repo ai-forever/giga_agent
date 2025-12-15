@@ -16,6 +16,7 @@ from giga_agent.agents.presentation_agent.graph import generate_presentation
 from giga_agent.agents.researcher.graph import researcher_agent
 from giga_agent.repl_tools.llm import summarize
 from giga_agent.repl_tools.sentiment import get_embeddings, predict_sentiments
+from giga_agent.settings import settings
 from giga_agent.tools.another import ask_about_image, gen_image, search
 from giga_agent.tools.github import (
     get_pull_request,
@@ -27,14 +28,11 @@ from giga_agent.tools.repl import shell
 from giga_agent.tools.scraper import get_urls
 from giga_agent.tools.vk import vk_get_comments, vk_get_last_comments, vk_get_posts
 from giga_agent.tools.weather import weather
-from giga_agent.utils.env import load_project_env
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import Collection
 from giga_agent.utils.llm import load_embeddings
 
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
-
-load_project_env()
 
 
 class Secret(TypedDict):
@@ -56,7 +54,7 @@ class AgentState(TypedDict):  # noqa: D101
 
 llm = load_llm()
 emb = load_embeddings()
-if os.getenv("REPL_FROM_MESSAGE", "1") == "1":
+if settings.features.repl_from_message:
     from giga_agent.tools.repl.message_tool import python
 else:
     from giga_agent.tools.repl.args_tool import python
@@ -65,22 +63,22 @@ else:
 MCP_CONFIG = json.loads(os.getenv("GIGA_AGENT_MCP_CONFIG", "{}").strip())
 
 TOOLS_REQUIRED_ENVS = {
-    gen_image.name: ["IMAGE_GEN_NAME"],
-    get_urls.name: ["TAVILY_API_KEY"],
-    search.name: ["TAVILY_API_KEY"],
+    gen_image.name: [settings.image_gen.image_gen_name],
+    get_urls.name: [settings.external.tavily_api_key],
+    search.name: [settings.external.tavily_api_key],
     lean_canvas.name: [],
-    generate_presentation.name: ["IMAGE_GEN_NAME"],
-    create_landing.name: ["IMAGE_GEN_NAME"],
-    podcast_generate.name: ["SALUTE_SPEECH"],
-    create_meme.name: ["IMAGE_GEN_NAME"],
-    city_explore.name: ["TWOGIS_TOKEN"],
-    vk_get_posts.name: ["VK_TOKEN"],
-    vk_get_comments.name: ["VK_TOKEN"],
-    vk_get_last_comments.name: ["VK_TOKEN"],
-    get_workflow_runs.name: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    list_pull_requests.name: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    get_pull_request.name: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    researcher_agent.name: ["TAVILY_API_KEY"],
+    generate_presentation.name: [settings.image_gen.image_gen_name],
+    create_landing.name: [settings.image_gen.image_gen_name],
+    podcast_generate.name: [settings.external.salute_speech],
+    create_meme.name: [settings.image_gen.image_gen_name],
+    city_explore.name: [settings.external.twogis_token],
+    vk_get_posts.name: [settings.external.vk_token],
+    vk_get_comments.name: [settings.external.vk_token],
+    vk_get_last_comments.name: [settings.external.vk_token],
+    get_workflow_runs.name: [settings.external.github_personal_access_token],
+    list_pull_requests.name: [settings.external.github_personal_access_token],
+    get_pull_request.name: [settings.external.github_personal_access_token],
+    researcher_agent.name: [settings.external.tavily_api_key],
     browser_task.name: ["DONT_NEED_RIGHT_NOW"],
     get_documents.name: [
         "LANGCONNECT_API_URL",

@@ -11,14 +11,12 @@ from pydantic_core import ValidationError
 from fastapi.responses import JSONResponse
 
 from giga_agent.tool_server.utils import transform_schema, transform_tool
-from giga_agent.utils.env import load_project_env
+
 from giga_agent.config import MCP_CONFIG, TOOLS, REPL_TOOLS, AGENT_MAP
 
 tool_map = {}
 repl_tool_map = {}
 config = {}
-
-load_project_env()
 
 
 @asynccontextmanager

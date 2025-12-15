@@ -1,5 +1,5 @@
 
-<h1 align="center">GigaAgent: универсальный AI-агент</h1>
+<h1 align="center">Универсальный AI-агент</h1>
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/giga-agent_light_logo.png">
@@ -13,8 +13,6 @@
 [English](https://www.zdoc.app/en/ai-forever/giga_agent) | 
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
 <b>GigaAgent может решать самые разные задачи, используя более 30 встроенных инструментов и субагентов.</b>
-
-<hr>
 
 Например, он позволит вам работать с большими файлами через код (Excel-файл с десятками тысяч строк), [придумать мем](docs/examples/memes/chat.pdf), [описать бизнес-модель стартапа](docs/examples/lean_canvas/lean_canvas.pdf) или [создать лендинг](docs/examples/changelog_landing/changelog_landing.pdf).
 Для этого GigaAgent использует субагентов, REPL-среду для исполнения кода и сторонние сервисы.
@@ -298,7 +296,7 @@ MCP_CONFIG = {
 - [ ] Поддержка MCP на уровне субагентов
 - [ ] Оптимизировать генерацию изображений в агенте презентаций, лендингов
 - [ ] Добавить историю чатов
-- [ ] Перенести настройку агента с ENV переменных в единый понятный config файл
+- [x] Перенести настройку агента с ENV переменных в единый понятный config файл
 - [ ] Вынести наименование агентов и узлов их выполнения в бэкенд из файла [config.ts](front/src/config.ts)
 - [ ] Добавить поддержку разных провайдеров синтеза речи (OpenAI, ElevenLabs)
 - [ ] Добавить память

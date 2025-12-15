@@ -4,6 +4,7 @@ import uuid
 
 from pydantic import BaseModel, Field
 
+from giga_agent.settings import settings
 from giga_agent.utils.jupyter import JupyterClient, RunUploadFile, REPLUploader
 from langchain_core.tools import BaseTool
 import re

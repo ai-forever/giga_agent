@@ -21,8 +21,7 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 
 from giga_agent.utils.env import load_project_env
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-
-load_project_env()
+from giga_agent.settings import settings
 
 with open(os.path.join(__location__, "page.html")) as f:
     map_html = f.read()
@@ -91,7 +90,7 @@ async def city_explore(city: str):
     conf = {
         "configurable": {
             "thread_id": thread_id,
-            "skip_search": False if os.getenv("TAVILY_API_KEY") else True,
+            "skip_search": False if settings.external.tavily_api_key else True,
         }
     }
     push_ui_message(
@@ -152,7 +151,7 @@ async def city_explore(city: str):
             "coords": [center_lon, center_lat],
             "zoom": 8,
             "bounds": get_bbox(points),
-            "key": os.environ["TWOGIS_TOKEN"],
+            "key": settings.external.twogis_token,
         },
         ensure_ascii=False,
     )
@@ -191,17 +190,17 @@ def location_to_string(location: Location):
     for photo in location["photos"][:1]:
         photo_messages.append(f"![фото]({photo})")
     photo_string = "\n".join(photo_messages)
-    message = f"""### {location['name']}
-Адрес: {location['address']}
-Описание: {location['description']}
-Теги: {location['tags']}
+    message = f"""### {location["name"]}
+Адрес: {location["address"]}
+Описание: {location["description"]}
+Теги: {location["tags"]}
 Фото: {photo_string}"""
     return message
 
 
 def attraction_to_string(attraction: Attraction):
-    return f"""### {attraction['name']}
-Описание: {attraction['description']}"""
+    return f"""### {attraction["name"]}
+Описание: {attraction["description"]}"""
 
 
 async def main():

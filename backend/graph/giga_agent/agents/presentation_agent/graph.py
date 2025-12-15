@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import uuid
 from typing import Annotated
 
@@ -15,7 +14,8 @@ from giga_agent.agents.presentation_agent.config import PresentationState, Confi
 from giga_agent.agents.presentation_agent.nodes.images import image_node
 from giga_agent.agents.presentation_agent.nodes.plan import plan_node
 from giga_agent.agents.presentation_agent.nodes.slides import slides_node
-from giga_agent.utils.env import load_project_env
+
+from giga_agent.settings import settings
 from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(PresentationState, ConfigSchema)
@@ -44,7 +44,7 @@ async def generate_presentation(
     Args:
         presentation_task: Описание презентации
     """
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(
@@ -83,7 +83,6 @@ async def generate_presentation(
 
 
 async def main():
-    load_project_env()
     messages = json.load(open("data/messages.json", "r"))
     async for event in graph.astream(
         {"messages": messages},

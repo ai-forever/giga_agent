@@ -18,7 +18,6 @@ from sqlalchemy.orm import sessionmaker
 
 from langgraph_sdk import get_client
 
-from giga_agent.utils.env import load_project_env
 from giga_agent.utils.llm import is_llm_image_inline, upload_file_with_retry
 from giga_agent.utils.memory import get_memory
 

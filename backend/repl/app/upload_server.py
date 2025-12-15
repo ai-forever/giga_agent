@@ -10,12 +10,12 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from dotenv import load_dotenv
+from langchain_gigachat import GigaChat
 
 from langgraph_sdk import get_client
 
 
-load_dotenv("../../.env")
+from app.settings import settings
 
 app = FastAPI()
 
@@ -29,11 +29,24 @@ app.add_middleware(
     allow_headers=["*"],  # какие заголовки
 )
 
-FILES_DIR = os.environ.get("FILES_DIR", "files")
+FILES_DIR = settings.files_dir
 RUNS_DIR = os.environ.get("RUNS_DIR", "runs")
 os.makedirs(FILES_DIR, exist_ok=True)
 os.makedirs(RUNS_DIR, exist_ok=True)
 
+llm = GigaChat(
+    profanity_check=False,
+    verify_ssl_certs=settings.main_gigachat_verify_ssl_certs,
+    timeout=settings.repl_gigachat_timeout,
+    max_tokens=settings.main_gigachat_max_tokens,
+    user=settings.main_gigachat_user,
+    password=settings.main_gigachat_password,
+    credentials=settings.main_gigachat_credentials,
+    scope=settings.main_gigachat_scope,
+    base_url=settings.main_gigachat_base_url,
+    top_p=settings.main_gigachat_top_p,
+    verbose=settings.main_gigachat_verbose,
+)
 FILE_TYPES = {"image", "plotly_graph", "html", "text", "audio", "other"}
 
 if not Path(FILES_DIR).exists():

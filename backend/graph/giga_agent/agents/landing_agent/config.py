@@ -4,11 +4,10 @@ from typing import TypedDict, Annotated, List, Dict
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
-from giga_agent.utils.env import load_project_env
+
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import UploadedFile
 
-load_project_env()
 
 llm = load_llm().with_config(tags=["nostream"])
 

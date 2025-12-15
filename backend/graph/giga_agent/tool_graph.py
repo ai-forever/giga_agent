@@ -1,6 +1,5 @@
 import copy
 import json
-import os
 import re
 import traceback
 from datetime import datetime
@@ -33,13 +32,13 @@ from giga_agent.repl_tools.utils import describe_repl_tool
 from giga_agent.tool_server.tool_client import ToolClient
 from giga_agent.tool_server.utils import transform_tool
 from giga_agent.tools.rag import get_rag_info
-from giga_agent.utils.env import load_project_env
+from giga_agent.settings import settings
+
 from giga_agent.utils.jupyter import JupyterClient, prepend_code
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.mcp import process_mcp_content
 from giga_agent.utils.memory import format_memories, get_memory
 
-load_project_env()
 
 llm = load_llm(is_main=True)
 
@@ -61,11 +60,7 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM_PROMPT),
     ]
-    + (
-        FEW_SHOTS_ORIGINAL
-        if os.getenv("REPL_FROM_MESSAGE", "1") == "1"
-        else FEW_SHOTS_UPDATED
-    )
+    + (FEW_SHOTS_ORIGINAL if settings.features.repl_from_message else FEW_SHOTS_UPDATED)
     + [MessagesPlaceholder("messages", optional=True)]
 ).partial(repl_inner_tools=generate_repl_tools_description(), language=LANG)
 
@@ -277,7 +272,7 @@ async def tool_call(state: AgentState, config: RunnableConfig):
         }
     tool_call_index = state.get("tool_call_index", -1)
     if action.get("name") == "python" and not is_frontend_tool:
-        if os.getenv("REPL_FROM_MESSAGE", "1") == "1":
+        if settings.features.repl_from_message:
             action["args"]["code"] = get_code_arg(state["messages"][-1].content)
         else:
             # На случай если гига отправить в аргумент ```python(.+)``` строку
@@ -351,9 +346,9 @@ async def tool_call(state: AgentState, config: RunnableConfig):
             ):
                 schema = SchemaBuilder()
                 schema.add_object(obj=add_data.pop("data"))
-                add_data[
-                    "message"
-                ] += f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
+                add_data["message"] += (
+                    f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
+                )
                 add_data["schema"] = schema.to_schema()
             if action.get("name") == "get_urls":
                 add_data["message"] += result.pop("attention")

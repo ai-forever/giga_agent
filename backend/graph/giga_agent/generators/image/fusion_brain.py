@@ -1,18 +1,17 @@
 from typing import Optional
-
-import os
 import json
 import asyncio
 import httpx
 
 from giga_agent.generators.image.image_gen import ImageGen
+from giga_agent.settings import settings
 
 
 class AsyncKandinskyAPI:
     def __init__(self):
         self.base_url = "https://api-key.fusionbrain.ai/"
-        self.api_key = os.getenv("KANDINSKY_API_KEY")
-        self.secret_key = os.getenv("KANDINSKY_SECRET_KEY")
+        self.api_key = settings.image_gen.kandinsky_api_key
+        self.secret_key = settings.image_gen.kandinsky_secret_key
         if not self.api_key or not self.secret_key:
             raise ValueError(
                 "KANDINSKY_API_KEY and/or KANDINSKY_SECRET_KEY are not set in the environment"
