@@ -1,11 +1,10 @@
 import asyncio
-import os
 from typing import List, Optional, Literal
 
 import aiohttp
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from giga_agent.utils.env import load_project_env
+from giga_agent.settings import settings
 from giga_agent.utils.types import FileContent, UploadedFile
 
 FILE_TYPE = Literal["image", "plotly_graph", "html", "text", "audio", "other"]
@@ -25,11 +24,7 @@ class KernelNotFoundException(Exception):
 
 
 class REPLUploader(BaseModel):
-    base_url: str = Field(
-        default_factory=lambda: os.environ.get(
-            "JUPYTER_UPLOAD_API", "http://127.0.0.1:9092"
-        )
-    )
+    base_url: str = settings.internal.jupyter_upload_api
 
     async def upload_file(self, file):
         async with aiohttp.ClientSession() as session:
@@ -81,11 +76,7 @@ class REPLUploader(BaseModel):
 
 
 class JupyterClient(BaseModel):
-    base_url: str = Field(
-        default_factory=lambda: os.environ.get(
-            "JUPYTER_CLIENT_API", "http://127.0.0.1:9090"
-        )
-    )
+    base_url: str = settings.internal.jupyter_client_api
 
     async def execute(self, kernel_id, code):
         async with aiohttp.ClientSession() as session:
@@ -148,7 +139,7 @@ def {tool.__name__}(**kwargs):
     pass
 """
         )
-    tool_url = os.getenv("TOOL_CLIENT_API", "http://127.0.0.1:8811")
+    tool_url = settings.internal.tool_client_api
     prepend = f"""from app.utils import build_schema_from_json
 import importlib
 importlib.invalidate_caches()
@@ -164,7 +155,6 @@ tool_client.set_state_data({repr(thread_id)}, {repr(checkpoint_id)})"""
 if __name__ == "__main__":
 
     async def main():
-        load_project_env()
         script = """
 import pandas as pd
 import numpy as np

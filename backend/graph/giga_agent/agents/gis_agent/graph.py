@@ -19,7 +19,6 @@ from giga_agent.agents.gis_agent.utils.gis_client import Location, Attraction, P
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-from giga_agent.utils.env import load_project_env
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 from giga_agent.settings import settings
 

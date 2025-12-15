@@ -1,4 +1,3 @@
-import os
 import traceback
 from contextlib import asynccontextmanager
 
@@ -10,6 +9,7 @@ from langgraph.prebuilt.tool_node import _handle_tool_error, ToolNode
 from pydantic_core import ValidationError
 from fastapi.responses import JSONResponse
 
+from giga_agent.settings import settings
 from giga_agent.tool_server.utils import transform_schema, transform_tool
 
 from giga_agent.config import MCP_CONFIG, TOOLS, REPL_TOOLS, AGENT_MAP
@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-langgraph_client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+langgraph_client = get_client(url=settings.internal.langgraph_api_url)
 
 
 @app.post("/{tool_name}")

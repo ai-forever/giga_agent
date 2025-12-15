@@ -1,5 +1,4 @@
 import base64
-import os
 import uuid
 from typing import List
 import httpx
@@ -147,7 +146,7 @@ async def ask_about_image(image_path: str, question: str):
         image_path = image_path[len("attachment:") :]
     if not image_path.startswith("/runs/") and not image_path.startswith("/files/"):
         return "image_id должен хранить путь до него"
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     try:
         data = (await client.store.get_item(("attachments",), key=image_path))["value"]
     except HTTPStatusError as e:
@@ -173,8 +172,9 @@ async def ask_about_image(image_path: str, question: str):
         )
     else:
         async with httpx.AsyncClient() as client:
-            FRONT_BASE_URL = os.getenv("FRONT_BASE_URL", "http://front:80/files")
-            resp = await client.get(f"{FRONT_BASE_URL}{data['image_path']}")
+            resp = await client.get(
+                f"{settings.internal.front_base_url}{data['image_path']}"
+            )
             img_content = base64.b64encode(resp.content).decode()
         return (
             (

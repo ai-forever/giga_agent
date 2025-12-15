@@ -1,12 +1,10 @@
 import asyncio
-import json
 import os
 from typing import TypedDict, Annotated, Optional
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
-from giga_agent.agents.browser_use import browser_task
 from giga_agent.agents.gis_agent.graph import city_explore
 from giga_agent.agents.landing_agent.graph import create_landing
 from giga_agent.agents.lean_canvas import lean_canvas
@@ -60,7 +58,7 @@ else:
     from giga_agent.tools.repl.args_tool import python
 
 
-MCP_CONFIG = json.loads(os.getenv("GIGA_AGENT_MCP_CONFIG", "{}").strip())
+MCP_CONFIG = settings.llm.giga_agent_mcp_config
 
 TOOLS_REQUIRED_ENVS = {
     gen_image.name: [settings.image_gen.image_gen_name],
@@ -79,10 +77,9 @@ TOOLS_REQUIRED_ENVS = {
     list_pull_requests.name: [settings.external.github_personal_access_token],
     get_pull_request.name: [settings.external.github_personal_access_token],
     researcher_agent.name: [settings.external.tavily_api_key],
-    browser_task.name: ["DONT_NEED_RIGHT_NOW"],
     get_documents.name: [
-        "LANGCONNECT_API_URL",
-        "LANGCONNECT_API_SECRET_TOKEN",
+        settings.internal.langconnect_api_url,
+        settings.internal.langconnect_api_secret_token,
     ],
 }
 
@@ -108,12 +105,8 @@ def has_required_envs(tool) -> bool:
     if required_env_names is None:
         return True
     for env_name in required_env_names:
-        if isinstance(env_name, str):
-            if not os.getenv(env_name):
-                return False
-        elif callable(env_name):
-            if not env_name():
-                return False
+        if not bool(env_name):
+            return False
     return True
 
 
@@ -149,7 +142,6 @@ AGENTS = filter_tools_by_env(
         podcast_generate,
         create_meme,
         city_explore,
-        browser_task,
         researcher_agent,
     ]
 )

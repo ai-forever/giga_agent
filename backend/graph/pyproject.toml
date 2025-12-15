@@ -42,6 +42,16 @@ dependencies = [
     "mem0ai>=1.0.1",
 ]
 
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle
+  "F",    # pyflakes
+  "I",    # isort
+  "T201", # print
+]
+
+[tool.ruff.format]
+
 [build-system]
 requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"

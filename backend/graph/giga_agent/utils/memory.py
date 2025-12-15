@@ -1,5 +1,4 @@
 from mem0 import AsyncMemory
-import os
 
 from giga_agent.utils.llm import load_llm, load_embeddings
 
@@ -7,33 +6,30 @@ from giga_agent.utils.llm import load_llm, load_embeddings
 async def get_memory_from_config() -> AsyncMemory:
     llm_model = load_llm()
     embedding_model = load_embeddings()
-    result = await embedding_model.aembed_query("Init") # Чтобы не хардкодить размер эмбеддинга, легче кинуть один запрос
+    result = await embedding_model.aembed_query(
+        "Init"
+    )  # Чтобы не хардкодить размер эмбеддинга, легче кинуть один запрос
     # Общий путь к базе данных для персистентного хранилища памяти
     config = {
         "embedder": {
             "provider": "langchain",
-            "config": {
-                "model": embedding_model,
-                "embedding_dims": len(result)
-            }
+            "config": {"model": embedding_model, "embedding_dims": len(result)},
         },
-        "llm": {
-            "provider": "langchain",
-            "config": {
-                "model": llm_model
-            }
-        },
+        "llm": {"provider": "langchain", "config": {"model": llm_model}},
         "vector_store": {
             "provider": "qdrant",
             "config": {
-                "embedding_model_dims": len(result),
                 "host": "qdrant",
-                "port": 6333
-            }
-        }
-
+                "port": 6333,
+                "embedding_model_dims": len(result),
+            },
+        },
     }
-    return await AsyncMemory.from_config(config)
+    memory = await AsyncMemory.from_config(config)
+    memory.llm.langchain_model = memory.llm.langchain_model.with_config(
+        tags=["nostream"]
+    )
+    return memory
 
 
 def format_memories(memories: dict) -> str:
@@ -50,11 +46,12 @@ def format_memories(memories: dict) -> str:
 ====
 """
 
+
 _cached_memory = None
+
 
 async def get_memory():
     global _cached_memory
     if _cached_memory is None:
         _cached_memory = await get_memory_from_config()
     return _cached_memory
-

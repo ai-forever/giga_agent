@@ -42,6 +42,7 @@ from giga_agent.utils.memory import format_memories, get_memory
 
 llm = load_llm(is_main=True)
 
+
 def generate_repl_tools_description():
     repl_tools = []
     for repl_tool in REPL_TOOLS:
@@ -83,6 +84,8 @@ def get_code_arg(message):
 
 
 client = JupyterClient()
+
+
 async def before_agent(state: AgentState):
     tool_client = ToolClient()
     memory = await get_memory()
@@ -183,9 +186,7 @@ SECRETS_PROMPTS = """
 
 
 def get_user_notes(state: AgentState):
-    instructions = os.getenv("GIGA_AGENT_USER_NOTES", "") + state.get(
-        "instructions", ""
-    )
+    instructions = settings.llm.giga_agent_user_notes + state.get("instructions", "")
     if instructions:
         return NOTES_PROMPT.format(instructions)
     return ""
@@ -212,6 +213,7 @@ async def get_user_secrets(state: AgentState):
         code_parts.append(f"SECRETS['{name}'] = '{value}'")
     await client.execute(state.get("kernel_id"), "\n".join(code_parts))
     return SECRETS_PROMPTS.format("\n".join(secret_parts))
+
 
 async def agent(state: AgentState):
     mcp_tools = [
@@ -346,9 +348,9 @@ async def tool_call(state: AgentState, config: RunnableConfig):
             ):
                 schema = SchemaBuilder()
                 schema.add_object(obj=add_data.pop("data"))
-                add_data["message"] += (
-                    f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
-                )
+                add_data[
+                    "message"
+                ] += f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
                 add_data["schema"] = schema.to_schema()
             if action.get("name") == "get_urls":
                 add_data["message"] += result.pop("attention")
@@ -389,7 +391,7 @@ async def save_memory(state: AgentState):
         memory = await get_memory()
         interaction = [
             {"role": "user", "content": last_human.content},
-            {"role": "assistant", "content": last_ai.content}
+            {"role": "assistant", "content": last_ai.content},
         ]
         await memory.add(interaction, user_id="default_user")
     return {}
@@ -409,13 +411,9 @@ workflow.add_node(tool_call)
 workflow.add_node(save_memory)
 workflow.add_edge("__start__", "before_agent")
 workflow.add_edge("before_agent", "agent")
-workflow.add_conditional_edges("agent",
-                               router,
-                               {
-                                   "tool_call": "tool_call",
-                                   "save_memory": "save_memory"
-                               }
-                               )
+workflow.add_conditional_edges(
+    "agent", router, {"tool_call": "tool_call", "save_memory": "save_memory"}
+)
 workflow.add_edge("tool_call", "agent")
 workflow.add_edge("save_memory", "__end__")
 

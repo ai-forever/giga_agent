@@ -10,6 +10,8 @@ class LLMSettings(BaseSettings):
     giga_agent_embeddings: str = Field(default="gigachat:EmbeddingsGigaR")
     giga_agent_sentiment_model: str = Field(default="models/sentiment_gigachat.joblib")
     giga_agent_lang: str = Field(default="ru-RU")
+    giga_agent_mcp_config: dict = Field(default={})
+    giga_agent_user_notes: str = Field(default="")
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
@@ -114,6 +116,14 @@ class InternalSettings(BaseSettings):
     files_dir: str = Field(default="files")
     jina_reader_url: str = Field(default="https://r.jina.ai/")
     character_limit: int = Field(default=100000)
+    langconnect_api_url: str = Field(default=None)
+    langconnect_api_secret_token: str = Field(default=None)
+    front_base_url: str = Field(default="http://frontend:80/files")
+    postgres_db: str = Field(default="postgres")
+    postgres_host: str = Field(default="aegra-postgres")
+    postgres_port: int = Field(default=5432)
+    postgres_user: str = Field(default="postgres")
+    postgres_password: str = Field(default="postgres")
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),

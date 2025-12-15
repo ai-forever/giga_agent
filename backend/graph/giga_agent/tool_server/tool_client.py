@@ -1,10 +1,11 @@
 import functools
 import json
-import os
 
 import aiohttp
 import requests
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from giga_agent.settings import settings
 
 
 class ToolExecuteException(Exception):
@@ -16,9 +17,7 @@ class ToolNotFoundException(Exception):
 
 
 class ToolClient(BaseModel):
-    base_url: str = Field(
-        default_factory=lambda: os.getenv("TOOL_CLIENT_API", "http://127.0.0.1:8811")
-    )
+    base_url: str = settings.internal.tool_client_api
     thread_id: str = ""
     checkpoint_id: str = ""
 

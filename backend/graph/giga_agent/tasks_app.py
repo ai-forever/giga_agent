@@ -18,10 +18,9 @@ from sqlalchemy.orm import sessionmaker
 
 from langgraph_sdk import get_client
 
+from giga_agent.settings import settings
 from giga_agent.utils.llm import is_llm_image_inline, upload_file_with_retry
 from giga_agent.utils.memory import get_memory
-
-load_project_env()
 
 
 # --- Модель данных ---
@@ -196,7 +195,7 @@ async def delete_task(task_id: str):
 
 @app.get("/html/{html_id}/", response_class=HTMLResponse)
 async def get_html(html_id: str):
-    client = get_client(url=os.getenv("LANGGRAPH_API_URL", "http://0.0.0.0:2024"))
+    client = get_client(url=settings.internal.langgraph_api_url)
     result = await client.store.get_item(("html",), key=html_id)
     if result:
         return HTMLResponse(content=result["value"]["data"], status_code=200)
@@ -218,9 +217,9 @@ async def upload_image(file: UploadFile = File(...)):
         uploaded_id = str(uuid.uuid4())
     return {"id": uploaded_id}
 
+
 @app.get("/memories")
 async def get_memories():
     memory = await get_memory()
     results = await memory.get_all(user_id="default_user")
     return results
-

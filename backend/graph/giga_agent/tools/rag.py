@@ -1,9 +1,9 @@
-import os
 from typing import Annotated
 
 import aiohttp
 from langchain_core.tools import tool
 
+from giga_agent.settings import settings
 from giga_agent.utils.types import Collection
 
 
@@ -19,8 +19,8 @@ async def get_documents(
     query: Annotated[str, "Поисковый запрос для поиска релевантных документов"],
     limit: Annotated[int, "Количество документов, которые возвращаются"] = 10,
 ) -> str:
-    rag_url = os.getenv("LANGCONNECT_API_URL")
-    access_token = os.getenv("LANGCONNECT_API_SECRET_TOKEN")
+    rag_url = settings.internal.langconnect_api_url
+    access_token = settings.internal.langconnect_api_secret_token
     if rag_url.endswith("/"):
         rag_url = rag_url[:-1]
     search_endpoint = f"{rag_url}/collections/{collection_uuid}/documents/search"

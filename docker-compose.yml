@@ -23,6 +23,10 @@ services:
             timeout: 1s
             retries: 5
             interval: 5s
+    qdrant:
+        image: qdrant/qdrant
+        volumes:
+            - ./qdrant_storage:/qdrant/storage
     langgraph-api:
         build:
             context: ./backend/graph
