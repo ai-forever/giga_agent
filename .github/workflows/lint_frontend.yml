@@ -25,7 +25,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --force
 
       - name: Check Format
         run: npm run format:check
