@@ -46,7 +46,14 @@ services:
             context: ./front
             dockerfile: DockerfileDev
         working_dir: /app
-        command: npm run dev -- --host 0.0.0.0 --port 3000
+        command: >
+            sh -c "
+                set -x &&
+                echo 'Starting dependency check...' &&
+                npm install &&
+                echo 'Starting dev server...' &&
+                npm run dev -- --host 0.0.0.0 --port 3000
+            "
         ports:
             -   "8081:3000"
         env_file:
@@ -58,3 +65,5 @@ services:
             - ./front/src:/app/src:rw
             - ./front/index.html:/app/index.html:ro
             - ./front/vite.config.ts:/app/vite.config.ts:ro
+            - ./front/package.json:/app/package.json:rw
+            - ./front/package-lock.json:/app/package-lock.json:rw

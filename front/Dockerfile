@@ -3,8 +3,8 @@ FROM node:22.12.0-alpine AS builder
 WORKDIR /app
 
 # устанавливаем зависимости
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 ARG VITE_LANGCONNECT_API_URL
 ARG VITE_LANGCONNECT_API_SECRET_TOKEN

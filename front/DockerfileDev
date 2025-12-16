@@ -3,8 +3,8 @@ FROM node:22.12.0-alpine AS builder
 WORKDIR /app
 
 # устанавливаем зависимости
-COPY package.json ./
-RUN npm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY tsconfig.json ./
 COPY tsconfig.node.json ./

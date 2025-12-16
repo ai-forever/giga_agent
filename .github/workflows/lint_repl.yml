@@ -2,8 +2,7 @@ name: Lint Repl
 
 on:
   push:
-    paths:
-      - 'backend/repl/**'
+    branches: [main, dev]
   pull_request:
     paths:
       - 'backend/repl/**'
