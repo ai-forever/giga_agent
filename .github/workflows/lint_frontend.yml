@@ -1,0 +1,33 @@
+name: Lint Frontend
+
+on:
+  push:
+    paths:
+      - 'front/src/**'
+  pull_request:
+    paths:
+      - 'front/src/**'
+  merge_group:
+
+jobs:
+  lint-frontend:
+    name: Lint Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: front
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Format
+        run: npm run format:check
+
