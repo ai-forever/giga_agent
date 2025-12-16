@@ -1,13 +1,13 @@
 from mem0 import AsyncMemory
 
-from giga_agent.utils.llm import load_llm, load_embeddings
+from giga_agent.utils.llm import load_embeddings, load_llm
 
 
 async def get_memory_from_config() -> AsyncMemory:
     llm_model = load_llm(tag="fast")
     embedding_model = load_embeddings()
     result = await embedding_model.aembed_query(
-        "Init"
+        "Init",
     )  # Чтобы не хардкодить размер эмбеддинга, легче кинуть один запрос
     # Общий путь к базе данных для персистентного хранилища памяти
     config = {
@@ -27,7 +27,7 @@ async def get_memory_from_config() -> AsyncMemory:
     }
     memory = await AsyncMemory.from_config(config)
     memory.llm.langchain_model = memory.llm.langchain_model.with_config(
-        tags=["nostream"]
+        tags=["nostream"],
     )
     return memory
 

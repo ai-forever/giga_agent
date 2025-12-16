@@ -27,11 +27,7 @@ IMAGE_FORMAT = """### Формат ответа
       "height": 720
   }
 }
-```""".replace(
-    "{", "{{"
-).replace(
-    "}", "}}"
-)
+```""".replace("{", "{{").replace("}", "}}")
 
 
 IMAGE_PROMPT = ChatPromptTemplate.from_messages(
@@ -64,5 +60,5 @@ IMAGE_PROMPT = ChatPromptTemplate.from_messages(
             + IMAGE_FORMAT,
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 ).partial(language=LANG)

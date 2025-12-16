@@ -1,19 +1,19 @@
 import json
-
-from langchain_core.tools import tool
 from urllib.parse import quote
-from langgraph.graph.ui import push_ui_message
+
 import websockets
+from langchain_core.tools import tool
+from langgraph.graph.ui import push_ui_message
 
 
 @tool(parse_docstring=False)
 async def browser_task(task: str):
-    """
-    Открывает браузер и выполняет задачу, которую ты поставишь ему.
+    """Открывает браузер и выполняет задачу, которую ты поставишь ему.
     Может быть полезно, если нужно сделать какие-то действия на сайте.
 
     Args:
         task: Полный текст задачи
+
     """
     url = f"ws://localhost:7070/ws?task={quote(task)}"
     push_ui_message(

@@ -1,4 +1,4 @@
-from typing import TypedDict, Annotated, List
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
@@ -15,7 +15,7 @@ class ConfigSchema(TypedDict):
 
 
 class MemeState(TypedDict):
-    messages: Annotated[List[AnyMessage], add_messages]
+    messages: Annotated[list[AnyMessage], add_messages]
     task: str
     meme_idea: dict
     meme_image: UploadedFile

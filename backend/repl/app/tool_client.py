@@ -98,7 +98,8 @@ class ToolClient(BaseModel):
         def wrapper(*args, **kwargs):
             if args:
                 raise TypeError(
-                    f"Tool method '{func.__name__}' accepts named keyword arguments only"
+                    f"Tool method '{func.__name__}' accepts "
+                    f"named keyword arguments only"
                 )
             # имя инструмента — само имя метода
             tool_name = func.__name__

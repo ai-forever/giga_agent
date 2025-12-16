@@ -87,7 +87,7 @@ const InnerApp: React.FC = () => {
 const App: React.FC = () => {
   return (
     <DemoItemsProvider>
-            <Toaster />
+      <Toaster />
       <SettingsProvider>
         <RagProvider>
           <UserInfoProvider>

@@ -1,7 +1,7 @@
 from typing import Annotated
 
-from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from giga_agent.tools.python import ExecuteTool
@@ -31,6 +31,7 @@ async def python(
     Чтобы корректно вызвать этот инструмент, обязательно пиши код в своем сообщении и вызывай инструмент `python`!
     """
     jupyter_executor = ExecuteTool(
-        kernel_id=state["kernel_id"], thread_id=config["configurable"]["thread_id"]
+        kernel_id=state["kernel_id"],
+        thread_id=config["configurable"]["thread_id"],
     )
     return await jupyter_executor.ainvoke({"code": code})

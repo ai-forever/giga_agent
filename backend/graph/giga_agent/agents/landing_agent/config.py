@@ -1,13 +1,11 @@
 from operator import add
-from typing import TypedDict, Annotated, List, Dict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
-
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import UploadedFile
-
 
 llm = load_llm().with_config(tags=["nostream"])
 
@@ -26,7 +24,7 @@ class LandingState(TypedDict):
     image_plan_loaded: bool
     coder_messages: Annotated[list[AnyMessage], add_messages]
     coder_plan_loaded: bool
-    images: Annotated[List[str], add]
-    images_uploaded: Dict[str, UploadedFile]
+    images: Annotated[list[str], add]
+    images_uploaded: dict[str, UploadedFile]
     html: UploadedFile
     done: str

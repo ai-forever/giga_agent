@@ -1,18 +1,15 @@
-import asyncio
 from typing import Annotated, Literal
 
 from deepagents import async_create_deep_agent
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
-from langgraph.graph.ui import push_ui_message
 from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
-from giga_agent.settings import settings
 
-from giga_agent.utils.jupyter import RunUploadFile, REPLUploader
+from giga_agent.settings import settings
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.messages import filter_tool_calls
-
 
 llm = load_llm().bind(timeout=120).with_config(tags=["nostream"])
 
@@ -39,11 +36,18 @@ sub_research_prompt = """Вы — преданный своему делу ис�
 Проведите тщательное исследование и дайте пользователю подробный ответ на его вопрос.
 Используй поиск, чтобы найти информацию и обязательно указывай источники со ссылками, найденными с использованием поиска!
 
-Пользователю будет передан только ваш ОКОНЧАТЕЛЬНЫЙ ответ. Он не будет знать ничего, кроме вашего заключительного сообщения, поэтому ваш заключительный отчёт должен быть вашим заключительным сообщением!"""
+Пользователю будет передан только ваш ОКОНЧАТЕЛЬНЫЙ ответ. Он не будет знать ничего, кроме вашего заключительного сообщения, поэтому ваш заключительный отчёт должен быть вашим заключительным сообщением!"""  # noqa: E501
 
 research_sub_agent = {
     "name": "research-agent",
-    "description": "Используется для более глубокого исследования вопросов. Давайте этому исследователю только одну тему за раз. Не передавайте ему несколько подвопросов. Вместо этого следует разбить большую тему на необходимые компоненты, а затем вызывать нескольких исследовательских агентов, по одному для каждого подвопроса.",
+    "description": (
+        "Используется для более глубокого исследования вопросов. "
+        "Давайте этому исследователю только одну тему за раз. "
+        "Не передавайте ему несколько подвопросов. "
+        "Вместо этого следует разбить большую тему на необходимые компоненты, "
+        "а затем вызывать нескольких исследовательских агентов, "
+        "по одному для каждого подвопроса."
+    ),
     "prompt": sub_research_prompt,
     "tools": ["internet_search"],
 }
@@ -66,11 +70,15 @@ sub_critique_prompt = """Вы — назначенный редактор. Ва�
 — Убедитесь, что отчёт глубоко анализирует причины, последствия и тенденции, предоставляя ценную информацию.
 — Убедитесь, что отчёт точно соответствует теме исследования и отвечает на вопросы напрямую.
 — Убедитесь, что отчёт имеет четкую структуру, написан понятным языком и легко читается.
-- Убедитесь, что отчёт имеет источники в соответствующем разделе со ссылками, найденными с использованием поиска!"""
+- Убедитесь, что отчёт имеет источники в соответствующем разделе со ссылками, найденными с использованием поиска!"""  # noqa: E501
 
 critique_sub_agent = {
     "name": "critique-agent",
-    "description": "Используется для критики итогового отчёта. Предоставьте этому агенту информацию о том, как вы хотите, чтобы он критиковал отчёт.",
+    "description": (
+        "Используется для критики итогового отчёта. "
+        "Предоставьте этому агенту информацию о том, как вы хотите, "
+        "чтобы он критиковал отчёт."
+    ),
     "prompt": sub_critique_prompt,
 }
 
@@ -150,7 +158,7 @@ research_instructions = """Вы — опытный исследователь. �
 - Присвойте каждому уникальному URL-адресу отдельный номер ссылки в тексте.
 - Заканчивайте текст тегом ###. Источники перечисляются с соответствующими номерами.
 - ВАЖНО: Нумеруйте источники последовательно без пробелов (1,2,3,4...) в окончательном списке независимо от выбранных источников.
-- Каждый источник должен быть отдельной строкой в ​​списке, чтобы в разметке Markdown он отображался как список.
+- Каждый источник должен быть отдельной строкой в \u200b\u200bсписке, чтобы в разметке Markdown он отображался как список.
 - Пример формата:
 [1] Название источника: URL
 [2] Название источника: URL
@@ -163,7 +171,7 @@ research_instructions = """Вы — опытный исследователь. �
 ## `internet_search`
 
 Используйте это для запуска интернет-поиска по заданному запросу. Вы можете указать количество результатов, тему и необходимость включения исходного контента.
-"""
+"""  # noqa: E501
 
 # Create the agent
 agent = async_create_deep_agent(
@@ -177,7 +185,6 @@ agent = async_create_deep_agent(
 @tool
 async def researcher_agent(question: str, state: Annotated[dict, InjectedState] = None):
     """Проводит исследование и создает на его основе отчёт по запросу пользователя"""
-
     last_mes = filter_tool_calls(state["messages"][-1])
     client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
@@ -210,7 +217,7 @@ async def researcher_agent(question: str, state: Annotated[dict, InjectedState] 
 
     if not final_report:
         return {
-            "message": f"Отчёт не сгенерировался, попробуй вызвать агента ещё раз.",
+            "message": "Отчёт не сгенерировался, попробуй вызвать агента ещё раз.",
         }
     uploader = REPLUploader()
     upload_files = [
@@ -218,23 +225,28 @@ async def researcher_agent(question: str, state: Annotated[dict, InjectedState] 
             path="research_result.md",
             file_type="text",
             content=final_report,
-        )
+        ),
     ]
     upload_resp = await uploader.upload_run_files(upload_files, thread_id=thread_id)
     upload_resp = upload_resp[0]
 
     return {
-        "message": f'В результате выполнения был получен следующий отчёт и сохранен в файле: {upload_resp["path"]}. НЕ ВЫВОДИ отчет сам, вместо этого покажи его пользователю через вложение "![alt-описание](attachment:{upload_resp["path"]})" ',
+        "message": (
+            f"В результате выполнения был получен следующий отчёт и "
+            f"сохранен в файле: {upload_resp['path']}. "
+            f"НЕ ВЫВОДИ отчет сам, вместо этого покажи его пользователю через вложение "
+            f'"![alt-описание](attachment:{upload_resp["path"]})"'
+        ),
         "text": final_report,
     }
 
 
-async def chat_with_agent(message):
-    async for s in agent.astream({"messages": [{"role": "user", "content": message}]}):
-        print(s)
-
-
-if __name__ == "__main__":
-    message = "что такое gigachain"
-    # message = "чем LangChain отличается от GigaChain"
-    asyncio.run(chat_with_agent(message))
+# async def chat_with_agent(message):
+#     async for s in agent.astream({"messages": [{"role": "user", "content": message}]}):  # noqa: E501
+#         print(s)
+#
+#
+# if __name__ == "__main__":
+#     message = "что такое gigachain"
+#     # message = "чем LangChain отличается от GigaChain"
+#     asyncio.run(chat_with_agent(message))

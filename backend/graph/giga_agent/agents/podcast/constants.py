@@ -11,7 +11,11 @@ ERROR_MESSAGE_NOT_SUPPORTED_IN_SBER_TTS = (
     "Выбранный язык не поддерживается Sber TTS. Пожалуйста, выберите русский язык."
 )
 ERROR_MESSAGE_READING_PDF = "Ошибка чтения PDF файла"
-ERROR_MESSAGE_TOO_LONG = f"Общий контент слишком длинный. Пожалуйста, убедитесь, что объединенный текст из PDF и URL содержит менее {CHARACTER_LIMIT:,} символов."
+ERROR_MESSAGE_TOO_LONG = (
+    f"Общий контент слишком длинный. "
+    f"Пожалуйста, убедитесь, что объединенный текст из PDF и URL содержит менее "
+    f"{CHARACTER_LIMIT:,} символов."
+)
 
 # GigaChat API-related constants
 GIGACHAT_MODEL = "GigaChat-2-Max"

@@ -8,6 +8,7 @@ from langchain_core.runnables import (
     RunnableParallel,
     RunnablePassthrough,
 )
+
 from giga_agent.agents.presentation_agent.config import PresentationState, llm
 from giga_agent.agents.presentation_agent.prompts.ru import IMAGE_PROMPT
 from giga_agent.generators.image import load_image_gen
@@ -25,10 +26,10 @@ async def image_node(state: PresentationState, config: RunnableConfig):
         else:
             graph_not_valid = True
             for graph in slide["attachments"]:
-                if graph.startswith("attachment:") and graph_not_valid:
-                    graph_not_valid = False
-                    break
-                elif re.match(uuid_pattern, graph):
+                if (graph.startswith("attachment:") and graph_not_valid) or re.match(
+                    uuid_pattern,
+                    graph,
+                ):
                     graph_not_valid = False
                     break
             if graph_not_valid:
@@ -38,19 +39,26 @@ async def image_node(state: PresentationState, config: RunnableConfig):
         IMAGE_PROMPT
         | llm
         | RunnableParallel(
-            {"message": RunnablePassthrough(), "json": JsonOutputParser()}
+            {"message": RunnablePassthrough(), "json": JsonOutputParser()},
         )
     ).with_retry()
+    image_message = (
+        f"Придумай список изображений для следующих слайдов: {slides_text}. "
+        f"Ты можешь придумывать не для каждого слайда изображения, "
+        f"а только там где считаешь нужным. "
+        f"Помни, что графики мы будем брать исходя из переписки с пользователем выше!"
+        f" Тебе нужно сгенерировать описание изображения для: "
+        f"предметов, интерьеров, ландшафтов, людей и т.д. все, "
+        f"что может относится к презентации! Инфографика не нужна! "
+        f"Изображения нужны только в тех слайдах где нет инфографики!",
+    )
     img_resp = await img_chain.ainvoke(
         {
             "messages": state["messages"][-2:]
             + [
-                (
-                    "user",
-                    f"Придумай список изображений для следующих слайдов: {slides_text}. Ты можешь придумывать не для каждого слайда изображения, а только там где считаешь нужным. Помни, что графики мы будем брать исходя из переписки с пользователем выше! Тебе нужно сгенерировать описание изображения для: предметов, интерьеров, ландшафтов, людей и т.д. все, что может относится к презентации! Инфографика не нужна! Изображения нужны только в тех слайдах где нет инфографики!",
-                ),
-            ]
-        }
+                ("user", image_message),
+            ],
+        },
     )
     images = img_resp["json"]["images"]
     if config["configurable"].get("print_messages", False):
@@ -75,7 +83,8 @@ async def image_node(state: PresentationState, config: RunnableConfig):
         for i in images_data_filtered
     ]
     upload_resp = await uploader.upload_run_files(
-        upload_files, config["configurable"]["thread_id"]
+        upload_files,
+        config["configurable"]["thread_id"],
     )
     slide_map = {}
     images_uploaded = state.get("images_uploaded", {})

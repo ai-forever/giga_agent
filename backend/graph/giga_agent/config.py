@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import TypedDict, Annotated, Optional
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
@@ -26,9 +26,8 @@ from giga_agent.tools.repl import shell
 from giga_agent.tools.scraper import get_urls
 from giga_agent.tools.vk import vk_get_comments, vk_get_last_comments, vk_get_posts
 from giga_agent.tools.weather import weather
-from giga_agent.utils.llm import load_llm
+from giga_agent.utils.llm import load_embeddings, load_llm
 from giga_agent.utils.types import Collection
-from giga_agent.utils.llm import load_embeddings
 
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -36,7 +35,7 @@ BASEDIR = os.path.abspath(os.path.dirname(__file__))
 class Secret(TypedDict):
     name: str
     value: str
-    description: Optional[str]
+    description: str | None
 
 
 class AgentState(TypedDict):  # noqa: D101
@@ -127,7 +126,7 @@ SERVICE_TOOLS = filter_tools_by_env(
         get_workflow_runs,
         list_pull_requests,
         get_pull_request,
-    ]
+    ],
 )
 
 AGENTS = filter_tools_by_env(
@@ -143,7 +142,7 @@ AGENTS = filter_tools_by_env(
         create_meme,
         city_explore,
         researcher_agent,
-    ]
+    ],
 )
 
 TOOLS = (

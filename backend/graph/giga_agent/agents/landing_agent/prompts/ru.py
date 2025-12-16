@@ -66,11 +66,7 @@ IMAGE_FORMAT = """### Формат ответа
     }
   ]
 }
-```""".replace(
-    "{", "{{"
-).replace(
-    "}", "}}"
-)
+```""".replace("{", "{{").replace("}", "}}")
 
 IMAGE_PROMPT = (
     """Ты — Senior Front-End разработчик, делающий веб-страницы.

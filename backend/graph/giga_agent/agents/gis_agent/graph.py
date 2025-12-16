@@ -1,9 +1,7 @@
-import asyncio
 import json
 import math
 import os
 import uuid
-from typing import List, Tuple
 
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
@@ -15,12 +13,12 @@ from giga_agent.agents.gis_agent.config import MapState
 from giga_agent.agents.gis_agent.nodes.attractions import attractions_node
 from giga_agent.agents.gis_agent.nodes.food import food_node
 from giga_agent.agents.gis_agent.nodes.hotels import hotels_node
-from giga_agent.agents.gis_agent.utils.gis_client import Location, Attraction, Point
+from giga_agent.agents.gis_agent.utils.gis_client import Attraction, Location, Point
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 from giga_agent.settings import settings
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
 with open(os.path.join(__location__, "page.html")) as f:
     map_html = f.read()
@@ -31,15 +29,18 @@ def mercator_lat(rad: float) -> float:
     return math.log(math.tan(math.pi / 4 + rad / 2))
 
 
-def get_bounds(points: List[Point]) -> Tuple[float, float, float, float]:
+def get_bounds(points: list[Point]) -> tuple[float, float, float, float]:
     lats = [float(p["lat"]) for p in points]
     lons = [float(p["lon"]) for p in points]
     return min(lats), max(lats), min(lons), max(lons)
 
 
 def get_center(
-    min_lat: float, max_lat: float, min_lon: float, max_lon: float
-) -> Tuple[float, float]:
+    min_lat: float,
+    max_lat: float,
+    min_lon: float,
+    max_lon: float,
+) -> tuple[float, float]:
     """Центр — среднее по каждому измерению"""
     return (min_lat + max_lat) / 2, (min_lon + max_lon) / 2
 
@@ -56,7 +57,7 @@ workflow.add_edge("hotels_node", "food_node")
 workflow.add_edge("food_node", "__end__")
 
 
-def get_bbox(points: List[Point]) -> dict:
+def get_bbox(points: list[Point]) -> dict:
     # преобразуем строки в числа
     lats = [float(p["lat"]) for p in points]
     lons = [float(p["lon"]) for p in points]
@@ -78,19 +79,21 @@ graph = workflow.compile(checkpointer=memory)
 
 @tool
 async def city_explore(city: str):
-    """
-    Получает интересные локации в городе. Может быть полезным, если пользователь хочет куда-то поехать и просит посоветовать места
+    """Получает интересные локации в городе.
+    Может быть полезным,
+    если пользователь хочет куда-то поехать и просит посоветовать места
     Также используй, когда пользователю нужно распланировать поездку в город
 
     Args:
         city: Полное название города
+
     """
     thread_id = str(uuid.uuid4())
     conf = {
         "configurable": {
             "thread_id": thread_id,
             "skip_search": False if settings.external.tavily_api_key else True,
-        }
+        },
     }
     push_ui_message(
         "agent_execution",
@@ -118,7 +121,7 @@ async def city_explore(city: str):
                 "coordinates": [hotel["point"]["lon"], hotel["point"]["lat"]],
                 "icon": "/public/hotel.svg",
                 "userData": {"text": hotel["name"]},
-            }
+            },
         )
         points.append(hotel["point"])
     for food in state["food"]:
@@ -128,7 +131,7 @@ async def city_explore(city: str):
                 "coordinates": [food["point"]["lon"], food["point"]["lat"]],
                 "icon": "/public/food.svg",
                 "userData": {"text": food["name"]},
-            }
+            },
         )
         points.append(food["point"])
     for attraction in state["attractions"]:
@@ -138,7 +141,7 @@ async def city_explore(city: str):
                 "coordinates": [attraction["point"]["lon"], attraction["point"]["lat"]],
                 "icon": "/public/bust.svg",
                 "userData": {"text": attraction["name"]},
-            }
+            },
         )
         points.append(attraction["point"])
 
@@ -155,7 +158,6 @@ async def city_explore(city: str):
         ensure_ascii=False,
     )
     new_map_html = map_html.replace("<<MARKERS>>", markers_data)
-    file_id = str(uuid.uuid4())
 
     data_message = (
         "## Достопримечательности\n\n"
@@ -169,17 +171,21 @@ async def city_explore(city: str):
     uploader = REPLUploader()
     upload_files = [
         RunUploadFile(
-            path=f"map.html",
+            path="map.html",
             file_type="html",
             content=new_map_html,
-        )
+        ),
     ]
     upload_resp = await uploader.upload_run_files(upload_files, thread_id)
     uploaded = upload_resp[0]
 
     return {
         "data": data_message,
-        "message": f'В результате была получена информация о городе и страница с картой {uploaded["path"]}. Покажи её пользователю через "![alt-описание](attachment:{uploaded["path"]})".',
+        "message": (
+            f"В результате была получена информация о городе и "
+            f"страница с картой {uploaded['path']}. Покажи её пользователю через "
+            f'"![alt-описание](attachment:{uploaded["path"]})".'
+        ),
         "giga_attachments": upload_resp,
     }
 
@@ -202,27 +208,27 @@ def attraction_to_string(attraction: Attraction):
 Описание: {attraction["description"]}"""
 
 
-async def main():
-    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-    async for event in graph.astream(
-        {"city_name": "Москва"},
-        config=config,
-    ):
-        print(event)
-    state = graph.get_state(config=config).values
-    hotels_message = []
-    food_message = []
-    attractions_message = []
-    for hotel in state["hotels"]:
-        hotels_message.append(location_to_string(hotel))
-    for food in state["food"]:
-        food_message.append(location_to_string(food))
-    for attraction in state["attractions"]:
-        attractions_message.append(attraction_to_string(attraction))
-    print("\n".join(hotels_message))
-    print("\n".join(food_message))
-    print("\n".join(attractions_message))
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# async def main():
+#     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+#     async for event in graph.astream(
+#         {"city_name": "Москва"},
+#         config=config,
+#     ):
+#         print(event)
+#     state = graph.get_state(config=config).values
+#     hotels_message = []
+#     food_message = []
+#     attractions_message = []
+#     for hotel in state["hotels"]:
+#         hotels_message.append(location_to_string(hotel))
+#     for food in state["food"]:
+#         food_message.append(location_to_string(food))
+#     for attraction in state["attractions"]:
+#         attractions_message.append(attraction_to_string(attraction))
+#     print("\n".join(hotels_message))
+#     print("\n".join(food_message))
+#     print("\n".join(attractions_message))
+#
+#
+# if __name__ == "__main__":
+#     asyncio.run(main())

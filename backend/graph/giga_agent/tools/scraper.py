@@ -1,5 +1,4 @@
 import asyncio
-import os
 from typing import Annotated
 
 from langchain_core.messages import HumanMessage
@@ -8,8 +7,7 @@ from langchain_core.tools import tool
 from langchain_tavily import TavilyExtract
 from langgraph.prebuilt import InjectedState
 
-
-from giga_agent.utils.llm import load_llm, is_llm_image_inline, is_llm_gigachat
+from giga_agent.utils.llm import is_llm_gigachat, load_llm
 from giga_agent.utils.messages import filter_tool_calls
 
 llm = load_llm(tag="fast").bind(top_p=0.3).with_config(tags=["nostream"])
@@ -45,7 +43,7 @@ PROMPT = ChatPromptTemplate.from_messages(
 """,
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 )
 
 scrape_sem = asyncio.Semaphore(4)
@@ -82,11 +80,11 @@ async def url_response_to_llm(messages, response):
 ----
 {response}
 ----
-Дай краткую информацию исходя из материала следуя своей инструкции по форматированию ответа"""
+Дай краткую информацию исходя из материала следуя своей инструкции по форматированию ответа""",
     )
     async with scrape_sem:
         resp = await extract_ch.ainvoke(
-            {"messages": messages[:-1] + [last_mes, message]}
+            {"messages": messages[:-1] + [last_mes, message]},
         )
     return {
         "url": response["url"],
@@ -97,17 +95,17 @@ async def url_response_to_llm(messages, response):
 
 @tool
 async def get_urls(urls: list[str], state: Annotated[dict, InjectedState]):
-    """
-    Скачивает список URLs и отдает результат со страницы. Используй это когда тебе нужно узнать информацию по ссылке.
+    """Скачивает список URLs и отдает результат со страницы. Используй это когда тебе нужно узнать информацию по ссылке.
     Также это может возвращать изображения. Ты можешь их вставлять так ![alt](url)
 
     Args:
         urls: Список urls для скачивания
+
     """
     extract = TavilyExtract()
 
     response = await extract.ainvoke(
-        {"urls": urls, "include_images": False, "extract_depth": "basic"}
+        {"urls": urls, "include_images": False, "extract_depth": "basic"},
     )
     if is_llm_gigachat():
         await llm._client.aget_token()

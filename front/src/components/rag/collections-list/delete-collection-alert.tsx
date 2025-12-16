@@ -24,10 +24,7 @@ export function DeleteCollectionAlert({
 }) {
   return (
     <AlertDialog>
-      <AlertDialogTrigger
-        asChild
-        onClick={(e) => e.stopPropagation()}
-      >
+      <AlertDialogTrigger asChild onClick={(e) => e.stopPropagation()}>
         <Button
           variant="ghost"
           size="sm"
@@ -41,7 +38,8 @@ export function DeleteCollectionAlert({
         <AlertDialogHeader>
           <AlertDialogTitle>Удалить коллекцию</AlertDialogTitle>
           <AlertDialogDescription>
-            Вы уверены, что хотите удалить коллекцию "{collection.name}"? Это также удалит все связанные документы.
+            Вы уверены, что хотите удалить коллекцию "{collection.name}"? Это
+            также удалит все связанные документы.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

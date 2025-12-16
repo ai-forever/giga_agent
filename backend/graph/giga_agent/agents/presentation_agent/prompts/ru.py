@@ -60,14 +60,10 @@ IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     }
   ]
 }
-```""".replace(
-                "{", "{{"
-            ).replace(
-                "}", "}}"
-            ),
+```""".replace("{", "{{").replace("}", "}}"),
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 )
 
 FORMAT = """
@@ -107,7 +103,7 @@ PLAN_PROMPT = ChatPromptTemplate.from_messages(
             + FORMAT,
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 ).partial(language=LANG)
 
 SLIDE_PROMPT = ChatPromptTemplate.from_messages(
@@ -211,5 +207,5 @@ SLIDE_PROMPT = ChatPromptTemplate.from_messages(
 """,
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 ).partial(language=LANG)

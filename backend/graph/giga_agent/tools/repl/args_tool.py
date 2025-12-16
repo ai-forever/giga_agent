@@ -1,7 +1,7 @@
 from typing import Annotated
 
-from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from giga_agent.tools.python import ExecuteTool
@@ -9,7 +9,9 @@ from giga_agent.tools.python import ExecuteTool
 
 @tool(parse_docstring=True)
 async def python(
-    code: str, state: Annotated[dict, InjectedState], config: RunnableConfig
+    code: str,
+    state: Annotated[dict, InjectedState],
+    config: RunnableConfig,
 ):
     """Выполняет Python-код в виртуальной машине. Этот код выполняется в Jupyter ноутбуке, все переменные в сессии сохраняются.
     Обязательно пиши код по шагам! Если тебе не хватает какой-либо информации, которую ты можешь получить выполнив код, напиши необходимы блок кода, получи информацию и пиши новый блок кода!
@@ -28,8 +30,10 @@ async def python(
 
     Args:
         code: Python-код
+
     """
     jupyter_executor = ExecuteTool(
-        kernel_id=state["kernel_id"], thread_id=config["configurable"]["thread_id"]
+        kernel_id=state["kernel_id"],
+        thread_id=config["configurable"]["thread_id"],
     )
     return await jupyter_executor.ainvoke({"code": code})

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import inspect
 
-from giga_agent.repl_tools.sentiment import predict_sentiments
-
 
 def _format_function_signature(func) -> str:
     signature = inspect.signature(func)
@@ -23,13 +21,9 @@ def _format_docstring(doc: str | None, indent: int = 4) -> str:
 
 
 def describe_repl_tool(repl_tool) -> str:
-    """
-    Возвращает текстовое описание функций, определённых в пакете `giga_agent.repl_tools`.
+    """Возвращает текстовое описание функций,
+    определённых в пакете `giga_agent.repl_tools`.
     """
     signature_line = _format_function_signature(repl_tool)
     doc_block = _format_docstring(inspect.getdoc(repl_tool))
     return f"{signature_line}\n{doc_block}"
-
-
-if __name__ == "__main__":
-    print(describe_repl_tool(predict_sentiments))

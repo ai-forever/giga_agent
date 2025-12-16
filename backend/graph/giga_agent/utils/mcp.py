@@ -1,9 +1,9 @@
 import base64
+import json
 import mimetypes
 import uuid
-import json
 
-from giga_agent.utils.jupyter import RunUploadFile, REPLUploader
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
 
 async def process_mcp_content(content_list: list, thread_id: str):
@@ -31,7 +31,7 @@ async def process_mcp_content(content_list: list, thread_id: str):
                         path=f"mcp/{uuid.uuid4()}{file_extension}",
                         file_type="image",
                         content=base64.b64decode(content.get("data")),
-                    )
+                    ),
                 )
             elif content.get("type") == "audio":
                 upload_files.append(
@@ -39,7 +39,7 @@ async def process_mcp_content(content_list: list, thread_id: str):
                         path=f"mcp/{uuid.uuid4()}{file_extension}",
                         file_type="audio",
                         content=base64.b64decode(content.get("data")),
-                    )
+                    ),
                 )
         elif content.get("type") == "text":
             try:
@@ -61,7 +61,11 @@ async def process_mcp_content(content_list: list, thread_id: str):
                 attachment_info = (
                     "В результате выполнения было сгенерировано изображение. "
                 )
-            attachment_info += f"Путь до него '{file['path']}'. Ты можешь показать это пользователю с помощью через \"![alt-текст](attachment:{file['path']})\" "
+            attachment_info += (
+                f"Путь до него '{file['path']}'."
+                f"Ты можешь показать это пользователю с помощью через "
+                f'"![alt-текст](attachment:{file["path"]})" '
+            )
             message_parts.append(attachment_info)
     message = "\n".join(message_parts)
     if len(text_parts) == 1:

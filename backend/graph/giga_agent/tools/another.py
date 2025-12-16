@@ -1,28 +1,25 @@
 import base64
 import uuid
-from typing import List
+
 import httpx
 from httpx import HTTPStatusError
-
+from langchain_core.messages import HumanMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import (
+    RunnableConfig,
     RunnableParallel,
     RunnablePassthrough,
 )
-from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
+from langgraph_sdk import get_client
 from pydantic import Field
 
-from giga_agent.settings import settings
-
-from langgraph_sdk import get_client
-
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.llm import is_llm_image_inline, load_llm, upload_file_with_retry
 from giga_agent.generators.image import load_image_gen
 from giga_agent.prompts.image import IMAGE_PROMPT
+from giga_agent.settings import settings
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
+from giga_agent.utils.llm import is_llm_image_inline, load_llm
 
 
 @tool
@@ -30,11 +27,10 @@ async def ask_followup_question(
     question: str = Field(description="Дополнительные вопросы пользователю"),
 ):
     """Используй это, если тебе не хватает какой-либо информации для выполнения задачи пользователя."""
-    pass
 
 
 @tool
-async def search(queries: List[str] = Field(description="Поисковые запросы")):
+async def search(queries: list[str] = Field(description="Поисковые запросы")):
     """Запрос в поисковую систему. Используй для получения новых фактов, о которых ты не знаешь.
     Этот инструмент выдает только короткие факты и ссылки откуда взята эта информация.
     Не забывай что можешь запросить информацию у пользователя с помощью `ask_followup_question`.
@@ -49,7 +45,7 @@ async def search(queries: List[str] = Field(description="Поисковые за
                 "query": query.strip(),
             }
             for query in queries
-        ]
+        ],
     )
 
 
@@ -59,6 +55,7 @@ async def suggest_plan(query: str):
 
     Args:
         query: Задача пользователя
+
     """
     llm = load_llm().with_config(tags=["nostream"])
 
@@ -124,8 +121,8 @@ async def suggest_plan(query: str):
 Задача пользователя: "{query}"
 Придумай только план!
 Нумерированный План: """,
-                )
-            ]
+                ),
+            ],
         )
     ).content
 
@@ -139,11 +136,11 @@ async def ask_about_image(image_path: str, question: str):
     Args:
         image_path: Путь до изображения (в директориях /runs/, /files/)
         question: Запрос для анализа изображения. Детально пропиши все, что ты хочешь узнать от изображения. Это полноценный промпт к V-LLM, поэтому используй все мощности нейросетей!
+
     """
     llm = load_llm().with_config(tags=["nostream"])
 
-    if image_path.startswith("attachment:"):
-        image_path = image_path[len("attachment:") :]
+    image_path = image_path.removeprefix("attachment:")
     if not image_path.startswith("/runs/") and not image_path.startswith("/files/"):
         return "image_id должен хранить путь до него"
     client = get_client(url=settings.internal.langgraph_api_url)
@@ -152,8 +149,7 @@ async def ask_about_image(image_path: str, question: str):
     except HTTPStatusError as e:
         if e.response.status_code == 404:
             return f"Изображение c ID {image_path} не найдено"
-        else:
-            raise e
+        raise e
     if not data.get("image_id") and not data.get("image_path"):
         return "Вложение не возможно проанализировать с помощью анализа изображений!"
     if is_llm_image_inline():
@@ -165,49 +161,48 @@ async def ask_about_image(image_path: str, question: str):
                             content=question,
                             additional_kwargs={"attachments": [data.get("image_id")]},
                         ),
-                    ]
+                    ],
                 )
             ).content
             + "\nИспользуй этот инструмент итеративно, если в ответе недостаточно информации, сделай уточняющий запрос!"
         )
-    else:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{settings.internal.front_base_url}{data['image_path']}"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{settings.internal.front_base_url}{data['image_path']}",
+        )
+        img_content = base64.b64encode(resp.content).decode()
+    return (
+        (
+            await llm.ainvoke(
+                [
+                    HumanMessage(
+                        content=[
+                            {
+                                "type": "text",
+                                "text": question,
+                            },
+                            {
+                                "type": "image",
+                                "source_type": "base64",
+                                "data": img_content,
+                                "mime_type": "image/png",
+                            },
+                        ],
+                    ),
+                ],
             )
-            img_content = base64.b64encode(resp.content).decode()
-        return (
-            (
-                await llm.ainvoke(
-                    [
-                        HumanMessage(
-                            content=[
-                                {
-                                    "type": "text",
-                                    "text": question,
-                                },
-                                {
-                                    "type": "image",
-                                    "source_type": "base64",
-                                    "data": img_content,
-                                    "mime_type": "image/png",
-                                },
-                            ]
-                        ),
-                    ]
-                )
-            ).content
-            + "\nИспользуй этот инструмент итеративно, если в ответе недостаточно информации, сделай уточняющий запрос!"
-        )
+        ).content
+        + "\nИспользуй этот инструмент итеративно, если в ответе недостаточно информации, сделай уточняющий запрос!"
+    )
 
 
 @tool
 async def gen_image(theme: str, config: RunnableConfig):
-    """
-    Генерирует изображение
+    """Генерирует изображение
 
     Args:
         theme: Тема для генерации изображения
+
     """
     llm = load_llm().with_config(tags=["nostream"])
 
@@ -215,17 +210,19 @@ async def gen_image(theme: str, config: RunnableConfig):
         IMAGE_PROMPT
         | llm
         | RunnableParallel(
-            {"message": RunnablePassthrough(), "json": JsonOutputParser()}
+            {"message": RunnablePassthrough(), "json": JsonOutputParser()},
         )
     ).with_retry()
     generator = load_image_gen()
     await generator.init()
     response = await img_chain.ainvoke(
-        {"messages": [("user", f'Тема изображения: "{theme}". Улучши её')]}
+        {"messages": [("user", f'Тема изображения: "{theme}". Улучши её')]},
     )
     i = response["json"]["image"]
     image_data = await generator.generate_image(
-        i["description"], i["width"], i["height"]
+        i["description"],
+        i["width"],
+        i["height"],
     )
     uploader = REPLUploader()
     upload_files = [
@@ -233,10 +230,11 @@ async def gen_image(theme: str, config: RunnableConfig):
             path=f"images/{uuid.uuid4()}.png",
             file_type="image",
             content=base64.b64decode(image_data),
-        )
+        ),
     ]
     upload_resp = await uploader.upload_run_files(
-        upload_files, config["configurable"]["thread_id"]
+        upload_files,
+        config["configurable"]["thread_id"],
     )
     uploaded = upload_resp[0]
     return {
@@ -248,10 +246,10 @@ async def gen_image(theme: str, config: RunnableConfig):
 
 @tool(parse_docstring=True)
 def Think(thought: str) -> str:
-    """
-    Используется для рассуждений
+    """Используется для рассуждений
 
     Args:
         thought: Короткое рассуждение
+
     """
     return f"thought='{thought}'"

@@ -1,6 +1,6 @@
-import httpx
-from typing import Any, Dict, Optional, Union, Literal
+from typing import Any, Literal
 
+import httpx
 from langchain_core.tools import tool
 
 from giga_agent.settings import settings
@@ -10,34 +10,32 @@ from giga_agent.settings import settings
 async def get_workflow_runs(
     owner: str,
     repo: str,
-    actor: Optional[str] = None,
-    branch: Optional[str] = None,
-    event: Optional[str] = None,
-    status: Optional[
-        Literal[
-            "completed",
-            "action_required",
-            "cancelled",
-            "failure",
-            "neutral",
-            "skipped",
-            "stale",
-            "success",
-            "timed_out",
-            "in_progress",
-            "queued",
-            "requested",
-            "waiting",
-            "pending",
-        ]
-    ] = None,
+    actor: str | None = None,
+    branch: str | None = None,
+    event: str | None = None,
+    status: Literal[
+        "completed",
+        "action_required",
+        "cancelled",
+        "failure",
+        "neutral",
+        "skipped",
+        "stale",
+        "success",
+        "timed_out",
+        "in_progress",
+        "queued",
+        "requested",
+        "waiting",
+        "pending",
+    ]
+    | None = None,
     per_page: int = 30,
     page: int = 1,
-    created: Optional[str] = None,
+    created: str | None = None,
     exclude_pull_requests: bool = False,
-) -> Dict[str, Any]:
-    """
-    Получает CI Runs из GitHub репозитория
+) -> dict[str, Any]:
+    """Получает CI Runs из GitHub репозитория
 
     Args:
         owner: Repository owner (case-insensitive).
@@ -50,6 +48,7 @@ async def get_workflow_runs(
         page: Page number to fetch.
         created: Date-time range filter (see GitHub search syntax).
         exclude_pull_requests: If True, omit pull request runs.
+
     """
     if per_page > 100:
         raise Exception("Maximum per_page value is 100")
@@ -60,7 +59,7 @@ async def get_workflow_runs(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    params: Dict[str, Union[str, int, bool]] = {
+    params: dict[str, str | int | bool] = {
         "per_page": per_page,
         "page": page,
         "exclude_pull_requests": str(exclude_pull_requests).lower(),
@@ -88,16 +87,15 @@ async def get_workflow_runs(
 async def list_pull_requests(
     owner: str,
     repo: str,
-    state: Optional[Literal["open", "closed", "all"]] = "open",
-    head: Optional[str] = None,
-    base: Optional[str] = None,
-    sort: Optional[Literal["created", "updated", "popularity", "long-running"]] = None,
-    direction: Optional[Literal["asc", "desc"]] = None,
+    state: Literal["open", "closed", "all"] | None = "open",
+    head: str | None = None,
+    base: str | None = None,
+    sort: Literal["created", "updated", "popularity", "long-running"] | None = None,
+    direction: Literal["asc", "desc"] | None = None,
     per_page: int = 30,
     page: int = 1,
-) -> Dict[str, Any]:
-    """
-    Список Pull Requests репозитория
+) -> dict[str, Any]:
+    """Список Pull Requests репозитория
 
     Args:
         owner: Владелец репозитория (без .git)
@@ -109,6 +107,7 @@ async def list_pull_requests(
         direction: Направление сортировки: asc|desc
         per_page: Результатов на страницу (макс 100)
         page: Номер страницы
+
     """
     if per_page > 100:
         raise Exception("Maximum per_page value is 100")
@@ -119,7 +118,7 @@ async def list_pull_requests(
         "X-GitHub-Api-Version": "2022-11-28",
     }
 
-    params: Dict[str, Any] = {"per_page": per_page, "page": page}
+    params: dict[str, Any] = {"per_page": per_page, "page": page}
     if state:
         params["state"] = state
     if head:
@@ -142,14 +141,14 @@ async def get_pull_request(
     owner: str,
     repo: str,
     pull_number: int,
-) -> Dict[str, Any]:
-    """
-    Получает Pull Request по номеру
+) -> dict[str, Any]:
+    """Получает Pull Request по номеру
 
     Args:
         owner: Владелец репозитория (без .git)
         repo: Имя репозитория (без .git)
         pull_number: Номер PR
+
     """
     url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pull_number}"
     headers = {
@@ -165,24 +164,25 @@ async def get_pull_request(
 
 
 def remove_url_keys(obj: Any) -> Any:
-    """
-    Recursively remove keys containing '_url' from dictionaries if their value is not a dict.
+    """Recursively remove keys containing '_url' from dictionaries if their value is not a dict.
 
-    Parameters:
+    Parameters
+    ----------
         obj: The input data, which can be a dict, list, or any other type.
 
-    Returns:
+    Returns
+    -------
         A new data structure with keys matching the criteria removed.
+
     """
     if isinstance(obj, dict):
-        result: Dict[Any, Any] = {}
+        result: dict[Any, Any] = {}
         for key, value in obj.items():
             # Skip keys containing '_url' when value is not a dict
             if "_url" in key and not isinstance(value, dict):
                 continue
             result[key] = remove_url_keys(value)
         return result
-    elif isinstance(obj, list):
+    if isinstance(obj, list):
         return [remove_url_keys(item) for item in obj]
-    else:
-        return obj
+    return obj
