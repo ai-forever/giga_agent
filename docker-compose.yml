@@ -123,6 +123,7 @@ services:
                 VITE_LANGCONNECT_API_URL: ${LANGCONNECT_API_URL}
                 VITE_LANGCONNECT_API_SECRET_TOKEN: ${LANGCONNECT_API_SECRET_TOKEN}
                 VITE_MCP_PROXY_URL: ${MCP_PROXY_URL}
+                VITE_MEMORY_ENABLED: ${GIGA_AGENT_MEMORY_ENABLED}
         env_file:
             - .docker.env
         volumes:

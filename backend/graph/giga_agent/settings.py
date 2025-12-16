@@ -12,6 +12,7 @@ class LLMSettings(BaseSettings):
     giga_agent_lang: str = Field(default="ru-RU")
     giga_agent_mcp_config: dict = Field(default={})
     giga_agent_user_notes: str = Field(default="")
+    giga_agent_memory_enabled: bool = Field(default=True)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),

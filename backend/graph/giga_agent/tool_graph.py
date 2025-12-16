@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import re
@@ -88,7 +89,6 @@ client = JupyterClient()
 
 async def before_agent(state: AgentState):
     tool_client = ToolClient()
-    memory = await get_memory()
     kernel_id = state.get("kernel_id")
     tools = state.get("tools")
     if not kernel_id:
@@ -121,11 +121,15 @@ async def before_agent(state: AgentState):
             selected_prompt = (
                 f"Пользователь указал на следующие вложения: \n{selected_items}"
             )
-        retrieved_memories = await memory.search(user_input, user_id="default_user")
-        memory_context = format_memories(retrieved_memories)
+        if settings.llm.giga_agent_memory_enabled:
+            memory = await get_memory()
+            retrieved_memories = await memory.search(user_input, user_id="default_user")
+            memory_context = f"<memory>{format_memories(retrieved_memories)}</memory>\n"
+        else:
+            memory_context = ""
         state["messages"][
             -1
-        ].content = f"<task>{user_input}</task> Активно планируй и следуй своему плану! Действуй по простым шагам!{generate_user_info(state)}\n<memory>{memory_context}</memory>\n{file_prompt}\n{selected_prompt}\nСледующий шаг: "
+        ].content = f"<task>{user_input}</task> Активно планируй и следуй своему плану! Действуй по простым шагам!{generate_user_info(state)}\n{memory_context}{file_prompt}\n{selected_prompt}\nСледующий шаг: "
     filtered_tools = []
     for tool in tools:
         if tool["name"] in TOOLS_AGENT_CHECKS:
@@ -379,21 +383,32 @@ async def tool_call(state: AgentState, config: RunnableConfig):
     }
 
 
+async def _background_save_memory(human_content, ai_content):
+    try:
+        memory = await get_memory()
+        interaction = [
+            {"role": "user", "content": human_content},
+            {"role": "assistant", "content": ai_content},
+        ]
+        await memory.add(interaction, user_id="default_user")
+    except Exception:
+        traceback.print_exc()
+
+
 async def save_memory(state: AgentState):
     """
     Сохраняет сообщения пользователя
     """
+    if not settings.llm.giga_agent_memory_enabled:
+        return {}
     messages = state["messages"]
     last_human = next((m for m in reversed(messages) if m.type == "human"), None)
     last_ai = messages[-1]
 
     if last_human and last_ai.type == "ai":
-        memory = await get_memory()
-        interaction = [
-            {"role": "user", "content": last_human.content},
-            {"role": "assistant", "content": last_ai.content},
-        ]
-        await memory.add(interaction, user_id="default_user")
+        asyncio.create_task(
+            _background_save_memory(last_human.content, last_ai.content)
+        )
     return {}
 
 

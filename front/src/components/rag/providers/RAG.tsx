@@ -1,7 +1,7 @@
 import React, { createContext, useContext, PropsWithChildren } from "react";
 import { useRag } from "../hooks/use-rag";
 import { useEffect } from "react";
-import { session } from "@/components/rag/utils.ts";
+import { session } from "@/config.ts";
 
 type RagContextType = ReturnType<typeof useRag>;
 

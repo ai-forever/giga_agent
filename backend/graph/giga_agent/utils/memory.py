@@ -4,7 +4,7 @@ from giga_agent.utils.llm import load_llm, load_embeddings
 
 
 async def get_memory_from_config() -> AsyncMemory:
-    llm_model = load_llm()
+    llm_model = load_llm(tag="fast")
     embedding_model = load_embeddings()
     result = await embedding_model.aembed_query(
         "Init"
