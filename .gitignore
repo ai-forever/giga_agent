@@ -13,6 +13,5 @@ kernel_states
 /files
 .DS_Store
 __pycache__
-front/package-lock.json
 data
 qdrant_storage
