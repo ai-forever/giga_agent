@@ -8,38 +8,35 @@ from typing import Literal
 from uuid import uuid4
 
 from genson import SchemaBuilder
-
 from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langgraph.graph import StateGraph
-from langgraph.prebuilt.tool_node import _handle_tool_error, ToolNode
-from langgraph.types import interrupt
 from langgraph.config import RunnableConfig
+from langgraph.graph import StateGraph
+from langgraph.prebuilt.tool_node import ToolNode, _handle_tool_error
+from langgraph.types import interrupt
 
 from giga_agent.config import (
-    AgentState,
+    AGENT_MAP,
     REPL_TOOLS,
     SERVICE_TOOLS,
-    AGENT_MAP,
-    load_llm,
     TOOLS_AGENT_CHECKS,
+    AgentState,
+    load_llm,
     run_checks,
 )
 from giga_agent.prompts.few_shots import FEW_SHOTS_ORIGINAL, FEW_SHOTS_UPDATED
 from giga_agent.prompts.main_prompt import SYSTEM_PROMPT
 from giga_agent.repl_tools.utils import describe_repl_tool
+from giga_agent.settings import settings
 from giga_agent.tool_server.tool_client import ToolClient
 from giga_agent.tool_server.utils import transform_tool
 from giga_agent.tools.rag import get_rag_info
-from giga_agent.settings import settings
-
 from giga_agent.utils.jupyter import JupyterClient, prepend_code
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.mcp import process_mcp_content
 from giga_agent.utils.memory import format_memories, get_memory
-
 
 llm = load_llm(is_main=True)
 
@@ -55,7 +52,7 @@ def generate_repl_tools_description():
 {repl_tools}
 ```
 Также ты можешь вызвать из кода следующие функции: {service_tools}. Аргументы и описания этих функций описаны в твоих функциях!
-Вызывай эти методы, только через именованные агрументы"""
+Вызывай эти методы, только через именованные агрументы"""  # noqa: E501
 
 
 prompt = ChatPromptTemplate.from_messages(
@@ -63,7 +60,7 @@ prompt = ChatPromptTemplate.from_messages(
         ("system", SYSTEM_PROMPT),
     ]
     + (FEW_SHOTS_ORIGINAL if settings.features.repl_from_message else FEW_SHOTS_UPDATED)
-    + [MessagesPlaceholder("messages", optional=True)]
+    + [MessagesPlaceholder("messages", optional=True)],
 ).partial(repl_inner_tools=generate_repl_tools_description(), language=LANG)
 
 
@@ -74,7 +71,11 @@ def generate_user_info(state: AgentState):
     instructions = ""
     if not state["messages"]:
         instructions = state.get("instructions", "")
-    return f"<user_info>\nТекущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}{lang}{instructions}</user_info>"
+    return (
+        f"<user_info>\n"
+        f"Текущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}"
+        f"{lang}{instructions}</user_info>"
+    )
 
 
 def get_code_arg(message):
@@ -101,14 +102,15 @@ async def before_agent(state: AgentState):
         files = state["messages"][-1].additional_kwargs.get("files", [])
         file_prompt = []
         for idx, file in enumerate(files):
-            file_prompt.append(f"""Файл загружен по пути: '{file['path']}'""")
+            file_prompt.append(f"""Файл загружен по пути: '{file["path"]}'""")
             if "image_path" in file:
-                file_prompt[
-                    -1
-                ] += f"\nФайл является изображением его можно отобразить с помощью: '![алт-текст](attachment:{file['image_path']})'."
+                file_prompt[-1] += (
+                    f"\nФайл является изображением его можно отобразить с помощью: "
+                    f"'![алт-текст](attachment:{file['image_path']})'."
+                )
         file_prompt = (
             "<files_data>" + "\n----\n".join(file_prompt) + "</files_data>"
-            if len(file_prompt)
+            if file_prompt
             else ""
         )
         selected = state["messages"][-1].additional_kwargs.get("selected", {})
@@ -127,9 +129,16 @@ async def before_agent(state: AgentState):
             memory_context = f"<memory>{format_memories(retrieved_memories)}</memory>\n"
         else:
             memory_context = ""
-        state["messages"][
-            -1
-        ].content = f"<task>{user_input}</task> Активно планируй и следуй своему плану! Действуй по простым шагам!{generate_user_info(state)}\n{memory_context}{file_prompt}\n{selected_prompt}\nСледующий шаг: "
+        state["messages"][-1].content = (
+            f"<task>{user_input}</task> "
+            f"Активно планируй и следуй своему плану! "
+            f"Действуй по простым шагам!"
+            f"{generate_user_info(state)}\n"
+            f"{memory_context}"
+            f"{file_prompt}\n"
+            f"{selected_prompt}\n"
+            f"Следующий шаг: "
+        )
     filtered_tools = []
     for tool in tools:
         if tool["name"] in TOOLS_AGENT_CHECKS:
@@ -155,7 +164,7 @@ NOTES_PROMPT = """
 ---
 
 ====
-"""
+"""  # noqa: E501
 
 SECRETS_PROMPTS = """
 ====
@@ -186,7 +195,7 @@ SECRETS_PROMPTS = """
 
 {0}
 ====
-"""
+"""  # noqa: E501
 
 
 def get_user_notes(state: AgentState):
@@ -226,7 +235,7 @@ async def agent(state: AgentState):
                 "name": tool["name"],
                 "description": tool.get("description", "."),
                 "parameters": tool.get("inputSchema", {}),
-            }
+            },
         )
         for tool in state.get("mcp_tools", [])
     ]
@@ -239,7 +248,7 @@ async def agent(state: AgentState):
             "rag_info": get_rag_info(state.get("collections", [])),
             "user_instructions": get_user_notes(state),
             "user_secrets": await get_user_secrets(state),
-        }
+        },
     )
     message.additional_kwargs.pop("function_call", None)
     message.additional_kwargs["rendered"] = True
@@ -259,7 +268,7 @@ async def tool_call(state: AgentState, config: RunnableConfig):
                 "type": "tool_call",
                 "tool_name": action.get("name"),
                 "args": action.get("args"),
-            }
+            },
         )
     else:
         value = interrupt({"type": "approve"})
@@ -270,11 +279,14 @@ async def tool_call(state: AgentState, config: RunnableConfig):
                 tool_call_id=action.get("id", str(uuid4())),
                 content=json.dumps(
                     {
-                        "message": f'Пользователь оставил комментарий к твоему вызову инструмента. Прочитай его и реши, как действовать дальше: "{value.get("message")}"'
+                        "message": (
+                            f"Пользователь оставил комментарий к твоему вызову инструмента. "  # noqa: E501
+                            f'Прочитай его и реши, как действовать дальше: "{value.get("message")}"'  # noqa: E501
+                        ),
                     },
                     ensure_ascii=False,
                 ),
-            )
+            ),
         }
     tool_call_index = state.get("tool_call_index", -1)
     if action.get("name") == "python" and not is_frontend_tool:
@@ -293,7 +305,7 @@ async def tool_call(state: AgentState, config: RunnableConfig):
                         {"message": "Напиши код в своем сообщении!"},
                         ensure_ascii=False,
                     ),
-                )
+                ),
             }
         action["args"]["code"] = prepend_code(
             action["args"]["code"],
@@ -308,11 +320,13 @@ async def tool_call(state: AgentState, config: RunnableConfig):
             state_ = copy.deepcopy(state)
             state_.pop("messages")
             tool_client.set_state_data(
-                config["metadata"]["thread_id"], config["metadata"]["checkpoint_id"]
+                config["metadata"]["thread_id"],
+                config["metadata"]["checkpoint_id"],
             )
             if action.get("name") not in AGENT_MAP:
                 result = await tool_client.aexecute(
-                    action.get("name"), action.get("args")
+                    action.get("name"),
+                    action.get("args"),
                 )
             else:
                 tool_node = ToolNode(tools=list(AGENT_MAP.values()))
@@ -328,7 +342,7 @@ async def tool_call(state: AgentState, config: RunnableConfig):
                 result = await AGENT_MAP[action.get("name")].ainvoke(injected_args)
             try:
                 result = json.loads(result)
-            except Exception as e:
+            except Exception:
                 pass
         else:
             result, tool_attachments, message = await process_mcp_content(
@@ -341,10 +355,14 @@ async def tool_call(state: AgentState, config: RunnableConfig):
             add_data = {
                 "data": result,
                 "message": message
-                + f"Результат функции сохранен в переменную `function_results[{tool_call_index}]['data']` ",
+                + (
+                    f"Результат функции сохранен в переменную "
+                    f"`function_results[{tool_call_index}]['data']` "
+                ),
             }
             await client.execute(
-                state.get("kernel_id"), f"function_results.append({repr(add_data)})"
+                state.get("kernel_id"),
+                f"function_results.append({add_data!r})",
             )
             if (
                 len(json.dumps(result, ensure_ascii=False)) > 10000 * 4
@@ -352,9 +370,10 @@ async def tool_call(state: AgentState, config: RunnableConfig):
             ):
                 schema = SchemaBuilder()
                 schema.add_object(obj=add_data.pop("data"))
-                add_data[
-                    "message"
-                ] += f"Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. Схема данных:\n"
+                add_data["message"] += (
+                    "Результат функции вышел слишком длинным изучи результат функции в "
+                    "переменной с помощью python. Схема данных:\n"
+                )
                 add_data["schema"] = schema.to_schema()
             if action.get("name") == "get_urls":
                 add_data["message"] += result.pop("attention")
@@ -396,9 +415,7 @@ async def _background_save_memory(human_content, ai_content):
 
 
 async def save_memory(state: AgentState):
-    """
-    Сохраняет сообщения пользователя
-    """
+    """Сохраняет сообщения пользователя"""
     if not settings.llm.giga_agent_memory_enabled:
         return {}
     messages = state["messages"]
@@ -407,7 +424,7 @@ async def save_memory(state: AgentState):
 
     if last_human and last_ai.type == "ai":
         asyncio.create_task(
-            _background_save_memory(last_human.content, last_ai.content)
+            _background_save_memory(last_human.content, last_ai.content),
         )
     return {}
 
@@ -415,8 +432,7 @@ async def save_memory(state: AgentState):
 def router(state: AgentState) -> Literal["tool_call", "save_memory"]:
     if state["messages"][-1].tool_calls:
         return "tool_call"
-    else:
-        return "save_memory"
+    return "save_memory"
 
 
 workflow = StateGraph(AgentState)
@@ -427,7 +443,9 @@ workflow.add_node(save_memory)
 workflow.add_edge("__start__", "before_agent")
 workflow.add_edge("before_agent", "agent")
 workflow.add_conditional_edges(
-    "agent", router, {"tool_call": "tool_call", "save_memory": "save_memory"}
+    "agent",
+    router,
+    {"tool_call": "tool_call", "save_memory": "save_memory"},
 )
 workflow.add_edge("tool_call", "agent")
 workflow.add_edge("save_memory", "__end__")

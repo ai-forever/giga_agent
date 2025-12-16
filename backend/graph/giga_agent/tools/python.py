@@ -1,13 +1,12 @@
 import base64
 import json
+import re
 import uuid
 
+from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from giga_agent.settings import settings
-from giga_agent.utils.jupyter import JupyterClient, RunUploadFile, REPLUploader
-from langchain_core.tools import BaseTool
-import re
+from giga_agent.utils.jupyter import JupyterClient, REPLUploader, RunUploadFile
 
 
 class CodeInput(BaseModel):
@@ -48,9 +47,9 @@ class ExecuteTool(BaseTool):
                         path=f"repl/{uuid.uuid4()}.json",
                         file_type="plotly_graph",
                         content=json.dumps(
-                            attachment["application/vnd.plotly.v1+json"]
+                            attachment["application/vnd.plotly.v1+json"],
                         ),
-                    )
+                    ),
                 )
             elif "image/png" in attachment:
                 upload_files.append(
@@ -58,7 +57,7 @@ class ExecuteTool(BaseTool):
                         path=f"repl/{uuid.uuid4()}.png",
                         file_type="image",
                         content=base64.b64decode(attachment["image/png"]),
-                    )
+                    ),
                 )
         if upload_files:
             upload_resp = await uploader.upload_run_files(upload_files, self.thread_id)
@@ -80,7 +79,11 @@ class ExecuteTool(BaseTool):
         if response["is_exception"]:
             # Убираем лишние строки кода из ошибки, для улучшения качества исправления
             exc = re.sub(
-                r"(.+?\/.+?py.+\n(.+\n)+\n)", "", response["exception"], 0, re.MULTILINE
+                r"(.+?\/.+?py.+\n(.+\n)+\n)",
+                "",
+                response["exception"],
+                0,
+                re.MULTILINE,
             )
             message = (
                 f'Результат выполнения: "{result.strip()}".\n Во время исполнения кода произошла ошибка: "{exc}"!!.\n'

@@ -35,9 +35,10 @@ async def async_run_code(
             dead_fut = loop.create_future()
 
             def restarting():
-                assert (
-                    False
-                ), "Restart shouldn't happen because config.KernelRestarter.restart_limit is expected to be set to 0"
+                assert False, (
+                    "Restart shouldn't happen because "
+                    "config.KernelRestarter.restart_limit is expected to be set to 0"
+                )
 
             def dead():
                 logger.info("Kernel has died, will NOT restart")
@@ -104,7 +105,8 @@ async def async_run_code(
             )
             input_note_added = False
             while True:
-                # Параллельно ждём либо новое IOPub сообщение, либо сигнал о требуемом вводе
+                # Параллельно ждём либо новое IOPub сообщение,
+                # либо сигнал о требуемом вводе
                 msg_task = asyncio.create_task(
                     get_iopub_msg_with_death_detection(kc, timeout=iopub_timeout)
                 )
@@ -114,7 +116,10 @@ async def async_run_code(
                 )
                 if input_task in done and not input_note_added:
                     # Быстро реагируем на запрос ввода
-                    error_traceback = "Exception: Execute commands/code without interacting with user!\n"
+                    error_traceback = (
+                        "Exception: Execute commands/code "
+                        "without interacting with user!\n"
+                    )
                     input_note_added = True
                     msg_task.cancel()
                     break
@@ -129,7 +134,6 @@ async def async_run_code(
                     if message["content"]["execution_state"] == "idle":
                         break
                 elif msg_type == "stream":
-                    stream_name = message["content"]["name"]
                     stream_text = message["content"]["text"]
                     stream_text_list.append(stream_text)
                 elif msg_type == "execute_result":
@@ -273,7 +277,8 @@ class StatefulKernel:
         await self.start()
         # Обновить метку активности
         self.last_used = time.time()
-        # Переписать потенциально небезопасные команды установки pip в привязанные к ядру
+        # Переписать потенциально небезопасные команды
+        # установки pip в привязанные к ядру
         rewritten_code, contains_pip = self._rewrite_pip_commands(code)
 
         # Для pip-установок отключаем авто-интеррапт и увеличиваем таймауты

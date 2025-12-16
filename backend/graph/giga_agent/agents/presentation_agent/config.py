@@ -1,4 +1,4 @@
-from typing import TypedDict, Annotated, List, Dict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
@@ -15,9 +15,9 @@ class ConfigSchema(TypedDict):
 
 
 class PresentationState(TypedDict):
-    messages: Annotated[List[AnyMessage], add_messages]
+    messages: Annotated[list[AnyMessage], add_messages]
     slides: list
     slide_map: dict
     presentation_html: UploadedFile
-    images_uploaded: Dict[str, UploadedFile]
+    images_uploaded: dict[str, UploadedFile]
     task: str

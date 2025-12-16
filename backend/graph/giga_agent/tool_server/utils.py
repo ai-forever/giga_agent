@@ -1,9 +1,10 @@
 from copy import deepcopy
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
-def _simplify_nullable_any_type(schema: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
-    """If schema has anyOf with exactly {T, null}, remove anyOf and keep non-null branch.
+def _simplify_nullable_any_type(schema: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """If schema has anyOf with exactly {T, null},
+    remove anyOf and keep non-null branch.
 
     Returns a tuple of (new_schema, was_anyof_removed).
     """
@@ -33,21 +34,23 @@ def _simplify_nullable_any_type(schema: Dict[str, Any]) -> Tuple[Dict[str, Any],
         for opt in any_of
         if isinstance(opt, dict) and opt.get("type") == non_null_type
     )
-    merged: Dict[str, Any] = {k: v for k, v in schema.items() if k != "anyOf"}
+    merged: dict[str, Any] = {k: v for k, v in schema.items() if k != "anyOf"}
     for k, v in non_null_schema.items():
         merged[k] = v
 
-    # If original schema (and merged) have no default, set it to null for nullable fields
+    # If original schema (and merged) have no default,
+    # set it to null for nullable fields
     if "default" not in merged:
         merged["default"] = None
     return merged, True
 
 
-def _transform_object(schema_obj: Dict[str, Any]) -> Dict[str, Any]:
+def _transform_object(schema_obj: dict[str, Any]) -> dict[str, Any]:
     """Transform an object schema: simplify properties, rebuild required if missing.
 
     - Removes anyOf when it is exactly {T|null}, keeps other anyOf intact
-    - If required is missing, creates it with only properties that originally had no anyOf
+    - If required is missing, creates it with only properties that
+    originally had no anyOf
     """
     new_obj = deepcopy(schema_obj)
 
@@ -65,7 +68,7 @@ def _transform_object(schema_obj: Dict[str, Any]) -> Dict[str, Any]:
 
             # Then try to simplify T|null anyOf at this level
             simplified_prop, removed_anyof = _simplify_nullable_any_type(
-                transformed_prop
+                transformed_prop,
             )
             properties[prop_name] = simplified_prop
 
@@ -83,7 +86,7 @@ def _transform_object(schema_obj: Dict[str, Any]) -> Dict[str, Any]:
     return new_obj
 
 
-def transform_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+def transform_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Recursively transform a JSON-like schema according to the rules."""
     if not isinstance(schema, dict):
         return schema
@@ -105,7 +108,7 @@ def transform_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     return new_schema
 
 
-def transform_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+def transform_tool(tool: dict[str, Any]) -> dict[str, Any]:
     tool = deepcopy(tool)
     tool["parameters"] = transform_schema(tool["parameters"])
     return tool

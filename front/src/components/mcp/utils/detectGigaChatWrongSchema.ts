@@ -16,7 +16,8 @@ function extractTypes(node: unknown): string[] {
   if (!isObject(node)) return [];
   const t = (node as JsonObject)["type"];
   if (typeof t === "string") return [t];
-  if (Array.isArray(t)) return t.filter((v): v is string => typeof v === "string");
+  if (Array.isArray(t))
+    return t.filter((v): v is string => typeof v === "string");
   return [];
 }
 
@@ -74,5 +75,3 @@ export function detectGigaChatWrongSchema(schema: unknown): boolean {
 
   return walk(schema);
 }
-
-

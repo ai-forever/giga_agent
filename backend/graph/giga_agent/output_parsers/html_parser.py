@@ -8,7 +8,6 @@ from langchain_core.output_parsers import (
 
 
 class HTMLParser(BaseOutputParser):
-
     def parse(self, text: str) -> Any:
         regex = r"```html(.+?)```"
         matches = re.findall(regex, text, re.DOTALL)
@@ -16,8 +15,7 @@ class HTMLParser(BaseOutputParser):
             if len(matches) > 1:
                 raise OutputParserException(error="Too many ```html ``` !")
             return "\n".join(matches).strip()
-        else:
-            raise OutputParserException(error="No ```html ``` block!")
+        raise OutputParserException(error="No ```html ``` block!")
 
     @property
     def _type(self) -> str:

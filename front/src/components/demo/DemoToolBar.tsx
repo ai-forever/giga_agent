@@ -8,7 +8,10 @@ interface DemoToolBarProps {
   onContinue: () => void;
 }
 
-const DemoToolBar: React.FC<DemoToolBarProps> = ({ isFinished, onContinue }) => {
+const DemoToolBar: React.FC<DemoToolBarProps> = ({
+  isFinished,
+  onContinue,
+}) => {
   const [paused, setPaused] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -57,7 +60,10 @@ const DemoToolBar: React.FC<DemoToolBarProps> = ({ isFinished, onContinue }) => 
         className="relative box-border rounded-[40px] mt-[10px] flex items-center justify-center w-[45px] h-[45px] cursor-pointer bg-card text-foreground"
       >
         {isFinished && (
-          <svg viewBox="0 0 45 45" className="absolute inset-0 w-[45px] h-[45px] -rotate-90">
+          <svg
+            viewBox="0 0 45 45"
+            className="absolute inset-0 w-[45px] h-[45px] -rotate-90"
+          >
             <circle
               cx={22.5}
               cy={22.5}

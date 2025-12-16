@@ -1,18 +1,14 @@
-from typing import List
-
 import aiohttp
 from langchain_core.tools import tool
 
 from giga_agent.settings import settings
-
 
 OWM_CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
 OWM_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 
 
 def _map_units(units: str) -> tuple[str, str]:
-    """
-    Преобразует пользовательские единицы измерения из {c|f|k}
+    """Преобразует пользовательские единицы измерения из {c|f|k}
     в значения API OpenWeatherMap и возвращает (owm_units, unit_symbol).
     """
     normalized = (units or "c").strip().lower()[:1]
@@ -48,14 +44,14 @@ def _format_current(data: dict, unit_symbol: str) -> str:
 
 def _format_forecast(data: dict, unit_symbol: str) -> str:
     city_name = (data.get("city") or {}).get("name", "")
-    lines: List[str] = [f"Weather Forecast for {city_name}:"]
+    lines: list[str] = [f"Weather Forecast for {city_name}:"]
     for item in data.get("list", []):
         dt_txt = item.get("dt_txt", "")
         weather_desc = " ".join(
             [
                 f"{w.get('main', '')} {w.get('description', '')}"
                 for w in item.get("weather", [])
-            ]
+            ],
         ).strip()
         main = item.get("main", {})
         lines.extend(
@@ -66,33 +62,37 @@ def _format_forecast(data: dict, unit_symbol: str) -> str:
                 f"High:        {main.get('temp_max', '')} {unit_symbol}",
                 f"Low:         {main.get('temp_min', '')} {unit_symbol}",
                 "",
-            ]
+            ],
         )
     return "\n".join(lines) + ("\n" if lines else "")
 
 
 @tool(parse_docstring=True)
 async def weather(city: str, units: str = "c", lang: str = "en") -> str:
-    """
-    Получает текущую погоду и 5‑дневный прогноз по городу через OpenWeatherMap.
+    """Получает текущую погоду и 5‑дневный прогноз по городу через OpenWeatherMap.
     Требуется переменная окружения `OWM_API_KEY`.
 
     Args:
         city: Город для получения погоды. Если есть пробел, оберни название в кавычки.
         units: Единицы измерения температуры (c - celsius | f - fahrenheit | k - kelvin). По умолчанию: c
         lang: Язык описаний погоды. По умолчанию: en
+
     """
     api_key = settings.external.owm_api_key
     if not api_key:
-        return "Не задан OWM_API_KEY. Установи переменную окружения OWM_API_KEY со своим ключом OpenWeatherMap."
-
+        return (
+            "Не задан OWM_API_KEY. "
+            "Установи переменную окружения OWM_API_KEY со своим ключом OpenWeatherMap."
+        )
     owm_units, unit_symbol = _map_units(units)
 
     params = {"q": city, "appid": api_key, "units": owm_units, "lang": lang}
     async with aiohttp.ClientSession() as session:
         # Current weather
         async with session.get(
-            OWM_CURRENT_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
+            OWM_CURRENT_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
             current_json = await resp.json()
             if resp.status != 200:
@@ -101,7 +101,9 @@ async def weather(city: str, units: str = "c", lang: str = "en") -> str:
 
         # Forecast
         async with session.get(
-            OWM_FORECAST_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
+            OWM_FORECAST_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=30),
         ) as resp:
             forecast_json = await resp.json()
             if resp.status != 200:

@@ -1,6 +1,6 @@
-from typing import Optional
-import json
 import asyncio
+import json
+
 import httpx
 
 from giga_agent.generators.image.image_gen import ImageGen
@@ -14,7 +14,8 @@ class AsyncKandinskyAPI:
         self.secret_key = settings.image_gen.kandinsky_secret_key
         if not self.api_key or not self.secret_key:
             raise ValueError(
-                "KANDINSKY_API_KEY and/or KANDINSKY_SECRET_KEY are not set in the environment"
+                "KANDINSKY_API_KEY and/or "
+                "KANDINSKY_SECRET_KEY are not set in the environment",
             )
         self.auth_headers = {
             "X-Key": f"Key {self.api_key}",
@@ -22,7 +23,8 @@ class AsyncKandinskyAPI:
         }
         self._pipeline_id = None
         self.client = httpx.AsyncClient(
-            base_url=self.base_url, headers=self.auth_headers
+            base_url=self.base_url,
+            headers=self.auth_headers,
         )
 
     async def get_pipeline(self) -> str:
@@ -64,7 +66,10 @@ class AsyncKandinskyAPI:
         return resp.json()["uuid"]
 
     async def check_generation(
-        self, request_id: str, attempts: int = 10, delay: float = 5.0
+        self,
+        request_id: str,
+        attempts: int = 10,
+        delay: float = 5.0,
     ) -> list[str]:
         for _ in range(attempts):
             resp = await self.client.get(f"key/api/v1/pipeline/status/{request_id}")
@@ -74,10 +79,10 @@ class AsyncKandinskyAPI:
             status = data.get("status")
             if status == "DONE":
                 return data["result"]["files"]
-            elif status == "FAIL":
+            if status == "FAIL":
                 raise RuntimeError(
                     f"Kandinsky generation failed: "
-                    f"{data.get('errorDescription', 'Unknown error')}"
+                    f"{data.get('errorDescription', 'Unknown error')}",
                 )
 
             await asyncio.sleep(delay)
@@ -99,9 +104,7 @@ class AsyncKandinskyAPI:
 class FusionBrainImageGen(ImageGen):
     """Генерация через FusionBrain (Kandinsky API)."""
 
-    def __init__(
-        self, model: str, semaphore: Optional[asyncio.Semaphore] = None
-    ) -> None:
+    def __init__(self, model: str, semaphore: asyncio.Semaphore | None = None) -> None:
         super().__init__(model=model, semaphore=semaphore)
         self._api = AsyncKandinskyAPI()
 

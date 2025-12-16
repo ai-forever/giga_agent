@@ -12,7 +12,7 @@ from giga_agent.utils.types import Collection
 
 Используй для поиска информации из документов пользователя. Формулируй query как естественный вопрос.
 При недостатке информации делай повторные запросы с другими формулировками.
-Всегда цитируй источники (ID документа) в ответах."""
+Всегда цитируй источники (ID документа) в ответах.""",
 )
 async def get_documents(
     collection_uuid: Annotated[str, "UUID-коллекции"],
@@ -21,19 +21,20 @@ async def get_documents(
 ) -> str:
     rag_url = settings.internal.langconnect_api_url
     access_token = settings.internal.langconnect_api_secret_token
-    if rag_url.endswith("/"):
-        rag_url = rag_url[:-1]
+    rag_url = rag_url.removesuffix("/")
     search_endpoint = f"{rag_url}/collections/{collection_uuid}/documents/search"
     payload = {"query": query, "limit": limit}
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
                 search_endpoint,
                 json=payload,
                 headers={"Authorization": f"Bearer {access_token}"},
-            ) as search_response:
-                search_response.raise_for_status()
-                documents = await search_response.json()
+            ) as search_response,
+        ):
+            search_response.raise_for_status()
+            documents = await search_response.json()
         formatted_docs = "Найденные части документов: \n"
 
         for doc in documents:
@@ -48,7 +49,7 @@ async def get_documents(
             + "Если информации недостаточно, попробуй расширить запрос и вызвать get_documents повторно"
         )
     except Exception as e:
-        return f"<all-documents>\n  <error>{str(e)}</error>\n</all-documents>"
+        return f"<all-documents>\n  <error>{e!s}</error>\n</all-documents>"
 
 
 def has_collections(state):

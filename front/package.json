@@ -78,7 +78,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "format": "prettier --write \"src\"",
+    "format:check": "prettier --check \"src\""
   },
   "eslintConfig": {
     "extends": [

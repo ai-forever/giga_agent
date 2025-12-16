@@ -1,11 +1,11 @@
 import json
 
-from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 FEW_SHOTS_ORIGINAL = [
     HumanMessage(
         content="""<task>Сгенерируй изображение супер крутого сберкота</task> Активно планируй и следуй своему плану! Действуй по простым шагам!
-Следующий шаг:"""
+Следующий шаг:""",
     ),
     AIMessage(
         content=""""<thinking>
@@ -22,7 +22,7 @@ FEW_SHOTS_ORIGINAL = [
                 name="gen_image",
                 args={"theme": "супер крутой сберкот"},
                 id="123",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -37,7 +37,7 @@ FEW_SHOTS_ORIGINAL = [
     ),
     AIMessage(
         content=""""Вот изображение супер крутого сберкота:  
-![Динамичный супергеройский образ кота-персонажа Сбербанка](graph:2623d531-4c9f-4ab8-86e8-f13d0a0691cd)"""
+![Динамичный супергеройский образ кота-персонажа Сбербанка](graph:2623d531-4c9f-4ab8-86e8-f13d0a0691cd)""",
     ),
     HumanMessage(
         content="""<task>Получи последние 100 постов с https://vk.com/sberkot и построй график лайков. X —  показывает дату, Y — количество лайков за этот день</task> Активно планируй и следуй своему плану! Действуй по простым шагам!<user_info>
@@ -45,7 +45,7 @@ FEW_SHOTS_ORIGINAL = [
 </user_info>
 
 
-Следующий шаг: """
+Следующий шаг: """,
     ),
     AIMessage(
         content="""<thinking>
@@ -64,7 +64,7 @@ FEW_SHOTS_ORIGINAL = [
                 name="vk_get_posts",
                 args={"count": 100, "domain": "sberkot", "offset": 0},
                 id="vk1",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -199,7 +199,7 @@ fig.show()
                 name="python",
                 args={},
                 id="py1",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -243,7 +243,7 @@ fig.show()
                 name="python",
                 args={},
                 id="py2",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -269,7 +269,7 @@ fig.show()
 
 ВАЖНО: Стиль общения в примерах выше — это просто ДЕМОНСТРАЦИЯ. Твой реальный стиль общения должен определяться ДОПОЛНИТЕЛЬНЫМИ ИНСТРУКЦИЯМИ ПОЛЬЗОВАТЕЛЯ, если они указаны.
 
-Забудь конкретные задачи из примеров и приступай к реальной задаче пользователя."""
+Забудь конкретные задачи из примеров и приступай к реальной задаче пользователя.""",
     ),
     AIMessage(
         content="""<thinking>
@@ -283,7 +283,7 @@ fig.show()
 Если пользователь задал инструкции по стилю общения - я ОБЯЗАН им следовать во всех аспектах: в thinking, в коде, в промежуточных ответах, в финальных выводах.
 </thinking>
 
-Готов к работе!"""
+Готов к работе!""",
     ),
 ]
 
@@ -291,7 +291,7 @@ fig.show()
 FEW_SHOTS_UPDATED = [
     HumanMessage(
         content="""<task>Сгенерируй изображение супер крутого сберкота</task> Активно планируй и следуй своему плану! Действуй по простым шагам!
-Следующий шаг:"""
+Следующий шаг:""",
     ),
     AIMessage(
         content=""""<thinking>
@@ -308,7 +308,7 @@ FEW_SHOTS_UPDATED = [
                 name="gen_image",
                 args={"theme": "супер крутой сберкот"},
                 id="123",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -323,7 +323,7 @@ FEW_SHOTS_UPDATED = [
     ),
     AIMessage(
         content=""""Вот изображение супер крутого сберкота:  
-![Динамичный супергеройский образ кота-персонажа Сбербанка](attachment:/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/images/2623d531-4c9f-4ab8-86e8-f13d0a0691cd.png)"""
+![Динамичный супергеройский образ кота-персонажа Сбербанка](attachment:/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/images/2623d531-4c9f-4ab8-86e8-f13d0a0691cd.png)""",
     ),
     HumanMessage(
         content="""<task>Получи последние 100 постов с https://vk.com/sberkot и построй график лайков. X —  показывает дату, Y — количество лайков за этот день</task> Активно планируй и следуй своему плану! Действуй по простым шагам!<user_info>
@@ -331,7 +331,7 @@ FEW_SHOTS_UPDATED = [
 </user_info>
 
 
-Следующий шаг: """
+Следующий шаг: """,
     ),
     AIMessage(
         content="""<thinking>
@@ -350,7 +350,7 @@ FEW_SHOTS_UPDATED = [
                 name="vk_get_posts",
                 args={"count": 100, "domain": "sberkot", "offset": 0},
                 id="vk1",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -374,7 +374,7 @@ FEW_SHOTS_UPDATED = [
                     "code": "import pandas as pd\nimport plotly.express as px\n\n# Преобразуем данные в датафрейм\ndf = pd.DataFrame(function_results[0]['data'])\n\n# Преобразуем timestamp в дату\ndf['date'] = pd.to_datetime(df['date'], unit='s').dt.date\n\n# Агрегируем лайки по дням\nlikes_per_day = df.groupby('date')['likes'].sum().reset_index()\n\n# Строим график\nfig = px.line(likes_per_day, x='date', y='likes', title='График лайков')\nfig.show()",
                 },
                 id="py1",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -399,7 +399,7 @@ FEW_SHOTS_UPDATED = [
                     "code": "import pandas as pd\nimport plotly.express as px\n\n# Преобразуем данные в датафрейм\ndf = pd.DataFrame(function_results[0]['data'])\n\n# Преобразуем timestamp в дату\ndf['date'] = pd.to_datetime(df['date'], unit='s').dt.date\n\n# Извлекаем количество лайков из словаря\ndf['likes_count'] = df['likes'].apply(lambda x: x['count'])\n\n# Агрегируем лайки по дням\nlikes_per_day = df.groupby('date')['likes_count'].sum().reset_index()\n\n# Строим график\nfig = px.line(likes_per_day, x='date', y='likes_count', title='График лайков')\nfig.show()",
                 },
                 id="py2",
-            )
+            ),
         ],
     ),
     ToolMessage(
@@ -426,7 +426,7 @@ FEW_SHOTS_UPDATED = [
 ВАЖНО: Стиль общения в примерах выше — это просто ДЕМОНСТРАЦИЯ. Твой реальный стиль общения должен определяться ДОПОЛНИТЕЛЬНЫМИ ИНСТРУКЦИЯМИ ПОЛЬЗОВАТЕЛЯ, если они указаны.
 
 Забудь конкретные задачи из примеров и приступай к реальной задаче пользователя.
-"""
+""",
     ),
     AIMessage(
         content="""<thinking>
@@ -440,6 +440,6 @@ FEW_SHOTS_UPDATED = [
 Если пользователь задал инструкции по стилю общения - я ОБЯЗАН им следовать во всех аспектах: в thinking писать размышления следуя доп инструкциям, в коде, в промежуточных ответах, в финальных выводах.
 
 Теперь я готов применять усвоенный ПОДХОД к решению реальных задач пользователя, следуя его дополнительным инструкциям.
-</thinking>"""
+</thinking>""",
     ),
 ]

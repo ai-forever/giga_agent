@@ -3,16 +3,14 @@ import mimetypes
 import os
 import urllib.parse
 import uuid
-import plotly
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, File, UploadFile, Form
+import plotly
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-
 from langgraph_sdk import get_client
-
 
 from app.settings import settings
 
@@ -73,8 +71,8 @@ def _detect_image_mime(path: str) -> Optional[str]:
 
 
 async def upload_image(path: str) -> dict:
-    from PIL import Image, ImageOps
     import httpx
+    from PIL import Image, ImageOps
 
     api_url_base = settings.giga_agent_api.rstrip("/")
     if not api_url_base:
@@ -149,7 +147,8 @@ async def upload_run(
     if not types or len(types) != len(files):
         raise HTTPException(
             status_code=400,
-            detail="Количество элементов 'types' должно совпадать с количеством 'files'",
+            detail="Количество элементов 'types' "
+            "должно совпадать с количеством 'files'",
         )
     try:
         for idx, file in enumerate(files):
@@ -265,6 +264,7 @@ def download_file(filename: str):
         path=file_path,
         media_type=mime_type,
         headers={
-            "Content-Disposition": f'{disposition}; filename="{os.path.basename(file_path)}"'
+            "Content-Disposition": f"{disposition}; "
+            f'filename="{os.path.basename(file_path)}"'
         },
     )

@@ -1,6 +1,5 @@
 import asyncio
 import base64
-from typing import Optional
 
 import httpx
 
@@ -11,8 +10,6 @@ from giga_agent.utils.llm import load_gigachat
 class CensorException(Exception):
     """Запрос отклонён цензурой (HTTP 451)."""
 
-    pass
-
 
 class GigaChatImageGen(ImageGen):
     """Генерация через GigaChat Devices API."""
@@ -20,14 +17,14 @@ class GigaChatImageGen(ImageGen):
     def __init__(
         self,
         model: str,
-        semaphore: Optional[asyncio.Semaphore] = None,
+        semaphore: asyncio.Semaphore | None = None,
         *,
-        token: Optional[str] = None,
+        token: str | None = None,
         timeout: float | None = 60.0,
         max_retries: int = 3,
     ) -> None:
         super().__init__(model=model, semaphore=semaphore)
-        self._token: Optional[str] = token
+        self._token: str | None = token
         self._timeout = timeout
         self._max_retries = max_retries
         self._client = None

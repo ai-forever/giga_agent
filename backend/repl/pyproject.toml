@@ -197,3 +197,16 @@ dependencies = [
     "yarl==1.15.3",
     "zipp==3.19.2",
 ]
+
+[dependency-groups]
+lint = [
+    "ruff>=0.13.1,<0.15.0",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle
+  "F",    # pyflakes
+  "I",    # isort
+]
+

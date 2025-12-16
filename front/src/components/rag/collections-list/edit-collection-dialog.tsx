@@ -52,10 +52,7 @@ export function EditCollectionDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={setOpen}
-    >
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -76,10 +73,7 @@ export function EditCollectionDialog({
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label
-              htmlFor="collection-name"
-              className="text-right"
-            >
+            <Label htmlFor="collection-name" className="text-right">
               Название
             </Label>
             <Input
@@ -90,10 +84,7 @@ export function EditCollectionDialog({
             />
           </div>
           <div className="grid grid-cols-4 items-start gap-4">
-            <Label
-              htmlFor="collection-description"
-              className="text-right"
-            >
+            <Label htmlFor="collection-description" className="text-right">
               Описание
             </Label>
             <div className="col-span-3 space-y-2">
@@ -112,7 +103,8 @@ export function EditCollectionDialog({
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                  Описание превышает максимальную длину {DESCRIPTION_MAX_LENGTH} символов.
+                  Описание превышает максимальную длину {DESCRIPTION_MAX_LENGTH}{" "}
+                  символов.
                 </AlertDescription>
               </Alert>
             </div>

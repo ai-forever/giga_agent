@@ -101,12 +101,10 @@ export function DocumentsTable({
                   </DropdownMenu>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        Вы уверены?
-                      </AlertDialogTitle>
+                      <AlertDialogTitle>Вы уверены?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Это действие невозможно отменить. Документ будет безвозвратно
-                        удалён
+                        Это действие невозможно отменить. Документ будет
+                        безвозвратно удалён
                         <span className="font-semibold">
                           {" "}
                           {doc.metadata.name}

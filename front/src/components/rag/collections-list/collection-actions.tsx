@@ -24,31 +24,18 @@ export function CollectionActions({
 }) {
   return (
     <Popover>
-      <PopoverTrigger
-        asChild
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-        >
+      <PopoverTrigger asChild onClick={(e) => e.stopPropagation()}>
+        <Button variant="ghost" size="icon" className="h-6 w-6">
           <MoreVertical className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-48 p-1"
-        align="end"
-      >
+      <PopoverContent className="w-48 p-1" align="end">
         <div className="flex flex-col space-y-1">
           <EditCollectionDialog
             collection={collection}
             handleEditCollection={onEdit}
           />
-          <DeleteCollectionAlert
-            collection={collection}
-            onDelete={onDelete}
-          />
+          <DeleteCollectionAlert collection={collection} onDelete={onDelete} />
         </div>
       </PopoverContent>
     </Popover>

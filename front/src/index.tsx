@@ -12,7 +12,7 @@ root.render(
   <>
     <GlobalStyle />
     <App />
-  </>
+  </>,
 );
 
 if (typeof window !== "undefined") {

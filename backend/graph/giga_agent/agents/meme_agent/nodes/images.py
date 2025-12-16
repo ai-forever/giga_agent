@@ -1,17 +1,16 @@
 import base64
 import os
-
 from io import BytesIO
 
-from PIL import Image, ImageDraw, ImageFont
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import (
+    RunnableConfig,
     RunnableParallel,
     RunnablePassthrough,
-    RunnableConfig,
 )
+from PIL import Image, ImageDraw, ImageFont
 
-from giga_agent.agents.meme_agent.config import llm, MemeState
+from giga_agent.agents.meme_agent.config import MemeState, llm
 from giga_agent.agents.meme_agent.prompts.ru import IMAGE_PROMPT
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
@@ -36,8 +35,8 @@ def memeify(
         if hasattr(draw, "textbbox"):  # Pillow ≥ 8.0, в т.ч. ≥10
             bbox = draw.textbbox((0, 0), text, font=font, stroke_width=stroke)
             return bbox[2] - bbox[0], bbox[3] - bbox[1]
-        else:  # старые Pillow
-            return draw.textsize(text, font=font)  # type: ignore[attr-defined]
+        # старые Pillow
+        return draw.textsize(text, font=font)  # type: ignore[attr-defined]
 
     def contains_cjk(text: str) -> bool:
         """Грубая проверка наличия CJK/корейских/японских символов."""
@@ -85,7 +84,8 @@ def memeify(
 
     def wrap_lines(draw, text, font, max_width, is_cjk: bool):
         """Разбивает текст на строки так, чтобы каждая влезла в max_width.
-        Для CJK (без пробелов) переносим по символам, не upper()."""
+        Для CJK (без пробелов) переносим по символам, не upper().
+        """
         if is_cjk:
             raw = text
             lines = []
@@ -101,20 +101,19 @@ def memeify(
             if current:
                 lines.append(current)
             return lines
-        else:
-            words = text.upper().split()
-            lines, line = [], []
-            for word in words:
-                test = " ".join(line + [word])
-                if draw.textlength(test, font=font) <= max_width:
-                    line.append(word)
-                else:
-                    if line:
-                        lines.append(" ".join(line))
-                    line = [word]
-            if line:
-                lines.append(" ".join(line))
-            return lines
+        words = text.upper().split()
+        lines, line = [], []
+        for word in words:
+            test = " ".join(line + [word])
+            if draw.textlength(test, font=font) <= max_width:
+                line.append(word)
+            else:
+                if line:
+                    lines.append(" ".join(line))
+                line = [word]
+        if line:
+            lines.append(" ".join(line))
+        return lines
 
     def try_load_font(paths, size: int):
         for p in paths:
@@ -140,7 +139,8 @@ def memeify(
             try:
                 return (
                     ImageFont.truetype(
-                        os.path.join(__location__, default_font_path), font_size
+                        os.path.join(__location__, default_font_path),
+                        font_size,
                     ),
                     False,
                 )
@@ -150,20 +150,23 @@ def memeify(
         # Приоритет: KR → JP → CN
         if contains_hangul(sample_text):
             font = try_load_font(
-                [os.path.join(__location__, "BlackHanSans-Regular.ttf")], font_size
+                [os.path.join(__location__, "BlackHanSans-Regular.ttf")],
+                font_size,
             )
             if font:
                 return font, True
         if contains_kana(sample_text):
             font = try_load_font(
-                [os.path.join(__location__, "DelaGothicOne-Regular.ttf")], font_size
+                [os.path.join(__location__, "DelaGothicOne-Regular.ttf")],
+                font_size,
             )
             if font:
                 return font, True
 
         # Китайский по умолчанию для прочих CJK
         font = try_load_font(
-            [os.path.join(__location__, "ZCOOLQingKeHuangYou-Regular.ttf")], font_size
+            [os.path.join(__location__, "ZCOOLQingKeHuangYou-Regular.ttf")],
+            font_size,
         )
         if font:
             return font, True
@@ -172,7 +175,8 @@ def memeify(
         try:
             return (
                 ImageFont.truetype(
-                    os.path.join(__location__, default_font_path), font_size
+                    os.path.join(__location__, default_font_path),
+                    font_size,
                 ),
                 True,
             )
@@ -189,7 +193,9 @@ def memeify(
 
     # Выбор шрифта с учётом возможного CJK
     font, is_cjk = select_font_for_text(
-        font_size, "impact.ttf", f"{up_text}\n{down_text}"
+        font_size,
+        "impact.ttf",
+        f"{up_text}\n{down_text}",
     )
 
     max_width = w - int(w * margin_ratio * 2)
@@ -252,16 +258,18 @@ async def image_node(state: MemeState, config: RunnableConfig):
                     "user",
                     f"Идея пользователя: '{state['task']}'\n"
                     + state["messages"][-1].content,
-                )
-            ]
-        }
+                ),
+            ],
+        },
     )
     if config["configurable"].get("print_messages", False):
         resp["message"].pretty_print()
     image_gen = load_image_gen()
     await image_gen.init()
     image_data = await image_gen.generate_image(
-        resp["json"]["image"]["description"], 1024, 1024
+        resp["json"]["image"]["description"],
+        1024,
+        1024,
     )
     image_data = memeify(
         base64.b64decode(image_data),
@@ -273,13 +281,14 @@ async def image_node(state: MemeState, config: RunnableConfig):
     uploader = REPLUploader()
     upload_files = [
         RunUploadFile(
-            path=f"meme.jpg",
+            path="meme.jpg",
             file_type="image",
             content=image_data,
-        )
+        ),
     ]
     upload_resp = await uploader.upload_run_files(
-        upload_files, config["configurable"]["thread_id"]
+        upload_files,
+        config["configurable"]["thread_id"],
     )
     uploaded = upload_resp[0]
 

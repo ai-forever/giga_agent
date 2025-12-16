@@ -6,17 +6,14 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
-from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
-from sqlmodel import SQLModel, Field, select, func
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.ext.asyncio import AsyncEngine
-from sqlalchemy.orm import sessionmaker
-
 from langgraph_sdk import get_client
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Field, SQLModel, func, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from giga_agent.settings import settings
 from giga_agent.utils.llm import is_llm_image_inline, upload_file_with_retry
@@ -26,7 +23,7 @@ from giga_agent.utils.memory import get_memory
 # --- Модель данных ---
 class Task(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
-    json_data: str = Field(default_factory=lambda: str("{}"))
+    json_data: str = Field(default_factory=lambda: "{}")
     steps: int = Field(default=10, nullable=False)
     sorting: int = Field(default=None, nullable=False, index=True)
     active: bool = Field(default=False, nullable=False)
@@ -38,10 +35,14 @@ Path("db").mkdir(parents=True, exist_ok=True)
 # --- Настройка асинхронного движка и сессии ---
 DATABASE_URL = "sqlite+aiosqlite:///db/tasks.db"
 engine: AsyncEngine = create_async_engine(
-    DATABASE_URL, echo=True, connect_args={"check_same_thread": False}
+    DATABASE_URL,
+    echo=True,
+    connect_args={"check_same_thread": False},
 )
 AsyncSessionLocal = sessionmaker(
-    bind=engine, class_=AsyncSession, expire_on_commit=False
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
 
 
@@ -59,7 +60,7 @@ async def init_db():
             dump_path = os.path.join(os.path.dirname(__file__), "dump.json")
             if os.path.exists(dump_path):
                 # Читаем список объектов из JSON
-                with open(dump_path, "r", encoding="utf-8") as f:
+                with open(dump_path, encoding="utf-8") as f:
                     data_list = await asyncio.to_thread(json.load, fp=f)
 
                 # Проходим по каждому элементу массива
@@ -97,7 +98,7 @@ async def init_db():
 
                 await session.commit()
             else:
-                print(f"Файл {dump_path} не найден, пропускаем загрузку")
+                print(f"Файл {dump_path} не найден, пропускаем загрузку")  #  noqa: T201
 
 
 @asynccontextmanager
@@ -156,10 +157,10 @@ async def get_task(task_id: str):
 
 # 4) Обновить задачу (json_data и/или steps)
 class TaskUpdate(SQLModel):
-    json_data: Optional[dict] = None
-    steps: Optional[int] = None
-    sorting: Optional[int] = None
-    active: Optional[bool] = None
+    json_data: dict | None = None
+    steps: int | None = None
+    sorting: int | None = None
+    active: bool | None = None
 
 
 @app.put("/tasks/{task_id}/", response_model=Task)
@@ -199,8 +200,7 @@ async def get_html(html_id: str):
     result = await client.store.get_item(("html",), key=html_id)
     if result:
         return HTMLResponse(content=result["value"]["data"], status_code=200)
-    else:
-        raise HTTPException(404, "Page not found")
+    raise HTTPException(404, "Page not found")
 
 
 @app.post("/upload/image/")
@@ -211,7 +211,7 @@ async def upload_image(file: UploadFile = File(...)):
             (
                 f"{uuid.uuid4()}.jpg",
                 io.BytesIO(file_bytes),
-            )
+            ),
         )
     else:
         uploaded_id = str(uuid.uuid4())
