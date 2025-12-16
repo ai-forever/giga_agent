@@ -16,3 +16,4 @@ __pycache__
 .github/
 front/package-lock.json
 data
+qdrant_storage
