@@ -21,7 +21,7 @@ config = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     client = MultiServerMCPClient(MCP_CONFIG)
-    # mcp_tools = [transform_tool(tool) for tool in await client.get_tools()] dsfdsfdsfdsfsdf
+    # mcp_tools = [transform_tool(tool) for tool in await client.get_tools()]
     mcp_tools = await client.get_tools()
     for mcp_tool in mcp_tools:
         mcp_tool.name = mcp_tool.name.replace("-", "_")
