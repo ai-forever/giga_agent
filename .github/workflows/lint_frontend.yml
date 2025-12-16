@@ -2,8 +2,7 @@ name: Lint Frontend
 
 on:
   push:
-    paths:
-      - 'front/src/**'
+    branches: [main, dev]
   pull_request:
     paths:
       - 'front/src/**'
@@ -26,7 +25,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Check Format
         run: npm run format:check

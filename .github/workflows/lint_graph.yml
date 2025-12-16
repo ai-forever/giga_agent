@@ -2,8 +2,7 @@ name: Lint Graph
 
 on:
   push:
-    paths:
-      - 'backend/graph/**'
+    branches: [main, dev]
   pull_request:
     paths:
       - 'backend/graph/**'
