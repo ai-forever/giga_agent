@@ -3,7 +3,7 @@ import { Document } from "@langchain/core/documents";
 import { v4 as uuidv4 } from "uuid";
 import { Collection, CollectionCreate } from "@/types/collection";
 import { toast } from "sonner";
-import { LANGCONNECT_API_URL, session } from "@/components/rag/utils.ts";
+import { LANGCONNECT_API_URL, session } from "@/config.ts";
 import { useSettings } from "@/components/Settings";
 
 export const DEFAULT_COLLECTION_NAME = "default_collection";

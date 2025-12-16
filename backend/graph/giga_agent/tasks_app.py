@@ -223,3 +223,17 @@ async def get_memories():
     memory = await get_memory()
     results = await memory.get_all(user_id="default_user")
     return results
+
+
+@app.delete("/memories")
+async def delete_all_memories():
+    memory = await get_memory()
+    results = await memory.delete_all(user_id="default_user")
+    return results
+
+
+@app.delete("/memories/{memory_id}")
+async def delete_memory(memory_id: str):
+    memory = await get_memory()
+    results = await memory.delete(memory_id=memory_id)
+    return results

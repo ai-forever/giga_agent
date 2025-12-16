@@ -25,7 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { detectGigaChatWrongSchema } from "@/components/mcp/utils/detectGigaChatWrongSchema";
-import { MCP_PROXY_URL } from "@/components/rag/utils.ts";
+import { MCP_PROXY_URL } from "@/config.ts";
 import { useMcp } from "@/components/mcp/hooks/useMcp.ts";
 
 interface McpServer {

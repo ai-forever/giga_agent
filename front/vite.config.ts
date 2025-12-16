@@ -39,6 +39,12 @@ export default defineConfig(({ mode }) => {
     process.env.VITE_MCP_PROXY_URL =
       env.VITE_MCP_PROXY_URL || process.env.VITE_MCP_PROXY_URL || "";
   }
+  if (!process.env.VITE_MEMORY_ENABLED) {
+    process.env.VITE_MEMORY_ENABLED =
+      env.GIGA_AGENT_MEMORY_ENABLED ||
+      process.env.GIGA_AGENT_MEMORY_ENABLED ||
+      "true";
+  }
 
   return {
     plugins: [
