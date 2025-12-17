@@ -208,7 +208,8 @@ https://developers.sber.ru/portal/products/smartspeech
 https://openweathermap.org/api/one-call-3
 
 ## Добавление MCP тулов
-К GigaAgent можно подключить MCP-тулы из браузера, если они RemoteMCP или MCP, которые хостятся локально.
+К GigaAgent можно подключить MCP-тулы из браузера, если они RemoteMCP, или MCP, которые хостятся локально.
+
 Пример MCP Gateway сервера поднятого локально можно посмотреть [здесь](https://github.com/Mikelarg/giga_agent_mcp_example)
 
 Также можно включить MCP сервера через ENV-переменную **GIGA_AGENT_MCP_CONFIG**
@@ -220,7 +221,7 @@ GIGA_AGENT_MCP_CONFIG='{"giga_tools": {"transport": "stdio", "command": "npx", "
 
 ## Добавление RAG базы знаний
 Для подключения базы знаний нужно развернуть дополнительно [этот проект](https://github.com/Mikelarg/giga_agent_langconnect)
-И заполнить следующие ENV-переменные в `.env` файле. (ниже пример langconnect, который хостится локально)
+и заполнить следующие ENV-переменные в `.env` файле. (ниже пример langconnect, который хостится локально)
 ```
 LANGCONNECT_API_URL=http://host.docker.internal:8833
 LANGCONNECT_API_SECRET_TOKEN=123
@@ -234,9 +235,9 @@ LANGCONNECT_API_SECRET_TOKEN=123
         extra_hosts:
             - "host.docker.internal:host-gateway"
 ```
-Также нужно запускать снова `make build` и `make up`.
+Также нужно снова запустить `make build` и `make up`.
 
-При поднятии через `make build_dev` и `make up_dev` этого делать не нужно, так как эти параметры уже добавлены в [docker-compose.dev.yml](docker-compose.dev.yml).
+При поднятии через `make build_dev` и `make up_dev` этого делать не нужно, так как эти параметры уже добавлены в [docker-compose.dev.yml](docker-compose.dev.yml)
 
 ## Режим разработчика
 Чтобы поднять проект в режиме hot-reload (когда вы меняете код проекта локально и docker подгружает их сразу в свою среду) выполните следующие комманды:
