@@ -2,10 +2,10 @@
 
 Здесь вы найдете шаблоны файлов переменных окружения для запуска GigaAgent.
 
-| Сервис   | Docker                                      | Local                         |
-| -------- | ------------------------------------------- | ----------------------------- |
-| GigaChat | [.docker.env](gigachat/.docker.env.example) | [.env](gigachat/.env.example) |
-| OpenAI   | [.docker.env](openai/.docker.env.example)   | [.env](openai/.env.example)   |
+| Сервис   | Docker                                      |
+|----------|---------------------------------------------|
+| GigaChat | [.docker.env](gigachat/.docker.env.example) |
+| OpenAI   | [.docker.env](openai/.docker.env.example)   |
 
 Для использования шаблона:
 

@@ -1,14 +1,8 @@
 volumes:
     langgraph-data:
         driver: local
+
 services:
-    langgraph-redis:
-        image: redis:6
-        healthcheck:
-            test: redis-cli ping
-            interval: 5s
-            timeout: 1s
-            retries: 5
     langgraph-postgres:
         image: postgres:16
         environment:
@@ -23,6 +17,7 @@ services:
             timeout: 1s
             retries: 5
             interval: 5s
+
     langgraph-api:
         image: giga_agent
         depends_on:
@@ -30,8 +25,6 @@ services:
                 condition: service_healthy
             langgraph-postgres:
                 condition: service_healthy
-        env_file:
-            - .docker.env
         environment:
             REDIS_URI: redis://langgraph-redis:6379
             POSTGRES_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
@@ -39,62 +32,13 @@ services:
             TOOL_CLIENT_API: http://tool_server:9091
         volumes:
             - ./db/:/deps/graph/db/
+
     repl:
-        working_dir: /
-        restart: always
-        build:
-            context: ./backend/repl
-        image: repl:latest
-        pull_policy: never
         user: jupyter
         command: uv run uvicorn app.main:app --host 0.0.0.0 --port 9090
-        environment:
-            PLOTLY_RENDERER: plotly_mimetype
-            MAX_KERNEL_LIVE: 300
-            FILES_DIR: /files
-            STATE_DIR: /kernel_states
-        volumes:
-            - ./kernel_states/:/kernel_states/
-            - ./files/:/files/:ro
-    upload_server:
-        working_dir: /
-        restart: always
-        image: repl:latest
-        user: root
-        pull_policy: never
-        depends_on:
-            - repl
-        command: uv run uvicorn app.upload_server:app --host 0.0.0.0 --port 9092
-        env_file:
-            - .docker.env
-        environment:
-            PLOTLY_RENDERER: plotly_mimetype
-            MAX_KERNEL_LIVE: 300
-            FILES_DIR: /files
-            STATE_DIR: /kernel_states
-        volumes:
-            - ./files/:/files/:rw
+
     tool_server:
-        working_dir: /app
-        restart: always
         image: giga_agent
-        command: uvicorn giga_agent.tool_server.tool_server:app --host 0.0.0.0 --port 9091
-        env_file:
-            - .docker.env
-        entrypoint: []
-        environment:
-            JUPYTER_CLIENT_API: http://repl:9090
-            TOOL_CLIENT_API: http://tool_server:9091
-    frontend:
-        build:
-            context: ./front
-            dockerfile: Dockerfile
-        ports:
-            - "8502:80"
-        depends_on:
-            langgraph-api:
-                condition: service_healthy
-            repl:
-                condition: service_started
-            tool_server:
-                condition: service_started
+
+    giga_agent_server:
+        image: giga_agent
