@@ -149,44 +149,64 @@
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.2.1/plugin/math/math.min.js"></script>
 <script>
+    function isImageInPath(path) {
+        const lower = path.toLowerCase();
+        const dotIdx = lower.lastIndexOf(".");
+        const ext = dotIdx >= 0 ? lower.slice(dotIdx + 1) : "";
+        const imageExt = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+        return imageExt.includes(ext);
+    }
+    function createImage(el, path) {
+        const uuid = crypto.randomUUID();
+        const d = document.createElement('img');
+        d.attributes = el.attributes;
+        const attributes = $(el).prop("attributes");
+        $.each(attributes, function () {
+            $(d).attr(this.name, this.value);
+        });
+        d.src = `/files/${path}`;
+        d.setAttribute('id', uuid);
+        d.removeAttribute("data-src");
+        el.parentNode.replaceChild(d, el);
+    }
     // Replace placeholders for graphs/images
     jQuery('.graph').each((index, el) => {
         const src = el.getAttribute('src') ? el.getAttribute('src') : el.getAttribute('data-src');
-        if (src.startsWith("graph:")) {
-            const graphId = src.replace(/^graph:/, "");
-            const uuid = crypto.randomUUID();
-            fetch(`/graph/store/items?namespace=attachments&key=${graphId}`).then((res) => {
-                res.json().then((json) => {
-                    if (json.value.type === "image/png") {
-                        const d = document.createElement('img');
-                        d.attributes = el.attributes;
-                        const attributes = $(el).prop("attributes");
-                        $.each(attributes, function () {
-                            $(d).attr(this.name, this.value);
-                        });
-                        d.src = `data:image/png;base64, ${json.value.data}`
-                        d.setAttribute('id', uuid);
-                        d.removeAttribute("data-src");
-                        el.parentNode.replaceChild(d, el);
-                    } else if (json.value.type === "application/vnd.plotly.v1+json") {
-                        const d = document.createElement('div');
-                        d.innerHTML = el.innerHTML;
-                        d.attributes = el.attributes;
-                        const attributes = $(el).prop("attributes");
+        if (src.startsWith("attachment:") || src.startsWith("graph:")) {
+            let graphId = src.replace(/^attachment:/, "");
+             graphId = graphId.replace(/^graph:/, "");
+            if (graphId.startsWith("/home/jupyter") && isImageInPath(graphId)) {
+                createImage(el, graphId)
+            } else {
+                fetch(`/graph/store/items?namespace=attachments&key=${graphId}`).then((res) => {
+                    res.json().then((json) => {
+                        if (json.value.file_type === "image") {
+                            createImage(el, json.value.path)
+                        } else if (json.value.file_type === "plotly_graph") {
+                            fetch(`/files/${json.value.path}`).then((res) => {
+                                res.json().then((data) => {
+                                    const uuid = crypto.randomUUID();
+                                    const d = document.createElement('div');
+                                    d.innerHTML = el.innerHTML;
+                                    d.attributes = el.attributes;
+                                    const attributes = $(el).prop("attributes");
 
-                        $.each(attributes, function () {
-                            $(d).attr(this.name, this.value);
-                        });
+                                    $.each(attributes, function () {
+                                        $(d).attr(this.name, this.value);
+                                    });
 
-                        el.parentNode.replaceChild(d, el);
-                        el = d;
-                        el.setAttribute('id', uuid);
-                        const data = json.value.data;
-                        Plotly.newPlot(uuid, data.data, data.layout, data.config);
+                                    el.parentNode.replaceChild(d, el);
+                                    el = d;
+                                    el.setAttribute('id', uuid);
+                                    Plotly.newPlot(uuid, data.data, data.layout, data.config);
+                                })
+                            });
 
-                    }
+
+                        }
+                    });
                 });
-            });
+            }
         }
     });
     // Print/PDF helpers

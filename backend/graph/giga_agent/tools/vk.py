@@ -1,7 +1,6 @@
-from typing import Optional
+import asyncio
 
 import httpx
-import asyncio
 from langchain_core.tools import tool
 from pydantic import Field
 
@@ -12,10 +11,10 @@ from giga_agent.settings import settings
 async def vk_get_posts(
     domain: str = Field(description="Короткий адрес пользователя или сообщества."),
     offset: int = Field(
-        description="Смещение, необходимое для выборки определённого подмножества записей."
+        description="Смещение, необходимое для выборки определённого подмножества записей.",
     ),
     count: int = Field(
-        description="Количество записей, которое необходимо получить. Максимальное значение: 100."
+        description="Количество записей, которое необходимо получить. Максимальное значение: 100.",
     ),
 ):
     """Получает посты со стены в ВК. Учитывай, что ты можешь получить лишь 100 постов за раз.
@@ -49,14 +48,14 @@ async def vk_get_posts(
 @tool
 async def vk_get_comments(
     owner_id: str = Field(
-        description="Идентификатор владельца страницы (пользователь или сообщество). Обратите внимание, идентификатор сообщества в параметре owner_id необходимо указывать со знаком «-»"
+        description="Идентификатор владельца страницы (пользователь или сообщество). Обратите внимание, идентификатор сообщества в параметре owner_id необходимо указывать со знаком «-»",
     ),
     post_id: int = Field(description="Идентификатор записи на стене."),
     offset: int = Field(
-        description="Сдвиг, необходимый для получения конкретной выборки результатов."
+        description="Сдвиг, необходимый для получения конкретной выборки результатов.",
     ),
     count: int = Field(
-        description="Число комментариев, которые необходимо получить. По умолчанию: 10, максимальное значение: 100."
+        description="Число комментариев, которые необходимо получить. По умолчанию: 10, максимальное значение: 100.",
     ),
 ):
     """Получает комментарии к посту в ВК. Помни что тебе возвращается сразу список объектов VK Comments!"""
@@ -102,19 +101,19 @@ async def get_page_id(domain: str):
         page_info = response.json()["response"]
         if page_info["type"] == "user":
             return page_info["object_id"]
-        elif page_info["type"] == "community_application":
+        if page_info["type"] == "community_application":
             return page_info["group_id"]
-        else:
-            return -page_info["object_id"]
+        return -page_info["object_id"]
 
 
 @tool(parse_docstring=True)
-async def vk_get_last_comments(domain: str, count: Optional[int] = None):
+async def vk_get_last_comments(domain: str, count: int | None = None):
     """Получает комментарии с последних постов в ВК
 
     Args:
         domain: Короткий адрес пользователя или сообщества.
         count: Число комментариев, которые необходимо получить.
+
     """
     if count is None:
         count = 300

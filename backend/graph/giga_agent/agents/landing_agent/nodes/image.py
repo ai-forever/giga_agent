@@ -1,20 +1,22 @@
 import asyncio
+import base64
 import json
 import uuid
 
-from langchain_core.messages import ToolMessage, HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import (
-    RunnablePassthrough,
-    RunnableParallel,
     RunnableConfig,
+    RunnableParallel,
+    RunnablePassthrough,
 )
 
-from giga_agent.agents.landing_agent.config import llm, LandingState
+from giga_agent.agents.landing_agent.config import LandingState, llm
 from giga_agent.agents.landing_agent.prompts.ru import IMAGE_PROMPT
-from giga_agent.utils.lang import LANG
 from giga_agent.generators.image import load_image_gen
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
+from giga_agent.utils.lang import LANG
 
 
 async def image_node(state: LandingState, config: RunnableConfig):
@@ -30,18 +32,21 @@ async def image_node(state: LandingState, config: RunnableConfig):
         new_message.content += "\nПлан веб-страницы\n" + plan
 
     prompt = ChatPromptTemplate.from_messages(
-        [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")]
+        [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")],
     ).partial(language=LANG)
 
     chain = (
         prompt
         | llm
         | RunnableParallel(
-            {"message": RunnablePassthrough(), "json": JsonOutputParser()}
+            {"message": RunnablePassthrough(), "json": JsonOutputParser()},
         )
     ).with_retry()
     full_images = []
-    new_message.content += "\nПомни, что тебе нужно вернуть JSON с изображениями! Обязательно следуй формату ответа согласно инструкции!\n"
+    new_message.content += (
+        "\nПомни, что тебе нужно вернуть JSON с изображениями! "
+        "Обязательно следуй формату ответа согласно инструкции!\n"
+    )
     full_messages = [new_message]
     n_count = 2
     if image_messages:
@@ -56,7 +61,9 @@ async def image_node(state: LandingState, config: RunnableConfig):
         full_messages += [
             resp["message"],
             HumanMessage(
-                content="Придумай новый список изображений! Названия не должны повторяться"
+                content=(
+                    "Придумай новый список изображений! Названия не должны повторяться"
+                ),
             ),
         ]
         full_images += images
@@ -88,13 +95,31 @@ async def image_node(state: LandingState, config: RunnableConfig):
         for i in filtered_images
     ]
     images_data = await asyncio.gather(*tasks, return_exceptions=True)
-    images_base_64 = state.get("images_base_64", {})
+    images_data_filtered = [
+        (i, d) for i, d in zip(filtered_images, images_data) if isinstance(d, str)
+    ]
+
+    uploader = REPLUploader()
+    upload_files = [
+        RunUploadFile(
+            path=i["name"],
+            file_type="image",
+            content=base64.b64decode(image),
+        )
+        for i, image in images_data_filtered
+    ]
+    upload_resp = await uploader.upload_run_files(
+        upload_files,
+        config["configurable"]["thread_id"],
+    )
+
+    images_uploaded = state.get("images_uploaded", {})
     new_images = []
-    for i, b in zip(filtered_images, images_data):
+    for i, b in zip(images_data_filtered, upload_resp):
         if isinstance(b, Exception):
             continue
-        images_base_64[i["name"]] = b
-        new_images.append(i)
+        images_uploaded[i[0]["name"]] = b
+        new_images.append(i[0])
     action = state["agent_messages"][-1].tool_calls[0]
     return {
         "image_messages": full_messages[:-1],
@@ -109,21 +134,21 @@ async def image_node(state: LandingState, config: RunnableConfig):
                 ensure_ascii=False,
             ),
         ),
-        "images_base_64": images_base_64,
+        "images_uploaded": images_uploaded,
         "image_plan_loaded": True,
     }
 
 
 if __name__ == "__main__":
     prompt = ChatPromptTemplate.from_messages(
-        [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")]
+        [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")],
     )
 
     chain = (
         prompt
         | llm.bind(top_p=0.9)
         | RunnableParallel(
-            {"message": RunnablePassthrough(), "json": JsonOutputParser()}
+            {"message": RunnablePassthrough(), "json": JsonOutputParser()},
         )
     ).with_retry()
 
@@ -132,8 +157,11 @@ if __name__ == "__main__":
             "messages": [
                 (
                     "user",
-                    "Придумай промпт для мема в конце презентации про недвижимость в москве. без котов + минимум текста",
-                )
-            ]
-        }
+                    (
+                        "Придумай промпт для мема в конце презентации про "
+                        "недвижимость в москве. без котов + минимум текста"
+                    ),
+                ),
+            ],
+        },
     )["message"].pretty_print()

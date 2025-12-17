@@ -1,8 +1,6 @@
-"""
-schema.py
-"""
+"""schema.py"""
 
-from typing import Literal, List
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,8 +17,9 @@ class ShortDialogue(BaseModel):
 
     scratchpad: str
     name_of_guest: str
-    dialogue: List[DialogueItem] = Field(
-        ..., description="Список элементов диалога, обычно от 15 до 25 реплик"
+    dialogue: list[DialogueItem] = Field(
+        ...,
+        description="Список элементов диалога, обычно от 15 до 25 реплик",
     )
 
 
@@ -29,6 +28,7 @@ class MediumDialogue(BaseModel):
 
     scratchpad: str
     name_of_guest: str
-    dialogue: List[DialogueItem] = Field(
-        ..., description="Список элементов диалога, обычно от 30 до 45 реплик"
+    dialogue: list[DialogueItem] = Field(
+        ...,
+        description="Список элементов диалога, обычно от 30 до 45 реплик",
     )

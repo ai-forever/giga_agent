@@ -1,9 +1,10 @@
-from typing import TypedDict, Annotated, List
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
 from giga_agent.utils.llm import load_llm
+from giga_agent.utils.types import UploadedFile
 
 llm = load_llm().with_config(tags=["nostream"])
 
@@ -14,7 +15,7 @@ class ConfigSchema(TypedDict):
 
 
 class MemeState(TypedDict):
-    messages: Annotated[List[AnyMessage], add_messages]
+    messages: Annotated[list[AnyMessage], add_messages]
     task: str
     meme_idea: dict
-    meme_image: str
+    meme_image: UploadedFile

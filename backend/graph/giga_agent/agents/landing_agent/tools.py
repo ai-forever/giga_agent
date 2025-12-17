@@ -4,35 +4,32 @@ from pydantic import Field
 
 @tool(parse_docstring=True)
 async def image(additional_info: str = ""):
-    """
-    Формирует список изображений
+    """Формирует список изображений
 
     Args:
         additional_info: Дополнительная информация
+
     """
-    pass
 
 
 @tool(parse_docstring=True)
 async def coder(additional_info: str = ""):
-    """
-    Пишет код веб-страницы
+    """Пишет код веб-страницы
 
     Args:
         additional_info: Дополнительная информация
+
     """
-    pass
 
 
 @tool(parse_docstring=True)
 async def plan(additional_info: str = ""):
-    """
-    Планирует как нужно будет делать веб-страницу
+    """Планирует как нужно будет делать веб-страницу
 
     Args:
         additional_info: Дополнительная информация
+
     """
-    pass
 
 
 @tool

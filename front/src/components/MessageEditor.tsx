@@ -1,5 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import styled from "styled-components";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FileData, GraphState } from "../interfaces.ts";
 import { useFileUpload } from "../hooks/useFileUploads.ts";
 import { Paperclip } from "lucide-react";
@@ -12,110 +17,13 @@ import {
   ProgressOverlay,
   RemoveButton,
 } from "./Attachments.tsx";
-import { HumanMessage, Message } from "@langchain/langgraph-sdk";
+import { Checkpoint, HumanMessage, Message } from "@langchain/langgraph-sdk";
 import OverlayPortal from "./OverlayPortal.tsx";
-// @ts-ignore
-import { UseStream } from "@langchain/langgraph-sdk/dist/react/stream";
+import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
-
-const InputContainer = styled.div`
-  padding: 16px;
-  background-color: #2d2d2d;
-  border-radius: 8px;
-  position: relative;
-  @media print {
-    display: none;
-  }
-`;
-
-const InputRow = styled.div`
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  position: relative;
-`;
-
-const TextArea = styled.textarea`
-  flex: 1;
-  min-height: 60px;
-  max-height: 200px;
-  resize: none;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-    Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-  padding: 12px;
-  border: none;
-  border-radius: 6px;
-  background-color: #2d2d2d;
-  color: #ffffff;
-  font-size: 16px;
-  line-height: 1.4;
-  overflow-y: auto;
-  outline: none;
-
-  &::placeholder {
-    color: #999999;
-  }
-`;
-
-const FileInput = styled.input`
-  display: none;
-`;
-
-const IconButton = styled.button`
-  padding: 10px;
-  border: none;
-  border-radius: 8px;
-  background-color: #2d2d2d;
-  color: #ffffff;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
-
-  &:hover {
-    background-color: #3b3b3b;
-  }
-
-  &:disabled {
-    background-color: #2d2d2d;
-    cursor: not-allowed;
-  }
-`;
-
-const SendButton = styled(IconButton)`
-  background-color: #fff;
-  color: black;
-
-  &:hover {
-    background-color: #e7e7e7;
-  }
-`;
-
-const CancelButton = styled(IconButton)`
-  background-color: #000;
-  color: white;
-
-  &:hover {
-    background-color: #101010;
-  }
-`;
-
-const SelectedCounter = styled.div<{ $visible: boolean }>`
-  margin-top: 6px;
-  color: #9e9e9e;
-  font-size: 12px;
-  position: absolute;
-  bottom: 8px;
-  left: 80px;
-  opacity: ${({ $visible }) => ($visible ? 1 : 0)};
-  transform: translateY(${({ $visible }) => ($visible ? 0 : 4)}px);
-  transition: ${({ $visible }) =>
-    $visible ? "opacity 100ms ease, transform 100ms ease" : "none"};
-  pointer-events: none;
-`;
+import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useRagContext } from "@/components/rag/providers/RAG.tsx";
+import { useSettings } from "@/components/Settings.tsx";
 
 interface MessageEditorProps {
   message: Message;
@@ -137,7 +45,28 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     useFileUpload();
   const [messageText, setMessageText] = useState("");
   const { selected } = useSelectedAttachments();
+  const { collections, activeCollections } = useRagContext();
   const selectedCount = Object.keys(selected).length;
+  const { settings } = useSettings();
+
+  const enabledCollections = useMemo(() => {
+    const active = Object.keys(activeCollections).filter(
+      (key) => activeCollections[key],
+    );
+    return collections.filter((collection) => active.includes(collection.uuid));
+  }, [activeCollections, collections]);
+
+  const { mcpTools } = useUserInfo();
+
+  const mcpToolsPayload = useMemo(
+    () =>
+      mcpTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      })),
+    [mcpTools],
+  );
 
   useEffect(() => {
     // @ts-ignore
@@ -193,11 +122,17 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
       },
     } as HumanMessage;
 
-    const meta = thread.getMessagesMetadata(message);
+    const meta = thread?.getMessagesMetadata(message);
     const parentCheckpoint = meta?.firstSeenState?.parent_checkpoint;
 
-    thread.submit(
-      { messages: [newMessage] },
+    thread?.submit(
+      {
+        messages: [newMessage],
+        mcp_tools: mcpToolsPayload,
+        collections: enabledCollections,
+        secrets: settings.contextSecrets,
+        instructions: settings.contextInstructions,
+      },
       {
         optimisticValues(prev: GraphState) {
           const prevMessages = prev.messages ?? [];
@@ -219,48 +154,75 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
         checkpoint: parentCheckpoint,
       },
     );
-  }, [thread, messageText, message, onCancel, getAllFileData, selected]);
+  }, [
+    thread,
+    messageText,
+    message,
+    onCancel,
+    getAllFileData,
+    selected,
+    settings.contextInstructions,
+    settings.contextSecrets,
+    enabledCollections,
+    mcpToolsPayload,
+  ]);
 
   return (
     <>
-      <InputContainer>
-        <InputRow>
-          <FileInput
+      <div className="p-4 bg-secondary rounded-lg relative print:hidden">
+        <div className="flex items-end gap-2 relative">
+          <input
+            className="hidden"
             type="file"
             ref={fileInputRef}
             onChange={handleFileChange}
             multiple
           />
-          <IconButton
+          <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             title="Добавить вложения"
+            className="px-2.5 py-2 rounded-md bg-secondary text-foreground text-sm flex items-center justify-center transition-colors hover:bg-accent disabled:bg-secondary disabled:cursor-not-allowed"
           >
             <Paperclip />
-          </IconButton>
+          </button>
 
-          <TextArea
+          <textarea
             placeholder="Спросите что-нибудь…"
             ref={textRef}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onKeyDown={handleKeyDown}
+            className="flex-1 min-h-[60px] max-h-[200px] resize-none font-sans p-3 rounded-md bg-secondary text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0"
           />
-          <CancelButton type="button" title="Отменить" onClick={onCancel}>
+          <button
+            type="button"
+            title="Отменить"
+            onClick={onCancel}
+            className="px-3 py-2 rounded-md bg-background text-foreground text-sm cursor-pointer transition-colors hover:bg-accent"
+          >
             Отменить
-          </CancelButton>
-          <SendButton
+          </button>
+          <button
             type="button"
             title="Отправить"
             onClick={handleSendMessage}
+            className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm cursor-pointer transition-colors hover:opacity-90"
           >
             Отправить
-          </SendButton>
-        </InputRow>
-        <SelectedCounter $visible={selectedCount > 0}>
+          </button>
+        </div>
+        <div
+          className={[
+            "absolute bottom-2 left-20 text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
+            selectedCount > 0
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 translate-y-1",
+          ].join(" ")}
+        >
           Выбрано вложений: {selectedCount}
-        </SelectedCounter>
-      </InputContainer>
+        </div>
+      </div>
       {items.length > 0 && (
         <AttachmentsContainer>
           {items.map((it, idx) => (
@@ -269,7 +231,8 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
               onClick={() => {
                 if (it.kind === "existing") {
                   const f = it.data!;
-                  if (f.file_id) setEnlargedImage("/files/" + f.path);
+                  if (f.file_type === "image")
+                    setEnlargedImage("/files/" + f.path);
                   else openLink("/files/" + f.path);
                 } else if (it.previewUrl) {
                   setEnlargedImage(it.previewUrl);
@@ -277,7 +240,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
               }}
             >
               {it.kind === "existing" ? (
-                it.data?.file_id ? (
+                it.data?.file_type === "image" ? (
                   <ImagePreview src={"/files/" + it.data.path} />
                 ) : (
                   <span>

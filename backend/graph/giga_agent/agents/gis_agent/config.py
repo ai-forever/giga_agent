@@ -1,6 +1,6 @@
-from typing import TypedDict, List
+from typing import TypedDict
 
-from giga_agent.agents.gis_agent.utils.gis_client import Location, Attraction, Point
+from giga_agent.agents.gis_agent.utils.gis_client import Attraction, Location, Point
 from giga_agent.utils.llm import load_llm
 
 llm = load_llm().with_config(tags=["nostream"])
@@ -15,6 +15,6 @@ class ConfigSchema(TypedDict):
 class MapState(TypedDict):
     city_name: str
     city_point: Point
-    hotels: List[Location]
-    food: List[Location]
-    attractions: List[Attraction]
+    hotels: list[Location]
+    food: list[Location]
+    attractions: list[Attraction]

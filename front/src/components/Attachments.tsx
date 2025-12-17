@@ -20,12 +20,12 @@ export const AttachmentBubble = styled.div`
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background-color: #3d3d3d;
+  background-color: var(--color-secondary);
   border-radius: 6px;
   font-size: 14px;
   cursor: pointer;
   &:hover {
-    background-color: #4d4d4d;
+    background-color: var(--color-secondary);
   }
 `;
 

@@ -24,6 +24,8 @@ export const TOOL_MAP = {
   get_urls: "Скачивание ссылок",
   city_explore: "Исследователь города",
   gen_image: "Генерация изображения",
+  browser_task: "Агент Б.Раузер",
+  get_documents: "Поиск по базе знаний",
   researcher_agent: "Исследовательский агент",
 };
 
@@ -77,4 +79,25 @@ export const PROGRESS_AGENTS = {
   },
 };
 
+export const BROWSER_USE_NAME = "browser_task";
+
 export const TIME_TO_NEXT_TASK = 15;
+
+export const session: any = {
+  accessToken: import.meta.env?.VITE_LANGCONNECT_API_SECRET_TOKEN,
+};
+
+export const LANGCONNECT_API_URL: string | undefined = import.meta.env
+  ?.VITE_LANGCONNECT_API_URL;
+
+export const MCP_PROXY_URL: string | undefined = import.meta.env
+  ?.VITE_MCP_PROXY_URL;
+
+const memoryEnv = import.meta.env?.VITE_MEMORY_ENABLED;
+export const MEMORY_ENABLED: boolean = !["false", "0"].includes(
+  (memoryEnv || "").toLowerCase(),
+);
+
+export const ragEnabled = () => {
+  return !!session.accessToken && !!LANGCONNECT_API_URL;
+};

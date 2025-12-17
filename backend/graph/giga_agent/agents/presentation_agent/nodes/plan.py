@@ -2,7 +2,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableConfig
 
 from giga_agent.agents.presentation_agent.config import PresentationState, llm
-from giga_agent.agents.presentation_agent.prompts.ru import PLAN_PROMPT, FORMAT
+from giga_agent.agents.presentation_agent.prompts.ru import FORMAT, PLAN_PROMPT
 
 
 async def plan_node(state: PresentationState, config: RunnableConfig):
@@ -16,9 +16,9 @@ async def plan_node(state: PresentationState, config: RunnableConfig):
                     "Придумай план презентации исходя из переписки выше"
                     + FORMAT
                     + f"\nДополнительная информация: {state['task']}",
-                )
-            ]
-        }
+                ),
+            ],
+        },
     )
 
     if config["configurable"].get("print_messages", False):
@@ -36,15 +36,15 @@ async def plan_node(state: PresentationState, config: RunnableConfig):
 ```python
 class Slide:
     name: str = Field("Название слайда")
-    graphs: Optional[list[str]] = Field("ID графиков внутри слайда")
+    attachments: Optional[list[str]] = Field("Список вложений из предыдущей переписки (добавляй только если подходит к слайду)")
 ```
 Формат:
 {
     "slides": [Объекты типа Slide]
-}""",
-                )
-            ]
-        }
+}""",  # noqa: E501
+                ),
+            ],
+        },
     )
     if config["configurable"].get("print_messages", False):
         json_response.pretty_print()

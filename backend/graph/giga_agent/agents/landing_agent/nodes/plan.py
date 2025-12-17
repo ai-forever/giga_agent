@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 
@@ -20,10 +20,13 @@ async def plan_node(state: LandingState, config: RunnableConfig):
     if additional_info:
         new_message.content += f"\nДополнительная информация: {additional_info}"
 
-    new_message.content += "\nПомни, что тебе нужно составить план веб-страницы! Точно следуй своим инструкциям по составлению плана!"
+    new_message.content += (
+        "\nПомни, что тебе нужно составить план веб-страницы! "
+        "Точно следуй своим инструкциям по составлению плана!"
+    )
 
     prompt = ChatPromptTemplate.from_messages(
-        [("system", PLANNER_PROMPT), MessagesPlaceholder("messages")]
+        [("system", PLANNER_PROMPT), MessagesPlaceholder("messages")],
     ).partial(language=LANG)
 
     chain = (prompt | llm).with_retry()

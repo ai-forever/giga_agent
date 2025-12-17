@@ -4,10 +4,10 @@ export const GlobalStyle = createGlobalStyle`
     
     .markdown p {
         margin: 0;
-        margin-bottom: .5rem;
     }
     .markdown a {
-        color: white;
+        text-decoration: underline;
+        cursor: pointer;
     }
     
     thinking {

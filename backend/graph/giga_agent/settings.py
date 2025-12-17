@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +8,9 @@ class LLMSettings(BaseSettings):
     giga_agent_embeddings: str = Field(default="gigachat:EmbeddingsGigaR")
     giga_agent_sentiment_model: str = Field(default="models/sentiment_gigachat.joblib")
     giga_agent_lang: str = Field(default="ru-RU")
+    giga_agent_mcp_config: dict = Field(default={})
+    giga_agent_user_notes: str = Field(default="")
+    giga_agent_memory_enabled: bool = Field(default=True)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
@@ -20,28 +21,28 @@ class LLMSettings(BaseSettings):
 
 class ProviderSettings(BaseSettings):
     # GigaChat
-    gigachat_credentials: Optional[str] = Field(default=None)
-    gigachat_user: Optional[str] = Field(default=None)
-    gigachat_password: Optional[str] = Field(default=None)
+    gigachat_credentials: str | None = Field(default=None)
+    gigachat_user: str | None = Field(default=None)
+    gigachat_password: str | None = Field(default=None)
     gigachat_scope: str = Field(default="GIGACHAT_API_PERS")
     gigachat_verify_ssl_certs: bool = Field(default=False)
     gigachat_timeout: float = Field(default=60.0)
 
     # Main GigaChat
-    main_gigachat_user: Optional[str] = Field(default=None)
-    main_gigachat_password: Optional[str] = Field(default=None)
-    main_gigachat_credentials: Optional[str] = Field(default=None)
+    main_gigachat_user: str | None = Field(default=None)
+    main_gigachat_password: str | None = Field(default=None)
+    main_gigachat_credentials: str | None = Field(default=None)
     main_gigachat_scope: str = Field(default="GIGACHAT_API_PERS")
-    main_gigachat_base_url: Optional[str] = Field(default=None)
+    main_gigachat_base_url: str | None = Field(default=None)
     main_gigachat_timeout: float = Field(default=15.0)
     main_gigachat_top_p: float = Field(default=0.5)
-    main_gigachat_verbose: Optional[str] = Field(default=None)
+    main_gigachat_verbose: str | None = Field(default=None)
 
     # OpenAI - for image generation only
-    openai_api_key: Optional[str] = Field(default=None)
+    openai_api_key: str | None = Field(default=None)
 
     # LangSmith
-    langsmith_api_key: Optional[str] = Field(default=None)
+    langsmith_api_key: str | None = Field(default=None)
 
     def model_post_init(self, __context) -> None:
         """Validate GigaChat authentication configuration."""
@@ -53,7 +54,7 @@ class ProviderSettings(BaseSettings):
             raise ValueError(
                 "GigaChat authentication not configured. Provide either:\n"
                 "  - GIGACHAT_CREDENTIALS (OAuth token), OR\n"
-                "  - GIGACHAT_USER + GIGACHAT_PASSWORD (basic auth)"
+                "  - GIGACHAT_USER + GIGACHAT_PASSWORD (basic auth)",
             )
 
         # Check that at least one auth method is provided for main GigaChat
@@ -64,7 +65,7 @@ class ProviderSettings(BaseSettings):
             raise ValueError(
                 "Main GigaChat authentication not configured. Provide either:\n"
                 "  - MAIN_GIGACHAT_CREDENTIALS (OAuth token), OR\n"
-                "  - MAIN_GIGACHAT_USER + MAIN_GIGACHAT_PASSWORD (basic auth)"
+                "  - MAIN_GIGACHAT_USER + MAIN_GIGACHAT_PASSWORD (basic auth)",
             )
 
     model_config = SettingsConfigDict(
@@ -75,12 +76,12 @@ class ProviderSettings(BaseSettings):
 
 
 class ImageGenSettings(BaseSettings):
-    image_gen_name: Optional[str] = Field(default=None)
+    image_gen_name: str | None = Field(default=None)
     image_gen_parallel: int = Field(default=5)
 
     # FusionBrain / Kandinsky
-    kandinsky_api_key: Optional[str] = Field(default=None)
-    kandinsky_secret_key: Optional[str] = Field(default=None)
+    kandinsky_api_key: str | None = Field(default=None)
+    kandinsky_secret_key: str | None = Field(default=None)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
@@ -90,12 +91,12 @@ class ImageGenSettings(BaseSettings):
 
 
 class ExternalServicesSettings(BaseSettings):
-    tavily_api_key: Optional[str] = Field(default=None)
-    vk_token: Optional[str] = Field(default=None)
-    github_personal_access_token: Optional[str] = Field(default=None)
-    owm_api_key: Optional[str] = Field(default=None)
-    twogis_token: Optional[str] = Field(default=None)
-    salute_speech: Optional[str] = Field(default=None)
+    tavily_api_key: str | None = Field(default=None)
+    vk_token: str | None = Field(default=None)
+    github_personal_access_token: str | None = Field(default=None)
+    owm_api_key: str | None = Field(default=None)
+    twogis_token: str | None = Field(default=None)
+    salute_speech: str | None = Field(default=None)
     salute_speech_scope: str = Field(default="SALUTE_SPEECH_PERS")
     sber_tts_timeout: float = Field(default=30.0)
 
@@ -114,6 +115,14 @@ class InternalSettings(BaseSettings):
     files_dir: str = Field(default="files")
     jina_reader_url: str = Field(default="https://r.jina.ai/")
     character_limit: int = Field(default=100000)
+    langconnect_api_url: str = Field(default=None)
+    langconnect_api_secret_token: str = Field(default=None)
+    front_base_url: str = Field(default="http://frontend:80/files")
+    postgres_db: str = Field(default="postgres")
+    postgres_host: str = Field(default="aegra-postgres")
+    postgres_port: int = Field(default=5432)
+    postgres_user: str = Field(default="postgres")
+    postgres_password: str = Field(default="postgres")
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
@@ -142,10 +151,14 @@ class Settings(BaseSettings):
     features: FeatureSettings = Field(default_factory=FeatureSettings)
 
     model_config = SettingsConfigDict(
-        env_file=(".env", "../../.env"),  # Resolved from CWD (backend/graph/)
+        # Resolved from CWD (backend/graph/)
+        env_file=(".env", "../../.env"),
         env_file_encoding="utf-8",
-        extra="ignore",  # Ignore extra fields in .env
-        env_nested_delimiter="__",  # Allows overriding nested fields via env vars if needed, though aliases handle most
+        # Ignore extra fields in .env
+        extra="ignore",
+        # Allows overriding nested fields via env vars if needed,
+        # though aliases handle most
+        env_nested_delimiter="__",
     )
 
 

@@ -1,120 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
-import styled, { keyframes } from "styled-components";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { Message } from "@langchain/langgraph-sdk";
 import Spinner from "./Spinner.tsx";
 import { ChevronRight } from "lucide-react";
 import OverlayPortal from "./OverlayPortal.tsx";
-import GraphImage from "./GraphImage.tsx";
-import HTMLPage from "./HTMLPage.tsx";
-import { TOOL_MAP } from "../config.ts";
-import AudioPlayer from "./AudioPlayer.tsx";
-// @ts-ignore
-import { UseStream } from "@langchain/langgraph-sdk/dist/react/stream";
+import { PROGRESS_AGENTS, TOOL_MAP } from "../config.ts";
+import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "../interfaces.ts";
-
-const ToolMessageContainer = styled.div`
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 16px;
-  padding: 12px 36px;
-`;
-
-const Bubble = styled.div`
-  display: flex;
-  flex-direction: column;
-  border: 1px solid gray;
-  color: #fff;
-  padding: 16px 16px;
-  border-radius: 8px;
-  flex: 1;
-  cursor: pointer;
-  max-width: 100%;
-  //min-height: 50px;
-  justify-content: center;
-`;
-
-const Header = styled.div`
-  display: flex;
-  align-items: center;
-`;
-
-const ExpandIcon = styled.span<{ expanded: boolean }>`
-  display: inline-block;
-  margin-right: 8px;
-  transition: transform 0.2s ease;
-  transform: rotate(${(props) => (props.expanded ? "90deg" : "0deg")});
-  font-weight: bold;
-`;
-
-const CollapsedText = styled.span`
-  font-size: 14px;
-`;
-
-const CodeContainer = styled.div<{ expanded: boolean }>`
-  display: ${(props) => (props.expanded ? "block" : "none")};
-  margin-top: 8px;
-  overflow: auto;
-  cursor: text;
-  max-height: ${(props) => (props.expanded ? "400px" : "0")};
-  transition: max-height 0.6s;
-  @media print {
-    display: none;
-  }
-`;
-
-const AttachmentsContainer = styled.div`
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-`;
-
-const AttachmentLink = styled.a`
-  padding: 0 36px;
-  margin-left: 12px;
-  color: white;
-  font-size: 12px;
-`;
-
-const OverlayBox = styled.div`
-  background-color: #1f1f1f;
-  border-radius: 8px;
-  padding: 10px;
-`;
-
-// Анимация перемещения фона слева направо
-const shimmer = keyframes`
-  0% { background-position: -100% 0; }
-  100% { background-position: 200% 0; }
-`;
-
-// Анимация плавного появления
-const fadeIn = keyframes`
-  from { opacity: 0; }
-  to { opacity: 1; }
-`;
-
-const ToolProgress = styled.span`
-  color: transparent;
-  background: linear-gradient(
-    90deg,
-    rgba(200, 200, 200, 0.4) 0%,
-    rgba(200, 200, 200, 0.6) 50%,
-    rgba(200, 200, 200, 0.4) 100%
-  ); // вертикальная светлая линия
-  background-size: 50% 100%;
-  background-repeat: repeat;
-  background-position: -100% 0;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-
-  animation:
-    ${fadeIn} 0.5s ease-out,
-    ${shimmer} 3.5s linear infinite;
-`;
+import MessageAttachment from "./attachments/MessageAttachment.tsx";
 
 interface ToolMessageProps {
   message: Message;
@@ -122,21 +16,46 @@ interface ToolMessageProps {
 }
 
 interface ToolExecProps {
-  progressSubstring?: string;
   messages: Message[];
   thread?: UseStream<GraphState>;
 }
 
-export const ToolExecuting = ({
-  progressSubstring,
-  messages,
-  thread,
-}: ToolExecProps) => {
+interface AgentNode {
+  text: string;
+  image?: string;
+}
+
+export const ToolExecuting = ({ messages, thread }: ToolExecProps) => {
   // @ts-ignore
   const name = messages[messages.length - 1]?.tool_calls?.length
     ? // @ts-ignore
       messages[messages.length - 1]?.tool_calls[0].name
     : "none";
+  const agentProgress: AgentNode | null = useMemo(() => {
+    // @ts-ignore
+    const uis = (thread.values.ui ?? []).filter(
+      // @ts-ignore
+      (el) => el.name === "agent_execution",
+    );
+    if (uis.length) {
+      let image = uis.at(-1).props.image;
+      let text;
+      if (uis.at(-1).props.node_text) text = uis.at(-1).props.node_text;
+      // @ts-ignore
+      const agent = PROGRESS_AGENTS[name];
+      if (agent) {
+        text = agent[uis.at(-1).props.node];
+      }
+      if (text || image) {
+        return {
+          text,
+          image,
+        };
+      }
+      return null;
+    }
+    return null;
+  }, [thread?.values.ui]);
   // @ts-ignore
   const toolName = name in TOOL_MAP ? `: ${TOOL_MAP[name]} ` : "";
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -144,11 +63,11 @@ export const ToolExecuting = ({
   const idxRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!progressSubstring) return;
     displayedRef.current = "";
     setDisplayed("");
+    if (!agentProgress?.text) return;
     idxRef.current = 0;
-    const words = progressSubstring;
+    const words = agentProgress.text;
     let timer: NodeJS.Timeout;
 
     const step = () => {
@@ -171,7 +90,7 @@ export const ToolExecuting = ({
 
     return () => clearTimeout(timer);
     // @ts-ignore
-  }, [progressSubstring]);
+  }, [agentProgress]);
   if (
     thread?.interrupt ||
     !messages ||
@@ -181,30 +100,44 @@ export const ToolExecuting = ({
     return null;
   }
   return (
-    <ToolMessageContainer>
-      <Bubble>
-        <Header>
-          <CollapsedText style={{ marginLeft: "16px" }}>
-            Инструмент выполняется{toolName} <Spinner />
-            {progressSubstring && (
+    <div className="flex items-start mb-2 px-9">
+      <div className="flex flex-col border border-2 border-border text-foreground p-4 rounded-lg flex-1 cursor-pointer max-w-full justify-center">
+        <div className="flex items-center">
+          <span className="text-sm ml-4">
+            <span className="flex items-center">
+              Инструмент выполняется{toolName} <Spinner size="12" />
+            </span>
+            {displayed && (
               <>
-                <br />
-                <ToolProgress>{displayed}</ToolProgress>
+                <span className="text-transparent bg-gradient-to-r from-muted-foreground/40 via-muted-foreground/70 to-muted-foreground/40 bg-clip-text animate-pulse">
+                  {displayed}
+                </span>
               </>
             )}
-          </CollapsedText>
-        </Header>
-      </Bubble>
-    </ToolMessageContainer>
+            {agentProgress?.image && (
+              <>
+                <br />
+                <img
+                  style={{ marginTop: "10px", borderRadius: "4px" }}
+                  src={`data:image/png;base64,${agentProgress.image}`}
+                  width={400}
+                />
+              </>
+            )}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 };
 
 const ATTACHMENT_TEXTS = {
-  "application/vnd.plotly.v1+json":
-    "В результате работы был сгенерирован график ",
-  "image/png": "В результате работы было сгенерировано изображение ",
-  "text/html": "В результате работы была сгенерирована HTML-страница",
-  "audio/mp3": "В результате работы было сгенерировано аудио",
+  plotly_graph: "В результате работы был сгенерирован график ",
+  image: "В результате работы было сгенерировано изображение ",
+  html: "В результате работы была сгенерирована HTML-страница",
+  audio: "В результате работы было сгенерировано аудио",
+  text: "В результате работы был сгенерирован текстовый файл ",
+  other: "В результате работы было сгенерировано вложение ",
 };
 
 const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
@@ -216,7 +149,7 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
   }
 
   const attachments: any = message.additional_kwargs?.tool_attachments || [];
-  let content = null;
+  let content;
   try {
     content = JSON.stringify(JSON.parse(message.content as string), null, 2);
   } catch (e) {
@@ -233,18 +166,29 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
 
   return (
     <>
-      <ToolMessageContainer>
-        <Bubble>
-          <Header onClick={() => setExpanded((prev) => !prev)}>
-            <ExpandIcon expanded={expanded}>
+      <div className="flex items-start mb-2 px-9">
+        <div className="flex flex-col border border-2 cursor-pointer border-border text-foreground p-4 rounded-lg flex-1 cursor-pointer max-w-full">
+          <div
+            className="flex items-center"
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            <span
+              className="inline-block mr-2 transition-transform duration-200"
+              style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+            >
               <ChevronRight size={16} />
-            </ExpandIcon>
-            <CollapsedText>
+            </span>
+            <span className="text-sm flex align-middle">
               Результат выполнения инструмента{toolName}
-            </CollapsedText>
-          </Header>
+            </span>
+          </div>
 
-          <CodeContainer expanded={expanded}>
+          <div
+            className={[
+              "overflow-auto cursor-text transition-[max-height] duration-700 print:hidden",
+              expanded ? "max-h-[400px]" : "max-h-0",
+            ].join(" ")}
+          >
             <SyntaxHighlighter
               language="json"
               lineProps={{
@@ -256,48 +200,37 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
             >
               {content}
             </SyntaxHighlighter>
-          </CodeContainer>
-        </Bubble>
-      </ToolMessageContainer>
+          </div>
+        </div>
+      </div>
       {attachments.length > 0 && (
-        <AttachmentsContainer>
+        <div className="flex flex-col gap-3">
           {attachments.map((att: any) => {
             return (
-              <AttachmentLink
-                key={att["file_id"]}
+              <a
+                key={att["path"]}
                 href=""
                 onClick={(ev) => handleLinkClick(ev, att)}
+                className="px-9 ml-3 text-foreground text-xs underline"
               >
                 {
                   // @ts-ignore
-                  ATTACHMENT_TEXTS[att["type"] ?? "image/png"]
+                  ATTACHMENT_TEXTS[att["file_type"] ?? "image/png"]
                 }{" "}
-                {att["file_id"]}
-              </AttachmentLink>
+                {att["path"].split("/").at(-1)}
+              </a>
             );
           })}
-        </AttachmentsContainer>
+        </div>
       )}
       <OverlayPortal isVisible={!!file} onClose={() => setFile(null)}>
-        <OverlayBox>
+        <div className="bg-card rounded-lg p-2.5">
           {file ? (
-            <>
-              {file["type"] === "text/html" ? (
-                <HTMLPage id={file["file_id"]} fullScreen={true} />
-              ) : (
-                <>
-                  {file["type"] === "audio/mp3" ? (
-                    <AudioPlayer id={file["file_id"]} />
-                  ) : (
-                    <GraphImage id={file["file_id"]} />
-                  )}
-                </>
-              )}
-            </>
+            <MessageAttachment path={file["path"]} alt={""} fullScreen={true} />
           ) : (
             <></>
           )}
-        </OverlayBox>
+        </div>
       </OverlayPortal>
     </>
   );

@@ -4,17 +4,16 @@ import uuid
 from typing import Annotated
 
 from langchain_core.tools import tool
-from langgraph.constants import START, END
+from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 
-from giga_agent.agents.presentation_agent.config import PresentationState, ConfigSchema
+from giga_agent.agents.presentation_agent.config import ConfigSchema, PresentationState
 from giga_agent.agents.presentation_agent.nodes.images import image_node
 from giga_agent.agents.presentation_agent.nodes.plan import plan_node
 from giga_agent.agents.presentation_agent.nodes.slides import slides_node
-
 from giga_agent.settings import settings
 from giga_agent.utils.messages import filter_tool_calls
 
@@ -37,11 +36,14 @@ async def generate_presentation(
     presentation_task: str,
     state: Annotated[dict, InjectedState] = None,
 ):
-    """
-    Этот инструмент создает презентации. В task передай задачу для создания презентации.
+    """Этот инструмент создает презентации.
+    В task передай задачу для создания презентации.
+    Если ты хочешь передать график/изображение в task,
+    то передавай их в формате `attachment:<путь до вложения>`
 
     Args:
         presentation_task: Описание презентации
+
     """
     client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
@@ -75,17 +77,19 @@ async def generate_presentation(
                 },
             )
     code = state["presentation_html"]
-    for name, value in state.get("images_base_64", {}).items():
-        code = code.replace(name, f"data:image/jpeg;base64, {value}")
-    file_id = str(uuid.uuid4())
     return {
-        "message": f'В результате выполнения была сгенерирована HTML страница {file_id}. Покажи её пользователю через "![HTML-страница](html:{file_id})" и напиши куда двигаться пользователю дальше',
-        "giga_attachments": [{"type": "text/html", "file_id": file_id, "data": code}],
+        "message": (
+            f"В результате выполнения была сгенерирована HTML страница {code['path']}. "
+            f"Покажи её пользователю через "
+            f'"![alt-описание](attachment:{code["path"]})" '
+            f"и напиши куда двигаться пользователю дальше"
+        ),
+        "giga_attachments": [code],
     }
 
 
 async def main():
-    messages = json.load(open("data/messages.json", "r"))
+    messages = json.load(open("data/messages.json"))
     async for event in graph.astream(
         {"messages": messages},
         config={
@@ -93,7 +97,7 @@ async def main():
                 "thread_id": str(uuid.uuid4()),
                 "print_messages": True,
                 "save_files": True,
-            }
+            },
         },
     ):
         pass

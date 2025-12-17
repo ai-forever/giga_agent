@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional
+
 import httpx
 
 from giga_agent.generators.image.image_gen import ImageGen
@@ -39,24 +39,25 @@ class OpenAIImageGen(ImageGen):
     def __init__(
         self,
         model: str = "dall-e-3",
-        semaphore: Optional[asyncio.Semaphore] = None,
+        semaphore: asyncio.Semaphore | None = None,
         *,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
         timeout: float | None = 60.0,
         max_retries: int = 3,
     ) -> None:
         super().__init__(model=model, semaphore=semaphore)
-        self._api_key: Optional[str] = api_key or settings.providers.openai_api_key
+        self._api_key: str | None = api_key or settings.providers.openai_api_key
         self._base_url = base_url if base_url else "https://api.openai.com/v1"
         self._timeout = timeout
         self._max_retries = max_retries
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def init(self) -> None:
         if not self._api_key:
             raise ValueError(
-                "OPENAI_API_KEY is not set in the environment and was not provided to the constructor"
+                "OPENAI_API_KEY is not set in the environment and "
+                "was not provided to the constructor",
             )
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
@@ -117,7 +118,9 @@ class OpenAIImageGen(ImageGen):
 
     @staticmethod
     def _normalize_size_for_model(
-        model: str, width: int, height: int
+        model: str,
+        width: int,
+        height: int,
     ) -> tuple[int, int]:
         """Преобразует произвольные width×height к ближайшему поддерживаемому размеру.
 

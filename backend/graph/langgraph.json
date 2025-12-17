@@ -12,9 +12,6 @@
     "researcher": "./giga_agent/agents/researcher/graph.py:agent"
   },
   "env": ".env",
-  "http": {
-    "app": "./giga_agent/tasks_app.py:app"
-  },
   "dockerfile_lines": [
     "RUN apt-get update && apt-get install -y ffmpeg libavcodec-extra",
     "RUN apt-get install -y curl",

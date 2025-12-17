@@ -1,9 +1,9 @@
 import asyncio
-import base64
 import uuid
-from typing import Optional, Annotated
+from typing import Annotated
 
 from langchain_core.tools import tool
+from langgraph.config import RunnableConfig
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
@@ -12,55 +12,62 @@ from langgraph_sdk import get_client
 from pydub import AudioSegment
 
 from giga_agent.agents.podcast.config import (
-    PodcastState,
     ConfigSchema,
+    PodcastState,
     podcast_llm,
 )
 from giga_agent.agents.podcast.prompts import (
-    SYSTEM_PROMPT,
+    LANGUAGE_PROMPT,
     LENGTH_MODIFIERS,
+    QUESTION_MODIFIER,
+    SYSTEM_PROMPT,
     TONE_MODIFIER,
     TONE_MODIFIERS,
-    QUESTION_MODIFIER,
-    LANGUAGE_PROMPT,
 )
-from giga_agent.agents.podcast.schema import ShortDialogue, MediumDialogue
+from giga_agent.agents.podcast.schema import MediumDialogue, ShortDialogue
 from giga_agent.agents.podcast.tts_sber import (
     generate_podcast_audio,
     get_sber_tts_token,
 )
-from giga_agent.agents.podcast.utils import parse_url, generate_script
-from giga_agent.utils.lang import LANG
+from giga_agent.agents.podcast.utils import generate_script, parse_url
 from giga_agent.settings import settings
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
+from giga_agent.utils.lang import LANG
 from giga_agent.utils.messages import filter_tool_calls
 
 
 async def download_url(state: PodcastState):
     if state.get("url"):
         return {"podcast_text": await parse_url(state["url"])}
-    else:
-        return {"podcast_text": ""}
+    return {"podcast_text": ""}
 
 
 async def summarize_messages(state: PodcastState):
-    system = """Ты — продюсер подкастов мирового класса, задача которого — проанализировать переписку ниже, выделить все важные моменты для подкаста и выдать детальный текст с информацией, которую потом будут использовать для подкаста"""
-    human_mes = "Проанализируй переписку и дай детальную информацию которая пригодится для подкаста"
+    system = (
+        "Ты — продюсер подкастов мирового класса, задача которого — "
+        "проанализировать переписку ниже, выделить все важные моменты для подкаста и "
+        "выдать детальный текст с информацией, "
+        "которую потом будут использовать для подкаста"
+    )
+    human_mes = (
+        "Проанализируй переписку и дай детальную информацию "
+        "которая пригодится для подкаста"
+    )
     if state.get("use_messages"):
         resp = await podcast_llm.ainvoke(
             [
                 (
                     "system",
                     system,
-                )
+                ),
             ]
             + state["messages"]
-            + [("human", human_mes)]
+            + [("human", human_mes)],
         )
         return {
-            "podcast_text": state.get("podcast_text", "") + "\n---\n" + resp.content
+            "podcast_text": state.get("podcast_text", "") + "\n---\n" + resp.content,
         }
-    else:
-        return {}
+    return {}
 
 
 async def script(state: PodcastState):
@@ -79,16 +86,20 @@ async def script(state: PodcastState):
         modified_system_prompt += f"\n\n{LENGTH_MODIFIERS[state.get('length')]}"
     if state.get("length") == "short":
         llm_output = await generate_script(
-            modified_system_prompt, state.get("podcast_text"), ShortDialogue
+            modified_system_prompt,
+            state.get("podcast_text"),
+            ShortDialogue,
         )
     else:
         llm_output = await generate_script(
-            modified_system_prompt, state.get("podcast_text"), MediumDialogue
+            modified_system_prompt,
+            state.get("podcast_text"),
+            MediumDialogue,
         )
     return {"dialogue": llm_output}
 
 
-async def audio_gen(state: PodcastState):
+async def audio_gen(state: PodcastState, config: RunnableConfig):
     # Обрабатываем диалог
     audio_segments = []
     transcript = ""
@@ -106,18 +117,21 @@ async def audio_gen(state: PodcastState):
         sber_auth_token = settings.external.salute_speech
         salute_speech_scope = settings.external.salute_speech_scope
         salute_access_token = await get_sber_tts_token(
-            sber_auth_token, scope=salute_speech_scope
+            sber_auth_token,
+            scope=salute_speech_scope,
         )
         try:
             audio_data = await generate_podcast_audio(
-                line.text, salute_access_token, line.speaker
+                line.text,
+                salute_access_token,
+                line.speaker,
             )
             if audio_data is not None:
                 # Читаем аудио файл в AudioSegment
                 audio_segment = AudioSegment(audio_data)
                 audio_segments.append(audio_segment)
 
-        except Exception as e:
+        except Exception:
             # Создаем тишину вместо аудио при ошибке
             silence = AudioSegment.silent(duration=2000)  # 2 секунды тишины
             audio_segments.append(silence)
@@ -132,8 +146,21 @@ async def audio_gen(state: PodcastState):
     audio_file = await asyncio.to_thread(combined_audio.export, format="mp3")
     audio_bytes = await asyncio.to_thread(audio_file.read)
 
-    audio = base64.b64encode(audio_bytes).decode("ascii")
-    return {"audio": audio, "transcript": transcript}
+    uploader = REPLUploader()
+    upload_files = [
+        RunUploadFile(
+            path="podcast.mp3",
+            file_type="audio",
+            content=audio_bytes,
+        ),
+    ]
+    upload_resp = await uploader.upload_run_files(
+        upload_files,
+        config["configurable"]["thread_id"],
+    )
+    uploaded = upload_resp[0]
+
+    return {"audio": uploaded, "transcript": transcript}
 
 
 workflow = StateGraph(PodcastState, ConfigSchema)
@@ -155,17 +182,18 @@ graph = workflow.compile()
 
 @tool
 async def podcast_generate(
-    url: Optional[str] = None,
-    use_messages: Optional[bool] = None,
+    url: str | None = None,
+    use_messages: bool | None = None,
     state: Annotated[dict, InjectedState] = None,
 ):
-    """
-    Создает подкаст исходя из ссылки пользователя или вашей с ним переписки
-    Тебе обязательно нужно указать либо url, либо use_messages, либо url и use_messages для генерации подкаста
+    """Создает подкаст исходя из ссылки пользователя или вашей с ним переписки
+    Тебе обязательно нужно указать либо url,
+    либо use_messages, либо url и use_messages для генерации подкаста
 
     Args:
         url: Ссылка на страницу из которой будет создан подкаст
         use_messages: Использовать переписку с пользователем для генерации подкаста?
+
     """
     from giga_agent.settings import settings
 
@@ -174,7 +202,7 @@ async def podcast_generate(
     conf = {
         "configurable": {
             "thread_id": str(uuid.uuid4()),
-        }
+        },
     }
     push_ui_message(
         "agent_execution",
@@ -210,26 +238,29 @@ async def podcast_generate(
                     "node": list(chunk.data.keys())[0],
                 },
             )
-    file_id = str(uuid.uuid4())
     return {
         "transcript": state.get("transcript"),
-        "message": f'В результате выполнения было сгенерирован аудио-файл {file_id}. Покажи его пользователю через "![Аудио](audio:{file_id})" и напиши ответ с краткой информацией по подкасту',
-        "giga_attachments": [
-            {"type": "audio/mp3", "file_id": file_id, "data": state.get("audio")}
-        ],
+        "message": (
+            f"В результате выполнения было сгенерирован аудио-файл "
+            f"{state.get('audio')['path']}. "
+            f"Покажи его пользователю через "
+            f'"![alt-описание](attachment:{state.get("audio")["path"]})" '
+            f"и напиши ответ с краткой информацией по подкасту"
+        ),
+        "giga_attachments": [state.get("audio")],
     }
 
 
-async def main():
-    async for event in graph.astream(
-        {
-            "url": "https://habr.com/ru/companies/sberdevices/articles/890552/",
-            "length": "short",
-        },
-        config={"configurable": {"thread_id": str(uuid.uuid4())}},
-    ):
-        print(event)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# async def main():
+#     async for event in graph.astream(
+#         {
+#             "url": "https://habr.com/ru/companies/sberdevices/articles/890552/",
+#             "length": "short",
+#         },
+#         config={"configurable": {"thread_id": str(uuid.uuid4())}},
+#     ):
+#         print(event)
+#
+#
+# if __name__ == "__main__":
+#     asyncio.run(main())

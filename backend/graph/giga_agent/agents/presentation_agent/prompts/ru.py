@@ -60,14 +60,10 @@ IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     }
   ]
 }
-```""".replace(
-                "{", "{{"
-            ).replace(
-                "}", "}}"
-            ),
+```""".replace("{", "{{").replace("}", "}}"),
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 )
 
 FORMAT = """
@@ -107,7 +103,7 @@ PLAN_PROMPT = ChatPromptTemplate.from_messages(
             + FORMAT,
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 ).partial(language=LANG)
 
 SLIDE_PROMPT = ChatPromptTemplate.from_messages(
@@ -153,7 +149,7 @@ SLIDE_PROMPT = ChatPromptTemplate.from_messages(
 Обязательно вставляй через img с классом graph и data-src аттрибутом
 
 ```html
-<img class="graph" data-src="graph:id графика"/>
+<img class="graph" data-src="attachment:путь до вложения"/>
 ```
 
 ## Компоновка «текст ↔ график»
@@ -174,7 +170,7 @@ SLIDE_PROMPT = ChatPromptTemplate.from_messages(
     </div>
 
     <div class="right">
-      <img class="graph" data-src="graph:id графика"/>
+      <img class="graph" data-src="attachment:путь до вложения"/>
     </div>
   </div>
 </section>
@@ -205,11 +201,11 @@ SLIDE_PROMPT = ChatPromptTemplate.from_messages(
 #### 11. Чек-лист перед выводом
 
 * [ ] Контраст ≥ 4.5:1.
-* [ ] Уникальные `graph:id`.
+* [ ] Уникальные `attachment:путь до вложения`.
 * [ ] Валидный HTML, ≤ 120 символов в строке.
 
 """,
         ),
         MessagesPlaceholder("messages"),
-    ]
+    ],
 ).partial(language=LANG)

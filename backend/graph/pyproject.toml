@@ -36,8 +36,34 @@ dependencies = [
     "sqlalchemy>=2.0.42",
     "sqlmodel>=0.0.24",
     "typing-extensions>=4.14.1",
+    "websockets>=15.0.1",
     "deepagents==0.0.5",
     "pydantic-settings>=2.10.1",
+    "mem0ai>=1.0.1",
+]
+
+[dependency-groups]
+lint = [
+    "ruff>=0.13.1,<0.15.0",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle
+  "F",    # pyflakes
+  "I",    # isort
+  "T201", # print
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"**/prompts/**" = [
+    "E501", # Line too long
+]
+"**/tools/**" = [
+    "E501", # Line too long
+]
+"*.ipynb" = [
+    "T201"
 ]
 
 [build-system]

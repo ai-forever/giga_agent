@@ -17,8 +17,9 @@ export interface SelectedAttachmentsContextValue {
   setSelectedAttachments: (value: SelectedAttachmentsMap) => void;
 }
 
-const SelectedAttachmentsContext =
-  createContext<SelectedAttachmentsContextValue | undefined>(undefined);
+const SelectedAttachmentsContext = createContext<
+  SelectedAttachmentsContextValue | undefined
+>(undefined);
 
 export const useSelectedAttachments = (): SelectedAttachmentsContextValue => {
   const ctx = useContext(SelectedAttachmentsContext);
@@ -60,7 +61,13 @@ export const SelectedAttachmentsProvider: React.FC<
   const clear = useCallback(() => setSelectedAttachments({}), []);
 
   const value = useMemo<SelectedAttachmentsContextValue>(
-    () => ({ selected: selectedAttachments, toggle, isSelected, clear, setSelectedAttachments }),
+    () => ({
+      selected: selectedAttachments,
+      toggle,
+      isSelected,
+      clear,
+      setSelectedAttachments,
+    }),
     [selectedAttachments, toggle, isSelected, clear, setSelectedAttachments],
   );
 
@@ -72,5 +79,3 @@ export const SelectedAttachmentsProvider: React.FC<
 };
 
 export default SelectedAttachmentsContext;
-
-

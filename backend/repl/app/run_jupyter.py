@@ -35,9 +35,10 @@ async def async_run_code(
             dead_fut = loop.create_future()
 
             def restarting():
-                assert (
-                    False
-                ), "Restart shouldn't happen because config.KernelRestarter.restart_limit is expected to be set to 0"
+                assert False, (
+                    "Restart shouldn't happen because "
+                    "config.KernelRestarter.restart_limit is expected to be set to 0"
+                )
 
             def dead():
                 logger.info("Kernel has died, will NOT restart")
@@ -63,6 +64,32 @@ async def async_run_code(
             await asyncio.sleep(interrupt_after)
             await km.interrupt_kernel()
 
+        async def monitor_stdin_for_input_request(
+            kc: jupyter_client.AsyncKernelClient, input_needed_event: asyncio.Event
+        ):
+            """
+            Фоново слушает stdin-канал ядра и выставляет флаг, если ядро
+            запрашивает ввод пользователя (msg_type == 'input_request').
+            Не блокирует основной цикл чтения IOPub, так как работает в отдельном таске.
+            """
+            try:
+                while True:
+                    msg = await kc.get_stdin_msg()
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "STDIN MESSAGE: %s", json.dumps(msg, indent=2, default=str)
+                        )
+                    # Сообщение может иметь msg_type в корне или в header
+                    msg_type = msg.get("msg_type") or msg.get("header", {}).get(
+                        "msg_type"
+                    )
+                    if msg_type == "input_request":
+                        input_needed_event.set()
+                        return
+            except Exception:
+                # Любые ошибки stdin-листенера не должны валить выполнение
+                logger.debug("STDIN listener stopped", exc_info=True)
+
         async def run():
             kc = km.client()
             kc.start_channels()
@@ -72,10 +99,33 @@ async def async_run_code(
             error_traceback = None
             stream_text_list = []
             attachments = []
+            input_needed_event = asyncio.Event()
+            stdin_listener_task = asyncio.create_task(
+                monitor_stdin_for_input_request(kc, input_needed_event)
+            )
+            input_note_added = False
             while True:
-                message = await get_iopub_msg_with_death_detection(
-                    kc, timeout=iopub_timeout
+                # Параллельно ждём либо новое IOPub сообщение,
+                # либо сигнал о требуемом вводе
+                msg_task = asyncio.create_task(
+                    get_iopub_msg_with_death_detection(kc, timeout=iopub_timeout)
                 )
+                input_task = asyncio.create_task(input_needed_event.wait())
+                done, pending = await asyncio.wait(
+                    [msg_task, input_task], return_when=asyncio.FIRST_COMPLETED
+                )
+                if input_task in done and not input_note_added:
+                    # Быстро реагируем на запрос ввода
+                    error_traceback = (
+                        "Exception: Execute commands/code "
+                        "without interacting with user!\n"
+                    )
+                    input_note_added = True
+                    msg_task.cancel()
+                    break
+                # Иначе пришло IOPub сообщение
+                input_task.cancel()
+                message = await msg_task
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(json.dumps(message, indent=2, default=str))
                 assert message["parent_header"]["msg_id"] == msg_id
@@ -84,7 +134,6 @@ async def async_run_code(
                     if message["content"]["execution_state"] == "idle":
                         break
                 elif msg_type == "stream":
-                    stream_name = message["content"]["name"]
                     stream_text = message["content"]["text"]
                     stream_text_list.append(stream_text)
                 elif msg_type == "execute_result":
@@ -100,7 +149,10 @@ async def async_run_code(
                 else:
                     assert False, f"Unknown message_type: {msg_type}"
 
-            kc.stop_channels()
+            try:
+                stdin_listener_task.cancel()
+            finally:
+                kc.stop_channels()
 
             return (
                 "".join(stream_text_list) + execute_result.get("text/plain", ""),
@@ -225,7 +277,8 @@ class StatefulKernel:
         await self.start()
         # Обновить метку активности
         self.last_used = time.time()
-        # Переписать потенциально небезопасные команды установки pip в привязанные к ядру
+        # Переписать потенциально небезопасные команды
+        # установки pip в привязанные к ядру
         rewritten_code, contains_pip = self._rewrite_pip_commands(code)
 
         # Для pip-установок отключаем авто-интеррапт и увеличиваем таймауты

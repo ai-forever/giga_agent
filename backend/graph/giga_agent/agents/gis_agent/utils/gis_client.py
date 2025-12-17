@@ -1,9 +1,10 @@
 import json
-import asyncio
+from typing import TypedDict
+
 import httpx
-from typing import TypedDict, Optional, List
 from langchain_tavily import TavilySearch
 from markdownify import markdownify as md
+
 from giga_agent.settings import settings
 
 
@@ -21,8 +22,8 @@ class Location(TypedDict):
     address: str
     name: str
     tags: str
-    icon: Optional[str]
-    photos: List[str]
+    icon: str | None
+    photos: list[str]
     point: Point
     description: str
 
@@ -31,7 +32,7 @@ class Attraction(TypedDict):
     id: str
     name: str
     description: str
-    photos: List[str]
+    photos: list[str]
     point: Point
 
 
@@ -55,10 +56,7 @@ async def fetch_city_cords(city_name: str) -> Point:
         if response_code != 200:
             if response_code == 404:
                 raise GISException(f"City '{city_name}' not found")
-            else:
-                raise GISException(
-                    json.dumps(data["meta"]["error"], ensure_ascii=False)
-                )
+            raise GISException(json.dumps(data["meta"]["error"], ensure_ascii=False))
         return data["result"]["items"][0]["point"]
 
 
@@ -73,7 +71,10 @@ async def fetch_branches(q: str, point: Point, district_id=None):
         "page": 1,
         "sort": "rating",
         "key": settings.external.twogis_token,
-        "fields": "items.context,items.rubrics,items.external_content,items.attribute_groups,items.point",
+        "fields": (
+            "items.context,items.rubrics,items.external_content,"
+            "items.attribute_groups,items.point"
+        ),
         "location": f"{point['lon']},{point['lat']}",
         "point": f"{point['lon']},{point['lat']}",
     }
@@ -89,11 +90,8 @@ async def fetch_branches(q: str, point: Point, district_id=None):
         response_code = data["meta"]["code"]
         if response_code != 200:
             if response_code == 404:
-                raise GISException(f"Results not found")
-            else:
-                raise GISException(
-                    json.dumps(data["meta"]["error"], ensure_ascii=False)
-                )
+                raise GISException("Results not found")
+            raise GISException(json.dumps(data["meta"]["error"], ensure_ascii=False))
         for item in data["result"]["items"]:
             if item["name"] in names:
                 continue
@@ -123,7 +121,7 @@ async def fetch_branches(q: str, point: Point, district_id=None):
                     "photos": photos,
                     "point": item["point"],
                     "description": "",
-                }
+                },
             )
             names.append(item["name"])
     return result_items
@@ -139,7 +137,10 @@ async def fetch_attractions(point: Point):
         "sort": "rating",
         "page": 1,
         "key": settings.external.twogis_token,
-        "fields": "items.description,items.context,items.rubrics,items.external_content,items.attribute_groups,items.point",
+        "fields": (
+            "items.description,items.context,items.rubrics,"
+            "items.external_content,items.attribute_groups,items.point"
+        ),
         "point": f"{point['lon']},{point['lat']}",
     }
     headers = {}
@@ -151,11 +152,8 @@ async def fetch_attractions(point: Point):
         response_code = data["meta"]["code"]
         if response_code != 200:
             if response_code == 404:
-                raise GISException(f"Results not found")
-            else:
-                raise GISException(
-                    json.dumps(data["meta"]["error"], ensure_ascii=False)
-                )
+                raise GISException("Results not found")
+            raise GISException(json.dumps(data["meta"]["error"], ensure_ascii=False))
         for item in data["result"]["items"]:
             if not item.get("description"):
                 continue
@@ -173,31 +171,33 @@ async def fetch_attractions(point: Point):
                     "photos": photos,
                     "point": item["point"],
                     "description": md(item["description"]) + since,
-                }
+                },
             )
     return result_items
 
 
-async def location_to_description(location: Location, city: str) -> Optional[str]:
+async def location_to_description(location: Location, city: str) -> str | None:
     search = TavilySearch(
-        include_answer="advanced", tavily_api_key=settings.external.tavily_api_key
+        include_answer="advanced",
+        tavily_api_key=settings.external.tavily_api_key,
     )
+    query = f"{location['name']} номер телефона; {city}, {location['address']}"
     result = await search.ainvoke(
         {
-            "query": f"{location['name']} номер телефона; {city}, {location['address']}",
-        }
+            "query": query,
+        },
     )
     return result["answer"]
 
 
-if __name__ == "__main__":
-
-    async def main():
-        city = "мурино"
-        cords = await fetch_city_cords(city)
-        print(cords)
-        # branches = await fetch_branches("поесть", cords)
-        # attractions = await fetch_attractions(cords)
-        # print(await location_to_description(branches[0], city))
-
-    asyncio.run(main())
+# if __name__ == "__main__":
+#
+#     async def main():
+#         city = "мурино"
+#         cords = await fetch_city_cords(city)
+#         print(cords)
+#         # branches = await fetch_branches("поесть", cords)
+#         # attractions = await fetch_attractions(cords)
+#         # print(await location_to_description(branches[0], city))
+#
+#     asyncio.run(main())

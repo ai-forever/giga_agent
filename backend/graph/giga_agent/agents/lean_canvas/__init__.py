@@ -1,17 +1,21 @@
-from langchain_core.output_parsers import StrOutputParser
+from typing import Annotated, Literal, TypeAlias
+
+from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import tool
+from langchain_tavily import TavilySearch
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph.types import interrupt
+from langgraph.types import Command, interrupt
 from langgraph_sdk import get_client
-from typing_extensions import Annotated, TypedDict
+from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
 
 from giga_agent.settings import settings
+from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.llm import load_llm
-
 
 llm = load_llm().with_config(tags=["nostream"])
 
@@ -20,7 +24,8 @@ class LeanGraphState(TypedDict):
     main_task: Annotated[str, "Основная задача от пользователя"]
     competitors_analysis: Annotated[str, "Анализ конкурентов"]
     feedback: Annotated[
-        str, "Фидбек от пользователя. Обязательно учитывай его в своих ответах!"
+        str,
+        "Фидбек от пользователя. Обязательно учитывай его в своих ответах!",
     ]
 
     # Lean Canvas
@@ -32,23 +37,26 @@ class LeanGraphState(TypedDict):
     ]
     unique_value_proposition: Annotated[
         str,
-        "Единое, ясное и убедительное сообщение, объясняющее, почему вы отличаетесь от других и почему стоит покупать именно у вас.",
+        (
+            "Единое, ясное и убедительное сообщение, объясняющее, "
+            "почему вы отличаетесь от других и почему стоит покупать именно у вас."
+        ),
     ]
     unfair_advantage: Annotated[
-        str, "То, что конкуренты не могут легко скопировать или купить."
+        str,
+        "То, что конкуренты не могут легко скопировать или купить.",
     ]
     channels: Annotated[str, "Пути охвата ваших клиентских сегментов."]
     customer_segments: Annotated[
-        str, "Целевая аудитория или группы людей, которых вы пытаетесь охватить."
+        str,
+        "Целевая аудитория или группы людей, которых вы пытаетесь охватить.",
     ]
     cost_structure: Annotated[str, "Основные затраты, связанные с ведением бизнеса."]
     revenue_streams: Annotated[str, "Как бизнес будет зарабатывать деньги."]
 
 
 def state_to_string(state: LeanGraphState) -> str:
-    """
-    Преобразует состояние в строку для отображения.
-    """
+    """Преобразует состояние в строку для отображения."""
     result = []
     for field, annotation in LeanGraphState.__annotations__.items():
         value = state.get(field, "")
@@ -79,10 +87,10 @@ async def ask_llm(state: LeanGraphState, question: str, config: RunnableConfig) 
 
     Ответь на вопрос: {question}
     Отвечай коротко, не более 1-2 коротких предложений и обязательно учти фидбек от пользователя (feedback), если он задан. Оформи ответ в виде буллетов.
-    """
+    """  # noqa: E501
 
     prompt = ChatPromptTemplate.from_messages([("system", TEMPLATE)]).partial(
-        language=LANG
+        language=LANG,
     )
 
     chain = prompt | llm | StrOutputParser()
@@ -91,7 +99,7 @@ async def ask_llm(state: LeanGraphState, question: str, config: RunnableConfig) 
 
 async def customer_segments(state: LeanGraphState, config: RunnableConfig):
     return {
-        "customer_segments": await ask_llm(state, "Кто ваши целевые клиенты?", config)
+        "customer_segments": await ask_llm(state, "Кто ваши целевые клиенты?", config),
     }
 
 
@@ -102,62 +110,69 @@ async def problem(state: LeanGraphState, config: RunnableConfig):
 async def unique_value_proposition(state: LeanGraphState, config: RunnableConfig):
     return {
         "unique_value_proposition": await ask_llm(
-            state, "Какое уникальное предложение вы предлагаете?", config
-        )
+            state,
+            "Какое уникальное предложение вы предлагаете?",
+            config,
+        ),
     }
 
 
 async def solution(state: LeanGraphState, config: RunnableConfig):
     return {
         "solution": await ask_llm(
-            state, "Какое решение вы предлагаете для этой проблемы?", config
-        )
+            state,
+            "Какое решение вы предлагаете для этой проблемы?",
+            config,
+        ),
     }
 
 
 async def channels(state: LeanGraphState, config: RunnableConfig):
     return {
         "channels": await ask_llm(
-            state, "Какие каналы привлечения клиентов вы используете?", config
-        )
+            state,
+            "Какие каналы привлечения клиентов вы используете?",
+            config,
+        ),
     }
 
 
 async def revenue_streams(state: LeanGraphState, config: RunnableConfig):
     return {
         "revenue_streams": await ask_llm(
-            state, "Как вы планируете зарабатывать деньги?", config
-        )
+            state,
+            "Как вы планируете зарабатывать деньги?",
+            config,
+        ),
     }
 
 
 async def cost_structure(state: LeanGraphState, config: RunnableConfig):
     return {
-        "cost_structure": await ask_llm(state, "Какова структура ваших затрат?", config)
+        "cost_structure": await ask_llm(
+            state, "Какова структура ваших затрат?", config
+        ),
     }
 
 
 async def key_metrics(state: LeanGraphState, config: RunnableConfig):
     return {
         "key_metrics": await ask_llm(
-            state, "Какие ключевые показатели вы будете отслеживать?", config
-        )
+            state,
+            "Какие ключевые показатели вы будете отслеживать?",
+            config,
+        ),
     }
 
 
 async def unfair_advantage(state: LeanGraphState, config: RunnableConfig):
     return {
         "unfair_advantage": await ask_llm(
-            state, "Какое ваше конкурентное преимущество?", config
-        )
+            state,
+            "Какое ваше конкурентное преимущество?",
+            config,
+        ),
     }
-
-
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain_tavily import TavilySearch
-from langgraph.types import Command
-from pydantic import BaseModel, Field
-from typing_extensions import Literal
 
 
 class CompetitorsAnalysisResult(BaseModel):
@@ -165,7 +180,9 @@ class CompetitorsAnalysisResult(BaseModel):
 
     thoughts: str = Field(description="Мысли по поводу ответа")
     solution: str = Field(
-        description="Какие конкуренты существуют и чем они отличаются от вашего продукта"
+        description=(
+            "Какие конкуренты существуют и чем они отличаются от вашего продукта"
+        ),
     )
     is_unique: bool = Field(description="Уникально ли ваше предложение?")
 
@@ -189,11 +206,12 @@ COMPETITION_ANALYSIS_TEMPLATE = """Ты работаешь над таблице
 Язык пользователя: {language}.
 
 Выведи только следующую информацию в формате JSON:
-{format_instructions}"""
+{format_instructions}"""  # noqa: E501
 
 
 async def check_unique(
-    state: LeanGraphState, config: RunnableConfig
+    state: LeanGraphState,
+    config: RunnableConfig,
 ) -> Command[Literal["4_solution", "3_unique_value_proposition"]]:
     if config["configurable"].get("skip_search", False):
         # Если пропускаем поиск, то просто переходим к следующему шагу
@@ -201,11 +219,11 @@ async def check_unique(
 
     parser = PydanticOutputParser(pydantic_object=CompetitorsAnalysisResult)
     prompt = ChatPromptTemplate.from_messages(
-        [("system", COMPETITION_ANALYSIS_TEMPLATE)]
+        [("system", COMPETITION_ANALYSIS_TEMPLATE)],
     ).partial(format_instructions=parser.get_format_instructions(), language=LANG)
 
     search_results_text = await TavilySearch(
-        tavily_api_key=settings.external.tavily_api_key
+        tavily_api_key=settings.external.tavily_api_key,
     ).arun(state["unique_value_proposition"])
 
     chain = prompt | llm | parser
@@ -214,7 +232,7 @@ async def check_unique(
             "state": state_to_string(state),
             "unique_value_proposition": state["unique_value_proposition"],
             "search_results": search_results_text,
-        }
+        },
     )
 
     competitors_analysis = (
@@ -231,15 +249,12 @@ async def check_unique(
             update={"competitors_analysis": competitors_analysis.strip()},
             goto="4_solution",
         )
-    else:
-        # Если предложение не уникально, возвращаемся к шагу "3_unique_value_proposition"
-        return Command(
-            update={"competitors_analysis": competitors_analysis.strip()},
-            goto="3_unique_value_proposition",
-        )
+    # Если предложение не уникально, возвращаемся к шагу "3_unique_value_proposition"
+    return Command(
+        update={"competitors_analysis": competitors_analysis.strip()},
+        goto="3_unique_value_proposition",
+    )
 
-
-from typing import Literal, TypeAlias
 
 RedirectStep: TypeAlias = Literal[
     "1_customer_segments",
@@ -282,23 +297,27 @@ FEEDBACK_TEMPLATE = """Ты работаешь над таблицей Lean Canv
 Извлеки из него данные для дальнейшей работы. Если пользователь всем доволен или не говорит ничего конкретного, 
 то прими решение закончить генерацию (is_done = True).
 Выведи только следующую информацию в формате JSON:
-{format_instructions}"""
+{format_instructions}"""  # noqa: E501
 
 
 async def get_feedback(
-    state: LeanGraphState, config: RunnableConfig
+    state: LeanGraphState,
+    config: RunnableConfig,
 ) -> Command[RedirectStep]:
     if config["configurable"].get("need_interrupt"):
         feedback = interrupt(
-            """Пожалуйста, дайте обратную связь по Lean Canvas. Если все хорошо, напишите 'Хорошо'. 
-    Если нужно что-то изменить, напишите, что именно и с какого шага начать."""
+            "Пожалуйста, дайте обратную связь по Lean Canvas. "
+            "Если все хорошо, напишите 'Хорошо'. "
+            "Если нужно что-то изменить, напишите, "
+            "что именно и с какого шага начать.",
         )
     else:
         feedback = "Все хорошо!"
 
     parser = PydanticOutputParser(pydantic_object=UserFeedback)
     prompt = ChatPromptTemplate.from_messages([("system", FEEDBACK_TEMPLATE)]).partial(
-        format_instructions=parser.get_format_instructions(), language=LANG
+        format_instructions=parser.get_format_instructions(),
+        language=LANG,
     )
 
     chain = prompt | llm | parser
@@ -306,20 +325,17 @@ async def get_feedback(
         {
             "state": state_to_string(state),
             "feedback": feedback,
-        }
+        },
     )
 
     if res.is_done:
         return Command(update={}, goto=END)
-    else:
-        # Если предложение не уникально, возвращаемся к шагу "3_unique_value_proposition"
-        return Command(
-            update={"feedback": res.feedback},
-            goto=res.next_step,
-        )
+    # Если предложение не уникально, возвращаемся к шагу "3_unique_value_proposition"
+    return Command(
+        update={"feedback": res.feedback},
+        goto=res.next_step,
+    )
 
-
-from langgraph.checkpoint.memory import MemorySaver
 
 graph = StateGraph(LeanGraphState)
 
@@ -347,9 +363,6 @@ graph.add_edge("8_key_metrics", "9_unfair_advantage")
 graph.add_edge("9_unfair_advantage", "get_feedback")
 
 app = graph.compile()
-
-
-import uuid
 
 NEW_LINE = "\n"
 
@@ -479,7 +492,7 @@ def lean_canvas_to_html(state) -> str:
         </div>
 
     </div>
-    """
+    """  # noqa: E501
     return html
 
 
@@ -510,7 +523,7 @@ async def lean_canvas(
                 "thread_id": thread_id,
                 "need_interrupt": False,
                 "skip_search": False if settings.external.tavily_api_key else True,
-            }
+            },
         },
     ):
         if chunk.event == "values":
@@ -523,11 +536,26 @@ async def lean_canvas(
                     "node": list(chunk.data.keys())[0],
                 },
             )
-    file_id = str(uuid.uuid4())
     html = lean_canvas_to_html(state)
     text = lean_canvas_to_text(state)
+    uploader = REPLUploader()
+    upload_files = [
+        RunUploadFile(
+            path="lean_canvas.html",
+            file_type="html",
+            content=html,
+        ),
+    ]
+    upload_resp = await uploader.upload_run_files(upload_files, thread_id)
+    uploaded = upload_resp[0]
     return {
         "text": text,
-        "message": f'В результате выполнения была сгенерирована HTML страница {file_id}. Покажи её пользователю через "![HTML-страница](html:{file_id})" и напиши ответ с использованием текста lean canvas и куда двигаться пользователю дальше',
-        "giga_attachments": [{"type": "text/html", "file_id": file_id, "data": html}],
+        "message": (
+            f"В результате выполнения была сгенерирована HTML страница "
+            f"{uploaded['path']}. Покажи её пользователю через "
+            f'"![alt-описание](attachment:{uploaded["path"]})" и '
+            f"напиши ответ с использованием текста lean canvas и "
+            f"куда двигаться пользователю дальше"
+        ),
+        "giga_attachments": [uploaded],
     }

@@ -3,10 +3,8 @@ import { Message } from "@langchain/langgraph-sdk";
 import {
   AttachmentBubble,
   AttachmentsContainer,
-  CloseButton,
   EnlargedImage,
   ImagePreview,
-  Overlay,
 } from "./Attachments.tsx";
 import { FileData } from "../interfaces.ts";
 import OverlayPortal from "./OverlayPortal.tsx";
@@ -35,12 +33,12 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
             <AttachmentBubble
               key={idx}
               onClick={() =>
-                u.file_id
+                u.file_type === "image"
                   ? setEnlargedImage("/files/" + u.path)
                   : openLink("/files/" + u.path)
               }
             >
-              {u.file_id ? (
+              {u.file_type === "image" ? (
                 <ImagePreview src={"/files/" + u.path} />
               ) : (
                 <span>{u.path.replace("files/", "")}</span>

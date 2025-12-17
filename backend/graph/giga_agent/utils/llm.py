@@ -1,10 +1,13 @@
-from typing import Dict, Optional
+import asyncio
+from typing import Literal
 
+from gigachat.exceptions import ResponseError
 from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_gigachat import GigaChat, GigaChatEmbeddings
 
 from giga_agent.settings import settings
+from giga_agent.utils.types import FileTypes
 
 GIGACHAT_PROVIDER = "gigachat:"
 
@@ -65,8 +68,8 @@ def is_llm_gigachat(tag: str = None):
 
 
 # Singletons cache
-_LLM_SINGLETONS: Dict[str, object] = {}
-_EMBEDDINGS_SINGLETON: Optional[object] = None
+_LLM_SINGLETONS: dict[str, object] = {}
+_EMBEDDINGS_SINGLETON: object | None = None
 
 
 def load_llm(tag: str = None, is_main: bool = False):
@@ -110,3 +113,21 @@ def load_embeddings():
 def is_llm_image_inline():
     llm_str = settings.llm.giga_agent_llm
     return llm_str.startswith(GIGACHAT_PROVIDER)
+
+
+async def upload_file_with_retry(
+    file: FileTypes,
+    purpose: Literal["general", "assistant"] = "general",
+    retries=3,
+):
+    llm = load_llm()
+    retry = 0
+    while retry < retries:
+        try:
+            file = await llm.aupload_file(file, purpose)
+            return file.id_
+        except ResponseError as e:
+            if e.args[1] != 504:
+                raise e
+            retry += 1
+            await asyncio.sleep(0.5)

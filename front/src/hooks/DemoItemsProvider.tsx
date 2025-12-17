@@ -26,29 +26,31 @@ export const DemoItemsProvider = ({ children }: DemoItemsProps) => {
   const [demoItems, setDemoItems] = useState<DemoItem[]>([]);
   const [demoItemsLoaded, setDemoItemsLoaded] = useState(false);
   const updateItems = () => {
-    axios.get("/graph/tasks/").then((resp) => {
+    axios.get("/api/tasks/").then((resp) => {
       setDemoItems(resp.data);
       setDemoItemsLoaded(true);
     });
+    setDemoItems([]);
+    setDemoItemsLoaded(false);
   };
 
   useEffect(() => {
     updateItems();
   }, []);
   const addItem = () => {
-    axios.post("/graph/tasks/").then((resp) => {
+    axios.post("/api/tasks/").then((resp) => {
       setDemoItems([...demoItems, resp.data]);
     });
   };
 
   const removeItem = (id: string) => {
-    axios.delete(`/graph/tasks/${id}/`).then(() => {
+    axios.delete(`/api/tasks/${id}/`).then(() => {
       setDemoItems(demoItems.filter((item) => item.id !== id));
     });
   };
 
   const updateItem = (item: DemoItem) => {
-    axios.put(`/graph/tasks/${item.id}/`, item).then(() => {});
+    axios.put(`/api/tasks/${item.id}/`, item).then(() => {});
   };
 
   return (

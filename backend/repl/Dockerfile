@@ -7,6 +7,13 @@ ENV PYTHONUNBUFFERED 1
 COPY pyproject.toml /
 COPY uv.lock /
 
+# The installer requires curl (and certificates) to download the release archive
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+RUN apt-get install -y nodejs
+RUN npm install -g npm@latest
+
 ENV PYTHONFAULTHANDLER=1 \
   PYTHONUNBUFFERED=1 \
   PYTHONHASHSEED=random \
@@ -32,15 +39,15 @@ RUN uv sync --locked
 
 COPY ./app/ /app/
 
-COPY ./models/ /models/
-
 COPY ./__init__.py /
 
 RUN mkdir -p /mnt/
 
-RUN useradd -ms /bin/bash jupyter
-RUN chgrp -R jupyter /mnt/
-RUN chmod -R 777 /mnt/
+RUN useradd -ms /bin/bash jupyter \
+    && chgrp -R jupyter /mnt/ \
+    && chgrp -R jupyter /home/jupyter/ \
+    && chmod -R 777 /mnt/ \
+    && chmod -R 777 /home/jupyter/
 
 # Give the jupyter user ownership of the virtual environment and uv cache
 ENV UV_CACHE_DIR=/var/cache/uv

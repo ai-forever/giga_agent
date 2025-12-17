@@ -1,6 +1,6 @@
+import asyncio
 import os
-from operator import add
-from typing import Annotated, List, TypedDict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
@@ -21,63 +21,91 @@ from giga_agent.tools.github import (
     get_workflow_runs,
     list_pull_requests,
 )
+from giga_agent.tools.rag import get_documents, has_collections
 from giga_agent.tools.repl import shell
 from giga_agent.tools.scraper import get_urls
 from giga_agent.tools.vk import vk_get_comments, vk_get_last_comments, vk_get_posts
 from giga_agent.tools.weather import weather
-from giga_agent.utils.llm import load_llm
+from giga_agent.utils.llm import load_embeddings, load_llm
+from giga_agent.utils.types import Collection
 
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
 
 
+class Secret(TypedDict):
+    name: str
+    value: str
+    description: str | None
+
+
 class AgentState(TypedDict):  # noqa: D101
     messages: Annotated[list[AnyMessage], add_messages]
-    file_ids: Annotated[List[str], add]
     kernel_id: str
     tool_call_index: int
     tools: list
+    collections: list[Collection]
+    mcp_tools: list[dict[str, dict]]
+    instructions: str
+    secrets: list[Secret]
 
 
 llm = load_llm()
-
+emb = load_embeddings()
 if settings.features.repl_from_message:
     from giga_agent.tools.repl.message_tool import python
 else:
     from giga_agent.tools.repl.args_tool import python
 
 
-MCP_CONFIG = {}
+MCP_CONFIG = settings.llm.giga_agent_mcp_config
+
+TOOLS_REQUIRED_ENVS = {
+    gen_image.name: [settings.image_gen.image_gen_name],
+    get_urls.name: [settings.external.tavily_api_key],
+    search.name: [settings.external.tavily_api_key],
+    lean_canvas.name: [],
+    generate_presentation.name: [settings.image_gen.image_gen_name],
+    create_landing.name: [settings.image_gen.image_gen_name],
+    podcast_generate.name: [settings.external.salute_speech],
+    create_meme.name: [settings.image_gen.image_gen_name],
+    city_explore.name: [settings.external.twogis_token],
+    vk_get_posts.name: [settings.external.vk_token],
+    vk_get_comments.name: [settings.external.vk_token],
+    vk_get_last_comments.name: [settings.external.vk_token],
+    get_workflow_runs.name: [settings.external.github_personal_access_token],
+    list_pull_requests.name: [settings.external.github_personal_access_token],
+    get_pull_request.name: [settings.external.github_personal_access_token],
+    researcher_agent.name: [settings.external.tavily_api_key],
+    get_documents.name: [
+        settings.internal.langconnect_api_url,
+        settings.internal.langconnect_api_secret_token,
+    ],
+}
+
+TOOLS_AGENT_CHECKS = {get_documents.name: [has_collections]}
+
+
+async def run_checks(tool_name: str, state: AgentState):
+    for check in TOOLS_AGENT_CHECKS[tool_name]:
+        if callable(check) and not check(state):
+            return False
+        if asyncio.iscoroutinefunction(check) and not await check(state):
+            return False
+    return True
 
 
 def has_required_envs(tool) -> bool:
-    """Проверяет, что для `tool` установлены все обязательные переменные окружения."""
-    if tool.name == gen_image.name:
-        return bool(settings.image_gen.image_gen_name)
-    if tool.name in [get_urls.name, search.name, researcher_agent.name]:
-        return bool(settings.external.tavily_api_key)
-    if tool.name == generate_presentation.name:
-        return bool(settings.image_gen.image_gen_name)
-    if tool.name == create_landing.name:
-        return bool(settings.image_gen.image_gen_name)
-    if tool.name == podcast_generate.name:
-        return bool(settings.external.salute_speech)
-    if tool.name == create_meme.name:
-        return bool(settings.image_gen.image_gen_name)
-    if tool.name == city_explore.name:
-        return bool(settings.external.twogis_token)
-    if tool.name in [
-        vk_get_posts.name,
-        vk_get_comments.name,
-        vk_get_last_comments.name,
-    ]:
-        return bool(settings.external.vk_token)
-    if tool.name in [
-        get_workflow_runs.name,
-        list_pull_requests.name,
-        get_pull_request.name,
-    ]:
-        return bool(settings.external.github_personal_access_token)
+    """Проверяет, что для `tool` установлены все обязательные переменные окружения.
 
+    Если тул не указан в `TOOLS_REQUIRED_ENVS`, считаем, что у него нет обязательных
+    переменных окружения и включаем его.
+    """
+    required_env_names = TOOLS_REQUIRED_ENVS.get(tool.name)
+    if required_env_names is None:
+        return True
+    for env_name in required_env_names:
+        if not bool(env_name):
+            return False
     return True
 
 
@@ -86,33 +114,38 @@ def filter_tools_by_env(tools: list) -> list:
     return [tool for tool in tools if has_required_envs(tool)]
 
 
-SERVICE_TOOLS = [
-    weather,
-    # VK TOOLS
-    vk_get_posts,
-    vk_get_comments,
-    vk_get_last_comments,
-    # GITHUB TOOLS
-    get_workflow_runs,
-    list_pull_requests,
-    get_pull_request,
-]
+SERVICE_TOOLS = filter_tools_by_env(
+    [
+        get_documents,
+        weather,
+        # VK TOOLS
+        vk_get_posts,
+        vk_get_comments,
+        vk_get_last_comments,
+        # GITHUB TOOLS
+        get_workflow_runs,
+        list_pull_requests,
+        get_pull_request,
+    ],
+)
 
-AGENTS = [
-    ask_about_image,
-    gen_image,
-    get_urls,
-    search,
-    lean_canvas,
-    generate_presentation,
-    create_landing,
-    podcast_generate,
-    create_meme,
-    city_explore,
-    researcher_agent,
-]
+AGENTS = filter_tools_by_env(
+    [
+        ask_about_image,
+        gen_image,
+        get_urls,
+        search,
+        lean_canvas,
+        generate_presentation,
+        create_landing,
+        podcast_generate,
+        create_meme,
+        city_explore,
+        researcher_agent,
+    ],
+)
 
-TOOLS = filter_tools_by_env(
+TOOLS = (
     [
         # REPL
         python,
@@ -121,6 +154,7 @@ TOOLS = filter_tools_by_env(
     + AGENTS
     + SERVICE_TOOLS
 )
+
 
 REPL_TOOLS = [predict_sentiments, summarize, get_embeddings]
 

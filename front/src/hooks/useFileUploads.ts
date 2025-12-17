@@ -47,13 +47,16 @@ export function useFileUpload() {
       formData.append("file", file);
 
       axios
-        .post("/files/upload", formData, {
+        .post("/files/upload/", formData, {
           onUploadProgress: (event) => {
             const pct = event.progress || 0;
             setUploads((prev) => {
               const next = [...prev];
               if (next[idx])
-                next[idx] = { ...next[idx], progress: Math.min(Math.round(pct * 100), 95)};
+                next[idx] = {
+                  ...next[idx],
+                  progress: Math.min(Math.round(pct * 100), 95),
+                };
               return next;
             });
           },
@@ -86,7 +89,7 @@ export function useFileUpload() {
 
   const items: AttachmentItem[] = useMemo(() => {
     const mappedExisting: AttachmentItem[] = existingFiles.map((f) => {
-      const isImage = Boolean(f.file_id);
+      const isImage = Boolean(f.file_type === "image");
       return {
         kind: "existing",
         data: f,

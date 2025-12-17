@@ -1,11 +1,11 @@
-import asyncio
 import functools
 import json
-from typing import Any
 
 import aiohttp
 import requests
 from pydantic import BaseModel
+
+from app.settings import settings
 
 
 class ToolExecuteException(Exception):
@@ -17,21 +17,27 @@ class ToolNotFoundException(Exception):
 
 
 class ToolClient(BaseModel):
-    base_url: str
-    state: Any = {}
+    base_url: str = settings.tool_client_api
+    thread_id: str = ""
+    checkpoint_id: str = ""
 
-    def set_state(self, state):
-        self.state = state
+    def set_state_data(self, thread_id: str, checkpoint_id: str):
+        self.thread_id = thread_id
+        self.checkpoint_id = checkpoint_id
 
     async def aexecute(self, tool_name, kwargs):
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self.base_url}/{tool_name}",
-                json=kwargs,
+                json={
+                    "kwargs": kwargs,
+                    "thread_id": self.thread_id,
+                    "checkpoint_id": self.checkpoint_id,
+                },
                 timeout=600.0,
             ) as res:
                 if res.status == 200:
-                    data = (await res.json())['data']
+                    data = (await res.json())["data"]
                     try:
                         data = json.loads(data)
                     except Exception:
@@ -46,14 +52,20 @@ class ToolClient(BaseModel):
         url = f"{self.base_url}/{tool_name}"
         try:
             response = requests.post(
-                url, json={"kwargs": kwargs, "state": self.state}, timeout=600.0
+                url,
+                json={
+                    "kwargs": kwargs,
+                    "thread_id": self.thread_id,
+                    "checkpoint_id": self.checkpoint_id,
+                },
+                timeout=600.0,
             )
         except requests.RequestException as e:
             # Ошибка сети или таймаут
             raise ToolExecuteException(str(e))
 
         if response.status_code == 200:
-            data = response.json()['data']
+            data = response.json()["data"]
             try:
                 data = json.loads(data)
             except Exception:
@@ -86,7 +98,8 @@ class ToolClient(BaseModel):
         def wrapper(*args, **kwargs):
             if args:
                 raise TypeError(
-                    f"Tool method '{func.__name__}' принимает только именованные аргументы"
+                    f"Tool method '{func.__name__}' accepts "
+                    f"named keyword arguments only"
                 )
             # имя инструмента — само имя метода
             tool_name = func.__name__

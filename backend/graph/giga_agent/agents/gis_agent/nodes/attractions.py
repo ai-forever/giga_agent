@@ -4,8 +4,8 @@ from langchain_core.runnables import RunnableConfig
 
 from giga_agent.agents.gis_agent.config import MapState
 from giga_agent.agents.gis_agent.utils.gis_client import (
-    fetch_city_cords,
     fetch_attractions,
+    fetch_city_cords,
 )
 
 

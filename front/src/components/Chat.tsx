@@ -1,57 +1,30 @@
-import React, { useMemo } from "react";
-import styled from "styled-components";
+import React, { useCallback, useEffect, useState } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { useStream } from "@langchain/langgraph-sdk/react";
-import { PROGRESS_AGENTS } from "../config.ts";
 import { useStableMessages } from "../hooks/useStableMessages";
 import { GraphState } from "../interfaces";
 import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
+import type { UseStream } from "@langchain/langgraph-sdk/react";
 
-const ChatWrapper = styled.div`
-  width: 100%;
-  display: flex;
-  padding: 20px;
-  @media (max-width: 900px) {
-    padding: 0;
-    margin-top: 75px;
-  }
-`;
+interface ChatProps {
+  onThreadIdChange?: (threadId: string) => void;
+  onThreadReady?: (thread: UseStream<GraphState>) => void;
+}
 
-const ChatContainer = styled.div`
-  display: flex;
-  max-width: 900px;
-  margin: auto;
-  height: 100%;
-  flex-direction: column;
-  flex: 1;
-  background-color: #212121d9;
-  backdrop-filter: blur(20px);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 0 50px #00000075;
-  @media print {
-    overflow: visible;
-    box-shadow: none;
-    background-color: #1f1f1f;
-  }
-  @media (max-width: 900px) {
-    background-color: #1f1f1f;
-    box-shadow: none;
-  }
-`;
-
-const Chat: React.FC = () => {
+const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const thread = useStream<GraphState>({
     apiUrl: `${window.location.protocol}//${window.location.host}/graph`,
     assistantId: "chat",
     messagesKey: "messages",
+    reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
     onThreadId: (threadId: string) => {
+      onThreadIdChange?.(threadId);
       navigate(`/threads/${threadId}`);
     },
     onCustomEvent: (event, options) => {
@@ -62,37 +35,27 @@ const Chat: React.FC = () => {
       });
     },
   });
-  const agentProgress = useMemo(() => {
-    // @ts-ignore
-    const uis = (thread.values.ui ?? []).filter(
-      // @ts-ignore
-      (el) => el.name === "agent_execution",
-    );
-    if (uis.length) {
-      // @ts-ignore
-      const agent = PROGRESS_AGENTS[uis.at(-1).props.agent];
-      if (agent) {
-        return agent[uis.at(-1).props.node];
-      }
-      return null;
+
+  useEffect(() => {
+    onThreadReady?.(thread as unknown as UseStream<GraphState>);
+  }, [thread, onThreadReady]);
+
+  useEffect(() => {
+    if (threadId) {
+      onThreadIdChange?.(threadId);
     }
-    return null;
-  }, [thread.values.ui]);
+  }, [threadId, onThreadIdChange]);
 
   const stableMessages = useStableMessages(thread);
 
   return (
     <SelectedAttachmentsProvider>
-      <ChatWrapper>
-        <ChatContainer>
-          <MessageList
-            messages={stableMessages ?? []}
-            thread={thread}
-            progressAgent={agentProgress}
-          />
+      <div className="w-full flex p-5 max-[900px]:p-0 max-[900px]:mt-[75px]">
+        <div className="flex max-w-[900px] mx-auto h-full flex-col flex-1 bg-card text-card-foreground backdrop-blur-2xl rounded-lg overflow-hidden shadow-lg dark:shadow-2xl max-[900px]:shadow-none print:overflow-visible print:shadow-none dark:print:shadow-none">
+          <MessageList messages={stableMessages ?? []} thread={thread} />
           <InputArea thread={thread} />
-        </ChatContainer>
-      </ChatWrapper>
+        </div>
+      </div>
     </SelectedAttachmentsProvider>
   );
 };
