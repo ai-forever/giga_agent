@@ -117,21 +117,6 @@ SSH-ключ — это безопасный способ подключения
     ```bash
     newgrp docker
     ```
-3.  Создайте виртуальное окружение Python:
-    
-    ```bash
-    python3 -m venv venv
-    ```
-4.  Активируйте его:
-    
-    ```bash
-    source venv/bin/activate
-    ```
-5.  Установите `langgraph` и `langgraph-cli`:
-    
-    ```bash
-    pip install langgraph langgraph-cli
-    ```
 
 ### Шаг 5: Конфигурация и запуск агента
 
@@ -148,12 +133,12 @@ SSH-ключ — это безопасный способ подключения
 3.  Вернитесь в терминал с подключением к ВМ. Соберите граф проекта:
     
     ```bash
-    make build_graph
+    make build
     ```
-4.  Запустите все сервисы агента с помощью Docker Compose:
+4.  Запустите все сервисы агента с помощью
    
     ```bash
-    docker compose up -d
+    make up
     ```
 
 ### Шаг 6: Настройка сетевого доступа

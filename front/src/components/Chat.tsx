@@ -51,7 +51,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   return (
     <SelectedAttachmentsProvider>
       <div className="w-full flex p-5 max-[900px]:p-0 max-[900px]:mt-[75px]">
-        <div className="flex max-w-[900px] mx-auto h-full flex-col flex-1 bg-card text-card-foreground backdrop-blur-2xl rounded-lg overflow-hidden shadow-lg dark:shadow-2xl max-[900px]:shadow-none print:overflow-visible print:shadow-none">
+        <div className="flex max-w-[900px] mx-auto h-full flex-col flex-1 bg-card text-card-foreground backdrop-blur-2xl rounded-lg overflow-hidden shadow-lg dark:shadow-2xl max-[900px]:shadow-none print:overflow-visible print:shadow-none dark:print:shadow-none">
           <MessageList messages={stableMessages ?? []} thread={thread} />
           <InputArea thread={thread} />
         </div>

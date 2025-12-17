@@ -48,23 +48,18 @@ GigaAgent умеет:
 
 ## Быстрый старт
 
-Вы можете запустить GigaAgent как Docker-приложение или по отдельности инициализировать каждый из компонентов агента.
+Для запуска GigaAgent, вам потребуется Docker.
 
 > [!TIP]
 > Смотрите также подробные инструкции по запуску GigaAgent на Cloud.ru:
 > * [Руководство по установке](CLOUD_RU_SETUP.md)
+> * Видео ниже отличаются в деталях от новой схемы установки. Желательно следовать инструкции выше
 > * [RuTube видео на русском](https://rutube.ru/video/c9a416a654723f0b1df23424bd3d9b4d/)
 > * [YouTube видео на русском](https://youtu.be/tyeXgCJ090Y?si=WcbITF3DiTo_aBUF)
 
 ### Запуск в Docker
 
 Перед запуском в Docker:
-
-* Установите [LangGraph CLI](https://pypi.org/project/langgraph-cli/):
-
-   ```sh
-   pip install langgraph-cli
-   ```
 
 * Скопируйте мок-данные в папку `files` в корне проекта:
 
@@ -81,69 +76,20 @@ GigaAgent умеет:
 2. Соберите Docker-образ сервера LangGraph:
    
    ```sh
-   make build_graph
+   make build
    ```
 3. Запустите приложение:
 
    ```sh
-   docker compose up -d
+   make up
    ```
-
-   Для запуска контейнера с LangGraph-сервером может понадобиться API-ключ для доступа к LangSmith
 
 Приложение будет доступно в браузере по адресу `http://localhost:8502`
 
 Чтобы применить изменения после обновления репозитория:
 
 1. Остановите приложение
-2. Повторно выполните шаги инструкции
-
-### Локальный запуск отдельных компонентов
-
-Перед запуском:
-
-* Убедитесь, что у вас свободны порты 2024, 8811, 9090, 9092, 3000
-* [Установите менеджер пакетов uv](https://docs.astral.sh/uv/getting-started/installation/)
-* [Установите менеджер пакетов npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
-* Скопируйте мок-данные в папку `files` в корне проекта:
-
-  ```sh
-  make init_files
-  ```
-
-Чтобы локально запустить компоненты GigaAgent: 
-
-1. В корне проекта заполните файл `.env` с переменными окружения
-
-   Примеры заполнения `.env` — в папке [`env_examples`](env_examples/README.md)
-
-2. Запустите REPL-среду и Upload Server:
-
-   ```sh
-   cd backend/repl
-   uv sync
-   make run
-   make run_u
-   ```
-
-4. Запустите ToolServer и сервер LangGraph:
-
-   ```sh
-   cd backend/graph
-   uv sync
-   make run_tool_server
-   make run_graph
-   ```
-
-5. Запустите фронтенд приложения:
-
-   ```sh
-   cd front
-   npm install
-   make dev
-   ```
-
-Приложение будет доступно в браузере
+2. Повторно выполните комманды `make build` и `make up`
 
 ## Настройка параметров
 
@@ -262,20 +208,40 @@ https://developers.sber.ru/portal/products/smartspeech
 https://openweathermap.org/api/one-call-3
 
 ## Добавление MCP тулов
-> На данный момент реализована базовая поддержка MCP (некоторые серверы могут не поддерживаться или работать частично).
+К GigaAgent можно подключить MCP-тулы из браузера, если они RemoteMCP или MCP, которые хостятся локально.
+Пример MCP Gateway сервера поднятого локально можно посмотреть [здесь](https://github.com/Mikelarg/giga_agent_mcp_example)
 
-Для подключения MCP сервера добавьте его конфигурацию в файл `backend/graph/giga_agent/config.py` в словарь `MCP_CONFIG`. 
+Также можно включить MCP сервера через ENV-переменную **GIGA_AGENT_MCP_CONFIG**
 
-Пример подключения MCP-сервера [apple-shortcuts](https://github.com/recursechat/mcp-server-apple-shortcuts), который дает агенту доступ к базе данных автомобилей и функции расчета транспортного налога (учебный пример).
-```python
-MCP_CONFIG = {
-    "giga_tools": {
-        "transport": "stdio",
-        "command": "npx",
-        "args": ["-y", "mcp-remote@latest", "https://gigachat.fastmcp.app/mcp"]
-    }
-}
+Пример заполнения ENV переменной
 ```
+GIGA_AGENT_MCP_CONFIG='{"giga_tools": {"transport": "stdio", "command": "npx", "args": ["-y", "mcp-remote@latest", "https://gigachat.fastmcp.app/mcp"]}}'
+```
+
+## Добавление RAG базы знаний
+Для подключения базы знаний нужно развернуть дополнительно [этот проект](https://github.com/Mikelarg/giga_agent_langconnect)
+И заполнить следующие ENV-переменные в `.env` файле. (ниже пример langconnect, который хостится локально)
+```
+LANGCONNECT_API_URL=http://host.docker.internal:8833
+LANGCONNECT_API_SECRET_TOKEN=123
+```
+
+**Важно!**
+
+Если LangConnect хостится локально и вы поднимаете GigaAgent через `make build` и `make up`, тогда в файл [docker-compose.yml](docker-compose.yml)
+нужно добавить следующие YAML параметры к контейнерам `langgraph-api` и `tool_server`
+```yaml
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+```
+Также нужно запускать снова `make build` и `make up`.
+
+При поднятии через `make build_dev` и `make up_dev` этого делать не нужно, так как эти параметры уже добавлены в [docker-compose.dev.yml](docker-compose.dev.yml).
+
+## Режим разработчика
+Чтобы поднять проект в режиме hot-reload (когда вы меняете код проекта локально и docker подгружает их сразу в свою среду) выполните следующие комманды:
+* `make build_dev`
+* `make up_dev`
 
 ## Архитектура проекта
 
@@ -292,14 +258,16 @@ MCP_CONFIG = {
 
 У нас много планов, но мы также будем рады вашим PR и Issues!
 
+- [*] Перенести настройку агента с ENV переменных в единый понятный config файл
+- [*] Поддержка MCP
+- [*] Поддержка RAG базы знаний
+- [*] Добавить память
+- [*] Перевод с проприетарной LangGraphPlatform API на Open-Source Aegra
 - [ ] Перевод документации / примеров
-- [ ] Поддержка MCP на уровне субагентов
 - [ ] Оптимизировать генерацию изображений в агенте презентаций, лендингов
 - [ ] Добавить историю чатов
-- [x] Перенести настройку агента с ENV переменных в единый понятный config файл
 - [ ] Вынести наименование агентов и узлов их выполнения в бэкенд из файла [config.ts](front/src/config.ts)
 - [ ] Добавить поддержку разных провайдеров синтеза речи (OpenAI, ElevenLabs)
-- [ ] Добавить память
 - [ ] Добавить авторизацию
 - [ ] Тесты
 - [ ] Сделать локализацию интерфейса + (возможно промптов)
