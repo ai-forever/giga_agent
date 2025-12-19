@@ -1,7 +1,7 @@
 import { Message } from "@langchain/langgraph-sdk";
 import { Collection } from "@/types/collection.ts";
 
-import { Tool } from "mcp-use/react";
+import type { Tool } from "@modelcontextprotocol/sdk/types.d.ts";
 
 export type Secret = {
   name: string;
