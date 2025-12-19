@@ -2,7 +2,7 @@ from typing import Annotated
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from langgraph.prebuilt import InjectedState
+from langchain.tools import InjectedState
 
 from giga_agent.tools.python import ExecuteTool
 

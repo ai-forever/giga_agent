@@ -5,7 +5,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 from langchain_tavily import TavilyExtract
-from langgraph.prebuilt import InjectedState
+from langchain.tools import InjectedState
 
 from giga_agent.utils.llm import is_llm_gigachat, load_llm
 from giga_agent.utils.messages import filter_tool_calls

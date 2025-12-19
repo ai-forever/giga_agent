@@ -172,32 +172,29 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     async (type: "comment" | "approve") => {
       if (
         thread?.interrupt?.value?.type === "tool_call" &&
-        thread?.interrupt?.value?.args &&
-        thread?.interrupt?.value?.tool_name &&
+        thread?.interrupt?.value?.tools &&
         !message
       ) {
-        const tool = mcpTools.find(
-          (t) => t.name === thread.interrupt?.value?.tool_name,
+        const mcpToolMap = Object.fromEntries(
+          mcpTools.map((tool) => [tool.name, tool]),
         );
-        if (tool) {
+        const toolCalls = thread?.interrupt?.value?.tools;
+        if (toolCalls) {
           setIsMCPLoading(true);
-          tool
-            .callTool(thread.interrupt.value.args)
-            .then((result) => {
-              void handleContinueThread({ type, result });
-            })
-            // @ts-ignore
-            .catch((reason) => {
-              void handleContinueThread({
-                type: "comment",
-                message:
-                  "Не удалось подключиться к MCP. Попроси пользователя проверить подключение " +
-                  (reason ? reason : ""),
-              });
-            })
-            .finally(() => {
-              setIsMCPLoading(false);
-            });
+          const promises = toolCalls.map((call) =>
+            mcpToolMap[call.name].callTool(call.args),
+          );
+          const results = await Promise.all(
+            promises.map((p) => p.catch((e) => e)),
+          );
+          void handleContinueThread({
+            type,
+            results: results.map((result, index) => ({
+              result,
+              id: toolCalls[index].id,
+            })),
+          });
+          setIsMCPLoading(false);
         } else {
           void handleContinueThread({
             type: "comment",

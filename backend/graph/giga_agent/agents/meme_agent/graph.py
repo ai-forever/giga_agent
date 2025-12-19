@@ -1,13 +1,12 @@
 import asyncio
 import base64
 import uuid
-from typing import Annotated
 
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 
 from giga_agent.agents.meme_agent.config import ConfigSchema, MemeState
@@ -28,10 +27,7 @@ graph = workflow.compile()
 
 
 @tool
-async def create_meme(
-    task: str,
-    state: Annotated[dict, InjectedState] = None,
-):
+async def create_meme(task: str, runtime: ToolRuntime):
     """Создает мем. Если пользователю нужно создать мем, вызывай этот инструмент
 
     Args:
@@ -40,20 +36,24 @@ async def create_meme(
     """
     from giga_agent.settings import settings
 
-    last_mes = filter_tool_calls(state["messages"][-1])
+    last_mes = filter_tool_calls(runtime.state["messages"][-1])
     client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(
         "agent_execution",
-        {"agent": "create_meme", "node": "__start__"},
+        {
+            "agent": "create_meme",
+            "node": "__start__",
+            "tool_call_id": runtime.tool_call_id,
+        },
     )
     async for chunk in client.runs.stream(
         thread_id=thread_id,
         assistant_id="meme",
         input={
             "task": task,
-            "messages": state["messages"][:-1]
+            "messages": runtime.state["messages"][:-1]
             + [
                 last_mes,
                 (
@@ -74,6 +74,7 @@ async def create_meme(
                 {
                     "agent": "create_meme",
                     "node": list(chunk.data.keys())[0],
+                    "tool_call_id": runtime.tool_call_id,
                 },
             )
     return {

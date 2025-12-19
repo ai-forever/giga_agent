@@ -1,7 +1,7 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import Chat from "./components/Chat";
 import { SettingsProvider } from "./components/Settings.tsx";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import Sidebar from "./components/Sidebar.tsx";
 import DemoSettings from "./components/demo/DemoSettings.tsx";
 import { DemoItemsProvider, useDemoItems } from "./hooks/DemoItemsProvider.tsx";
@@ -16,11 +16,20 @@ import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 
 const InnerApp: React.FC = () => {
+  const location = useLocation();
+  const prevPathRef = useRef(location.pathname);
   const { demoItemsLoaded } = useDemoItems();
   // Можно использовать булево или просто число-счётчик
   const [reloadKey, setReloadKey] = useState(0);
   const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
   const currentThreadRef = useRef<UseStream<GraphState> | null>(null);
+
+  useEffect(() => {
+    if (location.pathname === "/" && prevPathRef.current !== "/") {
+      setReloadKey((prev) => prev + 1);
+    }
+    prevPathRef.current = location.pathname;
+  }, [location.pathname]);
 
   // эта функция будет прокидываться в SidebarComponent
   const handleNavigateAndReload = () => {

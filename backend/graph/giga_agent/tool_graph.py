@@ -1,20 +1,24 @@
 import asyncio
+import collections
 import copy
 import json
 import re
 import traceback
+import uuid
 from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 
 from genson import SchemaBuilder
+from langchain.tools import ToolRuntime
 from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langgraph.config import RunnableConfig
 from langgraph.graph import StateGraph
-from langgraph.prebuilt.tool_node import ToolNode, _handle_tool_error
+from langgraph.prebuilt.tool_node import _handle_tool_error
+from langgraph.runtime import Runtime
 from langgraph.types import interrupt
 
 from giga_agent.config import (
@@ -37,6 +41,7 @@ from giga_agent.utils.jupyter import JupyterClient, prepend_code
 from giga_agent.utils.lang import LANG
 from giga_agent.utils.mcp import process_mcp_content
 from giga_agent.utils.memory import format_memories, get_memory
+from giga_agent.utils.tools import inject_tool_args
 
 llm = load_llm(is_main=True)
 
@@ -239,9 +244,7 @@ async def agent(state: AgentState):
         )
         for tool in state.get("mcp_tools", [])
     ]
-    ch = (
-        prompt | llm.bind_tools(state["tools"] + mcp_tools, parallel_tool_calls=False)
-    ).with_retry()
+    ch = (prompt | llm.bind_tools(state["tools"] + mcp_tools)).with_retry()
     message = await ch.ainvoke(
         {
             "messages": state["messages"],
@@ -252,152 +255,224 @@ async def agent(state: AgentState):
     )
     message.additional_kwargs.pop("function_call", None)
     message.additional_kwargs["rendered"] = True
+    for call in message.tool_calls:
+        # Проставляем ID вызовов тулов, если их нет, как в гиге
+        call.setdefault("id", str(uuid.uuid4()))
     return {"messages": [message]}
 
 
-async def tool_call(state: AgentState, config: RunnableConfig):
-    action = copy.deepcopy(state["messages"][-1].tool_calls[0])
-    is_frontend_tool = False
-    for tool in state.get("mcp_tools", []):
-        if tool.get("name") == action.get("name"):
-            is_frontend_tool = True
-            break
-    if is_frontend_tool:
+async def process_tool_result(
+    state, result, action, tool_attachments, tool_call_index, message=""
+):
+    if result:
+        add_data = {
+            "data": result,
+            "message": message
+            + (
+                f"Результат функции сохранен в переменную "
+                f"`function_results[{tool_call_index}]['data']` "
+            ),
+        }
+        await client.execute(
+            state.get("kernel_id"),
+            f"function_results.append({add_data!r})",
+        )
+        if (
+            len(json.dumps(result, ensure_ascii=False)) > 10000 * 4
+            and action.get("name") not in AGENT_MAP
+        ):
+            schema = SchemaBuilder()
+            schema.add_object(obj=add_data.pop("data"))
+            add_data["message"] += (
+                "Результат функции вышел слишком длинным изучи результат функции в "
+                "переменной с помощью python. Схема данных:\n"
+            )
+            add_data["schema"] = schema.to_schema()
+        if action.get("name") == "get_urls":
+            add_data["message"] += result.pop("attention")
+    else:
+        if message:
+            result = {"result": result, "message": message}
+        add_data = result
+    return ToolMessage(
+        tool_call_id=action.get("id"),
+        content=json.dumps(add_data, ensure_ascii=False),
+        additional_kwargs={
+            "tool_attachments": tool_attachments,
+            "tool_name": action.get("name"),
+        },
+    )
+
+
+async def tool_call(state: AgentState, config: RunnableConfig, runtime: Runtime):
+    actions = copy.deepcopy(state["messages"][-1].tool_calls)
+    action_map = {action.get("id"): action for action in actions}
+    mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]
+    frontend_actions = [
+        action for action in actions if action.get("name") in mcp_tool_names
+    ]
+    backend_actions = [
+        action for action in actions if action.get("name") not in mcp_tool_names
+    ]
+    if frontend_actions:
         value = interrupt(
             {
                 "type": "tool_call",
-                "tool_name": action.get("name"),
-                "args": action.get("args"),
+                "tools": frontend_actions,
             },
         )
     else:
         value = interrupt({"type": "approve"})
-    tool_client = ToolClient()
     if value.get("type") == "comment":
-        return {
-            "messages": ToolMessage(
+        tool_message = (
+            f"Пользователь оставил комментарий к твоему вызову инструмента. "
+            f'Прочитай его и реши, как действовать дальше: "{value.get("message")}"'
+        )
+        tools_response = [
+            ToolMessage(
                 tool_call_id=action.get("id", str(uuid4())),
                 content=json.dumps(
                     {
-                        "message": (
-                            f"Пользователь оставил комментарий к твоему вызову инструмента. "  # noqa: E501
-                            f'Прочитай его и реши, как действовать дальше: "{value.get("message")}"'  # noqa: E501
-                        ),
+                        "message": tool_message,
                     },
                     ensure_ascii=False,
                 ),
-            ),
+                additional_kwargs={"tool_name": action.get("name")},
+            )
+            for action in actions
+        ]
+        return {
+            "messages": tools_response,
         }
+
+    tool_client = ToolClient()
+    tool_client.set_state_data(
+        config["metadata"]["thread_id"],
+        config["metadata"]["checkpoint_id"],
+    )
     tool_call_index = state.get("tool_call_index", -1)
-    if action.get("name") == "python" and not is_frontend_tool:
-        if settings.features.repl_from_message:
-            action["args"]["code"] = get_code_arg(state["messages"][-1].content)
-        else:
-            # На случай если гига отправить в аргумент ```python(.+)``` строку
-            code_arg = get_code_arg(action["args"].get("code"))
-            if code_arg:
-                action["args"]["code"] = code_arg
-        if "code" not in action["args"] or not action["args"]["code"]:
-            return {
-                "messages": ToolMessage(
-                    tool_call_id=action.get("id", str(uuid4())),
-                    content=json.dumps(
-                        {"message": "Напиши код в своем сообщении!"},
-                        ensure_ascii=False,
+    tool_responses = []
+    if frontend_actions:
+        for result in value.get("results", []):
+            data, tool_attachments, message = await process_mcp_content(
+                result.get("result", {}).get("content", {}),
+                config["metadata"]["thread_id"],
+            )
+            tool_call_index += 1
+            tool_responses.append(
+                await process_tool_result(
+                    state,
+                    data,
+                    action_map[result.get("id")],
+                    tool_attachments,
+                    tool_call_index,
+                    message,
+                )
+            )
+    tool_tasks = {}
+    python_tasks = collections.OrderedDict()
+    for action in backend_actions:
+        if action.get("name") == "python":
+            if settings.features.repl_from_message:
+                action["args"]["code"] = get_code_arg(state["messages"][-1].content)
+            else:
+                # На случай если гига отправить в аргумент ```python(.+)``` строку
+                code_arg = get_code_arg(action["args"].get("code"))
+                if code_arg:
+                    action["args"]["code"] = code_arg
+            if "code" not in action["args"] or not action["args"]["code"]:
+                tool_responses.append(
+                    ToolMessage(
+                        tool_call_id=action.get("id"),
+                        content=json.dumps(
+                            {"message": "Напиши код в своем сообщении!"},
+                            ensure_ascii=False,
+                        ),
+                        additional_kwargs={"tool_name": action.get("name")},
                     ),
-                ),
-            }
-        action["args"]["code"] = prepend_code(
-            action["args"]["code"],
-            state,
-            config["metadata"]["thread_id"],
-            config["metadata"]["checkpoint_id"],
-        )
-    try:
-        tool_attachments = []
-        if not is_frontend_tool:
-            message = ""
-            state_ = copy.deepcopy(state)
-            state_.pop("messages")
-            tool_client.set_state_data(
+                )
+                continue
+            action["args"]["code"] = prepend_code(
+                action["args"]["code"],
+                state,
                 config["metadata"]["thread_id"],
                 config["metadata"]["checkpoint_id"],
             )
-            if action.get("name") not in AGENT_MAP:
-                result = await tool_client.aexecute(
-                    action.get("name"),
-                    action.get("args"),
+        tasks = tool_tasks
+        if action.get("name") == "python":
+            tasks = python_tasks
+        if action.get("name") not in AGENT_MAP:
+            tasks[action.get("id")] = tool_client.aexecute(
+                action.get("name"),
+                action.get("args"),
+            )
+        else:
+            injected_args = inject_tool_args(
+                AGENT_MAP[action.get("name")],
+                action,
+                ToolRuntime(
+                    state=state,
+                    tool_call_id=action.get("id"),
+                    config=config,
+                    context=runtime.context,
+                    store=runtime.store,
+                    stream_writer=runtime.stream_writer,
+                ),
+            )["args"]
+            tasks[action.get("id")] = AGENT_MAP[action.get("name")].ainvoke(
+                injected_args
+            )
+    results = await asyncio.gather(*tool_tasks.values(), return_exceptions=True)
+    # Задачи на python выполняем последовательно
+    if python_tasks:
+        for action_id, task in python_tasks.items():
+            try:
+                results.append(await task)
+            except Exception as e:
+                results.append(e)
+            if settings.features.repl_from_message:
+                break
+        # Если мы выполняем код из сообщения (что вообще странно),
+        # то мы выполняем тул только один раз
+        if settings.features.repl_from_message:
+            results += [{"message": "Смотри результат первого тула python"}] * (
+                len(python_tasks.keys()) - 1
+            )
+    for result, action_id in zip(
+        results, list(tool_tasks.keys()) + list(python_tasks.keys())
+    ):
+        action = action_map[action_id]
+        if isinstance(result, Exception):
+            tool_responses.append(
+                ToolMessage(
+                    tool_call_id=action.get("id"),
+                    content=_handle_tool_error(result, flag=True),
+                    additional_kwargs={"tool_name": action.get("name")},
+                    status="error",
                 )
-            else:
-                tool_node = ToolNode(tools=list(AGENT_MAP.values()))
-                injected_args = tool_node.inject_tool_args(
-                    {
-                        "name": action.get("name"),
-                        "args": action.get("args"),
-                        "id": "123",
-                    },
-                    state,
-                    None,
-                )["args"]
-                result = await AGENT_MAP[action.get("name")].ainvoke(injected_args)
+            )
+        else:
             try:
                 result = json.loads(result)
             except Exception:
                 pass
-        else:
-            result, tool_attachments, message = await process_mcp_content(
-                value.get("result", {}).get("content", {}),
-                config["metadata"]["thread_id"],
-            )
-        tool_call_index += 1
-
-        if result:
-            add_data = {
-                "data": result,
-                "message": message
-                + (
-                    f"Результат функции сохранен в переменную "
-                    f"`function_results[{tool_call_index}]['data']` "
-                ),
-            }
-            await client.execute(
-                state.get("kernel_id"),
-                f"function_results.append({add_data!r})",
-            )
-            if (
-                len(json.dumps(result, ensure_ascii=False)) > 10000 * 4
-                and action.get("name") not in AGENT_MAP
-            ):
-                schema = SchemaBuilder()
-                schema.add_object(obj=add_data.pop("data"))
-                add_data["message"] += (
-                    "Результат функции вышел слишком длинным изучи результат функции в "
-                    "переменной с помощью python. Схема данных:\n"
+            tool_call_index += 1
+            tool_responses.append(
+                await process_tool_result(
+                    state,
+                    result,
+                    action,
+                    (
+                        result.pop("giga_attachments") or []
+                        if isinstance(result, dict)
+                        else []
+                    ),
+                    tool_call_index,
                 )
-                add_data["schema"] = schema.to_schema()
-            if action.get("name") == "get_urls":
-                add_data["message"] += result.pop("attention")
-        else:
-            if message:
-                result = {"result": result, "message": message}
-            add_data = result
-        if isinstance(result, dict) and "giga_attachments" in result:
-            add_data = result
-            tool_attachments = result.pop("giga_attachments")
-        message = ToolMessage(
-            tool_call_id=action.get("id", str(uuid4())),
-            content=json.dumps(add_data, ensure_ascii=False),
-            additional_kwargs={"tool_attachments": tool_attachments},
-        )
-    except Exception as e:
-        traceback.print_exc()
-        message = ToolMessage(
-            tool_call_id=action.get("id", str(uuid4())),
-            content=_handle_tool_error(e, flag=True),
-        )
+            )
 
     return {
-        "messages": [message],
+        "messages": tool_responses,
         "tool_call_index": tool_call_index,
     }
 
