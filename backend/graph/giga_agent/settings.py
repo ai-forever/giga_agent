@@ -44,30 +44,6 @@ class ProviderSettings(BaseSettings):
     # LangSmith
     langsmith_api_key: str | None = Field(default=None)
 
-    def model_post_init(self, __context) -> None:
-        """Validate GigaChat authentication configuration."""
-        # Check standard GigaChat auth
-        has_creds = bool(self.gigachat_credentials)
-        has_up = bool(self.gigachat_user and self.gigachat_password)
-
-        if not (has_creds or has_up):
-            raise ValueError(
-                "GigaChat authentication not configured. Provide either:\n"
-                "  - GIGACHAT_CREDENTIALS (OAuth token), OR\n"
-                "  - GIGACHAT_USER + GIGACHAT_PASSWORD (basic auth)",
-            )
-
-        # Check that at least one auth method is provided for main GigaChat
-        has_main_creds = bool(self.main_gigachat_credentials)
-        has_main_up = bool(self.main_gigachat_user and self.main_gigachat_password)
-
-        if not (has_main_creds or has_main_up):
-            raise ValueError(
-                "Main GigaChat authentication not configured. Provide either:\n"
-                "  - MAIN_GIGACHAT_CREDENTIALS (OAuth token), OR\n"
-                "  - MAIN_GIGACHAT_USER + MAIN_GIGACHAT_PASSWORD (basic auth)",
-            )
-
     model_config = SettingsConfigDict(
         env_file=(".env", "../../.env"),
         env_file_encoding="utf-8",

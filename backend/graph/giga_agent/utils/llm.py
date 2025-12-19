@@ -20,6 +20,15 @@ def _get_llm_model(tag: str = None) -> str:
 
 def load_gigachat(tag: str = None, is_main: bool = False):
     llm_str = _get_llm_model(tag)
+    has_creds = bool(settings.gigachat_credentials)
+    has_up = bool(settings.gigachat_user and settings.gigachat_password)
+
+    if not (has_creds or has_up):
+        raise ValueError(
+            "GigaChat authentication not configured. Provide either:\n"
+            "  - GIGACHAT_CREDENTIALS (OAuth token), OR\n"
+            "  - GIGACHAT_USER + GIGACHAT_PASSWORD (basic auth)",
+        )
 
     # Настройки по умолчанию
     kwargs = dict(
@@ -32,6 +41,18 @@ def load_gigachat(tag: str = None, is_main: bool = False):
     )
 
     if is_main:
+        # Check that at least one auth method is provided for main GigaChat
+        has_main_creds = bool(settings.main_gigachat_credentials)
+        has_main_up = bool(
+            settings.main_gigachat_user and settings.main_gigachat_password
+        )
+
+        if not (has_main_creds or has_main_up):
+            raise ValueError(
+                "Main GigaChat authentication not configured. Provide either:\n"
+                "  - MAIN_GIGACHAT_CREDENTIALS (OAuth token), OR\n"
+                "  - MAIN_GIGACHAT_USER + MAIN_GIGACHAT_PASSWORD (basic auth)",
+            )
         kwargs = dict(
             timeout=settings.providers.main_gigachat_timeout,
             user=settings.providers.main_gigachat_user,
