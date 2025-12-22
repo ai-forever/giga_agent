@@ -82,6 +82,12 @@ const Message: React.FC<MessageProps> = ({
   const idxRef = useRef<number>(0);
 
   useEffect(() => {
+    const messageContent = Array.isArray(message.content)
+      ? message.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n\n")
+      : message.content;
     if (message.type === "human" && !writeMessage) {
       // @ts-ignore
       displayedRef.current = message.additional_kwargs.user_input;
@@ -91,19 +97,19 @@ const Message: React.FC<MessageProps> = ({
     }
     if (message.type !== "ai" && !writeMessage) {
       // если не ai — сразу пишем весь текст
-      displayedRef.current = message.content as string;
-      setDisplayed(message.content as string);
+      displayedRef.current = messageContent;
+      setDisplayed(messageContent);
       return;
     }
 
     // @ts-ignore
     if (message.additional_kwargs["rendered"]) {
-      displayedRef.current = message.content as string;
-      setDisplayed(message.content as string);
+      displayedRef.current = messageContent;
+      setDisplayed(messageContent);
       return;
     }
 
-    const words = message.content;
+    const words = messageContent;
     let timer: NodeJS.Timeout;
 
     const step = () => {

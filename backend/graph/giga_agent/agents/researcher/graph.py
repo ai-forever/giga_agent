@@ -1,10 +1,9 @@
-from typing import Annotated, Literal
+from typing import Literal
 
 from deepagents import async_create_deep_agent
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
-from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 
 from giga_agent.settings import settings

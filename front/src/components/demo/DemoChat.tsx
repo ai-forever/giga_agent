@@ -10,11 +10,10 @@ import Message from "../Message.tsx";
 import DemoToolBar from "./DemoToolBar.tsx";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "@/hooks/SelectedAttachmentsContext.tsx";
-import { UseStream } from "@langchain/langgraph-sdk/react";
+import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { useSettings } from "@/components/Settings.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
-import { useStream } from "@/hooks/langchain/useStream.ts";
 
 interface DemoChatProps {
   onContinue: () => void;

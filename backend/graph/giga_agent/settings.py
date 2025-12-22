@@ -84,10 +84,10 @@ class ExternalServicesSettings(BaseSettings):
 
 
 class InternalSettings(BaseSettings):
-    jupyter_client_api: str = Field(default="http://127.0.0.1:9090")
-    jupyter_upload_api: str = Field(default="http://127.0.0.1:9092")
-    tool_client_api: str = Field(default="http://127.0.0.1:8811")
-    langgraph_api_url: str = Field(default="http://0.0.0.0:2024")
+    jupyter_client_api: str = Field(default="http://repl:9090")
+    jupyter_upload_api: str = Field(default="http://upload_server:9092")
+    tool_client_api: str = Field(default="http://tool_server:9091")
+    langgraph_api_url: str = Field(default="http://langgraph-api:8000/")
     files_dir: str = Field(default="files")
     jina_reader_url: str = Field(default="https://r.jina.ai/")
     character_limit: int = Field(default=100000)

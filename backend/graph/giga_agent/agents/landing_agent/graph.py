@@ -123,7 +123,7 @@ async def create_landing(
         нужно продолжить работу над веб-страницей
 
     """
-    client = get_client(url=settings.llm.langgraph_api_url)
+    client = get_client(url=settings.internal.langgraph_api_url)
     if not thread_id:
         thread = await client.threads.create()
         thread_id = thread["thread_id"]

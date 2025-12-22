@@ -464,7 +464,7 @@ async def tool_call(state: AgentState, config: RunnableConfig, runtime: Runtime)
                     action,
                     (
                         result.pop("giga_attachments") or []
-                        if isinstance(result, dict)
+                        if isinstance(result, dict) and "giga_attachments" in result
                         else []
                     ),
                     tool_call_index,

@@ -26,7 +26,9 @@ async def generate_slide(messages):
         ch_2 = (
             SLIDE_PROMPT
             | llm
-            | RunnableParallel({"message": RunnablePassthrough(), "html": HTMLParser()})
+            | RunnableParallel(
+                {"message": RunnablePassthrough(), "html": HTMLParser(tag="section")}
+            )
         ).with_retry()
         slide_resp = await ch_2.ainvoke({"messages": messages})
         html = slide_resp.get("html", "")
