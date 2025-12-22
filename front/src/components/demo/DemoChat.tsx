@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import MessageList from "../MessageList";
 import InputArea from "../InputArea";
-import { useStream } from "@langchain/langgraph-sdk/react";
 import { useStableMessages } from "../../hooks/useStableMessages";
 import { GraphState } from "@/interfaces";
 import { HumanMessage } from "@langchain/langgraph-sdk";
@@ -11,10 +10,11 @@ import Message from "../Message.tsx";
 import DemoToolBar from "./DemoToolBar.tsx";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "@/hooks/SelectedAttachmentsContext.tsx";
-import type { UseStream } from "@langchain/langgraph-sdk/react";
+import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { useSettings } from "@/components/Settings.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useStream } from "@/hooks/langchain/useStream.ts";
 
 interface DemoChatProps {
   onContinue: () => void;
@@ -64,6 +64,8 @@ const DemoChat = ({
     apiUrl: `${window.location.protocol}//${window.location.host}/graph`,
     assistantId: "chat",
     messagesKey: "messages",
+    fetchStateHistory: true,
+    throttle: 75,
     onThreadId: (threadId: string) => {
       onThreadIdChange?.(threadId);
     },

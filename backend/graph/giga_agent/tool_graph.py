@@ -377,7 +377,7 @@ async def tool_call(state: AgentState, config: RunnableConfig, runtime: Runtime)
                 action["args"]["code"] = get_code_arg(state["messages"][-1].content)
             else:
                 # На случай если гига отправить в аргумент ```python(.+)``` строку
-                code_arg = get_code_arg(action["args"].get("code"))
+                code_arg = get_code_arg(action["args"].get("code", ""))
                 if code_arg:
                     action["args"]["code"] = code_arg
             if "code" not in action["args"] or not action["args"]["code"]:

@@ -1,5 +1,6 @@
 from typing import Annotated, Literal, TypeAlias
 
+from langchain.tools import ToolRuntime
 from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables.config import RunnableConfig
@@ -499,6 +500,7 @@ def lean_canvas_to_html(state) -> str:
 @tool
 async def lean_canvas(
     theme: str = Field(description="На какую тему создаем Lean Canvas"),
+    runtime: ToolRuntime = None,
 ):
     """Создает Lean Canvas под задачу пользователя. Полезно для проработки стартапов."""
     client = get_client(url=settings.internal.langgraph_api_url)
@@ -509,6 +511,7 @@ async def lean_canvas(
         {
             "agent": "lean_canvas",
             "node": "__start__",
+            "tool_call_id": runtime.tool_call_id,
         },
     )
     state = {}
@@ -534,6 +537,7 @@ async def lean_canvas(
                 {
                     "agent": "lean_canvas",
                     "node": list(chunk.data.keys())[0],
+                    "tool_call_id": runtime.tool_call_id,
                 },
             )
     html = lean_canvas_to_html(state)

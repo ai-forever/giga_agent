@@ -1,7 +1,8 @@
 import json
 import uuid
-from typing import Annotated, Literal
+from typing import Literal
 
+from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import (
@@ -11,7 +12,6 @@ from langchain_core.tools import tool
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 
 from giga_agent.agents.landing_agent.config import ConfigSchema, LandingState, llm
@@ -111,9 +111,7 @@ graph = workflow.compile()
 
 @tool(parse_docstring=True)
 async def create_landing(
-    task: str,
-    thread_id: str | None = None,
-    state: Annotated[dict, InjectedState] = None,
+    task: str, thread_id: str | None = None, runtime: ToolRuntime = None
 ):
     """Создает веб-страницу/лендинг.
     В task передавай максимальное детальное задания
@@ -130,7 +128,15 @@ async def create_landing(
         thread = await client.threads.create()
         thread_id = thread["thread_id"]
     result_state = {}
-    action = state["messages"][-1].tool_calls[0]
+    action = runtime.state["messages"][-1].tool_calls[0]
+    push_ui_message(
+        "agent_execution",
+        {
+            "agent": "create_landing",
+            "node": "__start__",
+            "tool_call_id": runtime.tool_call_id,
+        },
+    )
     async for chunk in client.runs.stream(
         thread_id=thread_id,
         if_not_exists="create",
@@ -140,12 +146,15 @@ async def create_landing(
                 {
                     "role": "user",
                     "content": task
-                    + f"\nДополнительная информация: {state['messages'][-1].content}",
+                    + (
+                        f"\nДополнительная информация: "
+                        f"{runtime.state['messages'][-1].content}"
+                    ),
                 },
             ],
             "task": task
-            + f"\nДополнительная информация: {state['messages'][-1].content}",
-            "plan_messages": state["messages"][:]
+            + f"\nДополнительная информация: {runtime.state['messages'][-1].content}",
+            "plan_messages": runtime.state["messages"][:]
             + [
                 ToolMessage(
                     tool_call_id=action.get("id", str(uuid.uuid4())),
@@ -171,6 +180,7 @@ async def create_landing(
                             {
                                 "agent": "create_landing",
                                 "node": message["tool_calls"][0]["name"],
+                                "tool_call_id": runtime.tool_call_id,
                             },
                         )
     html_page = result_state["html"]
