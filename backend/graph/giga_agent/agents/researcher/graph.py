@@ -1,9 +1,9 @@
-from typing import Annotated, Literal
+from typing import Literal
 
 from deepagents import async_create_deep_agent
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
-from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 
 from giga_agent.settings import settings
@@ -183,9 +183,9 @@ agent = async_create_deep_agent(
 
 
 @tool
-async def researcher_agent(question: str, state: Annotated[dict, InjectedState] = None):
+async def researcher_agent(question: str, runtime: ToolRuntime):
     """Проводит исследование и создает на его основе отчёт по запросу пользователя"""
-    last_mes = filter_tool_calls(state["messages"][-1])
+    last_mes = filter_tool_calls(runtime.state["messages"][-1])
     client = get_client(url=settings.internal.langgraph_api_url)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
@@ -195,7 +195,7 @@ async def researcher_agent(question: str, state: Annotated[dict, InjectedState] 
         thread_id=thread_id,
         assistant_id="researcher",
         input={
-            "messages": state["messages"][:-1]
+            "messages": runtime.state["messages"][:-1]
             + [
                 last_mes,
                 ("user", question),

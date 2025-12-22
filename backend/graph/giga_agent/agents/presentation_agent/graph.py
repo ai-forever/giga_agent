@@ -1,13 +1,12 @@
 import asyncio
 import json
 import uuid
-from typing import Annotated
 
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 
 from giga_agent.agents.presentation_agent.config import ConfigSchema, PresentationState
@@ -34,7 +33,7 @@ graph = workflow.compile()
 @tool(parse_docstring=True)
 async def generate_presentation(
     presentation_task: str,
-    state: Annotated[dict, InjectedState] = None,
+    runtime: ToolRuntime,
 ):
     """Этот инструмент создает презентации.
     В task передай задачу для создания презентации.
@@ -53,14 +52,16 @@ async def generate_presentation(
         {
             "agent": "generate_presentation",
             "node": "__start__",
+            "tool_call_id": runtime.tool_call_id,
         },
     )
-    last_mes = filter_tool_calls(state["messages"][-1])
+    last_mes = filter_tool_calls(runtime.state["messages"][-1])
+    state = {}
     async for chunk in client.runs.stream(
         thread_id=thread_id,
         assistant_id="presentation",
         input={
-            "messages": state["messages"][:-1] + [last_mes],
+            "messages": runtime.state["messages"][:-1] + [last_mes],
             "task": presentation_task,
         },
         stream_mode=["values", "updates"],
@@ -74,6 +75,7 @@ async def generate_presentation(
                 {
                     "agent": "generate_presentation",
                     "node": list(chunk.data.keys())[0],
+                    "tool_call_id": runtime.tool_call_id,
                 },
             )
     code = state["presentation_html"]

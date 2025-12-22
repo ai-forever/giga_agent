@@ -5,7 +5,7 @@ import React, {
   useImperativeHandle,
 } from "react";
 import Message from "./Message.tsx";
-import ToolMessage, { ToolExecuting } from "./ToolMessage.tsx";
+import ToolMessage, { ToolsExecuting } from "./ToolMessage.tsx";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
 import WellcomeMessage from "./wellcome-message.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
@@ -34,6 +34,7 @@ const MessageList = forwardRef<any, MessageListProps>(
         !/chrome|android/i.test(navigator.userAgent),
     );
     const firstSroll = useRef<boolean>(false);
+    const lastMessage = messages.at(-1);
 
     // Наблюдаем за «сентинелом» внизу списка, чтобы понять, включать ли авто-скролл
     useEffect(() => {
@@ -134,15 +135,7 @@ const MessageList = forwardRef<any, MessageListProps>(
             <ToolMessage
               key={idx}
               message={message}
-              name={
-                // @ts-ignore
-                messages[idx - 1]?.tool_calls &&
-                // @ts-ignore
-                messages[idx - 1]?.tool_calls[0]
-                  ? // @ts-ignore
-                    messages[idx - 1]?.tool_calls[0].name
-                  : ""
-              }
+              name={(message.additional_kwargs?.tool_name as string) ?? ""}
             />
           ) : (
             <Message
@@ -154,7 +147,10 @@ const MessageList = forwardRef<any, MessageListProps>(
           ),
         )}
         <ChatError thread={thread} />
-        <ToolExecuting messages={messages} thread={thread} />
+        {lastMessage && lastMessage.type === "ai" && (
+          <ToolsExecuting message={lastMessage} thread={thread} />
+        )}
+
         <ThinkingIndicator messages={messages} thread={thread} />
         <div ref={bottomSentinelRef} style={{ height: 1 }} />
       </div>

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI
 from fastapi.responses import JSONResponse
+from langchain.tools import ToolRuntime
 from langchain_gigachat.utils.function_calling import convert_to_gigachat_tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt.tool_node import ToolNode, _handle_tool_error
@@ -12,6 +13,7 @@ from pydantic_core import ValidationError
 from giga_agent.config import AGENT_MAP, MCP_CONFIG, REPL_TOOLS, TOOLS
 from giga_agent.settings import settings
 from giga_agent.tool_server.utils import transform_schema
+from giga_agent.utils.tools import inject_tool_args
 
 tool_map = {}
 repl_tool_map = {}
@@ -66,10 +68,23 @@ async def call_tool(tool_name: str, payload: dict = Body(...)):
                     checkpoint_id=checkpoint_id,
                 )
             )["values"]
-            injected_args = config["tool_node"].inject_tool_args(
+            graph_config = {
+                "configurable": {
+                    "thread_id": thread_id,
+                    "checkpoint_id": checkpoint_id,
+                },
+            }
+            injected_args = inject_tool_args(
+                tool_map[tool.name],
                 {"name": tool.name, "args": kwargs, "id": "123"},
-                state,
-                None,
+                ToolRuntime(
+                    state=state,
+                    tool_call_id="123",
+                    config=graph_config,
+                    context={},
+                    store=None,
+                    stream_writer=lambda a: None,
+                ),
             )["args"]
             if tool.name == "python":
                 injected_args["code"] = kwargs.get("code")
@@ -83,12 +98,6 @@ async def call_tool(tool_name: str, payload: dict = Body(...)):
                     content=f"Ошибка в заполнении функции!\n{content}\n"
                     f"Заполни параметры функции по следующей схеме: {tool_schema}",
                 )
-            graph_config = {
-                "configurable": {
-                    "thread_id": thread_id,
-                    "checkpoint_id": checkpoint_id,
-                },
-            }
             data = await tool_map[tool_name].ainvoke(injected_args, config=graph_config)
             return {"data": data}
         except Exception as e:

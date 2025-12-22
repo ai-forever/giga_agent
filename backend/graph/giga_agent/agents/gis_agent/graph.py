@@ -3,6 +3,7 @@ import math
 import os
 import uuid
 
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import START
@@ -78,7 +79,7 @@ graph = workflow.compile(checkpointer=memory)
 
 
 @tool
-async def city_explore(city: str):
+async def city_explore(city: str, runtime: ToolRuntime):
     """Получает интересные локации в городе.
     Может быть полезным,
     если пользователь хочет куда-то поехать и просит посоветовать места
@@ -97,7 +98,11 @@ async def city_explore(city: str):
     }
     push_ui_message(
         "agent_execution",
-        {"agent": "city_explore", "node": "__start__"},
+        {
+            "agent": "city_explore",
+            "node": "__start__",
+            "tool_call_id": runtime.tool_call_id,
+        },
     )
     input_ = {"city_name": city}
     async for event in graph.astream(
@@ -106,7 +111,11 @@ async def city_explore(city: str):
     ):
         push_ui_message(
             "agent_execution",
-            {"agent": "city_explore", "node": list(event.keys())[0]},
+            {
+                "agent": "city_explore",
+                "node": list(event.keys())[0],
+                "tool_call_id": runtime.tool_call_id,
+            },
         )
     state = graph.get_state(config=conf).values
     hotels_message = []

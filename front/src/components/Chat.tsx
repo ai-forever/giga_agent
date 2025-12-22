@@ -1,13 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
-import { useStream } from "@langchain/langgraph-sdk/react";
 import { useStableMessages } from "../hooks/useStableMessages";
 import { GraphState } from "../interfaces";
 import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
-import type { UseStream } from "@langchain/langgraph-sdk/react";
+import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -23,6 +22,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     messagesKey: "messages",
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
+    fetchStateHistory: true,
+    throttle: 75,
     onThreadId: (threadId: string) => {
       onThreadIdChange?.(threadId);
       navigate(`/threads/${threadId}`);

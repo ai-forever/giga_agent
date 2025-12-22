@@ -2,6 +2,7 @@ import { Message } from "@langchain/langgraph-sdk";
 import { Collection } from "@/types/collection.ts";
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.d.ts";
+import type { ToolCall } from "@langchain/core/messages/tool";
 
 export type Secret = {
   name: string;
@@ -26,8 +27,7 @@ type BagTemplate = {
 
 export interface GraphInterrupt {
   type: "approve" | "comment" | "tool_call";
-  tool_name?: string;
-  args?: any;
+  tools?: ToolCall[];
 }
 
 export interface GraphTemplate extends BagTemplate {

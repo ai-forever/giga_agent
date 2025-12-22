@@ -26,7 +26,7 @@ from giga_agent.tools.repl import shell
 from giga_agent.tools.scraper import get_urls
 from giga_agent.tools.vk import vk_get_comments, vk_get_last_comments, vk_get_posts
 from giga_agent.tools.weather import weather
-from giga_agent.utils.llm import load_embeddings, load_llm
+from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import Collection
 
 BASEDIR = os.path.abspath(os.path.dirname(__file__))

@@ -9,14 +9,21 @@ import { PROGRESS_AGENTS, TOOL_MAP } from "../config.ts";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "../interfaces.ts";
 import MessageAttachment from "./attachments/MessageAttachment.tsx";
+import { ToolCall } from "@langchain/core/messages/tool";
+import { AIMessage } from "@langchain/langgraph-sdk";
 
 interface ToolMessageProps {
   message: Message;
   name: string;
 }
 
+interface ToolsExecProps {
+  message: AIMessage;
+  thread?: UseStream<GraphState>;
+}
+
 interface ToolExecProps {
-  messages: Message[];
+  toolCall: ToolCall;
   thread?: UseStream<GraphState>;
 }
 
@@ -25,17 +32,14 @@ interface AgentNode {
   image?: string;
 }
 
-export const ToolExecuting = ({ messages, thread }: ToolExecProps) => {
-  // @ts-ignore
-  const name = messages[messages.length - 1]?.tool_calls?.length
-    ? // @ts-ignore
-      messages[messages.length - 1]?.tool_calls[0].name
-    : "none";
+export const ToolExecuting = ({ toolCall, thread }: ToolExecProps) => {
+  const name = toolCall.name;
   const agentProgress: AgentNode | null = useMemo(() => {
     // @ts-ignore
     const uis = (thread.values.ui ?? []).filter(
       // @ts-ignore
-      (el) => el.name === "agent_execution",
+      (el) =>
+        el.name === "agent_execution" && el.props.tool_call_id === toolCall.id,
     );
     if (uis.length) {
       let image = uis.at(-1).props.image;
@@ -90,15 +94,7 @@ export const ToolExecuting = ({ messages, thread }: ToolExecProps) => {
 
     return () => clearTimeout(timer);
     // @ts-ignore
-  }, [agentProgress]);
-  if (
-    thread?.interrupt ||
-    !messages ||
-    // @ts-ignore
-    !messages[messages.length - 1]?.tool_calls?.length
-  ) {
-    return null;
-  }
+  }, [agentProgress?.text]);
   return (
     <div className="flex items-start mb-2 px-9">
       <div className="flex flex-col border border-2 border-border text-foreground p-4 rounded-lg flex-1 cursor-pointer max-w-full justify-center">
@@ -129,6 +125,19 @@ export const ToolExecuting = ({ messages, thread }: ToolExecProps) => {
       </div>
     </div>
   );
+};
+
+export const ToolsExecuting = ({ message, thread }: ToolsExecProps) => {
+  if (
+    thread?.interrupt ||
+    // @ts-ignore
+    !message.tool_calls
+  ) {
+    return null;
+  }
+  return message.tool_calls.map((el, index) => (
+    <ToolExecuting toolCall={el} thread={thread} key={index} />
+  ));
 };
 
 const ATTACHMENT_TEXTS = {
@@ -162,7 +171,7 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
   };
 
   // @ts-ignore
-  const toolName = name in TOOL_MAP ? `: ${TOOL_MAP[name]} ` : "";
+  const toolName = name in TOOL_MAP ? `: ${TOOL_MAP[name]} ` : `: ${name}`;
 
   return (
     <>

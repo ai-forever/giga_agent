@@ -1,13 +1,12 @@
 import asyncio
 import uuid
-from typing import Annotated
 
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langgraph.config import RunnableConfig
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph.prebuilt import InjectedState
 from langgraph_sdk import get_client
 from pydub import AudioSegment
 
@@ -184,7 +183,7 @@ graph = workflow.compile()
 async def podcast_generate(
     url: str | None = None,
     use_messages: bool | None = None,
-    state: Annotated[dict, InjectedState] = None,
+    runtime: ToolRuntime = None,
 ):
     """Создает подкаст исходя из ссылки пользователя или вашей с ним переписки
     Тебе обязательно нужно указать либо url,
@@ -206,13 +205,17 @@ async def podcast_generate(
     }
     push_ui_message(
         "agent_execution",
-        {"agent": "podcast_generate", "node": "__start__"},
+        {
+            "agent": "podcast_generate",
+            "node": "__start__",
+            "tool_call_id": runtime.tool_call_id,
+        },
     )
     input_ = {}
     if use_messages:
         input_["use_messages"] = use_messages
-        last_mes = filter_tool_calls(state["messages"][-1])
-        input_["messages"] = state["messages"][:-1] + [last_mes]
+        last_mes = filter_tool_calls(runtime.state["messages"][-1])
+        input_["messages"] = runtime.state["messages"][:-1] + [last_mes]
     if url:
         input_["url"] = url
 
@@ -236,6 +239,7 @@ async def podcast_generate(
                 {
                     "agent": "podcast_generate",
                     "node": list(chunk.data.keys())[0],
+                    "tool_call_id": runtime.tool_call_id,
                 },
             )
     return {
