@@ -20,8 +20,10 @@ def _get_llm_model(tag: str = None) -> str:
 
 def load_gigachat(tag: str = None, is_main: bool = False):
     llm_str = _get_llm_model(tag)
-    has_creds = bool(settings.gigachat_credentials)
-    has_up = bool(settings.gigachat_user and settings.gigachat_password)
+    has_creds = bool(settings.providers.gigachat_credentials)
+    has_up = bool(
+        settings.providers.gigachat_user and settings.providers.gigachat_password
+    )
 
     if not (has_creds or has_up):
         raise ValueError(
@@ -42,9 +44,10 @@ def load_gigachat(tag: str = None, is_main: bool = False):
 
     if is_main:
         # Check that at least one auth method is provided for main GigaChat
-        has_main_creds = bool(settings.main_gigachat_credentials)
+        has_main_creds = bool(settings.providers.main_gigachat_credentials)
         has_main_up = bool(
-            settings.main_gigachat_user and settings.main_gigachat_password
+            settings.providers.main_gigachat_user
+            and settings.providers.main_gigachat_password
         )
 
         if not (has_main_creds or has_main_up):
