@@ -50,7 +50,7 @@ class AgentState(TypedDict):  # noqa: D101
 
 
 llm = load_llm()
-emb = load_embeddings()
+
 if settings.features.repl_from_message:
     from giga_agent.tools.repl.message_tool import python
 else:
