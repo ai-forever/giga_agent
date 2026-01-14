@@ -8,26 +8,26 @@ services:
         command: >
             sh -c "
               echo 'Running database migrations...' &&
-              uv run alembic upgrade head &&
+              uv run --frozen alembic upgrade head &&
               echo 'Starting Aegra server...' &&
-              uv run uvicorn src.agent_server.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/giga_agent
+              uv run --frozen uvicorn src.agent_server.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/giga_agent
             "
     repl:
         command: uv run uvicorn app.main:app --host 0.0.0.0 --port 9090
         volumes:
             - ./backend/repl/app:/app:rw
     upload_server:
-        command: uv run uvicorn app.upload_server:app --host 0.0.0.0 --port 9092
+        command: uv run --frozen uvicorn app.upload_server:app --host 0.0.0.0 --port 9092
         volumes:
             - ./backend/repl/app:/app:rw
     tool_server:
-        command: uv run uvicorn giga_agent.tool_server.tool_server:app --host 0.0.0.0 --port 9091 --reload --reload-dir /app/giga_agent
+        command: uv run --frozen uvicorn giga_agent.tool_server.tool_server:app --host 0.0.0.0 --port 9091 --reload --reload-dir /app/giga_agent
         extra_hosts:
             - "host.docker.internal:host-gateway"
         volumes:
             - ./backend/graph/giga_agent:/app/giga_agent:rw
     giga_agent_server:
-        command: uv run uvicorn giga_agent.tasks_app:app --host 0.0.0.0 --port 8822 --reload --reload-dir /app/giga_agent
+        command: uv run --frozen uvicorn giga_agent.tasks_app:app --host 0.0.0.0 --port 8822 --reload --reload-dir /app/giga_agent
         volumes:
             - ./backend/graph/giga_agent:/app/giga_agent:rw
     frontend:

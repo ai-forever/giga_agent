@@ -15,3 +15,4 @@ kernel_states
 __pycache__
 data
 qdrant_storage
+.giga_agent

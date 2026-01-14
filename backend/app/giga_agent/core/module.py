@@ -1,0 +1,54 @@
+import os
+import inspect
+from typing import TYPE_CHECKING, Optional
+from typing_extensions import override
+
+from pydantic import BaseModel, ConfigDict, PrivateAttr
+from langchain_core.load.serializable import Serializable
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from fastapi import APIRouter
+
+
+class BaseModule(Serializable):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    id: str  # Unique identifier for the module
+    _module_path: str = PrivateAttr()
+
+    @classmethod
+    @override
+    def is_lc_serializable(cls) -> bool:
+        return True
+
+    def __init__(self, **data):
+        super().__init__(**data)
+
+        # Автоматически определяем путь к файлу модуля
+        # Используем self.__class__, чтобы получить путь к файлу конкретного подкласса
+        self._module_path = os.path.dirname(inspect.getfile(self.__class__))
+
+    @property
+    def module_path(self) -> str:
+        return self._module_path
+
+    @property
+    def migration_path(self) -> str | None:
+        """Абсолютный путь к папке миграций модуля, если она существует"""
+        path = os.path.join(self.module_path, "migrations")
+        if os.path.exists(path) and os.path.isdir(path):
+            return path
+        return None
+
+    def get_api_router(self) -> Optional["APIRouter"]:
+        """
+        Возвращает FastAPI router для подключения к основному приложению.
+        """
+        return None
+
+    async def on_startup(self, session: "AsyncSession"):
+        """
+        Hook executed on application startup.
+        """
+        pass
