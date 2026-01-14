@@ -244,7 +244,10 @@ async def agent(state: AgentState):
         )
         for tool in state.get("mcp_tools", [])
     ]
-    ch = (prompt | llm.bind_tools(state["tools"] + mcp_tools)).with_retry()
+    ch = (
+        prompt | llm.bind_tools(state["tools"] + mcp_tools, tool_choice="auto")
+    ).with_retry()
+
     message = await ch.ainvoke(
         {
             "messages": state["messages"],
