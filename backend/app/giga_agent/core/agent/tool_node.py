@@ -50,285 +50,25 @@ from langgraph.types import Command, Send, StreamWriter
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar, Unpack
 
+from langchain.tools.tool_node import (
+    ToolRuntime,
+    ToolCallRequest,
+    InjectedStore,
+    InjectedState,
+)
+from langgraph.prebuilt.tool_node import (
+    ToolInvocationError,
+    TOOL_CALL_ERROR_TEMPLATE,
+    INVALID_TOOL_NAME_ERROR_TEMPLATE,
+    msg_content_output,
+    AsyncToolCallWrapper,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from langgraph.runtime import Runtime
     from pydantic_core import ErrorDetails
-
-# right now we use a dict as the default, can change this to AgentState, but depends
-# on if this lives in LangChain or LangGraph... ideally would have some typed
-# messages key
-StateT = TypeVar("StateT", default=dict)
-ContextT = TypeVar("ContextT", default=None)
-
-INVALID_TOOL_NAME_ERROR_TEMPLATE = (
-    "Error: {requested_tool} is not a valid tool, try one of [{available_tools}]."
-)
-TOOL_CALL_ERROR_TEMPLATE = "Error: {error}\n Please fix your mistakes."
-TOOL_EXECUTION_ERROR_TEMPLATE = (
-    "Error executing tool '{tool_name}' with kwargs {tool_kwargs} with error:\n"
-    " {error}\n"
-    " Please fix the error and try again."
-)
-TOOL_INVOCATION_ERROR_TEMPLATE = (
-    "Error invoking tool '{tool_name}' with kwargs {tool_kwargs} with error:\n"
-    " {error}\n"
-    " Please fix the error and try again."
-)
-
-
-class _ToolCallRequestOverrides(TypedDict, total=False):
-    """Possible overrides for ToolCallRequest.override() method."""
-
-    tool_call: ToolCall
-
-
-@dataclass
-class ToolCallRequest:
-    """Tool execution request passed to tool call interceptors.
-
-    Attributes:
-        tool_call: Tool call dict with name, args, and id from model output.
-        tool: BaseTool instance to be invoked, or None if tool is not
-            registered with the `ToolNode`. When tool is `None`, interceptors can
-            handle the request without validation. If the interceptor calls `execute()`,
-            validation will occur and raise an error for unregistered tools.
-        state: Agent state (`dict`, `list`, or `BaseModel`).
-        runtime: LangGraph runtime context (optional, `None` if outside graph).
-    """
-
-    tool_call: ToolCall
-    tool: BaseTool | None
-    state: Any
-    runtime: ToolRuntime
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Raise deprecation warning when setting attributes directly.
-
-        Direct attribute assignment is deprecated. Use the `override()` method instead.
-        """
-        import warnings
-
-        # Allow setting attributes during initialization
-        if not hasattr(self, "__dataclass_fields__") or not hasattr(self, name):
-            object.__setattr__(self, name, value)
-        else:
-            warnings.warn(
-                f"Setting attribute '{name}' on ToolCallRequest is deprecated. "
-                "Use the override() method instead to create a new instance with modified values.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            object.__setattr__(self, name, value)
-
-    def override(
-        self, **overrides: Unpack[_ToolCallRequestOverrides]
-    ) -> ToolCallRequest:
-        """Replace the request with a new request with the given overrides.
-
-        Returns a new `ToolCallRequest` instance with the specified attributes replaced.
-        This follows an immutable pattern, leaving the original request unchanged.
-
-        Args:
-            **overrides: Keyword arguments for attributes to override. Supported keys:
-                - tool_call: Tool call dict with name, args, and id
-
-        Returns:
-            New ToolCallRequest instance with specified overrides applied.
-
-        Examples:
-            ```python
-            # Modify tool call arguments without mutating original
-            modified_call = {**request.tool_call, "args": {"value": 10}}
-            new_request = request.override(tool_call=modified_call)
-
-            # Override multiple attributes
-            new_request = request.override(tool_call=modified_call, state=new_state)
-            ```
-        """
-        return replace(self, **overrides)
-
-
-ToolCallWrapper = Callable[
-    [ToolCallRequest, Callable[[ToolCallRequest], ToolMessage | Command]],
-    ToolMessage | Command,
-]
-"""Wrapper for tool call execution with multi-call support.
-
-Wrapper receives:
-    request: ToolCallRequest with tool_call, tool, state, and runtime.
-    execute: Callable to execute the tool (CAN BE CALLED MULTIPLE TIMES).
-
-Returns:
-    ToolMessage or Command (the final result).
-
-The execute callable can be invoked multiple times for retry logic,
-with potentially modified requests each time. Each call to execute
-is independent and stateless.
-
-!!! note
-    When implementing middleware for `create_agent`, use
-    `AgentMiddleware.wrap_tool_call` which provides properly typed
-    state parameter for better type safety.
-
-Examples:
-    Passthrough (execute once):
-
-    def handler(request, execute):
-        return execute(request)
-
-    Modify request before execution:
-
-    ```python
-    def handler(request, execute):
-        modified_call = {**request.tool_call, "args": {**request.tool_call["args"], "value": request.tool_call["args"]["value"] * 2}}
-        modified_request = request.override(tool_call=modified_call)
-        return execute(modified_request)
-    ```
-
-    Retry on error (execute multiple times):
-
-    ```python
-    def handler(request, execute):
-        for attempt in range(3):
-            try:
-                result = execute(request)
-                if is_valid(result):
-                    return result
-            except Exception:
-                if attempt == 2:
-                    raise
-        return result
-    ```
-
-    Conditional retry based on response:
-
-    ```python
-    def handler(request, execute):
-        for attempt in range(3):
-            result = execute(request)
-            if isinstance(result, ToolMessage) and result.status != "error":
-                return result
-            if attempt < 2:
-                continue
-            return result
-    ```
-
-    Cache/short-circuit without calling execute:
-
-    ```python
-    def handler(request, execute):
-        if cached := get_cache(request):
-            return ToolMessage(content=cached, tool_call_id=request.tool_call["id"])
-        result = execute(request)
-        save_cache(request, result)
-        return result
-    ```
-"""
-
-AsyncToolCallWrapper = Callable[
-    [ToolCallRequest, Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]],
-    Awaitable[ToolMessage | Command],
-]
-"""Async wrapper for tool call execution with multi-call support."""
-
-
-class ToolCallWithContext(TypedDict):
-    """ToolCall with additional context for graph state.
-
-    This is an internal data structure meant to help the `ToolNode` accept
-    tool calls with additional context (e.g. state) when dispatched using the
-    Send API.
-
-    The Send API is used in create_agent to distribute tool calls in parallel
-    and support human-in-the-loop workflows where graph execution may be paused
-    for an indefinite time.
-    """
-
-    tool_call: ToolCall
-    __type: Literal["tool_call_with_context"]
-    """Type to parameterize the payload.
-
-    Using "__" as a prefix to be defensive against potential name collisions with
-    regular user state.
-    """
-    state: Any
-    """The state is provided as additional context."""
-
-
-def msg_content_output(output: Any) -> str | list[dict]:
-    """Convert tool output to `ToolMessage` content format.
-
-    Handles `str`, `list[dict]` (content blocks), and arbitrary objects by attempting
-    JSON serialization with fallback to str().
-
-    Args:
-        output: Tool execution output of any type.
-
-    Returns:
-        String or list of content blocks suitable for `ToolMessage.content`.
-    """
-    if isinstance(output, str) or (
-        isinstance(output, list)
-        and all(
-            isinstance(x, dict) and x.get("type") in TOOL_MESSAGE_BLOCK_TYPES
-            for x in output
-        )
-    ):
-        return output
-    # Technically a list of strings is also valid message content, but it's
-    # not currently well tested that all chat models support this.
-    # And for backwards compatibility we want to make sure we don't break
-    # any existing ToolNode usage.
-    try:
-        return json.dumps(output, ensure_ascii=False)
-    except Exception:  # noqa: BLE001
-        return str(output)
-
-
-class ToolInvocationError(ToolException):
-    """An error occurred while invoking a tool due to invalid arguments.
-
-    This exception is only raised when invoking a tool using the `ToolNode`!
-    """
-
-    def __init__(
-        self,
-        tool_name: str,
-        source: ValidationError,
-        tool_kwargs: dict[str, Any],
-        filtered_errors: list[ErrorDetails] | None = None,
-    ) -> None:
-        """Initialize the ToolInvocationError.
-
-        Args:
-            tool_name: The name of the tool that failed.
-            source: The exception that occurred.
-            tool_kwargs: The keyword arguments that were passed to the tool.
-            filtered_errors: Optional list of filtered validation errors excluding
-                injected arguments.
-        """
-        # Format error display based on filtered errors if provided
-        if filtered_errors is not None:
-            # Manually format the filtered errors without URLs or fancy formatting
-            error_str_parts = []
-            for error in filtered_errors:
-                loc_str = ".".join(str(loc) for loc in error.get("loc", ()))
-                msg = error.get("msg", "Unknown error")
-                error_str_parts.append(f"{loc_str}: {msg}")
-            error_display_str = "\n".join(error_str_parts)
-        else:
-            error_display_str = str(source)
-
-        self.message = TOOL_INVOCATION_ERROR_TEMPLATE.format(
-            tool_name=tool_name, tool_kwargs=tool_kwargs, error=error_display_str
-        )
-        self.tool_name = tool_name
-        self.tool_kwargs = tool_kwargs
-        self.source = source
-        self.filtered_errors = filtered_errors
-        super().__init__(self.message)
 
 
 def _default_handle_tool_errors(e: Exception) -> str:
@@ -345,11 +85,9 @@ def _default_handle_tool_errors(e: Exception) -> str:
 def _handle_tool_error(
     e: Exception,
     *,
-    flag: bool
-    | str
-    | Callable[..., str]
-    | type[Exception]
-    | tuple[type[Exception], ...],
+    flag: (
+        bool | str | Callable[..., str] | type[Exception] | tuple[type[Exception], ...]
+    ),
 ) -> str:
     """Generate error message content based on exception handling configuration.
 
@@ -569,115 +307,6 @@ class _InjectedArgs:
 
 
 class ToolNode(RunnableCallable):
-    """A node for executing tools in LangGraph workflows.
-
-    Handles tool execution patterns including function calls, state injection,
-    persistent storage, and control flow. Manages parallel execution,
-    error handling.
-
-    Input Formats:
-        1. Graph state with `messages` key that has a list of messages:
-            - Common representation for agentic workflows
-            - Supports custom messages key via `messages_key` parameter
-
-        2. **Message List**: `[AIMessage(..., tool_calls=[...])]`
-            - List of messages with tool calls in the last AIMessage
-
-        3. **Direct Tool Calls**: `[{"name": "tool", "args": {...}, "id": "1", "type": "tool_call"}]`
-            - Bypasses message parsing for direct tool execution
-            - For programmatic tool invocation and testing
-
-    Output Formats:
-        Output format depends on input type and tool behavior:
-
-        **For Regular tools**:
-
-        - Dict input → `{"messages": [ToolMessage(...)]}`
-        - List input → `[ToolMessage(...)]`
-
-        **For Command tools**:
-
-        - Returns `[Command(...)]` or mixed list with regular tool outputs
-        - `Command` can update state, trigger navigation, or send messages
-
-    Args:
-        tools: A sequence of tools that can be invoked by this node.
-
-            Supports:
-
-            - **BaseTool instances**: Tools with schemas and metadata
-            - **Plain functions**: Automatically converted to tools with inferred schemas
-
-        name: The name identifier for this node in the graph. Used for debugging
-            and visualization.
-        tags: Optional metadata tags to associate with the node for filtering
-            and organization.
-        handle_tool_errors: Configuration for error handling during tool execution.
-            Supports multiple strategies:
-
-            - `True`: Catch all errors and return a `ToolMessage` with the default
-                error template containing the exception details.
-            - `str`: Catch all errors and return a `ToolMessage` with this custom
-                error message string.
-            - `type[Exception]`: Only catch exceptions with the specified type and
-                return the default error message for it.
-            - `tuple[type[Exception], ...]`: Only catch exceptions with the specified
-                types and return default error messages for them.
-            - `Callable[..., str]`: Catch exceptions matching the callable's signature
-                and return the string result of calling it with the exception.
-            - `False`: Disable error handling entirely, allowing exceptions to
-                propagate.
-
-            Defaults to a callable that:
-
-            - Catches tool invocation errors (due to invalid arguments provided by the
-                model) and returns a descriptive error message
-            - Ignores tool execution errors (they will be re-raised)
-
-        messages_key: The key in the state dictionary that contains the message list.
-            This same key will be used for the output `ToolMessage` objects.
-
-            Allows custom state schemas with different message field names.
-
-    Examples:
-        Basic usage:
-
-        ```python
-        from langchain.tools import ToolNode
-        from langchain_core.tools import tool
-
-        @tool
-        def calculator(a: int, b: int) -> int:
-            \"\"\"Add two numbers.\"\"\"
-            return a + b
-
-        tool_node = ToolNode([calculator])
-        ```
-
-        State injection:
-
-        ```python
-        from typing_extensions import Annotated
-        from langchain.tools import InjectedState
-
-        @tool
-        def context_tool(query: str, state: Annotated[dict, InjectedState]) -> str:
-            \"\"\"Some tool that uses state.\"\"\"
-            return f"Query: {query}, Messages: {len(state['messages'])}"
-
-        tool_node = ToolNode([context_tool])
-        ```
-
-        Error handling:
-
-        ```python
-        def handle_errors(e: ValueError) -> str:
-            return "Invalid input provided"
-
-
-        tool_node = ToolNode([my_tool], handle_tool_errors=handle_errors)
-        ```
-    """  # noqa: E501
 
     name: str = "tools"
 
@@ -687,14 +316,15 @@ class ToolNode(RunnableCallable):
         *,
         name: str = "tools",
         tags: list[str] | None = None,
-        handle_tool_errors: bool
-        | str
-        | Callable[..., str]
-        | type[Exception]
-        | tuple[type[Exception], ...] = _default_handle_tool_errors,
+        handle_tool_errors: (
+            bool
+            | str
+            | Callable[..., str]
+            | type[Exception]
+            | tuple[type[Exception], ...]
+        ) = _default_handle_tool_errors,
         messages_key: str = "messages",
-        wrap_tool_call: ToolCallWrapper | None = None,
-        awrap_tool_call: AsyncToolCallWrapper | None = None,
+        wrap_tool_call: AsyncToolCallWrapper | None = None,
     ) -> None:
         """Initialize `ToolNode` with tools and configuration.
 
@@ -710,13 +340,12 @@ class ToolNode(RunnableCallable):
             awrap_tool_call: Async wrapper function to intercept tool execution.
                 If not provided, falls back to wrap_tool_call for async execution.
         """
-        super().__init__(self._func, self._afunc, name=name, tags=tags, trace=False)
+        super().__init__(None, self._afunc, name=name, tags=tags, trace=False)
         self._tools_by_name: dict[str, BaseTool] = {}
         self._injected_args: dict[str, _InjectedArgs] = {}
         self._handle_tool_errors = handle_tool_errors
         self._messages_key = messages_key
-        self._wrap_tool_call = wrap_tool_call
-        self._awrap_tool_call = awrap_tool_call
+        self._awrap_tool_call = wrap_tool_call
         for tool in tools:
             if not isinstance(tool, BaseTool):
                 tool_ = create_tool(cast("type[BaseTool]", tool))
@@ -730,38 +359,6 @@ class ToolNode(RunnableCallable):
     def tools_by_name(self) -> dict[str, BaseTool]:
         """Mapping from tool name to BaseTool instance."""
         return self._tools_by_name
-
-    def _func(
-        self,
-        input: list[AnyMessage] | dict[str, Any] | BaseModel,
-        config: RunnableConfig,
-        runtime: Runtime,
-    ) -> Any:
-        tool_calls, input_type = self._parse_input(input)
-        config_list = get_config_list(config, len(tool_calls))
-
-        # Construct ToolRuntime instances at the top level for each tool call
-        tool_runtimes = []
-        for call, cfg in zip(tool_calls, config_list, strict=False):
-            state = self._extract_state(input)
-            tool_runtime = ToolRuntime(
-                state=state,
-                tool_call_id=call["id"],
-                config=cfg,
-                context=runtime.context,
-                store=runtime.store,
-                stream_writer=runtime.stream_writer,
-            )
-            tool_runtimes.append(tool_runtime)
-
-        # Pass original tool calls without injection
-        input_types = [input_type] * len(tool_calls)
-        with get_executor_for_config(config) as executor:
-            outputs = list(
-                executor.map(self._run_one, tool_calls, input_types, tool_runtimes)
-            )
-
-        return self._combine_tool_outputs(outputs, input_type)
 
     async def _afunc(
         self,
@@ -837,159 +434,6 @@ class ToolNode(RunnableCallable):
         if parent_command:
             combined_outputs.append(parent_command)
         return combined_outputs
-
-    def _execute_tool_sync(
-        self,
-        request: ToolCallRequest,
-        input_type: Literal["list", "dict", "tool_calls"],
-        config: RunnableConfig,
-    ) -> ToolMessage | Command:
-        """Execute tool call with configured error handling.
-
-        Args:
-            request: Tool execution request.
-            input_type: Input format.
-            config: Runnable configuration.
-
-        Returns:
-            ToolMessage or Command.
-
-        Raises:
-            Exception: If tool fails and handle_tool_errors is False.
-        """
-        call = request.tool_call
-        tool = request.tool
-
-        # Validate tool exists when we actually need to execute it
-        if tool is None:
-            if invalid_tool_message := self._validate_tool_call(call):
-                return invalid_tool_message
-            # This should never happen if validation works correctly
-            msg = f"Tool {call['name']} is not registered with ToolNode"
-            raise TypeError(msg)
-
-        # Inject state, store, and runtime right before invocation
-        injected_call = self._inject_tool_args(call, request.runtime)
-        call_args = {**injected_call, "type": "tool_call"}
-
-        try:
-            try:
-                response = tool.invoke(call_args, config)
-            except ValidationError as exc:
-                # Filter out errors for injected arguments
-                injected = self._injected_args.get(call["name"])
-                filtered_errors = _filter_validation_errors(exc, injected)
-                # Use original call["args"] without injected values for error reporting
-                raise ToolInvocationError(
-                    call["name"], exc, call["args"], filtered_errors
-                ) from exc
-
-        # GraphInterrupt is a special exception that will always be raised.
-        # It can be triggered in the following scenarios,
-        # Where GraphInterrupt(GraphBubbleUp) is raised from an `interrupt` invocation
-        # most commonly:
-        # (1) a GraphInterrupt is raised inside a tool
-        # (2) a GraphInterrupt is raised inside a graph node for a graph called as a tool
-        # (3) a GraphInterrupt is raised when a subgraph is interrupted inside a graph
-        #     called as a tool
-        # (2 and 3 can happen in a "supervisor w/ tools" multi-agent architecture)
-        except GraphBubbleUp:
-            raise
-        except Exception as e:
-            # Determine which exception types are handled
-            handled_types: tuple[type[Exception], ...]
-            if isinstance(self._handle_tool_errors, type) and issubclass(
-                self._handle_tool_errors, Exception
-            ):
-                handled_types = (self._handle_tool_errors,)
-            elif isinstance(self._handle_tool_errors, tuple):
-                handled_types = self._handle_tool_errors
-            elif callable(self._handle_tool_errors) and not isinstance(
-                self._handle_tool_errors, type
-            ):
-                handled_types = _infer_handled_types(self._handle_tool_errors)
-            else:
-                # default behavior is catching all exceptions
-                handled_types = (Exception,)
-
-            # Check if this error should be handled
-            if not self._handle_tool_errors or not isinstance(e, handled_types):
-                raise
-
-            # Error is handled - create error ToolMessage
-            content = _handle_tool_error(e, flag=self._handle_tool_errors)
-            return ToolMessage(
-                content=content,
-                name=call["name"],
-                tool_call_id=call["id"],
-                status="error",
-            )
-
-        # Process successful response
-        if isinstance(response, Command):
-            # Validate Command before returning to handler
-            return self._validate_tool_command(response, request.tool_call, input_type)
-        if isinstance(response, ToolMessage):
-            response.content = cast("str | list", msg_content_output(response.content))
-            return response
-
-        msg = f"Tool {call['name']} returned unexpected type: {type(response)}"
-        raise TypeError(msg)
-
-    def _run_one(
-        self,
-        call: ToolCall,
-        input_type: Literal["list", "dict", "tool_calls"],
-        tool_runtime: ToolRuntime,
-    ) -> ToolMessage | Command:
-        """Execute single tool call with wrap_tool_call wrapper if configured.
-
-        Args:
-            call: Tool call dict.
-            input_type: Input format.
-            tool_runtime: Tool runtime.
-
-        Returns:
-            ToolMessage or Command.
-        """
-        # Validation is deferred to _execute_tool_sync to allow interceptors
-        # to short-circuit requests for unregistered tools
-        tool = self.tools_by_name.get(call["name"])
-
-        # Create the tool request with state and runtime
-        tool_request = ToolCallRequest(
-            tool_call=call,
-            tool=tool,
-            state=tool_runtime.state,
-            runtime=tool_runtime,
-        )
-
-        config = tool_runtime.config
-
-        if self._wrap_tool_call is None:
-            # No wrapper - execute directly
-            return self._execute_tool_sync(tool_request, input_type, config)
-
-        # Define execute callable that can be called multiple times
-        def execute(req: ToolCallRequest) -> ToolMessage | Command:
-            """Execute tool with given request. Can be called multiple times."""
-            return self._execute_tool_sync(req, input_type, config)
-
-        # Call wrapper with request and execute callable
-        try:
-            return self._wrap_tool_call(tool_request, execute)
-        except Exception as e:
-            # Wrapper threw an exception
-            if not self._handle_tool_errors:
-                raise
-            # Convert to error message
-            content = _handle_tool_error(e, flag=self._handle_tool_errors)
-            return ToolMessage(
-                content=content,
-                name=tool_request.tool_call["name"],
-                tool_call_id=tool_request.tool_call["id"],
-                status="error",
-            )
 
     async def _execute_tool_async(
         self,
@@ -1070,7 +514,10 @@ class ToolNode(RunnableCallable):
                 raise
 
             # Error is handled - create error ToolMessage
-            content = _handle_tool_error(e, flag=self._handle_tool_errors)
+            content = json.dumps(
+                {"error": _handle_tool_error(e, flag=self._handle_tool_errors)},
+                ensure_ascii=False,
+            )
             return ToolMessage(
                 content=content,
                 name=call["name"],
@@ -1119,7 +566,7 @@ class ToolNode(RunnableCallable):
 
         config = tool_runtime.config
 
-        if self._awrap_tool_call is None and self._wrap_tool_call is None:
+        if self._awrap_tool_call is None:
             # No wrapper - execute directly
             return await self._execute_tool_async(tool_request, input_type, config)
 
@@ -1128,23 +575,19 @@ class ToolNode(RunnableCallable):
             """Execute tool with given request. Can be called multiple times."""
             return await self._execute_tool_async(req, input_type, config)
 
-        def _sync_execute(req: ToolCallRequest) -> ToolMessage | Command:
-            """Sync execute fallback for sync wrapper."""
-            return self._execute_tool_sync(req, input_type, config)
-
         # Call wrapper with request and execute callable
         try:
             if self._awrap_tool_call is not None:
                 return await self._awrap_tool_call(tool_request, execute)
-            # None check was performed above already
-            self._wrap_tool_call = cast("ToolCallWrapper", self._wrap_tool_call)
-            return self._wrap_tool_call(tool_request, _sync_execute)
         except Exception as e:
             # Wrapper threw an exception
             if not self._handle_tool_errors:
                 raise
             # Convert to error message
-            content = _handle_tool_error(e, flag=self._handle_tool_errors)
+            content = json.dumps(
+                {"error": _handle_tool_error(e, flag=self._handle_tool_errors)},
+                ensure_ascii=False,
+            )
             return ToolMessage(
                 content=content,
                 name=tool_request.tool_call["name"],
@@ -1392,297 +835,6 @@ class ToolNode(RunnableCallable):
             )
             raise ValueError(msg)
         return updated_command
-
-
-def tools_condition(
-    state: list[AnyMessage] | dict[str, Any] | BaseModel,
-    messages_key: str = "messages",
-) -> Literal["tools", "__end__"]:
-    """Conditional routing function for tool-calling workflows.
-
-    This utility function implements the standard conditional logic for ReAct-style
-    agents: if the last `AIMessage` contains tool calls, route to the tool execution
-    node; otherwise, end the workflow. This pattern is fundamental to most tool-calling
-    agent architectures.
-
-    The function handles multiple state formats commonly used in LangGraph applications,
-    making it flexible for different graph designs while maintaining consistent behavior.
-
-    Args:
-        state: The current graph state to examine for tool calls. Supported formats:
-            - Dictionary containing a messages key (for `StateGraph`)
-            - `BaseModel` instance with a messages attribute
-        messages_key: The key or attribute name containing the message list in the state.
-            This allows customization for graphs using different state schemas.
-
-    Returns:
-        Either `'tools'` if tool calls are present in the last `AIMessage`, or `'__end__'`
-            to terminate the workflow. These are the standard routing destinations for
-            tool-calling conditional edges.
-
-    Raises:
-        ValueError: If no messages can be found in the provided state format.
-
-    Example:
-        Basic usage in a ReAct agent:
-
-        ```python
-        from langgraph.graph import StateGraph
-        from langchain.tools import ToolNode
-        from langchain.tools.tool_node import tools_condition
-        from typing_extensions import TypedDict
-
-
-        class State(TypedDict):
-            messages: list
-
-
-        graph = StateGraph(State)
-        graph.add_node("llm", call_model)
-        graph.add_node("tools", ToolNode([my_tool]))
-        graph.add_conditional_edges(
-            "llm",
-            tools_condition,  # Routes to "tools" or "__end__"
-            {"tools": "tools", "__end__": "__end__"},
-        )
-        ```
-
-        Custom messages key:
-
-        ```python
-        def custom_condition(state):
-            return tools_condition(state, messages_key="chat_history")
-        ```
-
-    !!! note
-        This function is designed to work seamlessly with `ToolNode` and standard
-        LangGraph patterns. It expects the last message to be an `AIMessage` when
-        tool calls are present, which is the standard output format for tool-calling
-        language models.
-    """
-    if isinstance(state, list):
-        ai_message = state[-1]
-    elif (isinstance(state, dict) and (messages := state.get(messages_key, []))) or (
-        messages := getattr(state, messages_key, [])
-    ):
-        ai_message = messages[-1]
-    else:
-        msg = f"No messages found in input state to tool_edge: {state}"
-        raise ValueError(msg)
-    if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
-        return "tools"
-    return "__end__"
-
-
-@dataclass
-class ToolRuntime(_DirectlyInjectedToolArg, Generic[ContextT, StateT]):
-    """Runtime context automatically injected into tools.
-
-    When a tool function has a parameter named `tool_runtime` with type hint
-    `ToolRuntime`, the tool execution system will automatically inject an instance
-    containing:
-
-    - `state`: The current graph state
-    - `tool_call_id`: The ID of the current tool call
-    - `config`: `RunnableConfig` for the current execution
-    - `context`: Runtime context (from langgraph `Runtime`)
-    - `store`: `BaseStore` instance for persistent storage (from langgraph `Runtime`)
-    - `stream_writer`: `StreamWriter` for streaming output (from langgraph `Runtime`)
-
-    No `Annotated` wrapper is needed - just use `runtime: ToolRuntime`
-    as a parameter.
-
-    Example:
-        ```python
-        from langchain_core.tools import tool
-        from langchain.tools import ToolRuntime
-
-        @tool
-        def my_tool(x: int, runtime: ToolRuntime) -> str:
-            \"\"\"Tool that accesses runtime context.\"\"\"
-            # Access state
-            messages = tool_runtime.state["messages"]
-
-            # Access tool_call_id
-            print(f"Tool call ID: {tool_runtime.tool_call_id}")
-
-            # Access config
-            print(f"Run ID: {tool_runtime.config.get('run_id')}")
-
-            # Access runtime context
-            user_id = tool_runtime.context.get("user_id")
-
-            # Access store
-            tool_runtime.store.put(("metrics",), "count", 1)
-
-            # Stream output
-            tool_runtime.stream_writer.write("Processing...")
-
-            return f"Processed {x}"
-        ```
-
-    !!! note
-        This is a marker class used for type checking and detection.
-        The actual runtime object will be constructed during tool execution.
-    """
-
-    state: StateT
-    context: ContextT
-    config: RunnableConfig
-    stream_writer: StreamWriter
-    tool_call_id: str | None
-    store: BaseStore | None
-
-
-class InjectedState(InjectedToolArg):
-    """Annotation for injecting graph state into tool arguments.
-
-    This annotation enables tools to access graph state without exposing state
-    management details to the language model. Tools annotated with `InjectedState`
-    receive state data automatically during execution while remaining invisible
-    to the model's tool-calling interface.
-
-    Args:
-        field: Optional key to extract from the state dictionary. If `None`, the entire
-            state is injected. If specified, only that field's value is injected.
-            This allows tools to request specific state components rather than
-            processing the full state structure.
-
-    Example:
-        ```python
-        from typing import List
-        from typing_extensions import Annotated, TypedDict
-
-        from langchain_core.messages import BaseMessage, AIMessage
-        from langchain.tools import InjectedState, ToolNode, tool
-
-
-        class AgentState(TypedDict):
-            messages: List[BaseMessage]
-            foo: str
-
-
-        @tool
-        def state_tool(x: int, state: Annotated[dict, InjectedState]) -> str:
-            '''Do something with state.'''
-            if len(state["messages"]) > 2:
-                return state["foo"] + str(x)
-            else:
-                return "not enough messages"
-
-
-        @tool
-        def foo_tool(x: int, foo: Annotated[str, InjectedState("foo")]) -> str:
-            '''Do something else with state.'''
-            return foo + str(x + 1)
-
-
-        node = ToolNode([state_tool, foo_tool])
-
-        tool_call1 = {"name": "state_tool", "args": {"x": 1}, "id": "1", "type": "tool_call"}
-        tool_call2 = {"name": "foo_tool", "args": {"x": 1}, "id": "2", "type": "tool_call"}
-        state = {
-            "messages": [AIMessage("", tool_calls=[tool_call1, tool_call2])],
-            "foo": "bar",
-        }
-        node.invoke(state)
-        ```
-
-        ```python
-        [
-            ToolMessage(content="not enough messages", name="state_tool", tool_call_id="1"),
-            ToolMessage(content="bar2", name="foo_tool", tool_call_id="2"),
-        ]
-        ```
-
-    !!! note
-        - `InjectedState` arguments are automatically excluded from tool schemas
-            presented to language models
-        - `ToolNode` handles the injection process during execution
-        - Tools can mix regular arguments (controlled by the model) with injected
-            arguments (controlled by the system)
-        - State injection occurs after the model generates tool calls but before
-            tool execution
-    """
-
-    def __init__(self, field: str | None = None) -> None:
-        """Initialize the `InjectedState` annotation."""
-        self.field = field
-
-
-class InjectedStore(InjectedToolArg):
-    """Annotation for injecting persistent store into tool arguments.
-
-    This annotation enables tools to access LangGraph's persistent storage system
-    without exposing storage details to the language model. Tools annotated with
-    `InjectedStore` receive the store instance automatically during execution while
-    remaining invisible to the model's tool-calling interface.
-
-    The store provides persistent, cross-session data storage that tools can use
-    for maintaining context, user preferences, or any other data that needs to
-    persist beyond individual workflow executions.
-
-    !!! warning
-        `InjectedStore` annotation requires `langchain-core >= 0.3.8`
-
-    Example:
-        ```python
-        from typing_extensions import Annotated
-        from langgraph.store.memory import InMemoryStore
-        from langchain.tools import InjectedStore, ToolNode, tool
-
-        @tool
-        def save_preference(
-            key: str,
-            value: str,
-            store: Annotated[Any, InjectedStore()]
-        ) -> str:
-            \"\"\"Save user preference to persistent storage.\"\"\"
-            store.put(("preferences",), key, value)
-            return f"Saved {key} = {value}"
-
-        @tool
-        def get_preference(
-            key: str,
-            store: Annotated[Any, InjectedStore()]
-        ) -> str:
-            \"\"\"Retrieve user preference from persistent storage.\"\"\"
-            result = store.get(("preferences",), key)
-            return result.value if result else "Not found"
-        ```
-
-        Usage with `ToolNode` and graph compilation:
-
-        ```python
-        from langgraph.graph import StateGraph
-        from langgraph.store.memory import InMemoryStore
-
-        store = InMemoryStore()
-        tool_node = ToolNode([save_preference, get_preference])
-
-        graph = StateGraph(State)
-        graph.add_node("tools", tool_node)
-        compiled_graph = graph.compile(store=store)  # Store is injected automatically
-        ```
-
-        Cross-session persistence:
-
-        ```python
-        # First session
-        result1 = graph.invoke({"messages": [HumanMessage("Save my favorite color as blue")]})
-
-        # Later session - data persists
-        result2 = graph.invoke({"messages": [HumanMessage("What's my favorite color?")]})
-        ```
-
-    !!! note
-        - `InjectedStore` arguments are automatically excluded from tool schemas
-            presented to language models
-        - The store instance is automatically injected by `ToolNode` during execution
-        - Tools can access namespaced storage using the store's get/put methods
-        - Store injection requires the graph to be compiled with a store instance
-        - Multiple tools can share the same store instance for data consistency
-    """
 
 
 def _is_injection(

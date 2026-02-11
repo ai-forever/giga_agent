@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, SecretInput } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -463,6 +463,7 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
     try {
       const incoming: Tool[] = Array.isArray(data?.tools) ? data.tools : [];
       const isReady = data?.state === "ready";
+      console.log(incoming);
       if (!isReady || incoming.length === 0) return;
       updateServerTools((prev) => {
         const prevList = prev[serverId];
@@ -834,19 +835,8 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
               )}
               {showAuthTokenInput && (
                 <div className="mt-2 relative">
-                  <Input
-                    type="text"
+                  <SecretInput
                     name="auth_token"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    style={
-                      {
-                        WebkitTextSecurity: "disc",
-                        textSecurity: "disc",
-                      } as React.CSSProperties
-                    }
                     placeholder="Введите токен аутентификации"
                     value={newServerAuthToken}
                     onChange={(e) => setNewServerAuthToken(e.target.value)}

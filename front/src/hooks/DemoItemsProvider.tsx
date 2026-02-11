@@ -35,7 +35,8 @@ export const DemoItemsProvider = ({ children }: DemoItemsProps) => {
   };
 
   useEffect(() => {
-    updateItems();
+    // updateItems();
+    setDemoItemsLoaded(true);
   }, []);
   const addItem = () => {
     axios.post("/api/tasks/").then((resp) => {

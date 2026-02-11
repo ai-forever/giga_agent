@@ -116,7 +116,9 @@ class LocalDockerSandbox(JupyterSandbox):
             logger.debug("⏳ Waiting for Jupyter...")
             await asyncio.sleep(1)
 
-    def stop(self):
+    
+
+    async def stop(self):
         if self._container:
             logger.info(f"🧹 Cleaning up container {self._container.id[:12]}...")
             self._container.stop()

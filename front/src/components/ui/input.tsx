@@ -18,4 +18,29 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   );
 }
 
-export { Input };
+/** Скрытый ввод через CSS (disc), без type="password" — браузер не предлагает сохранить пароль. */
+function SecretInput({
+  className,
+  style,
+  ...props
+}: React.ComponentProps<"input">) {
+  return (
+    <Input
+      type="text"
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="none"
+      spellCheck={false}
+      data-slot="secret-input"
+      className={className}
+      style={{
+        ...style,
+        WebkitTextSecurity: "disc",
+        textSecurity: "disc",
+      } as React.CSSProperties}
+      {...props}
+    />
+  );
+}
+
+export { Input, SecretInput };

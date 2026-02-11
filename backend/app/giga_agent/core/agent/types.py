@@ -31,4 +31,4 @@ class AgentState(TypedDict):  # noqa: D101
 
 
 class Context(TypedDict):
-    pass
+    identity: str

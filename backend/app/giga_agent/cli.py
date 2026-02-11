@@ -3,11 +3,15 @@ import os
 import time
 import logging
 import asyncio
+import importlib
 import importlib.util
 import uvicorn
 from enum import Enum
 import typer
-from typing import Annotated
+from typing import Annotated, Tuple
+from types import ModuleType
+from fastapi import FastAPI
+from langgraph.graph.state import CompiledStateGraph
 from alembic.config import Config
 from alembic import command
 from sqlalchemy import create_engine, text
@@ -15,9 +19,19 @@ from sqlalchemy.exc import OperationalError
 
 # Импорты для аннотации типов
 from giga_agent.core.agent.base import BaseAgent
-from giga_agent.core.db import get_session_factory
+from giga_agent.core.agent.types import AgentState, Context
+from giga_agent.core.db import get_session_factory, get_db_url
 
 logger = logging.getLogger(__name__)
+
+
+def _get_core_models_migration_path() -> str:
+    """
+    Returns the absolute path to core models migrations directory.
+    Core models are located in giga_agent/models/.
+    """
+    package_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(package_dir, "models", "migrations")
 
 
 class LogLevel(str, Enum):
@@ -26,6 +40,10 @@ class LogLevel(str, Enum):
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+class CLIException(Exception):
+    pass
 
 
 app = typer.Typer()
@@ -78,49 +96,96 @@ def wait_for_db(db_url: str, retries: int = 15, delay: int = 2):
     sys.exit(1)
 
 
-def load_agent_from_string(import_string: str) -> BaseAgent:
-    """
-    Парсит строку вида 'my_script.py:my_agent' или 'module.submodule:agent_var'
-    и возвращает экземпляр Agent.
-    """
-    try:
-        path_part, var_name = import_string.split(":")
-    except ValueError:
-        raise typer.BadParameter(
-            "Format must be 'filepath:variable_name' (e.g., agent.py:agent)"
-        )
+def _parse_import_string(
+    import_string: str, expected_parts: int, format_hint: str
+) -> tuple[str, ...]:
+    parts = import_string.split(":")
+    if len(parts) != expected_parts:
+        raise typer.BadParameter(f"Format must be {format_hint}")
+    return tuple(parts)
 
+
+def _ensure_cwd_in_sys_path() -> None:
     # Добавляем текущую директорию в path, чтобы импорты внутри пользовательского файла работали
-    sys.path.insert(0, os.getcwd())
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
 
-    # Попытка загрузить как файл
+
+def _load_module_from_path(path_part: str, module_alias: str) -> ModuleType:
+    _ensure_cwd_in_sys_path()
+
     if os.path.exists(path_part) or os.path.exists(path_part + ".py"):
         filename = path_part if path_part.endswith(".py") else path_part + ".py"
-        spec = importlib.util.spec_from_file_location("user_agent_config", filename)
+        spec = importlib.util.spec_from_file_location(module_alias, filename)
         if spec is None or spec.loader is None:
             raise typer.BadParameter(f"Could not load file: {filename}")
 
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-    else:
-        # Попытка загрузить как python модуль (dotted path)
-        try:
-            module = importlib.import_module(path_part)
-        except ImportError as e:
-            raise typer.BadParameter(f"Could not import module/file '{path_part}': {e}")
+        return module
 
-    # Достаем переменную
-    agent_instance = getattr(module, var_name, None)
+    try:
+        return importlib.import_module(path_part)
+    except ImportError as e:
+        raise typer.BadParameter(f"Could not import module/file '{path_part}': {e}")
 
-    if not agent_instance:
-        raise typer.BadParameter(f"Variable '{var_name}' not found in '{path_part}'")
 
-    if not isinstance(agent_instance, Agent):
+def _get_module_attr(module: ModuleType, attr_name: str, path_part: str):
+    value = getattr(module, attr_name, None)
+    if value is None:
+        raise typer.BadParameter(f"Variable '{attr_name}' not found in '{path_part}'")
+    return value
+
+
+def load_agent_from_string(import_string: str) -> BaseAgent:
+    """
+    Парсит строку вида 'my_script.py:my_agent' или 'module.submodule:agent_var'
+    и возвращает экземпляр Agent.
+    """
+    path_part, var_name = _parse_import_string(
+        import_string,
+        expected_parts=2,
+        format_hint="'filepath:variable_name' (e.g., agent.py:agent)",
+    )
+
+    module = _load_module_from_path(path_part, "user_agent_config")
+    agent_instance = _get_module_attr(module, var_name, path_part)
+
+    if not isinstance(agent_instance, BaseAgent):
         raise typer.BadParameter(
             f"Variable '{var_name}' is not an instance of giga_agent.Agent"
         )
 
     return agent_instance
+
+
+def load_graph_and_app_from_string(
+    import_string: str,
+) -> Tuple[CompiledStateGraph[AgentState, Context], FastAPI]:
+    """
+    Парсит строку вида 'my_script.py:graph:app' или 'module.submodule:graph:app'
+    и возвращает экземпляр объект графа и объект FastAPI.
+    """
+    path_part, graph_var, app_var = _parse_import_string(
+        import_string,
+        expected_parts=3,
+        format_hint="'filepath:graph_var:app_var' (e.g., agent.py:graph:app)",
+    )
+
+    module = _load_module_from_path(path_part, "user_graph_config")
+    graph_instance = _get_module_attr(module, graph_var, path_part)
+    app_instance = _get_module_attr(module, app_var, path_part)
+
+    if not isinstance(graph_instance, CompiledStateGraph):
+        raise typer.BadParameter(
+            f"Variable '{graph_var}' is not a CompiledStateGraph instance"
+        )
+
+    if not isinstance(app_instance, FastAPI):
+        raise typer.BadParameter(f"Variable '{app_var}' is not a FastAPI instance")
+
+    return graph_instance, app_instance
 
 
 def _get_alembic_config(version_locations: str) -> Config:
@@ -146,15 +211,20 @@ def _get_alembic_config(version_locations: str) -> Config:
     return alembic_cfg
 
 
-def apply_migrations(agent: Agent):
+def apply_migrations(agent: BaseAgent):
     """
     Собирает пути миграций из всех модулей и запускает alembic upgrade head.
     """
     # 1. Собираем миграции модулей
     migration_paths = []
-    # if os.path.exists(core_migrations):
-    #     migration_paths.append(core_migrations)
 
+    # 1.1. Добавляем core модели (giga_agent/models)
+    core_migrations = _get_core_models_migration_path()
+    if os.path.exists(core_migrations):
+        logger.info(f"Found core models migrations: {core_migrations}")
+        migration_paths.append(core_migrations)
+
+    # 1.2. Добавляем миграции модулей
     for mod in agent.modules:
         if mod.migration_path:
             logger.info(
@@ -169,11 +239,13 @@ def apply_migrations(agent: Agent):
     # 2. Формируем строку для конфига (пути разделены пробелами)
     version_locations = " ".join(migration_paths)
 
+    # Check DB availability before migration
+    db_url = get_db_url()
+
     # 3. Настраиваем Alembic
     alembic_cfg = _get_alembic_config(version_locations)
+    alembic_cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
 
-    # Check DB availability before migration
-    db_url = os.getenv("DATABASE_URL")
     if db_url:
         wait_for_db(db_url)
 
@@ -194,7 +266,7 @@ def check_db_is_up_to_date(alembic_cfg: Config):
     from alembic.script import ScriptDirectory
 
     # Create engine from config
-    db_url = alembic_cfg.get_main_option("sqlalchemy.url")
+    db_url = get_db_url()
     if not db_url:
         # Try to fallback to default logic from env.py if url not set in config object yet
         # But usually we set it via env vars or default in _get_alembic_config?
@@ -255,6 +327,13 @@ def check(
 
     # 1. Collect migration paths
     migration_paths = []
+
+    # 1.1. Добавляем core модели
+    core_migrations = _get_core_models_migration_path()
+    if os.path.exists(core_migrations):
+        migration_paths.append(core_migrations)
+
+    # 1.2. Добавляем миграции модулей
     for mod in agent.modules:
         if mod.migration_path:
             migration_paths.append(mod.migration_path)
@@ -330,13 +409,16 @@ def check(
 @app.command()
 def makemigrations(
     module_path: Annotated[str, typer.Argument(help="Path to the module directory")],
-    message: Annotated[str, typer.Argument(help="Migration message")],
     agent_path: Annotated[
         str, typer.Option(help="Path to agent instance, e.g. agent.py:agent")
     ] = "agent.py:agent",
+    message: Annotated[str, typer.Option(help="Migration message")] = "",
 ):
     """
     Создает новую миграцию для указанного модуля.
+
+    Примеры:
+        giga_agent makemigrations giga_agent/auth --agent-path agent.py:agent -m "add auth"
     """
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
     logging.basicConfig(level=logging.INFO)
@@ -367,14 +449,34 @@ def makemigrations(
             logger.info(f" - {mod.module_path} ({mod.__class__.__name__})")
         raise typer.Exit(code=1)
 
-    # 3. Подготовка папки миграций
     target_migration_dir = os.path.join(target_module.module_path, "migrations")
+    target_name = target_module.__class__.__name__
+
+    # Получаем префикс модуля
+    mod_class = target_module.__class__
+    module_parts = mod_class.__module__.split(".")
+    # giga_agent.auth.module -> auth
+    # my_plugin.module -> my_plugin
+    if len(module_parts) > 1 and module_parts[-1] == "module":
+        module_name = module_parts[-2]
+    else:
+        module_name = module_parts[-1]
+    target_prefix = f"{module_name}_"
+
+    # 3. Подготовка папки миграций
     if not os.path.exists(target_migration_dir):
         logger.info(f"Creating migrations directory: {target_migration_dir}")
         os.makedirs(target_migration_dir)
 
     # 4. Собираем ВСЕ пути миграций для Alembic
     migration_paths = []
+
+    # 4.1. Core models migrations
+    core_migrations = _get_core_models_migration_path()
+    if os.path.exists(core_migrations):
+        migration_paths.append(core_migrations)
+
+    # 4.2. Module migrations
     for mod in agent.modules:
         # Check existing migrations
         p = os.path.join(mod.module_path, "migrations")
@@ -391,7 +493,7 @@ def makemigrations(
     alembic_cfg = _get_alembic_config(version_locations)
 
     # Check DB
-    db_url = os.getenv("DATABASE_URL")
+    db_url = get_db_url()
     if db_url:
         wait_for_db(db_url)
 
@@ -400,21 +502,8 @@ def makemigrations(
     check_db_is_up_to_date(alembic_cfg)
 
     # 7. Generate Revision
-    logger.info(f"Generating migration for {target_module.__class__.__name__}")
+    logger.info(f"Generating migration for {target_name}")
     logger.info(f"Target directory: {target_migration_dir}")
-
-    # Передаем префикс модуля через x-arguments в env.py
-    # Нужно получить правильное имя модуля для префикса (как в db.py)
-    mod_class = target_module.__class__
-    module_parts = mod_class.__module__.split(".")
-    # giga_agent.auth.module -> auth
-    # my_plugin.module -> my_plugin
-    if len(module_parts) > 1 and module_parts[-1] == "module":
-        module_name = module_parts[-2]
-    else:
-        module_name = module_parts[-1]
-
-    target_prefix = f"{module_name}_"
     logger.info(f"Filtering tables with prefix: {target_prefix}")
 
     # Alembic context arguments (будут доступны в env.py через context.get_x_argument)
@@ -435,12 +524,12 @@ def makemigrations(
         raise typer.Exit(code=1)
 
 
-async def run_startup_hooks(agent: Agent):
+async def run_startup_hooks(agent: BaseAgent):
     """
     Runs on_startup for all modules.
     """
     logger.info("Running startup hooks...")
-    session_factory = get_session_factory()
+    session_factory = await get_session_factory()
     async with session_factory() as session:
         for module in agent.modules:
             try:
@@ -456,26 +545,61 @@ async def run_startup_hooks(agent: Agent):
 
 @app.command()
 def dev(
-    agent_path: Annotated[
+    graph_and_app_path: Annotated[
         str, typer.Argument(help="Path to agent instance, e.g. agent.py:agent")
     ],
     log_level: Annotated[
         LogLevel, typer.Option(help="Logging level", case_sensitive=False)
     ] = LogLevel.INFO,
+    host: Annotated[str, typer.Option(help="Host to bind to")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port to bind to")] = 9090,
+    no_reload: Annotated[bool, typer.Option(help="Disable auto-reload")] = False,
 ):
     """
     Запускает режим разработки: применяет миграции модулей и стартует приложение.
     """
+    try:
+        from langgraph_api.cli import run_server  # type: ignore
+    except ImportError:
+        py_version_msg = ""
+        if sys.version_info < (3, 11):
+            py_version_msg = (
+                "\n\nNote: The in-mem server requires Python 3.11 or higher to be installed."
+                f" You are currently using Python {sys.version_info.major}.{sys.version_info.minor}."
+                ' Please upgrade your Python version before installing "langgraph-cli[inmem]".'
+            )
+        try:
+            from importlib import util
+
+            if not util.find_spec("langgraph_api"):
+                raise CLIException(
+                    "Required package 'langgraph-api' is not installed.\n"
+                    "Please install it with:\n\n"
+                    '    pip install -U "langgraph-cli[inmem]"'
+                    f"{py_version_msg}"
+                ) from None
+        except ImportError:
+            raise CLIException(
+                "Could not verify package installation. Please ensure Python is up to date and\n"
+                "langgraph-cli is installed with the 'inmem' extra: pip install -U \"langgraph-cli[inmem]\""
+                f"{py_version_msg}"
+            ) from None
+        raise CLIException(
+            "Could not import run_server. This likely means your installation is incomplete.\n"
+            "Please ensure langgraph-cli is installed with the 'inmem' extra: pip install -U \"langgraph-cli[inmem]\""
+            f"{py_version_msg}"
+        ) from None
     logging.basicConfig(level=log_level.value.upper())
 
     # Создаем базовую директорию агента
     os.makedirs(".giga_agent", exist_ok=True)
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
-    logger.info(f"Loading agent from {agent_path}...")
+    logger.info(f"Loading agent from {graph_and_app_path}...")
 
     # 1. Загружаем агента и модули
-    agent = load_agent_from_string(agent_path)
+    graph, fast_api_app = load_graph_and_app_from_string(graph_and_app_path)
+    agent = graph.giga_agent
     logger.info(f"Loaded agent with {len(agent.modules)} modules.")
 
     # 2. Применяем миграции
@@ -489,7 +613,46 @@ def dev(
 
     # 4. Запускаем приложение
     logger.info("Starting development server...")
-    uvicorn.run(agent.app, host="0.0.0.0", port=8000)
+
+    path_part, graph_var, app_var = _parse_import_string(
+        graph_and_app_path,
+        expected_parts=3,
+        format_hint="'filepath:graph_var:app_var' (e.g., agent.py:graph:app)",
+    )
+
+    # Suppress all external logs, keep only giga_agent logs at the desired level.
+    # Two mechanisms needed:
+    # 1) Patch dictConfig — uvicorn.Config.__init__ calls it in the parent process,
+    #    which resets root logger level back to INFO.
+    # 2) Patch uvicorn.run — inject root level into log_config so that the reload
+    #    subprocess (fresh Python process) also gets root=WARNING via dictConfig.
+    _desired_level = log_level.value.upper()
+    logging.root.setLevel(logging.WARNING)
+    logging.getLogger("giga_agent").setLevel(_desired_level)
+
+    # Patch 2: uvicorn.run — inject root level into log_config for child process
+    _orig_uvicorn_run = uvicorn.run
+
+    def _uvicorn_run_with_suppression(*args, **kwargs):
+        log_config = kwargs.get("log_config")
+        if isinstance(log_config, dict):
+            if "root" in log_config:
+                log_config["root"]["level"] = "WARNING"
+            if "loggers" not in log_config:
+                log_config["loggers"] = {}
+            log_config["loggers"]["giga_agent"] = {"level": _desired_level}
+        return _orig_uvicorn_run(*args, **kwargs)
+
+    uvicorn.run = _uvicorn_run_with_suppression
+
+    run_server(
+        host,
+        port,
+        not no_reload,
+        {"giga_agent": f"{path_part}:{graph_var}"},
+        auth={"path": f"giga_agent.auth.langgraph_auth:auth"},
+        http={"app": f"{path_part}:{app_var}"},
+    )
 
 
 if __name__ == "__main__":

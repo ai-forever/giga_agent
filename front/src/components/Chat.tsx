@@ -7,6 +7,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -16,14 +17,19 @@ interface ChatProps {
 const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
+  const { token } = useAuth();
   const thread = useStream<GraphState>({
-    apiUrl: `${window.location.protocol}//${window.location.host}/graph`,
-    assistantId: "chat",
+    apiUrl: `${window.location.protocol}//${window.location.host}/api`,
+    assistantId: "giga_agent",
     messagesKey: "messages",
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
     fetchStateHistory: true,
     throttle: 75,
+    apiKey: token,
+    defaultHeaders: {
+      Authorization: `Bearer ${token}`,
+    },
     onThreadId: (threadId: string) => {
       onThreadIdChange?.(threadId);
       navigate(`/threads/${threadId}`);

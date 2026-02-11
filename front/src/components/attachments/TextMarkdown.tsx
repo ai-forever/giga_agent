@@ -9,6 +9,10 @@ import Markdown from "react-markdown";
 import MessageAttachment from "./MessageAttachment.tsx";
 import { cn } from "@/lib/utils.ts";
 import rehypeKatex from "@/lib/rehype_katex.ts";
+import {
+  buildContentByPathUrl,
+  inferAttachmentTypeFromPath,
+} from "./file-utils.ts";
 
 // Оборачивает ссылки/картинки вида ](/files/...) и ](attachment:/files/...) с пробелами в <...>,
 // чтобы CommonMark корректно парсил URI без URL-энкода.
@@ -213,6 +217,24 @@ const markdownComponents = {
   a({ href, children, ...props }: any) {
     if (!href) return <a {...props}>{children}</a>;
 
+    if (href.startsWith("attachment:")) {
+      const path = decodeURI(href.replace(/^attachment:/, ""));
+      const fileType = inferAttachmentTypeFromPath(path);
+      if (fileType === "image" || fileType === "audio" || fileType === "video") {
+        return <MessageAttachment path={path} fileType={fileType} />;
+      }
+      return (
+        <a
+          href={buildContentByPathUrl(path)}
+          target="_blank"
+          rel="noopener noreferrer"
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    }
+
     // YouTube
     const ytId = getYouTubeId(href);
     if (ytId) {
@@ -248,10 +270,10 @@ const markdownComponents = {
     }
 
     if (href.startsWith("file:")) {
-      const filePath = href.replace(/^file:\/?/, "");
+      const filePath = decodeURI(href.replace(/^file:\/?/, ""));
       return (
         <a
-          href={`/files/${filePath}`}
+          href={buildContentByPathUrl(filePath)}
           target="_blank"
           rel="noopener noreferrer"
           {...props}
@@ -271,8 +293,8 @@ const markdownComponents = {
   img({ src, alt, ...props }: any) {
     if (!src) return null;
     if (src.startsWith("attachment:")) {
-      const path = src.replace(/^attachment:/, "");
-      return <MessageAttachment path={decodeURI(path)} alt={alt} />;
+      const path = decodeURI(src.replace(/^attachment:/, ""));
+      return <MessageAttachment path={path} alt={alt} />;
     }
     // if (src.startsWith("graph:")) {
     //   const graphId = src.replace(/^graph:/, "");
@@ -291,10 +313,10 @@ const markdownComponents = {
     //   return <AudioPlayer id={audioId} alt={alt} />;
     // }
     if (src.startsWith("file:")) {
-      const filePath = src.replace(/^file:\/?/, "");
+      const filePath = decodeURI(src.replace(/^file:\/?/, ""));
       return (
         <a
-          href={`/files/${filePath}`}
+          href={buildContentByPathUrl(filePath)}
           rel={"noopener noreferrer"}
           target={"_blank"}
         >

@@ -7,7 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, SecretInput } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Plus } from "lucide-react";
 import { z } from "zod";
@@ -261,17 +261,11 @@ const ContextModal: React.FC<ContextModalProps> = ({
                             )}
                           </div>
                           <div>
-                            <Input
+                            <SecretInput
                               placeholder="Значение"
                               value={s.value}
                               onChange={(e) =>
                                 updateSecret(s.id, "value", e.target.value)
-                              }
-                              style={
-                                {
-                                  WebkitTextSecurity: "disc",
-                                  textSecurity: "disc",
-                                } as React.CSSProperties
                               }
                               aria-invalid={Boolean(err.value)}
                             />

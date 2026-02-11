@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import styled from "styled-components";
+import { buildContentByPathUrl } from "./file-utils.ts";
 
 // Обертка iframe: управляет шириной и макс. шириной
 const IframeWrapper = styled.div<{ fullScreen: boolean }>`
@@ -27,13 +28,13 @@ const StyledIframe = styled.iframe<{ scale: number }>`
 
 interface HTMLPageProps {
   id: string;
-  data: any;
+  path: string;
   alt?: string;
   fullScreen?: boolean;
 }
 
 const HTMLPage: React.FC<HTMLPageProps> = ({
-  data,
+  path,
   alt,
   fullScreen = false,
 }) => {
@@ -67,8 +68,8 @@ const HTMLPage: React.FC<HTMLPageProps> = ({
   return (
     <IframeWrapper ref={wrapperRef} fullScreen={fullScreen}>
       <StyledIframe
-        title={alt || `iframe-${data.path}`}
-        src={`${window.location.protocol}//${window.location.host}/files${data.path}`}
+        title={alt || `iframe-${path}`}
+        src={buildContentByPathUrl(path)}
         sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms"
         scale={scale}
       />

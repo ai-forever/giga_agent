@@ -129,6 +129,11 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                         "evalue": content["evalue"],
                         "traceback": content["traceback"],
                     }
+                elif msg_type == "display_data":
+                    yield {
+                        "type": "display_data",
+                        "data": content["data"],
+                    }
                 elif msg_type == "input_request":
                     # Wait for input from the consumer of the generator
                     user_input = yield {

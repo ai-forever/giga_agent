@@ -2,6 +2,7 @@ import React from "react";
 import styled from "styled-components";
 import { useSelectedAttachments } from "../../hooks/SelectedAttachmentsContext.tsx";
 import { Check } from "lucide-react";
+import { buildContentByPathUrl } from "./file-utils.ts";
 
 const SelectableContainer = styled.div`
   position: relative;
@@ -36,11 +37,11 @@ const SelectorButton = styled.button<{ $selected: boolean; $isGraph: boolean }>`
 
 interface ImageProps {
   id: string;
-  data: any;
+  path: string;
   alt?: string;
 }
 
-const Image: React.FC<ImageProps> = ({ id, data, alt }) => {
+const Image: React.FC<ImageProps> = ({ id, path, alt }) => {
   const { isSelected, toggle } = useSelectedAttachments();
   const selected = isSelected(id);
 
@@ -59,7 +60,7 @@ const Image: React.FC<ImageProps> = ({ id, data, alt }) => {
       </SelectorButton>
       <div style={{ display: "flex" }}>
         <img
-          src={`${window.location.protocol}//${window.location.host}/files${data.path}`}
+          src={buildContentByPathUrl(path)}
           alt={`attachment-${alt}`}
           style={{
             maxWidth: "100%",

@@ -1,14 +1,16 @@
 import os
 import inspect
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, List
 from typing_extensions import override
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 from langchain_core.load.serializable import Serializable
+from langchain_core.tools import BaseTool
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
     from fastapi import APIRouter
+    from giga_agent.core.agent.middleware import AgentMiddleware
 
 
 class BaseModule(Serializable):
@@ -44,6 +46,27 @@ class BaseModule(Serializable):
     def get_api_router(self) -> Optional["APIRouter"]:
         """
         Возвращает FastAPI router для подключения к основному приложению.
+        """
+        return None
+
+    def get_tools(self) -> List[BaseTool]:
+        """
+        Возвращает список инструментов (tools), предоставляемых модулем.
+        Переопределите в подклассе, чтобы добавить tools в агент.
+        """
+        return []
+
+    def get_instructions(self) -> str | None:
+        """
+        Возвращает строку с инструкциями (system prompt), которые модуль
+        добавляет к системному промпту агента. Возвращает None если инструкций нет.
+        """
+        return None
+
+    def get_middleware(self) -> Optional["AgentMiddleware"]:
+        """
+        Возвращает список AgentMiddleware, предоставляемых модулем.
+        Переопределите в подклассе, чтобы добавить middleware в агент.
         """
         return None
 

@@ -22,7 +22,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "aiosqlite>=0.19.0",
     "asyncpg>=0.29.0",
-    "langgraph>=1.0.5",
+    "langgraph==1.0.8",
     "langchain>=1.2.0",
     "langgraph-cli>=0.4.11",
     "websockets>=15.0.1",
@@ -32,8 +32,11 @@ dependencies = [
     "bcrypt>=4.0.0",
     "pyjwt>=2.8.0",
     "python-multipart>=0.0.9",
-    "langgraph-api>=0.6.13",
+    "langgraph-api==0.7.28",
     "langchain-openai>=1.1.6",
+    "langchain-gigachat-lc1>=0.4.0b4",
+    "e2b>=2.13.2",
+    "aioboto3>=15.5.0",
 ]
 
 [project.scripts]

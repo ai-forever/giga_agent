@@ -12,8 +12,14 @@ import { RagProvider } from "@/components/rag/providers/RAG.tsx";
 import RAGInterface from "@/components/rag";
 import { OAuthCallback } from "@/components/mcp/oauth-callback.tsx";
 import { UserInfoProvider } from "@/components/providers/user-info.tsx";
+import { AuthProvider } from "@/components/providers/auth.tsx";
+import { ApiProvider } from "@/components/providers/api.tsx";
+import { ThemeProvider } from "@/components/providers/theme.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
+import LoginPage from "@/components/auth/LoginPage.tsx";
+import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
+import SettingsPage from "@/components/settings-page";
 
 const InnerApp: React.FC = () => {
   const location = useLocation();
@@ -88,6 +94,7 @@ const InnerApp: React.FC = () => {
         <Route path="/rag" element={<RAGInterface />} />
         <Route path="/memories" element={<MemoriesPage />} />
         <Route path="/demo/settings" element={<DemoSettings />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Sidebar>
   );
@@ -95,20 +102,36 @@ const InnerApp: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <DemoItemsProvider>
-      <Toaster />
-      <SettingsProvider>
-        <RagProvider>
-          <UserInfoProvider>
-            <div className="flex h-auto w-full mx-auto print:h-auto">
-              <BrowserRouter>
-                <InnerApp />
-              </BrowserRouter>
-            </div>
-          </UserInfoProvider>
-        </RagProvider>
-      </SettingsProvider>
-    </DemoItemsProvider>
+      <BrowserRouter>
+        <AuthProvider>
+        <ThemeProvider>
+          <ApiProvider>
+            <DemoItemsProvider>
+              <Toaster />
+              <SettingsProvider>
+                <RagProvider>
+                  <UserInfoProvider>
+                    <Routes>
+                      <Route path="/login" element={<LoginPage />} />
+                      <Route
+                        path="/*"
+                        element={
+                          <ProtectedRoute>
+                            <div className="flex h-auto w-full mx-auto print:h-auto">
+                              <InnerApp />
+                            </div>
+                          </ProtectedRoute>
+                        }
+                      />
+                    </Routes>
+                  </UserInfoProvider>
+                </RagProvider>
+              </SettingsProvider>
+            </DemoItemsProvider>
+          </ApiProvider>
+          </ThemeProvider>
+        </AuthProvider>
+      </BrowserRouter>
   );
 };
 

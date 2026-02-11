@@ -52,32 +52,7 @@ const logoVariants: Variants = {
   },
 };
 
-const tasks = [
-  {
-    text: "Проанализировать Excel",
-    link: "/demo/26",
-  },
-  {
-    text: "Сравнить себя с конкурентами",
-    link: "/demo/40",
-  },
-  {
-    text: "Проанализировать группу в ВК",
-    link: "/demo/4",
-  },
-  {
-    text: "Проанализировать логи",
-    link: "/demo/39",
-  },
-  {
-    text: "Провести работу с базой знаний",
-    link: "/demo/37",
-  },
-  {
-    text: "Придумать план поездки",
-    link: "/demo/38",
-  },
-];
+const tasks = [];
 
 let hasShownWelcomeAnimation = false;
 
@@ -121,30 +96,6 @@ const WellcomeMessage: React.FC = () => {
           бизнеса. <br></br>Я могу координировать, планировать и решать широкий
           спектр задач.
         </motion.p>
-        <motion.p
-          className="mt-5 text-sm font-medium text-gray-700 dark:text-gray-200 sm:text-base"
-          variants={itemVariants}
-        >
-          Вот часть задач, которые я могу решить:
-        </motion.p>
-        <motion.ul
-          className="mx-auto mt-3 pl-5  list-disc text-left text-sm text-gray-600 dark:text-gray-300 sm:text-base space-y-2 w-fit"
-          variants={containerVariants}
-        >
-          {tasks.map((task) => (
-            <motion.li key={task.text} variants={itemVariants}>
-              <a
-                className="underline cursor-pointer"
-                onClick={(ev) => {
-                  ev.preventDefault();
-                  navigate(task.link);
-                }}
-              >
-                {task.text}
-              </a>
-            </motion.li>
-          ))}
-        </motion.ul>
       </motion.div>
     </div>
   );

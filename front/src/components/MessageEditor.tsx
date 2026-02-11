@@ -24,6 +24,7 @@ import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx"
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { useSettings } from "@/components/Settings.tsx";
+import { useParams } from "react-router-dom";
 
 interface MessageEditorProps {
   message: Message;
@@ -38,6 +39,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
   onCancel,
   thread,
 }) => {
+  const { threadId } = useParams<{ threadId?: string }>();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -67,6 +69,15 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
       })),
     [mcpTools],
   );
+
+  const getFilePath = useCallback((file: FileData): string => {
+    const withSandbox = file as FileData & { sandbox_path?: string };
+    return withSandbox.path || withSandbox.sandbox_path || "";
+  }, []);
+
+  const buildFileUrl = useCallback((path: string): string => {
+    return `/api/files/content/by-path?path=${encodeURIComponent(path)}`;
+  }, []);
 
   useEffect(() => {
     // @ts-ignore
@@ -231,9 +242,10 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
               onClick={() => {
                 if (it.kind === "existing") {
                   const f = it.data!;
-                  if (f.file_type === "image")
-                    setEnlargedImage("/files/" + f.path);
-                  else openLink("/files/" + f.path);
+                  const path = getFilePath(f);
+                  const url = buildFileUrl(path);
+                  if (f.file_type === "image") setEnlargedImage(url);
+                  else openLink(url);
                 } else if (it.previewUrl) {
                   setEnlargedImage(it.previewUrl);
                 }
@@ -241,11 +253,9 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
             >
               {it.kind === "existing" ? (
                 it.data?.file_type === "image" ? (
-                  <ImagePreview src={"/files/" + it.data.path} />
+                  <ImagePreview src={buildFileUrl(getFilePath(it.data))} />
                 ) : (
-                  <span>
-                    {it.name ?? it.data?.path.replace(/^files\//, "")}
-                  </span>
+                  <span>{it.name ?? (it.data ? getFilePath(it.data) : "")}</span>
                 )
               ) : it.previewUrl ? (
                 <ImagePreview src={it.previewUrl} />

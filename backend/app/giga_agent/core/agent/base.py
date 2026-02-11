@@ -1,4 +1,9 @@
-from typing import List, Set, Optional
+from typing import Any, List, Set, Optional
+
+from giga_agent.core.agent.core_middleware import (
+    CoreFirstMiddleware,
+    CoreLastMiddleware,
+)
 from typing_extensions import override
 
 from fastapi import FastAPI
@@ -6,8 +11,13 @@ from pydantic import Field, PrivateAttr, ConfigDict
 from langchain_core.load.serializable import Serializable
 from giga_agent.core.module import BaseModule
 from langchain_core.language_models import BaseChatModel
+from langchain_core.tools import BaseTool
 
 from giga_agent.sandbox.base import BaseSandbox
+from giga_agent.core.agent.graph_factory import create_graph
+from langgraph.graph.state import CompiledStateGraph
+from giga_agent.core.agent.types import AgentState, Context
+from giga_agent.routes import llms_router, sandboxes_router, files_router
 
 
 class BaseAgent(Serializable):
@@ -16,8 +26,10 @@ class BaseAgent(Serializable):
     modules: List[BaseModule] = Field(default_factory=list)
     llm: Optional[BaseChatModel] = None
     sandbox: Optional[BaseSandbox] = None
+    tools: Optional[List[BaseTool]] = None
 
     _app: FastAPI = PrivateAttr()
+    _graph: CompiledStateGraph[AgentState, Context] = PrivateAttr()
     _module_ids: Set[str] = PrivateAttr(default_factory=set)
 
     @classmethod
@@ -25,12 +37,16 @@ class BaseAgent(Serializable):
     def is_lc_serializable(cls) -> bool:
         return True
 
-    def __init__(self, modules: List[BaseModule] = None, **data):
-        if modules is not None:
-            data["modules"] = modules
-        super().__init__(**data)
+    def model_post_init(self, __context: Any) -> None:
+        super().model_post_init(__context)
 
         self._app = FastAPI()
+        self._app.state.agent = self
+
+        # Подключаем core routes
+        self._app.include_router(llms_router)
+        self._app.include_router(sandboxes_router)
+        self._app.include_router(files_router)
 
         # Re-initialize modules through add_module to ensure validation and route registration
         initial_modules = self.modules
@@ -38,6 +54,22 @@ class BaseAgent(Serializable):
 
         for module in initial_modules:
             self.add_module(module)
+
+        # Собираем tools из модулей и объединяем с explicitly переданными
+        all_tools = list(self.tools or [])
+        for module in self.modules:
+            all_tools.extend(module.get_tools())
+
+        # Собираем middleware из модулей
+        all_middleware = [CoreFirstMiddleware()]
+        for module in self.modules:
+            mw = module.get_middleware()
+            if mw is not None:
+                all_middleware.append(mw)
+        all_middleware.append(CoreLastMiddleware())
+
+        self._graph = create_graph(self, tools=all_tools, middleware=all_middleware)
+        setattr(self.graph, "giga_agent", self)
 
     def add_module(self, module: BaseModule):
         if module.id in self._module_ids:
@@ -50,7 +82,7 @@ class BaseAgent(Serializable):
 
         # Re-setup routes or just add the new one if possible
         if hasattr(self, "_app") and module.get_api_router():
-            self._app.include_router(module.get_api_router())
+            self._app.include_router(module.get_api_router(), prefix=f"/{module.id}")
 
     def _setup_routes(self):
         for module in self.modules:
@@ -61,3 +93,7 @@ class BaseAgent(Serializable):
     @property
     def app(self) -> FastAPI:
         return self._app
+
+    @property
+    def graph(self):
+        return self._graph

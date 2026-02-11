@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import axios from "axios";
 import { FileData } from "../interfaces.ts";
+import { apiClient } from "../lib/api-client.ts";
 
 export interface UploadedFile {
   file: File;
@@ -20,11 +20,54 @@ export interface AttachmentItem {
   error?: string;
 }
 
+type UploadOptions = {
+  threadId?: string;
+};
+
+type BackendFilePayload = {
+  path?: string;
+  sandbox_path?: string;
+  file_type?: string;
+  size?: number;
+  image_id?: string;
+  image_path?: string;
+};
+
+const buildReadByPathUrl = (path: string): string =>
+  `/api/files/content/by-path?path=${encodeURIComponent(path)}`;
+
+const detectFileType = (file: File): string => {
+  const mime = (file.type || "").toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+  if (mime === "text/html") return "html";
+  if (mime.startsWith("text/")) return "text";
+
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".plotly.json")) return "plotly_graph";
+  if (name.endsWith(".html") || name.endsWith(".htm")) return "html";
+  if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".csv"))
+    return "text";
+  return "other";
+};
+
+const normalizeFileData = (payload: BackendFilePayload): FileData => {
+  const path = payload.path ?? payload.sandbox_path ?? "";
+  return {
+    path,
+    file_type: payload.file_type,
+    size: Number(payload.size ?? 0),
+    image_id: payload.image_id,
+    image_path: payload.image_path,
+  };
+};
+
 export function useFileUpload() {
   const [uploads, setUploads] = useState<UploadedFile[]>([]);
   const [existingFiles, setExistingFiles] = useState<FileData[]>([]);
 
-  const uploadFiles = (files: File[]) => {
+  const uploadFiles = (files: File[], options?: UploadOptions) => {
     const oldIndex = uploads.length;
     files.forEach((file, index) => {
       const uploadItem: UploadedFile = { file, progress: 0 };
@@ -45,27 +88,28 @@ export function useFileUpload() {
       const idx = oldIndex + index;
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("file_type", detectFileType(file));
+      if (options?.threadId) {
+        formData.append("thread_id", options.threadId);
+      }
 
-      axios
-        .post("/files/upload/", formData, {
-          onUploadProgress: (event) => {
-            const pct = event.progress || 0;
-            setUploads((prev) => {
-              const next = [...prev];
-              if (next[idx])
-                next[idx] = {
-                  ...next[idx],
-                  progress: Math.min(Math.round(pct * 100), 95),
-                };
-              return next;
-            });
-          },
+      setUploads((prev) => {
+        const next = [...prev];
+        if (next[idx]) next[idx] = { ...next[idx], progress: 10 };
+        return next;
+      });
+
+      apiClient
+        .post<BackendFilePayload>("/api/files/upload", formData, {
+          attachAuth: false,
+          credentials: "same-origin",
         })
         .then((res) => {
+          const normalized = normalizeFileData(res);
           setUploads((prev) => {
             const next = [...prev];
             if (next[idx])
-              next[idx] = { ...next[idx], progress: 100, data: res.data };
+              next[idx] = { ...next[idx], progress: 100, data: normalized };
             return next;
           });
         })
@@ -88,14 +132,16 @@ export function useFileUpload() {
   };
 
   const items: AttachmentItem[] = useMemo(() => {
-    const mappedExisting: AttachmentItem[] = existingFiles.map((f) => {
-      const isImage = Boolean(f.file_type === "image");
+    const mappedExisting: AttachmentItem[] = existingFiles.map((raw) => {
+      const f = normalizeFileData(raw as BackendFilePayload);
+      const isImage = f.file_type === "image";
+      const fileName = f.path.split("/").pop() || f.path;
       return {
         kind: "existing",
         data: f,
         progress: 100,
-        previewUrl: isImage ? `/files/${f.path}` : undefined,
-        name: !isImage ? f.path.replace(/^files\//, "") : undefined,
+        previewUrl: isImage ? buildReadByPathUrl(f.path) : undefined,
+        name: !isImage ? fileName : undefined,
       };
     });
     const mappedUploads: AttachmentItem[] = uploads.map((u) => ({

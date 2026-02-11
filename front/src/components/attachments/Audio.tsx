@@ -1,20 +1,19 @@
 import React from "react";
+import { buildContentByPathUrl } from "./file-utils.ts";
 
-interface HTMLPageProps {
+interface AudioProps {
   id: string;
-  data: any;
+  path: string;
   alt?: string;
 }
 
-const Audio: React.FC<HTMLPageProps> = ({ data }) => {
+const Audio: React.FC<AudioProps> = ({ path }) => {
   return (
     <audio
       controls={true}
       style={{ marginTop: "5px", marginBottom: "5px", display: "block" }}
     >
-      <source
-        src={`${window.location.protocol}//${window.location.host}/files${data.path}`}
-      />
+      <source src={buildContentByPathUrl(path)} />
     </audio>
   );
 };

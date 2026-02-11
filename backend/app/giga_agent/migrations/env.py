@@ -55,6 +55,14 @@ target_metadata = None
 # Попытка найти Base в giga_agent.core.db
 try:
     from giga_agent.core.db import Base
+    
+    # Импортируем core модели, чтобы они зарегистрировались в Base.metadata
+    # Это необходимо для autogenerate
+    try:
+        import giga_agent.models  # noqa: F401
+    except ImportError:
+        pass
+    
     target_metadata = Base.metadata
 except ImportError:
     # Если Base не найден, autogenerate не будет работать для новых моделей,

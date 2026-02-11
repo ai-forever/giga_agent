@@ -3,14 +3,20 @@ from typing import TYPE_CHECKING, Any, Callable, Awaitable
 from pydantic import BaseModel
 
 from giga_agent.core.agent.types import AgentState, Context
-from langchain.agents.middleware.types import ModelRequest, ModelResponse, ModelCallResult, ToolCallRequest
+from langchain.agents.middleware.types import (
+    ModelRequest,
+    ModelResponse,
+    ModelCallResult,
+    ToolCallRequest,
+)
+from langchain_core.runnables import RunnableConfig
 
-if TYPE_CHECKING:
-    from langchain_core.tools import BaseTool
-    from langgraph.runtime import Runtime
-    from langgraph.prebuilt.tool_node import ToolCallRequest
-    from langchain_core.messages import ToolMessage
-    from langgraph.types import Command
+
+from langchain_core.tools import BaseTool
+from langgraph.runtime import Runtime
+from langgraph.prebuilt.tool_node import ToolCallRequest
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 
 
 class AgentMiddleware(BaseModel):
@@ -20,10 +26,12 @@ class AgentMiddleware(BaseModel):
     between steps in the main agent loop.
     """
 
-    def tools(self) -> list[BaseTool]:
+    @property
+    def tools(self) -> list["BaseTool"]:
         """Additional tools registered by the middleware."""
         return []
 
+    @property
     def prompt(self) -> str:
         """The prompt to use for the middleware."""
         return ""
@@ -37,20 +45,19 @@ class AgentMiddleware(BaseModel):
         return self.__class__.__name__
 
     async def before_agent(
-        self, state: AgentState, runtime: Runtime[Context]
+        self, state: AgentState, runtime: Runtime[Context], config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Async logic to run before the agent execution starts."""
 
     async def before_model(
-        self, state: AgentState, runtime: Runtime[Context]
+        self, state: AgentState, runtime: Runtime[Context], config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Async logic to run before the model is called."""
 
     async def after_model(
-        self, state: AgentState, runtime: Runtime[Context]
+        self, state: AgentState, runtime: Runtime[Context], config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Async logic to run after the model is called."""
-
 
     async def wrap_model_call(
         self,
@@ -105,7 +112,7 @@ class AgentMiddleware(BaseModel):
         raise NotImplementedError(msg)
 
     async def after_agent(
-        self, state: AgentState, runtime: Runtime[Context]
+        self, state: AgentState, runtime: Runtime[Context], config: RunnableConfig
     ) -> dict[str, Any] | None:
         """Async logic to run after the agent execution completes."""
 

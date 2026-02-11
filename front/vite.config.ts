@@ -20,10 +20,7 @@ export default defineConfig(({ mode }) => {
     process.env.LANGGRAPH_API_URL ||
     "http://127.0.0.1:2024/";
 
-  const GIGA_AGENT_API =
-    env.GIGA_AGENT_API ||
-    process.env.GIGA_AGENT_API ||
-    "http://127.0.0.1:8822/";
+  const GIGA_AGENT_API = "http://127.0.0.1:9090/";
 
   if (!process.env.VITE_LANGCONNECT_API_URL) {
     process.env.VITE_LANGCONNECT_API_URL =
@@ -69,16 +66,6 @@ export default defineConfig(({ mode }) => {
       runningEnv === "local"
         ? {
             proxy: {
-              "/files": {
-                target: JUPYTER_UPLOAD_API,
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/files/, ""),
-              },
-              "/graph": {
-                target: LANGGRAPH_API_URL,
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/graph/, ""),
-              },
               "/api": {
                 target: GIGA_AGENT_API,
                 changeOrigin: true,

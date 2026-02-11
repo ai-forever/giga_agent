@@ -5,22 +5,14 @@ import { useSelectedAttachments } from "../../hooks/SelectedAttachmentsContext.t
 import { Check } from "lucide-react";
 // @ts-ignore
 import Plot from "react-plotly.js";
-import axios from "axios";
+import { apiClient } from "@/lib/api-client.ts";
+import { buildContentByPathUrl } from "./file-utils.ts";
 
 const Placeholder = styled.div`
   width: 100%;
   padding-top: 56.25%; /* подложка под изображение, чтобы не прыгал layout */
   background-color: #2d2d2d;
   position: relative;
-`;
-
-const Img = styled.img`
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
 `;
 
 const PlotWrapper = styled.div`
@@ -64,20 +56,40 @@ const SelectorButton = styled.button<{ $selected: boolean; $isGraph: boolean }>`
 interface GraphProps {
   id: string;
   alt?: string;
-  data: any;
+  path: string;
 }
 
-const Graph: React.FC<GraphProps> = ({ id, alt, data }) => {
+const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
   const [fig, setFig] = useState<any>(null);
+  const [error, setError] = useState<boolean>(false);
+
   useEffect(() => {
-    axios
-      .get(
-        `${window.location.protocol}//${window.location.host}/files${data.path}`,
-      )
-      .then((res) => {
-        setFig(res.data);
-      });
-  }, [data.path]);
+    let cancelled = false;
+    const loadFigure = async () => {
+      try {
+        const raw = await apiClient.getText(buildContentByPathUrl(path), {
+          attachAuth: false,
+          credentials: "same-origin",
+          showError: false,
+        });
+        const parsed = JSON.parse(raw);
+        if (!cancelled) {
+          setFig(parsed);
+          setError(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setError(true);
+        }
+      }
+    };
+    setFig(null);
+    setError(false);
+    void loadFigure();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
 
   const isDark = useDarkMode();
   const { isSelected, toggle } = useSelectedAttachments();
@@ -121,6 +133,16 @@ const Graph: React.FC<GraphProps> = ({ id, alt, data }) => {
       },
     };
   }, [fig, isDark]);
+  if (error) {
+    return (
+      <div>
+        Ошибка загрузки вложения{" "}
+        <a href={buildContentByPathUrl(path)} target="_blank" rel="noopener noreferrer">
+          {id}
+        </a>
+      </div>
+    );
+  }
   if (!fig) return <Placeholder />;
   return (
     <SelectableContainer>
