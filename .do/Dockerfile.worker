@@ -3,7 +3,6 @@
 # In docker-compose this is done via `entrypoint: []`; App Platform does not support that,
 # so this Dockerfile is needed.
 # Build context: backend/graph (source_dir: backend/graph in app spec)
-# This file does NOT affect docker-compose deployments.
 
 FROM mikelarg/aegra:0.0.7
 

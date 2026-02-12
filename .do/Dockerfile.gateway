@@ -1,7 +1,6 @@
 # DigitalOcean App Platform: Gateway container
 # Co-locates nginx (frontend static + reverse proxy), REPL, and upload-server
 # Build context: repo root (source_dir: /)
-# This file is for DO App Platform only and does NOT affect docker-compose deployments.
 
 # Stage 1: Build frontend React app
 FROM node:22.12.0-alpine AS frontend-builder
