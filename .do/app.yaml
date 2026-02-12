@@ -1,0 +1,300 @@
+# DigitalOcean App Platform specification for GigaAgent
+# See: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+#
+# Before deploying:
+#   1. Replace <your-github-org/repo> with your actual GitHub repository
+#   2. Fill in all empty SECRET env var values (credentials, API keys)
+#   3. Optionally adjust instance_size_slug and region
+#
+# This file does NOT affect docker-compose deployments.
+
+name: giga-agent
+region: fra  # Frankfurt; change to your preferred region
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+
+# ==================================================================
+# App-level environment variables (available to ALL components)
+# ==================================================================
+envs:
+  # --- GigaAgent settings ---
+  - key: GIGA_AGENT_LLM
+    value: "gigachat:GigaChat-2-Max"
+    scope: RUN_TIME
+  - key: GIGA_AGENT_LLM_FAST
+    value: "gigachat:GigaChat-2-Pro"
+    scope: RUN_TIME
+  - key: GIGA_AGENT_EMBEDDINGS
+    value: "gigachat:EmbeddingsGigaR"
+    scope: RUN_TIME
+  - key: GIGA_AGENT_SENTIMENT_MODEL
+    value: "models/sentiment_gigachat.joblib"
+    scope: RUN_TIME
+  - key: GIGA_AGENT_LANG
+    value: "ru-RU"
+    scope: RUN_TIME
+  - key: GIGA_AGENT_MCP_CONFIG
+    value: "{}"
+    scope: RUN_TIME
+  - key: GIGA_AGENT_USER_NOTES
+    value: ""
+    scope: RUN_TIME
+  - key: GIGA_AGENT_MEMORY_ENABLED
+    value: "1"
+    scope: RUN_AND_BUILD_TIME
+
+  # --- GigaChat credentials (encrypt these!) ---
+  - key: GIGACHAT_CREDENTIALS
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: GIGACHAT_SCOPE
+    value: ""
+    scope: RUN_TIME
+  - key: GIGACHAT_VERIFY_SSL_CERTS
+    value: "0"
+    scope: RUN_TIME
+  - key: GIGACHAT_TIMEOUT
+    value: "60"
+    scope: RUN_TIME
+  - key: MAIN_GIGACHAT_CREDENTIALS
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: MAIN_GIGACHAT_SCOPE
+    value: ""
+    scope: RUN_TIME
+  - key: MAIN_GIGACHAT_TIMEOUT
+    value: "15"
+    scope: RUN_TIME
+  - key: MAIN_GIGACHAT_TOP_P
+    value: "0.5"
+    scope: RUN_TIME
+
+  # --- Image generation ---
+  - key: IMAGE_GEN_NAME
+    value: "gigachat:kandinsky-4.1"
+    scope: RUN_TIME
+  - key: IMAGE_GEN_PARALLEL
+    value: "5"
+    scope: RUN_TIME
+
+  # --- External services (encrypt API keys!) ---
+  - key: TAVILY_API_KEY
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: VK_TOKEN
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: GITHUB_PERSONAL_ACCESS_TOKEN
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: OWM_API_KEY
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: TWOGIS_TOKEN
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: SALUTE_SPEECH
+    value: ""
+    scope: RUN_TIME
+    type: SECRET
+  - key: SBER_TTS_TIMEOUT
+    value: "30"
+    scope: RUN_TIME
+
+  # --- Internal service routing (DO App Platform component names) ---
+  - key: LANGGRAPH_API_URL
+    value: "http://langgraph-api:8000/"
+    scope: RUN_TIME
+  - key: JUPYTER_CLIENT_API
+    value: "http://gateway:9090"
+    scope: RUN_TIME
+  - key: JUPYTER_UPLOAD_API
+    value: "http://gateway:9092"
+    scope: RUN_TIME
+  - key: TOOL_CLIENT_API
+    value: "http://tool-server:9091"
+    scope: RUN_TIME
+  - key: FRONT_BASE_URL
+    value: "http://gateway/files"
+    scope: RUN_TIME
+
+  # --- Misc runtime settings ---
+  - key: PLOTLY_RENDERER
+    value: "plotly_mimetype"
+    scope: RUN_TIME
+  - key: MAX_KERNEL_LIVE
+    value: "300"
+    scope: RUN_TIME
+  - key: FILES_DIR
+    value: "/files"
+    scope: RUN_TIME
+  - key: RUNS_DIR
+    value: "/runs"
+    scope: RUN_TIME
+  - key: JINA_READER_URL
+    value: "https://r.jina.ai/"
+    scope: RUN_TIME
+  - key: CHARACTER_LIMIT
+    value: "100000"
+    scope: RUN_TIME
+  - key: REPL_FROM_MESSAGE
+    value: "0"
+    scope: RUN_TIME
+
+# ==================================================================
+# Ingress — only the gateway is publicly accessible
+# ==================================================================
+ingress:
+  rules:
+    - component:
+        name: gateway
+      match:
+        path:
+          prefix: /
+
+# ==================================================================
+# Services
+# ==================================================================
+services:
+  # ------------------------------------------------------------------
+  # 1. Gateway (PUBLIC) — nginx + REPL + upload-server
+  #    Serves the frontend UI, proxies /api, /graph, /files to backends
+  # ------------------------------------------------------------------
+  - name: gateway
+    github:
+      repo: <your-github-org/repo>  # TODO: replace with your repo
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: .do/Dockerfile.gateway
+    source_dir: /
+    http_port: 80
+    internal_ports:
+      - 9090  # REPL (jupyter kernel execution)
+      - 9092  # Upload server (file uploads/downloads)
+    instance_size_slug: basic-xs
+    instance_count: 1
+    envs:
+      # Gateway-specific: upload-server needs to call tasks-api
+      - key: GIGA_AGENT_API
+        value: "http://tasks-api:8822"
+        scope: RUN_TIME
+      - key: STATE_DIR
+        value: "/kernel_states"
+        scope: RUN_TIME
+      # Build-time vars for Vite frontend build
+      - key: VITE_MEMORY_ENABLED
+        value: "${GIGA_AGENT_MEMORY_ENABLED}"
+        scope: BUILD_TIME
+    health_check:
+      http_path: /
+      initial_delay_seconds: 30
+      period_seconds: 15
+
+  # ------------------------------------------------------------------
+  # 2. LangGraph/Aegra API (INTERNAL) — main agent graph server
+  #    Runs DB migrations on startup, then serves the Aegra API
+  # ------------------------------------------------------------------
+  - name: langgraph-api
+    github:
+      repo: <your-github-org/repo>  # TODO: replace with your repo
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: backend/graph/Dockerfile
+    source_dir: backend/graph
+    internal_ports:
+      - 8000
+    run_command: >-
+      sh -c "uv run alembic upgrade head &&
+      uv run uvicorn src.agent_server.main:app --host 0.0.0.0 --port 8000"
+    instance_size_slug: basic-xs
+    instance_count: 1
+    envs:
+      # Constructed from DO managed Postgres bindable vars (asyncpg scheme)
+      - key: DATABASE_URL
+        value: "postgresql+asyncpg://${db.USERNAME}:${db.PASSWORD}@${db.HOSTNAME}:${db.PORT}/${db.DATABASE}"
+        scope: RUN_TIME
+      - key: REDIS_URI
+        value: "redis://redis:6379"
+        scope: RUN_TIME
+      - key: AUTH_TYPE
+        value: "noop"
+        scope: RUN_TIME
+
+  # ------------------------------------------------------------------
+  # 3. Tool server (INTERNAL) — executes LLM-connected tools
+  #    Uses Dockerfile.worker (clears aegra ENTRYPOINT)
+  # ------------------------------------------------------------------
+  - name: tool-server
+    github:
+      repo: <your-github-org/repo>  # TODO: replace with your repo
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: .do/Dockerfile.worker
+    source_dir: backend/graph
+    internal_ports:
+      - 9091
+    run_command: "uv run uvicorn giga_agent.tool_server.tool_server:app --host 0.0.0.0 --port 9091"
+    instance_size_slug: basic-xxs
+    instance_count: 1
+
+  # ------------------------------------------------------------------
+  # 4. Tasks API (INTERNAL) — task management, memories, image upload
+  #    Uses Dockerfile.worker (clears aegra ENTRYPOINT)
+  # ------------------------------------------------------------------
+  - name: tasks-api
+    github:
+      repo: <your-github-org/repo>  # TODO: replace with your repo
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: .do/Dockerfile.worker
+    source_dir: backend/graph
+    internal_ports:
+      - 8822
+    run_command: "uv run uvicorn giga_agent.tasks_app:app --host 0.0.0.0 --port 8822"
+    instance_size_slug: basic-xxs
+    instance_count: 1
+
+  # ------------------------------------------------------------------
+  # 5. Qdrant (INTERNAL) — vector store for agent memory (mem0)
+  # ------------------------------------------------------------------
+  - name: qdrant
+    image:
+      registry_type: DOCKER_HUB
+      registry: qdrant
+      repository: qdrant
+      tag: latest
+    internal_ports:
+      - 6333
+    instance_size_slug: basic-xxs
+    instance_count: 1
+
+  # ------------------------------------------------------------------
+  # 6. Redis (INTERNAL) — Aegra state backend
+  # ------------------------------------------------------------------
+  - name: redis
+    image:
+      registry_type: DOCKER_HUB
+      registry: library
+      repository: redis
+      tag: "6"
+    internal_ports:
+      - 6379
+    instance_size_slug: basic-xxs
+    instance_count: 1
+
+# ==================================================================
+# Databases (DO managed)
+# ==================================================================
+databases:
+  - engine: PG
+    name: db
+    version: "16"
