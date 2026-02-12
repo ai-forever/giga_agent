@@ -180,7 +180,6 @@ class UserRepository:
         self,
         user_id: uuid.UUID,
         settings: dict,
-        *,
     ) -> UserShort:
         """Обновить настройки пользователя (merge с существующими)"""
         user = await self._get_model_by_id(user_id)

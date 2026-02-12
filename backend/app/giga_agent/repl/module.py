@@ -10,10 +10,12 @@ from langchain_core.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
+from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
+from giga_agent.models.users import UserShort
 from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.repl.tools import python
 from giga_agent.repl.prompts import JUPYTER_REPL_INSTRUCTIONS
@@ -63,10 +65,10 @@ class ReplModule(BaseModule):
 
     id: str = "repl"
 
-    def get_tools(self) -> List[BaseTool]:
+    def get_tools(self, user: UserShort, agent: BaseAgent) -> List[BaseTool]:
         return [python]
 
-    def get_instructions(self) -> str | None:
+    def get_instructions(self, user: UserShort, agent: BaseAgent) -> str | None:
         return JUPYTER_REPL_INSTRUCTIONS
 
     def get_middleware(self) -> AgentMiddleware:

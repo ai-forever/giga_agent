@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import uuid
 from collections.abc import Awaitable, Callable
 from copy import copy, deepcopy
 from dataclasses import dataclass, replace
@@ -64,11 +65,15 @@ from langgraph.prebuilt.tool_node import (
     AsyncToolCallWrapper,
 )
 
+from giga_agent.core.db import get_session_factory
+from giga_agent.models import UserRepository
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from langgraph.runtime import Runtime
     from pydantic_core import ErrorDetails
+    from giga_agent.core.agent.base import BaseAgent
 
 
 def _default_handle_tool_errors(e: Exception) -> str:
@@ -306,6 +311,11 @@ class _InjectedArgs:
     runtime: str | None
 
 
+@dataclass
+class AgentToolRuntime(ToolRuntime):
+    agent: BaseAgent
+
+
 class ToolNode(RunnableCallable):
 
     name: str = "tools"
@@ -313,6 +323,7 @@ class ToolNode(RunnableCallable):
     def __init__(
         self,
         tools: Sequence[BaseTool | Callable],
+        agent: BaseAgent,
         *,
         name: str = "tools",
         tags: list[str] | None = None,
@@ -346,6 +357,29 @@ class ToolNode(RunnableCallable):
         self._handle_tool_errors = handle_tool_errors
         self._messages_key = messages_key
         self._awrap_tool_call = wrap_tool_call
+        self._agent = agent
+        self._tools = tools
+
+    @property
+    def tools_by_name(self) -> dict[str, BaseTool]:
+        """Mapping from tool name to BaseTool instance."""
+        return self._tools_by_name
+
+    async def _fill_tools(self, config: RunnableConfig):
+        user_id = config["configurable"]["langgraph_auth_user"]["identity"]
+        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+
+        user = await UserRepository.get_from_cache(user_uuid)
+        if user is None:
+            factory = await get_session_factory()
+            async with factory() as session:
+                user_repo = UserRepository(session)
+                user = await user_repo.get_by_id(user_uuid, use_cache=False)
+                if user is None:
+                    raise ValueError(f"User with id {user_id} not found")
+
+        tools = self._agent.get_tools(user)
+        tools.extend(self._tools)
         for tool in tools:
             if not isinstance(tool, BaseTool):
                 tool_ = create_tool(cast("type[BaseTool]", tool))
@@ -355,17 +389,13 @@ class ToolNode(RunnableCallable):
             # Build injected args mapping once during initialization in a single pass
             self._injected_args[tool_.name] = _get_all_injected_args(tool_)
 
-    @property
-    def tools_by_name(self) -> dict[str, BaseTool]:
-        """Mapping from tool name to BaseTool instance."""
-        return self._tools_by_name
-
     async def _afunc(
         self,
         input: list[AnyMessage] | dict[str, Any] | BaseModel,
         config: RunnableConfig,
         runtime: Runtime,
     ) -> Any:
+        await self._fill_tools(config)
         tool_calls, input_type = self._parse_input(input)
         config_list = get_config_list(config, len(tool_calls))
 
@@ -373,13 +403,14 @@ class ToolNode(RunnableCallable):
         tool_runtimes = []
         for call, cfg in zip(tool_calls, config_list, strict=False):
             state = self._extract_state(input)
-            tool_runtime = ToolRuntime(
+            tool_runtime = AgentToolRuntime(
                 state=state,
                 tool_call_id=call["id"],
                 config=cfg,
                 context=runtime.context,
                 store=runtime.store,
                 stream_writer=runtime.stream_writer,
+                agent=self._agent,
             )
             tool_runtimes.append(tool_runtime)
 
@@ -540,7 +571,7 @@ class ToolNode(RunnableCallable):
         self,
         call: ToolCall,
         input_type: Literal["list", "dict", "tool_calls"],
-        tool_runtime: ToolRuntime,
+        tool_runtime: AgentToolRuntime,
     ) -> ToolMessage | Command:
         """Execute single tool call asynchronously with awrap_tool_call wrapper if configured.
 

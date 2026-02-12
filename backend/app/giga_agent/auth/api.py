@@ -27,6 +27,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=Fals
 
 # ============ Dependency для получения репозитория ============
 
+
 async def get_user_repository(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> UserRepository:
@@ -34,6 +35,7 @@ async def get_user_repository(
 
 
 # ============ Dependencies для получения текущего пользователя ============
+
 
 async def get_current_user(
     request: Request,
@@ -91,6 +93,7 @@ class Token(BaseModel):
 
 
 # ============ Endpoints ============
+
 
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
@@ -152,7 +155,6 @@ async def update_user_settings(
     return await user_repo.update_settings(
         current_user.id,
         body.settings,
-        use_cache=True,
     )
 
 

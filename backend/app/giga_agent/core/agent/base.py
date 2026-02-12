@@ -13,6 +13,7 @@ from giga_agent.core.module import BaseModule
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
+from giga_agent.models.users import UserShort
 from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
@@ -40,6 +41,11 @@ class BaseAgent(Serializable):
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
 
+        # Ensure cache is configured for any entrypoint (CLI, tests, etc.)
+        from giga_agent.core.cache import setup_cache
+
+        setup_cache()
+
         self._app = FastAPI()
         self._app.state.agent = self
 
@@ -55,11 +61,6 @@ class BaseAgent(Serializable):
         for module in initial_modules:
             self.add_module(module)
 
-        # Собираем tools из модулей и объединяем с explicitly переданными
-        all_tools = list(self.tools or [])
-        for module in self.modules:
-            all_tools.extend(module.get_tools())
-
         # Собираем middleware из модулей
         all_middleware = [CoreFirstMiddleware()]
         for module in self.modules:
@@ -68,7 +69,7 @@ class BaseAgent(Serializable):
                 all_middleware.append(mw)
         all_middleware.append(CoreLastMiddleware())
 
-        self._graph = create_graph(self, tools=all_tools, middleware=all_middleware)
+        self._graph = create_graph(self, middleware=all_middleware)
         setattr(self.graph, "giga_agent", self)
 
     def add_module(self, module: BaseModule):
@@ -97,3 +98,9 @@ class BaseAgent(Serializable):
     @property
     def graph(self):
         return self._graph
+
+    def get_tools(self, user: UserShort) -> List[BaseTool]:
+        all_tools = list(self.tools or [])
+        for module in self.modules:
+            all_tools.extend(module.get_tools(user=user, agent=self))
+        return all_tools

@@ -22,9 +22,6 @@ class TokenData(BaseModel):
     user_id: Optional[UUID] = None
 
 
-# Alias для обратной совместимости
-User = UserShort
-
 __all__ = [
     "Token",
     "TokenData",
@@ -33,5 +30,4 @@ __all__ = [
     "UserResponse",
     "UserSettingsUpdate",
     "UserShort",
-    "User",
 ]

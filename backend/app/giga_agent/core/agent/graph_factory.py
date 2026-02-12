@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    cast,
-    Awaitable,
-    Literal,
-)
+from typing import TYPE_CHECKING, Any, cast, Awaitable, Literal, Coroutine, Callable
 
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, AnyMessage
+from langchain_core.messages import (
+    AIMessage,
+    SystemMessage,
+    ToolMessage,
+    AnyMessage,
+)
 from langchain_core.tools import BaseTool
 from langgraph._internal._runnable import RunnableCallable
 from langgraph.constants import END, START
@@ -18,7 +17,6 @@ from langgraph.graph.state import StateGraph
 from langgraph.runtime import Runtime
 from langgraph.typing import ContextT
 from langgraph.types import Command, Send
-from langgraph.graph._node import StateNode
 from langchain_core.runnables import RunnableConfig
 
 from langchain.agents.middleware.types import (
@@ -42,7 +40,7 @@ import uuid
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
 from giga_agent.core.db import get_session_factory
-from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.models.users import UserRepository
 from giga_agent.models.llm import LLMRepository
 
 if TYPE_CHECKING:
@@ -323,7 +321,7 @@ def create_graph(
     system_message: SystemMessage | None = None
     modules_prompts = []
     for module in agent.modules:
-        instructions = module.get_instructions(user=None, agent_cls=agent.__class__)
+        instructions = module.get_instructions(user=None, agent=agent)
         if instructions:
             modules_prompts.append(instructions)
 
@@ -356,8 +354,6 @@ def create_graph(
         wrappers = [m.wrap_tool_call for m in middleware_w_wrap_tool_call]
         wrap_tool_call_wrapper = _chain_async_tool_call_wrappers(wrappers)
 
-    # Setup tools
-    tool_node: ToolNode | None = None
     # Extract built-in provider tools (dict format) and regular tools (BaseTool/callables)
     built_in_tools = [t for t in tools if isinstance(t, dict)]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
@@ -366,14 +362,10 @@ def create_graph(
     available_tools = middleware_tools + regular_tools
 
     # Only create ToolNode if we have client-side tools
-    tool_node = (
-        ToolNode(
-            tools=available_tools,
-            wrap_tool_call=wrap_tool_call_wrapper,
-            agent=agent,
-        )
-        if available_tools
-        else None
+    tool_node = ToolNode(
+        tools=available_tools,
+        wrap_tool_call=wrap_tool_call_wrapper,
+        agent=agent,
     )
 
     # Default tools for ModelRequest initialization
@@ -461,7 +453,9 @@ def create_graph(
             raise ValueError("User has no default LLM configured")
 
         llm_uuid = (
-            uuid.UUID(default_llm_id) if isinstance(default_llm_id, str) else default_llm_id
+            uuid.UUID(default_llm_id)
+            if isinstance(default_llm_id, str)
+            else default_llm_id
         )
         llm = await LLMRepository.get_langchain_chat_from_cache(llm_uuid)
         if llm is None:
@@ -469,7 +463,8 @@ def create_graph(
             async with factory() as session:
                 llm_repo = LLMRepository(session)
                 llm = await llm_repo.get_langchain_chat_by_id(llm_uuid, use_cache=False)
-        llm = llm.bind_tools(tools=default_tools, tool_choice="auto")
+        agent_tools = agent.get_tools(user)
+        llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
 
         request = ModelRequest(
             model=llm,
@@ -506,7 +501,10 @@ def create_graph(
         callback_type: Literal[
             "before_agent", "before_model", "after_model", "after_agent"
         ],
-    ) -> StateNode[AgentState, ContextT]:
+    ) -> Callable[
+        [AgentState, Runtime[ContextT], RunnableConfig],
+        Coroutine[Any, Any, dict[str, Any]],
+    ]:
         async def callback_node(
             state: AgentState,
             runtime: Runtime[ContextT],

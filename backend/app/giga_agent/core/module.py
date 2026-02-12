@@ -3,14 +3,16 @@ import inspect
 from typing import TYPE_CHECKING, Optional, List
 from typing_extensions import override
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr
+from pydantic import ConfigDict, PrivateAttr
 from langchain_core.load.serializable import Serializable
 from langchain_core.tools import BaseTool
+from giga_agent.models.users import UserShort
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
     from fastapi import APIRouter
     from giga_agent.core.agent.middleware import AgentMiddleware
+    from giga_agent.core.agent.base import BaseAgent
 
 
 class BaseModule(Serializable):
@@ -49,14 +51,22 @@ class BaseModule(Serializable):
         """
         return None
 
-    def get_tools(self) -> List[BaseTool]:
+    def get_tools(
+        self,
+        user: UserShort | None,
+        agent: "BaseAgent",
+    ) -> List[BaseTool]:
         """
         Возвращает список инструментов (tools), предоставляемых модулем.
         Переопределите в подклассе, чтобы добавить tools в агент.
         """
         return []
 
-    def get_instructions(self) -> str | None:
+    def get_instructions(
+        self,
+        user: UserShort | None,
+        agent: "BaseAgent",
+    ) -> str | None:
         """
         Возвращает строку с инструкциями (system prompt), которые модуль
         добавляет к системному промпту агента. Возвращает None если инструкций нет.
