@@ -3,7 +3,7 @@ from langgraph_sdk import Auth
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.auth import security
-from giga_agent.models.users import UserRepository
+from giga_agent.models.users import UserRepository, UserShort
 
 # The "Auth" object is a container that LangGraph will use to mark our authentication function
 auth = Auth()
@@ -44,15 +44,20 @@ async def get_current_user(authorization: str | None) -> Auth.types.MinimalUserD
             status_code=401, detail="Could not validate credentials"
         )
 
-    factory = await get_session_factory()
-    async with factory() as db:
-        user_repo = UserRepository(db)
-        user = await user_repo.get_by_id(user_id)
+    # Cache-first: on hit, avoid opening a DB session entirely.
+    user = await UserRepository.get_from_cache(user_id)
+    if user is None:
+        factory = await get_session_factory()
+        async with factory() as db:
+            user_repo = UserRepository(db)
+            user = await user_repo.get_by_id(user_id, use_cache=False)
 
     if user is None:
         raise Auth.exceptions.HTTPException(
             status_code=401, detail="Could not validate credentials"
         )
+    if not user.is_active:
+        raise Auth.exceptions.HTTPException(status_code=401, detail="Inactive user")
 
     return {
         "identity": str(user.id),

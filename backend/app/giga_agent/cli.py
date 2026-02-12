@@ -595,6 +595,10 @@ def dev(
     os.makedirs(".giga_agent", exist_ok=True)
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    # Cache backend (mem:// for local, redis:// for production)
+    from giga_agent.core.cache import setup_cache
+
+    setup_cache()
     logger.info(f"Loading agent from {graph_and_app_path}...")
 
     # 1. Загружаем агента и модули

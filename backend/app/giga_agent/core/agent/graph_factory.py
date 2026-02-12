@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import itertools
 from typing import (
     TYPE_CHECKING,
     Any,
     cast,
-    get_args,
-    get_origin,
-    get_type_hints,
     Awaitable,
     Literal,
 )
@@ -35,31 +31,10 @@ from langchain.agents.middleware.types import (
     _OutputAgentState,
 )
 from giga_agent.core.agent.middleware import AgentMiddleware
-from langchain.agents.structured_output import (
-    AutoStrategy,
-    MultipleStructuredOutputsError,
-    OutputToolBinding,
-    ProviderStrategy,
-    ProviderStrategyBinding,
-    ResponseFormat,
-    StructuredOutputError,
-    StructuredOutputValidationError,
-    ToolStrategy,
-)
-from langchain.chat_models import init_chat_model
+
 from langchain.tools.tool_node import (
-    ToolRuntime,
     ToolCallRequest,
-    InjectedStore,
-    InjectedState,
     ToolCallWithContext,
-)
-from langgraph.prebuilt.tool_node import (
-    ToolInvocationError,
-    TOOL_CALL_ERROR_TEMPLATE,
-    INVALID_TOOL_NAME_ERROR_TEMPLATE,
-    msg_content_output,
-    AsyncToolCallWrapper,
 )
 
 import uuid
@@ -67,7 +42,7 @@ import uuid
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
 from giga_agent.core.db import get_session_factory
-from giga_agent.models.users import UserRepository
+from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.models.llm import LLMRepository
 
 if TYPE_CHECKING:
@@ -77,7 +52,7 @@ if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
     from langgraph.store.base import BaseStore
     from langgraph.types import Checkpointer
-    from langchain.agents.middleware.types import ToolCallRequest, ToolCallWrapper
+    from langchain.agents.middleware.types import ToolCallRequest
     from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.utils import merge_state
 from giga_agent.core.agent.types import AgentState, Context
@@ -346,11 +321,11 @@ def create_graph(
 
     # Convert system_prompt to SystemMessage if needed
     system_message: SystemMessage | None = None
-    modules_prompts = [
-        module.get_instructions()
-        for module in agent.modules
-        if module.get_instructions()
-    ]
+    modules_prompts = []
+    for module in agent.modules:
+        instructions = module.get_instructions(user=None, agent_cls=agent.__class__)
+        if instructions:
+            modules_prompts.append(instructions)
 
     if system_prompt is not None:
         if isinstance(system_prompt, SystemMessage):
@@ -395,6 +370,7 @@ def create_graph(
         ToolNode(
             tools=available_tools,
             wrap_tool_call=wrap_tool_call_wrapper,
+            agent=agent,
         )
         if available_tools
         else None
@@ -469,26 +445,30 @@ def create_graph(
         """Async model request handler with sequential middleware processing."""
         # Получаем user_id из конфигурации langgraph auth
         user_id = config["configurable"]["langgraph_auth_user"]["identity"]
+        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
-        factory = await get_session_factory()
-        async with factory() as session:
-            user_repo = UserRepository(session)
-            user = await user_repo.get_by_id(
-                uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-            )
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
+        user = await UserRepository.get_from_cache(user_uuid)
+        if user is None:
+            factory = await get_session_factory()
+            async with factory() as session:
+                user_repo = UserRepository(session)
+                user = await user_repo.get_by_id(user_uuid, use_cache=False)
+                if user is None:
+                    raise ValueError(f"User with id {user_id} not found")
 
-            default_llm_id = (user.settings or {}).get("default_llm")
-            if not default_llm_id:
-                raise ValueError("User has no default LLM configured")
+        default_llm_id = (user.settings or {}).get("default_llm")
+        if not default_llm_id:
+            raise ValueError("User has no default LLM configured")
 
-            llm_repo = LLMRepository(session)
-            llm = await llm_repo.get_langchain_chat_by_id(
-                uuid.UUID(default_llm_id)
-                if isinstance(default_llm_id, str)
-                else default_llm_id
-            )
+        llm_uuid = (
+            uuid.UUID(default_llm_id) if isinstance(default_llm_id, str) else default_llm_id
+        )
+        llm = await LLMRepository.get_langchain_chat_from_cache(llm_uuid)
+        if llm is None:
+            factory = await get_session_factory()
+            async with factory() as session:
+                llm_repo = LLMRepository(session)
+                llm = await llm_repo.get_langchain_chat_by_id(llm_uuid, use_cache=False)
         llm = llm.bind_tools(tools=default_tools, tool_choice="auto")
 
         request = ModelRequest(

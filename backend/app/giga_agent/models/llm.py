@@ -6,6 +6,7 @@ from typing import Optional, Any
 import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
+from cashews import cache
 from sqlalchemy import String, DateTime, Uuid, ForeignKey, select, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
@@ -13,6 +14,7 @@ from sqlalchemy.sql import func
 from langchain_gigachat import GigaChat
 from langchain_openai import ChatOpenAI
 
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base, JSON_VARIANT
 
 
@@ -397,6 +399,34 @@ class LLMRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def cache_key(llm_id: uuid.UUID) -> str:
+        return f"llm:chat:{llm_id}"
+
+    @staticmethod
+    async def get_langchain_chat_from_cache(
+        llm_id: uuid.UUID,
+    ) -> GigaChat | ChatOpenAI | None:
+        cached = await cache.get(LLMRepository.cache_key(llm_id))
+        if cached is None:
+            return None
+        return LLMRepository._build_langchain_chat_from_cache(cached)
+
+    @staticmethod
+    def _build_langchain_chat_from_cache(config: dict) -> GigaChat | ChatOpenAI:
+        provider_type = (config.get("provider_type") or "").lower()
+        model_id = config.get("model_id")
+        kwargs = config.get("connection_kwargs") or {}
+
+        if not model_id:
+            raise ValueError("Cached LLM config is missing model_id")
+
+        if provider_type in (LLMProviderType.OPENAI, "openai"):
+            return ChatOpenAI(model=model_id, **kwargs)
+        if provider_type in (LLMProviderType.GIGACHAT, "gigachat"):
+            return GigaChat(model=model_id, **kwargs)
+        raise ValueError(f"Unsupported provider type: {provider_type}")
+
     async def get_by_id(self, llm_id: uuid.UUID) -> LLM | None:
         """Получить модель по ID"""
         result = await self.db.execute(select(LLM).where(LLM.id == llm_id))
@@ -490,7 +520,10 @@ class LLMRepository:
         return llm is not None
 
     async def get_langchain_chat_by_id(
-        self, llm_id: uuid.UUID
+        self,
+        llm_id: uuid.UUID,
+        *,
+        use_cache: bool = True,
     ) -> GigaChat | ChatOpenAI:
         """
         Получить LangChain chat model по ID.
@@ -498,6 +531,11 @@ class LLMRepository:
         Загружает LLM и его провайдер одним запросом (JOIN),
         формирует connection kwargs и создаёт GigaChat или ChatOpenAI.
         """
+        if use_cache:
+            cached_model = await self.get_langchain_chat_from_cache(llm_id)
+            if cached_model is not None:
+                return cached_model
+
         result = await self.db.execute(
             select(LLM)
             .where(LLM.id == llm_id)
@@ -515,12 +553,22 @@ class LLMRepository:
                 f"Invalid connection settings for provider {provider.id}"
             )
 
-        if provider.type in (LLMProviderType.OPENAI, "openai"):
-            return ChatOpenAI(model=llm.model_id, **kwargs)
-        elif provider.type in (LLMProviderType.GIGACHAT, "gigachat"):
-            return GigaChat(model=llm.model_id, **kwargs)
-        else:
-            raise ValueError(f"Unsupported provider type: {provider.type}")
+        config = {
+            "provider_type": provider.type,
+            "model_id": llm.model_id,
+            "connection_kwargs": kwargs,
+        }
+        await cache.set(
+            self.cache_key(llm_id),
+            config,
+            expire="5m",
+            tags=(
+                f"llm_provider:{provider.id}",
+                f"llm_owner:{llm.owner_id}",
+            ),
+        )
+
+        return self._build_langchain_chat_from_cache(config)
 
     @staticmethod
     def to_response(llm: LLM) -> LLMResponse:

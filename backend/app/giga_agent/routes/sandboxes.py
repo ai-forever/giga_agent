@@ -14,6 +14,7 @@ Endpoints:
 import uuid
 from typing import Annotated, Any
 
+from cashews import cache
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,6 +121,8 @@ async def create_sandbox_provider(
         is_active=data.is_active,
     )
 
+    await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+
     return SandboxProviderRepository.to_response(provider)
 
 
@@ -214,6 +217,9 @@ async def update_sandbox_provider(
     if update_data:
         provider = await provider_repo.update(provider, **update_data)
 
+    if update_data:
+        await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+
     return SandboxProviderRepository.to_response(provider)
 
 
@@ -232,3 +238,4 @@ async def delete_sandbox_provider(
         provider_id, current_user.id, provider_repo
     )
     await provider_repo.delete(provider)
+    await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")

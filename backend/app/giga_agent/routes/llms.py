@@ -19,10 +19,12 @@ Endpoints:
 import uuid
 from typing import Annotated, Optional
 
+from cashews import cache
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import get_session
 from giga_agent.auth.api import get_current_active_user
 from giga_agent.models.users import User
@@ -264,6 +266,8 @@ async def create_llm_with_provider(
     if data.parallel_calls != 1:
         llm = await llm_repo.update(llm, parallel_calls=data.parallel_calls)
 
+    await cache.delete(LLMRepository.cache_key(llm.id))
+
     return LLMWithProviderResponse(
         llm=LLMRepository.to_response(llm),
         provider=LLMProviderRepository.to_response(provider),
@@ -415,6 +419,7 @@ async def update_provider(
 
     if update_data:
         provider = await provider_repo.update(provider, **update_data)
+        await cache.delete_tags(f"llm_provider:{provider.id}")
 
     return LLMProviderRepository.to_response(provider)
 
@@ -436,6 +441,7 @@ async def delete_provider(
         provider_id, current_user.id, provider_repo
     )
     await provider_repo.delete(provider)
+    await cache.delete_tags(f"llm_provider:{provider.id}")
 
 
 @router.get("/{llm_id}", response_model=LLMWithProviderResponse)
@@ -451,6 +457,7 @@ async def get_llm(
     Получить LLM по ID вместе с информацией о провайдере.
     """
     llm = await get_llm_with_owner_check(llm_id, current_user.id, llm_repo)
+    old_provider_id = llm.provider_id
     provider = await provider_repo.get_by_id(llm.provider_id)
 
     if not provider:
@@ -563,6 +570,11 @@ async def update_llm_with_provider(
     if llm_updates:
         llm = await llm_repo.update(llm, **llm_updates)
 
+    await cache.delete(LLMRepository.cache_key(llm.id))
+    if provider_updates:
+        # Provider settings affect connection kwargs for all LLMs on this provider.
+        await cache.delete_tags(f"llm_provider:{provider.id}")
+
     return LLMWithProviderResponse(
         llm=LLMRepository.to_response(llm),
         provider=LLMProviderRepository.to_response(provider),
@@ -579,4 +591,5 @@ async def delete_llm(
     Удалить LLM модель.
     """
     llm = await get_llm_with_owner_check(llm_id, current_user.id, llm_repo)
+    await cache.delete(LLMRepository.cache_key(llm.id))
     await llm_repo.delete(llm)

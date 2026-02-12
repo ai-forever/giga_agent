@@ -12,11 +12,10 @@ from giga_agent.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.core.events import event_bus
 from giga_agent.auth.events import UserCreatedEvent
 from giga_agent.models.users import (
-    User,
+    UserShort,
     UserRepository,
     UserResponse,
     UserCreate,
-    UserShort,
     UserSettingsUpdate,
 )
 
@@ -40,7 +39,7 @@ async def get_current_user(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> User:
+) -> UserShort:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -67,15 +66,15 @@ async def get_current_user(
     except ValueError:  # Invalid UUID string
         raise credentials_exception
 
-    user = await user_repo.get_by_id(user_id)
+    user = await user_repo.get_by_id(user_id, use_cache=True)
     if user is None:
         raise credentials_exception
     return user
 
 
 async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
-) -> User:
+    current_user: Annotated[UserShort, Depends(get_current_user)],
+) -> UserShort:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
@@ -138,7 +137,7 @@ async def logout(response: Response):
 
 @router.get("/users/me", response_model=UserShort)
 async def read_users_me(
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
     return current_user
 
@@ -146,19 +145,22 @@ async def read_users_me(
 @router.patch("/users/me/settings", response_model=UserShort)
 async def update_user_settings(
     body: UserSettingsUpdate,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ):
     """Обновить настройки текущего пользователя (merge с существующими)"""
-    updated_user = await user_repo.update_settings(current_user, body.settings)
-    return updated_user
+    return await user_repo.update_settings(
+        current_user.id,
+        body.settings,
+        use_cache=True,
+    )
 
 
 @router.post("/users", response_model=UserResponse)
 async def create_user(
     user: UserCreate,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
     if await user_repo.exists_by_email(user.email):
         raise HTTPException(status_code=400, detail="Email already registered")

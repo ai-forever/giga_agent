@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
+from cashews import cache
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import String, Boolean, DateTime, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +47,7 @@ class UserBase(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     is_superuser: bool = False
+    settings: Optional[dict] = None
 
 
 class UserCreate(UserBase):
@@ -54,7 +56,6 @@ class UserCreate(UserBase):
 
 class UserResponse(UserBase):
     id: uuid.UUID
-    settings: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 
@@ -62,16 +63,10 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
-class UserShort(BaseModel):
+class UserShort(UserBase):
     """Короткая версия пользователя без дат"""
 
     id: uuid.UUID
-    email: EmailStr
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    is_active: bool = True
-    is_superuser: bool = False
-    settings: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -95,15 +90,54 @@ class UserRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def cache_key(user_id: uuid.UUID) -> str:
+        return f"user:ctx:{user_id}"
+
+    @staticmethod
+    async def get_from_cache(user_id: uuid.UUID) -> UserShort | None:
+        cached = await cache.get(UserRepository.cache_key(user_id))
+        if cached is None:
+            return None
+        return UserShort.model_validate(cached)
+
+    @staticmethod
+    async def invalidate_cache(user_id: uuid.UUID) -> None:
+        await cache.delete(UserRepository.cache_key(user_id))
+
+    @staticmethod
+    def _to_short(user: User) -> UserShort:
+        return UserShort.model_validate(user)
+
+    async def _get_model_by_id(self, user_id: uuid.UUID) -> User | None:
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        return result.scalar_one_or_none()
+
     async def get_by_email(self, email: str) -> User | None:
         """Получить пользователя по email"""
         result = await self.db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
-    async def get_by_id(self, user_id: uuid.UUID) -> User | None:
-        """Получить пользователя по UUID"""
-        result = await self.db.execute(select(User).where(User.id == user_id))
-        return result.scalar_one_or_none()
+    async def get_by_id(
+        self,
+        user_id: uuid.UUID,
+        *,
+        use_cache: bool = True,
+    ) -> UserShort | None:
+        """Получить пользователя по UUID (cache-first short user)."""
+        if use_cache:
+            cached = await self.get_from_cache(user_id)
+            if cached is not None:
+                return cached
+
+        user = await self._get_model_by_id(user_id)
+        if user is None:
+            return None
+
+        ctx = self._to_short(user)
+        key = self.cache_key(user_id)
+        await cache.set(key, ctx.model_dump(), expire="5m")
+        return ctx
 
     async def create(
         self,
@@ -139,25 +173,40 @@ class UserRepository:
                 setattr(user, key, value)
         await self.db.commit()
         await self.db.refresh(user)
+        await self.invalidate_cache(user.id)
         return user
 
     async def update_settings(
         self,
-        user: User,
+        user_id: uuid.UUID,
         settings: dict,
-    ) -> User:
+        *,
+    ) -> UserShort:
         """Обновить настройки пользователя (merge с существующими)"""
+        user = await self._get_model_by_id(user_id)
+        if user is None:
+            raise ValueError(f"User {user_id} not found")
+
         current = dict(user.settings or {})
         current.update(settings)
         user.settings = current
         await self.db.commit()
         await self.db.refresh(user)
-        return user
+
+        ctx = self._to_short(user)
+        await self.invalidate_cache(user.id)
+        await cache.set(
+            self.cache_key(user.id),
+            ctx.model_dump(),
+            expire="5m",
+        )
+        return ctx
 
     async def delete(self, user: User) -> None:
         """Удалить пользователя"""
         await self.db.delete(user)
         await self.db.commit()
+        await self.invalidate_cache(user.id)
 
     async def exists_by_email(self, email: str) -> bool:
         """Проверить существует ли пользователь с таким email"""
@@ -189,7 +238,7 @@ class UserRepository:
 
     async def get_by_id_response(self, user_id: uuid.UUID) -> UserResponse | None:
         """Получить пользователя по UUID (Pydantic response)"""
-        user = await self.get_by_id(user_id)
+        user = await self._get_model_by_id(user_id)
         if user:
             return UserResponse.model_validate(user)
         return None

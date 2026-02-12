@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, Any
 
+from cashews import cache
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     String,
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+
+SANDBOXPAIR_CACHE_TTL = "60s"
 
 
 # ============ Enums ============
@@ -215,6 +218,32 @@ class SandboxResponse(SandboxBase):
         from_attributes = True
 
 
+class SandboxProviderSnapshot(BaseModel):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    type: str
+    name: Optional[str] = None
+    settings: dict[str, Any] = Field(default_factory=dict)
+    idle_timeout: int = 3600
+    is_active: bool = True
+    updated_at: Optional[datetime] = None
+
+
+class SandboxSnapshot(BaseModel):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    provider_id: uuid.UUID
+    status: str
+    external_id: Optional[str] = None
+    settings: dict[str, Any] = Field(default_factory=dict)
+    updated_at: Optional[datetime] = None
+
+
+class SandboxPairSnapshot(BaseModel):
+    provider: SandboxProviderSnapshot
+    sandbox: SandboxSnapshot
+
+
 # ============ Repository ============
 
 
@@ -311,6 +340,87 @@ class SandboxRepository:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    @staticmethod
+    def cache_key(owner_id: uuid.UUID, provider_id: uuid.UUID) -> str:
+        return f"sandboxpair:owner:{owner_id}:provider:{provider_id}"
+
+    @staticmethod
+    def cache_key_default(owner_id: uuid.UUID) -> str:
+        return f"sandboxpair:owner:{owner_id}:default"
+
+    @staticmethod
+    def to_pair_snapshot(
+        provider: SandboxProvider,
+        sandbox: Sandbox,
+    ) -> SandboxPairSnapshot:
+        return SandboxPairSnapshot(
+            provider=SandboxProviderSnapshot(
+                id=provider.id,
+                owner_id=provider.owner_id,
+                type=provider.type,
+                name=provider.name,
+                settings=provider.settings or {},
+                idle_timeout=provider.idle_timeout,
+                is_active=provider.is_active,
+                updated_at=provider.updated_at,
+            ),
+            sandbox=SandboxSnapshot(
+                id=sandbox.id,
+                owner_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+                status=sandbox.status,
+                external_id=sandbox.external_id,
+                settings=sandbox.settings or {},
+                updated_at=sandbox.updated_at,
+            ),
+        )
+
+    @staticmethod
+    async def cache_set_pair(
+        *,
+        owner_id: uuid.UUID,
+        provider_id: uuid.UUID,
+        snapshot: SandboxPairSnapshot,
+        is_default: bool,
+    ) -> None:
+        await cache.set(
+            SandboxRepository.cache_key(owner_id, provider_id),
+            snapshot.model_dump(),
+            expire=SANDBOXPAIR_CACHE_TTL,
+        )
+        if is_default:
+            await cache.set(
+                SandboxRepository.cache_key_default(owner_id),
+                snapshot.model_dump(),
+                expire=SANDBOXPAIR_CACHE_TTL,
+            )
+
+    @staticmethod
+    async def cache_get_pair(
+        *,
+        owner_id: uuid.UUID,
+        provider_id: uuid.UUID | None,
+    ) -> SandboxPairSnapshot | None:
+        key = (
+            SandboxRepository.cache_key_default(owner_id)
+            if provider_id is None
+            else SandboxRepository.cache_key(owner_id, provider_id)
+        )
+        cached = await cache.get(key)
+        if cached is None:
+            return None
+        return SandboxPairSnapshot.model_validate(cached)
+
+    @staticmethod
+    async def cache_invalidate_pair(
+        *,
+        owner_id: uuid.UUID,
+        provider_id: uuid.UUID,
+    ) -> None:
+        await cache.delete(SandboxRepository.cache_key(owner_id, provider_id))
+        # Default key may point to this provider; safest to delete it too.
+        await cache.delete(SandboxRepository.cache_key_default(owner_id))
 
     async def get_by_id(self, sandbox_id: uuid.UUID) -> Sandbox | None:
         """Получить sandbox по ID."""
