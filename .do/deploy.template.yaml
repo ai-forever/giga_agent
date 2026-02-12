@@ -1,65 +1,65 @@
 spec:
- name: giga-agent
- region: fra
- services:
- - name: giga-agent-graph
-   git:
-     branch: feature/add-do-integration
-     repo_clone_url: https://github.com/ai-forever/giga_agent.git
-   dockerfile_path: backend/graph/Dockerfile
-   source_dir: backend/graph
-   instance_count: 1
-   instance_size_slug: apps-s-1vcpu-2gb # Minimum 2GB required - 1GB causes heap overflow
-   internal_ports:
-     - 8000
-   envs:
-     - key: GIGA_AGENT_LLM
-       scope: RUN_TIME
-       value: "gigachat:GigaChat-2-Max"
-     - key: GIGA_AGENT_LLM_FAST
-       scope: RUN_TIME
-       value: "gigachat:GigaChat-2-Pro"
-     - key: GIGA_AGENT_EMBEDDINGS
-       scope: RUN_TIME
-       value: "gigachat:EmbeddingsGigaR"
-     - key: GIGA_AGENT_SENTIMENT_MODEL
-       scope: RUN_TIME
-       value: "models/sentiment_gigachat.joblib"
-     - key: GIGA_AGENT_LANG
-       scope: RUN_TIME
-       value: "ru-RU"
-     - key: GIGA_AGENT_MCP_CONFIG
-       scope: RUN_TIME
-       value: "{}"
-     - key: GIGA_AGENT_USER_NOTES
-       scope: RUN_TIME
-       value: ""
-     - key: GIGA_AGENT_MEMORY_ENABLED
-       scope: RUN_AND_BUILD_TIME
-       value: 1
+  name: giga-agent
+  region: fra
+  services:
+    - name: giga-agent-graph
+      git:
+        branch: feature/add-do-integration
+        repo_clone_url: https://github.com/ai-forever/giga_agent.git
+      dockerfile_path: backend/graph/Dockerfile
+      source_dir: backend/graph
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-2gb # Minimum 2GB required - 1GB causes heap overflow
+      internal_ports:
+        - 8000
+      envs:
+        - key: GIGA_AGENT_LLM
+          scope: RUN_TIME
+          value: "gigachat:GigaChat-2-Max"
+        - key: GIGA_AGENT_LLM_FAST
+          scope: RUN_TIME
+          value: "gigachat:GigaChat-2-Pro"
+        - key: GIGA_AGENT_EMBEDDINGS
+          scope: RUN_TIME
+          value: "gigachat:EmbeddingsGigaR"
+        - key: GIGA_AGENT_SENTIMENT_MODEL
+          scope: RUN_TIME
+          value: "models/sentiment_gigachat.joblib"
+        - key: GIGA_AGENT_LANG
+          scope: RUN_TIME
+          value: "ru-RU"
+        - key: GIGA_AGENT_MCP_CONFIG
+          scope: RUN_TIME
+          value: "{}"
+        - key: GIGA_AGENT_USER_NOTES
+          scope: RUN_TIME
+          value: ""
+        - key: GIGA_AGENT_MEMORY_ENABLED
+          scope: RUN_AND_BUILD_TIME
+          value: 1
 
-     - key: GIGACHAT_CREDENTIALS
-       scope: RUN_TIME
-       type: SECRET
-     - key: GIGACHAT_SCOPE
-       scope: RUN_TIME
-       value: "GIGACHAT_API_PERS"
-     - key: GIGACHAT_VERIFY_SSL_CERTS
-       scope: RUN_TIME
-       value: 0
-     - key: GIGACHAT_TIMEOUT
-       scope: RUN_TIME
-       value: 60
+        - key: GIGACHAT_CREDENTIALS
+          scope: RUN_TIME
+          type: SECRET
+        - key: GIGACHAT_SCOPE
+          scope: RUN_TIME
+          value: "GIGACHAT_API_PERS"
+        - key: GIGACHAT_VERIFY_SSL_CERTS
+          scope: RUN_TIME
+          value: 0
+        - key: GIGACHAT_TIMEOUT
+          scope: RUN_TIME
+          value: 60
 
-     - key: MAIN_GIGACHAT_CREDENTIALS
-       scope: RUN_TIME
-       type: SECRET
-     - key: MAIN_GIGACHAT_SCOPE
-       scope: RUN_TIME
-       value: "GIGACHAT_API_PERS"
-     - key: MAIN_GIGACHAT_TIMEOUT
-       scope: RUN_TIME
-       value: 60
-     - key: MAIN_GIGACHAT_TOP_P
-       scope: RUN_TIME
-       value: 0.5
+        - key: MAIN_GIGACHAT_CREDENTIALS
+          scope: RUN_TIME
+          type: SECRET
+        - key: MAIN_GIGACHAT_SCOPE
+          scope: RUN_TIME
+          value: "GIGACHAT_API_PERS"
+        - key: MAIN_GIGACHAT_TIMEOUT
+          scope: RUN_TIME
+          value: 60
+        - key: MAIN_GIGACHAT_TOP_P
+          scope: RUN_TIME
+          value: 0.5
