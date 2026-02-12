@@ -172,7 +172,7 @@ services:
   - name: gateway
     github:
       repo: ai-forever/giga_agent
-      feature/add-do-integration
+      branch: feature/add-do-integration
       deploy_on_push: true
     dockerfile_path: .do/Dockerfile.gateway
     source_dir: /
@@ -206,7 +206,7 @@ services:
   - name: langgraph-api
     github:
       repo: ai-forever/giga_agent
-      feature/add-do-integration
+      branch: feature/add-do-integration
       deploy_on_push: true
     dockerfile_path: backend/graph/Dockerfile
     source_dir: backend/graph
@@ -236,7 +236,7 @@ services:
   - name: tool-server
     github:
       repo: ai-forever/giga_agent
-      feature/add-do-integration
+      branch: feature/add-do-integration
       deploy_on_push: true
     dockerfile_path: .do/Dockerfile.worker
     source_dir: backend/graph
@@ -253,7 +253,7 @@ services:
   - name: tasks-api
     github:
       repo: ai-forever/giga_agent
-      feature/add-do-integration
+      branch: feature/add-do-integration
       deploy_on_push: true
     dockerfile_path: .do/Dockerfile.worker
     source_dir: backend/graph
