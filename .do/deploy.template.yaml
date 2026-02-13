@@ -7,7 +7,7 @@ spec:
         branch: feature/add-do-integration
         repo_clone_url: https://github.com/ai-forever/giga_agent.git
       dockerfile_path: /backend/graph/Dockerfile
-      source_dir: /backend/graph
+      source_dir: /backend/graph/
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-2gb # Minimum 2GB required - 1GB causes heap overflow
       internal_ports:
