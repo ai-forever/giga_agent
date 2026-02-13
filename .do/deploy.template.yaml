@@ -1,6 +1,5 @@
 spec:
   name: giga-agent
-  region: fra
   services:
     - name: giga-agent-graph
       git:
@@ -8,10 +7,9 @@ spec:
         repo_clone_url: https://github.com/ai-forever/giga_agent.git
       dockerfile_path: backend/graph/Dockerfile
       source_dir: backend/graph
+      http_port: 8000
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-2gb # Minimum 2GB required - 1GB causes heap overflow
-      internal_ports:
-        - 8000
+      instance_size_slug: apps-s-1vcpu-2gb
       envs:
         - key: GIGA_AGENT_LLM
           scope: RUN_TIME
@@ -37,7 +35,6 @@ spec:
         - key: GIGA_AGENT_MEMORY_ENABLED
           scope: RUN_AND_BUILD_TIME
           value: "1"
-
         - key: GIGACHAT_CREDENTIALS
           scope: RUN_TIME
           type: SECRET
@@ -50,7 +47,6 @@ spec:
         - key: GIGACHAT_TIMEOUT
           scope: RUN_TIME
           value: "60"
-
         - key: MAIN_GIGACHAT_CREDENTIALS
           scope: RUN_TIME
           type: SECRET
