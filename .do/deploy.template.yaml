@@ -6,8 +6,8 @@ spec:
       git:
         branch: feature/add-do-integration
         repo_clone_url: https://github.com/ai-forever/giga_agent.git
-      dockerfile_path: /backend/graph/Dockerfile
-      source_dir: /backend/graph/
+      dockerfile_path: backend/graph/Dockerfile
+      source_dir: backend/graph
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-2gb # Minimum 2GB required - 1GB causes heap overflow
       internal_ports:
@@ -36,7 +36,7 @@ spec:
           value: ""
         - key: GIGA_AGENT_MEMORY_ENABLED
           scope: RUN_AND_BUILD_TIME
-          value: 1
+          value: "1"
 
         - key: GIGACHAT_CREDENTIALS
           scope: RUN_TIME
@@ -46,10 +46,10 @@ spec:
           value: "GIGACHAT_API_PERS"
         - key: GIGACHAT_VERIFY_SSL_CERTS
           scope: RUN_TIME
-          value: 0
+          value: "0"
         - key: GIGACHAT_TIMEOUT
           scope: RUN_TIME
-          value: 60
+          value: "60"
 
         - key: MAIN_GIGACHAT_CREDENTIALS
           scope: RUN_TIME
@@ -59,7 +59,7 @@ spec:
           value: "GIGACHAT_API_PERS"
         - key: MAIN_GIGACHAT_TIMEOUT
           scope: RUN_TIME
-          value: 60
+          value: "60"
         - key: MAIN_GIGACHAT_TOP_P
           scope: RUN_TIME
-          value: 0.5
+          value: "0.5"
