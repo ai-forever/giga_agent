@@ -317,22 +317,6 @@ def create_graph(
     visit the [Agents](https://docs.langchain.com/oss/python/langchain/agents) docs.
     """
 
-    # Convert system_prompt to SystemMessage if needed
-    system_message: SystemMessage | None = None
-    modules_prompts = []
-    for module in agent.modules:
-        instructions = module.get_instructions(user=None, agent=agent)
-        if instructions:
-            modules_prompts.append(instructions)
-
-    if system_prompt is not None:
-        if isinstance(system_prompt, SystemMessage):
-            system_message = system_prompt
-        else:
-            system_message = SystemMessage(
-                content=system_prompt.format(modules="\n===\n\n".join(modules_prompts))
-            )
-
     # Handle tools being None or empty
     if tools is None:
         tools = []
@@ -465,6 +449,7 @@ def create_graph(
                 llm = await llm_repo.get_langchain_chat_by_id(llm_uuid, use_cache=False)
         agent_tools = agent.get_tools(user)
         llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
+        system_message = SystemMessage(content=agent.get_prompt(user))
 
         request = ModelRequest(
             model=llm,

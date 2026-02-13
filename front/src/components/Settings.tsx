@@ -1,11 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { Secret } from "@/interfaces.ts";
 
 type Settings = {
   autoApprove: boolean;
   sideBarOpen: boolean;
-  contextInstructions: string;
-  contextSecrets: Array<Secret>;
   activeCollections: Record<string, boolean>;
 };
 
@@ -16,8 +13,6 @@ interface SettingsProps {
 const defaultSettings: Settings = {
   autoApprove: false,
   sideBarOpen: true,
-  contextInstructions: "",
-  contextSecrets: [],
   activeCollections: {},
 };
 

@@ -37,6 +37,7 @@ import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import Spinner from "./Spinner.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useAuth } from "@/components/providers/auth.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +65,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
   const { collections, activeCollections } = useRagContext();
   const { settings } = useSettings();
+  const { user } = useAuth();
   const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
     useUserInfo();
 
@@ -98,14 +100,22 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           selected: selected,
         },
       } as HumanMessage;
+      const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
+      const contextInstructions =
+        typeof userSettings.contextInstructions === "string"
+          ? userSettings.contextInstructions
+          : "";
+      const contextSecrets = Array.isArray(userSettings.contextSecrets)
+        ? userSettings.contextSecrets
+        : [];
       clear();
       thread?.submit(
         {
           messages: [newMessage],
           collections: enabledCollections,
           mcp_tools: mcpToolsPayload,
-          secrets: settings.contextSecrets,
-          instructions: settings.contextInstructions,
+          secrets: contextSecrets,
+          instructions: contextInstructions,
         },
         {
           optimisticValues(prev) {
@@ -124,8 +134,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
       clear,
       mcpToolsPayload,
       enabledCollections,
-      settings.contextInstructions,
-      settings.contextSecrets,
+      user,
     ],
   );
   const handleContinueThread = useCallback(

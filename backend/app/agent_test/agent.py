@@ -1,7 +1,6 @@
 from giga_agent.auth import AuthModule
 from giga_agent.repl import ReplModule
 from giga_agent.core.agent.base import BaseAgent
-from langchain_gigachat import GigaChat
 
 from langchain_core.tools import tool
 

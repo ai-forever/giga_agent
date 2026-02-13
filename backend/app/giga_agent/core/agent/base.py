@@ -9,6 +9,8 @@ from typing_extensions import override
 from fastapi import FastAPI
 from pydantic import Field, PrivateAttr, ConfigDict
 from langchain_core.load.serializable import Serializable
+
+from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.module import BaseModule
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
@@ -19,6 +21,19 @@ from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import llms_router, sandboxes_router, files_router
+
+NOTES_PROMPT = """
+====
+
+ИНСТРУКЦИИ ПОЛЬЗОВАТЕЛЯ
+
+Ниже описаны инструкции пользователя. Ты ОБЯЗАН выполнять их при выполнении каждой задачи.
+----
+{0}
+----
+
+====
+"""  # noqa: E501
 
 
 class BaseAgent(Serializable):
@@ -98,6 +113,21 @@ class BaseAgent(Serializable):
     @property
     def graph(self):
         return self._graph
+
+    def get_prompt(self, user: UserShort) -> str:
+        modules_prompts = []
+        for module in self.modules:
+            instructions = module.get_instructions(user=user, agent=self)
+            if instructions:
+                modules_prompts.append(instructions)
+        instructions = user.settings.get("contextInstructions")
+        instructions_prompt = ""
+        if instructions:
+            instructions_prompt = NOTES_PROMPT.format(instructions)
+        return (
+            BASE_PROMPT.format(modules="\n===\n\n".join(modules_prompts))
+            + instructions_prompt
+        )
 
     def get_tools(self, user: UserShort) -> List[BaseTool]:
         all_tools = list(self.tools or [])

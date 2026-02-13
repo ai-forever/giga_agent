@@ -12,8 +12,8 @@ import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "@/hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
-import { useSettings } from "@/components/Settings.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface DemoChatProps {
   onContinue: () => void;
@@ -38,9 +38,16 @@ const DemoChat = ({
   const [isFinished, setIsFinished] = useState(false);
 
   const { collections, activeCollections } = useRagContext();
-  const { settings } = useSettings();
-  const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
-    useUserInfo();
+  const { user } = useAuth();
+  const { mcpTools } = useUserInfo();
+  const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
+  const contextInstructions =
+    typeof userSettings.contextInstructions === "string"
+      ? userSettings.contextInstructions
+      : "";
+  const contextSecrets = Array.isArray(userSettings.contextSecrets)
+    ? userSettings.contextSecrets
+    : [];
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -143,11 +150,11 @@ const DemoChat = ({
 
                   thread.submit(
                     {
+                      instructions: contextInstructions,
                       messages: [newMessage],
                       collections: enabledCollections,
                       mcp_tools: mcpToolsPayload,
-                      secrets: settings.contextSecrets,
-                      instructions: settings.contextInstructions,
+                      secrets: contextSecrets,
                     },
                     {
                       optimisticValues(prev) {

@@ -11,8 +11,9 @@ import { Input, SecretInput } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Plus } from "lucide-react";
 import { z } from "zod";
-import { useSettings } from "@/components/Settings";
 import { Secret } from "@/interfaces.ts";
+import { useAuth } from "@/components/providers/auth.tsx";
+import { apiClient } from "@/lib/api-client";
 
 type SecretItem = Secret & {
   id: string;
@@ -27,8 +28,6 @@ interface ContextModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: (data: ContextModalData) => void;
-  defaultInstructions?: string;
-  defaultSecrets?: Array<Secret>;
 }
 
 const secretSchema = z.object({
@@ -61,45 +60,43 @@ const ContextModal: React.FC<ContextModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  defaultInstructions = "",
-  defaultSecrets = [],
 }) => {
-  const { settings, setSettings } = useSettings();
-  const [instructions, setInstructions] = useState<string>(defaultInstructions);
-  const [secrets, setSecrets] = useState<SecretItem[]>(
-    defaultSecrets.map((s) => ({
-      id: crypto.randomUUID(),
-      ...s,
-    })),
-  );
+  const { user, refreshUser } = useAuth();
+  const [instructions, setInstructions] = useState<string>("");
+  const [secrets, setSecrets] = useState<SecretItem[]>([]);
   const [errors, setErrors] = useState<Record<string, Record<string, string>>>(
     {},
   );
   const [generalError, setGeneralError] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
-  // Загрузка значений из Settings при открытии модалки
+  // Загрузка значений из user.settings при открытии модалки
   useEffect(() => {
     if (!isOpen) return;
     try {
-      const loadedInstructions = settings?.contextInstructions ?? "";
-      const loadedSecrets = settings?.contextSecrets ?? [];
+      const settings = (user?.settings ?? {}) as Record<string, unknown>;
+      const loadedInstructions =
+        typeof settings.contextInstructions === "string"
+          ? settings.contextInstructions
+          : "";
+      const loadedSecrets = Array.isArray(settings.contextSecrets)
+        ? settings.contextSecrets
+        : [];
       setInstructions(loadedInstructions);
       setSecrets(
         (loadedSecrets || []).map((s) => ({
           id: crypto.randomUUID(),
-          ...s,
+          ...(s as Secret),
         })),
       );
     } catch {
       // ignore
     }
-    // не добавляем зависимости, чтобы инициализировать при каждом открытии
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, user]);
 
   const parsedForValidation = useMemo(
     () =>
-      secrets.map((s) => ({
+      secrets?.map((s) => ({
         name: s.name ?? "",
         value: s.value ?? "",
         description: s.description ?? "",
@@ -124,7 +121,7 @@ const ContextModal: React.FC<ContextModalProps> = ({
       ) {
         const index = issue.path[0] as number;
         const field = issue.path[1] as string;
-        const id = secrets[index]?.id;
+        const id = secrets ? secrets[index]?.id : null;
         if (!id) continue;
         if (!fieldErrors[id]) fieldErrors[id] = {};
         fieldErrors[id][field] = issue.message;
@@ -136,20 +133,33 @@ const ContextModal: React.FC<ContextModalProps> = ({
     return false;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validate()) return;
     const payload: ContextModalData = {
       instructions,
-      secrets: secrets.map(({ id, ...rest }) => rest),
+      secrets: secrets.map(({ id, ...rest }) => ({
+        ...rest,
+        name: rest.name.trim(),
+        value: rest.value.trim(),
+        description: rest.description?.trim() || undefined,
+      })),
     };
-    // Сохранение в Settings
-    setSettings({
-      ...settings,
-      contextInstructions: payload.instructions,
-      contextSecrets: payload.secrets,
-    });
-    if (onSave) onSave(payload);
-    onClose();
+    setSaving(true);
+    try {
+      await apiClient.patch("/api/auth/users/me/settings", {
+        settings: {
+          contextInstructions: payload.instructions,
+          contextSecrets: payload.secrets,
+        },
+      });
+      await refreshUser();
+      if (onSave) onSave(payload);
+      onClose();
+    } catch {
+      // Ошибка уже обработана глобально
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addSecret = () => {
@@ -308,7 +318,7 @@ const ContextModal: React.FC<ContextModalProps> = ({
           <Button variant="ghost" type="button" onClick={onClose}>
             Отмена
           </Button>
-          <Button type="button" onClick={handleSave}>
+          <Button type="button" onClick={handleSave} disabled={saving}>
             Сохранить
           </Button>
         </div>

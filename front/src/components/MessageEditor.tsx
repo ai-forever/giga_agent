@@ -23,7 +23,7 @@ import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
-import { useSettings } from "@/components/Settings.tsx";
+import { useAuth } from "@/components/providers/auth.tsx";
 import { useParams } from "react-router-dom";
 
 interface MessageEditorProps {
@@ -49,7 +49,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
   const { selected } = useSelectedAttachments();
   const { collections, activeCollections } = useRagContext();
   const selectedCount = Object.keys(selected).length;
-  const { settings } = useSettings();
+  const { user } = useAuth();
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -135,14 +135,22 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
 
     const meta = thread?.getMessagesMetadata(message);
     const parentCheckpoint = meta?.firstSeenState?.parent_checkpoint;
+    const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
+    const contextInstructions =
+      typeof userSettings.contextInstructions === "string"
+        ? userSettings.contextInstructions
+        : "";
+    const contextSecrets = Array.isArray(userSettings.contextSecrets)
+      ? userSettings.contextSecrets
+      : [];
 
     thread?.submit(
       {
         messages: [newMessage],
         mcp_tools: mcpToolsPayload,
         collections: enabledCollections,
-        secrets: settings.contextSecrets,
-        instructions: settings.contextInstructions,
+        secrets: contextSecrets,
+        instructions: contextInstructions,
       },
       {
         optimisticValues(prev: GraphState) {
@@ -172,8 +180,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     onCancel,
     getAllFileData,
     selected,
-    settings.contextInstructions,
-    settings.contextSecrets,
+    user,
     enabledCollections,
     mcpToolsPayload,
   ]);
