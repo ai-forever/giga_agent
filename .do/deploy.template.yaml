@@ -1,10 +1,11 @@
 spec:
   name: giga-agent
-  services:
+  region: fra
+  workers:
     - name: giga-agent-graph
       git:
-        branch: feature/add-do-integration
         repo_clone_url: https://github.com/ai-forever/giga_agent.git
+        branch: feature/add-do-integration
       dockerfile_path: backend/graph/Dockerfile
       source_dir: backend/graph
       http_port: 8000
