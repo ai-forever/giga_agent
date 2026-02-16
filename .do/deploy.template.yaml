@@ -28,7 +28,13 @@ spec:
       source_dir: front
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
-
+  ingress:
+    rules:
+      - component:
+          name: giga-agent-front
+        match:
+          path:
+            prefix: /
   envs:
     - key: GIGACHAT_CREDENTIALS
       type: SECRET
