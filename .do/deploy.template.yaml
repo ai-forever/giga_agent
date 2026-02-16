@@ -54,3 +54,4 @@ spec:
     - name: langgraph-redis
       engine: REDIS
       version: "6"
+      production: true
