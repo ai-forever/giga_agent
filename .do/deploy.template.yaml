@@ -7,7 +7,7 @@ spec:
         registry_type: DOCKER_HUB
         registry: library
         repository: redis
-        tag: 6
+        tag: 6.2
     - name: giga-agent-graph
       github:
         branch: feature/add-do-integration
