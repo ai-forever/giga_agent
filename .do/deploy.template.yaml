@@ -2,7 +2,7 @@ spec:
   name: giga-agent
   region: fra
   services:
-    - langgraph-redis
+    - name: langgraph-redis
       image:
         registry_type: DOCKER_HUB
         registry: library
