@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { GeneralSettings } from "./general";
 import { LLMSettings } from "./llms";
 import { SandboxSettings } from "./sandbox";
+import { ImageGeneratorsSettings } from "./image-generators";
 
-type SettingsTab = "general" | "llm" | "sandbox";
+type SettingsTab = "general" | "llm" | "sandbox" | "image";
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ const SettingsPage: React.FC = () => {
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "Основные" },
     { id: "llm", label: "LLM" },
+    { id: "image", label: "Image" },
     { id: "sandbox", label: "Sandbox" },
   ];
 
@@ -29,6 +31,8 @@ const SettingsPage: React.FC = () => {
         return <GeneralSettings />;
       case "llm":
         return <LLMSettings />;
+      case "image":
+        return <ImageGeneratorsSettings />;
       case "sandbox":
         return <SandboxSettings />;
       default:

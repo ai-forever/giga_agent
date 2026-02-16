@@ -4,9 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter
 
 from giga_agent.core.module import BaseModule
-from giga_agent.auth import security, api
+from giga_agent.modules.auth import security, api
 from giga_agent.core.events import event_bus
-from giga_agent.auth.events import UserCreatedEvent
+from giga_agent.modules.auth.events import UserCreatedEvent
 from giga_agent.models.users import UserRepository
 
 logger = logging.getLogger(__name__)

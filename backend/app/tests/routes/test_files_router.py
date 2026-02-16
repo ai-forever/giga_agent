@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from giga_agent.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.core.db import get_session
 from giga_agent.routes.files import router
 

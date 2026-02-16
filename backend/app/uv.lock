@@ -929,7 +929,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.13.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "bcrypt", specifier = ">=4.0.0" },
-    { name = "cashews", extras = ["redis"], specifier = ">=7.4.4" },
+    { name = "cashews", extras = ["redis"], specifier = ">=7.0.0" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "e2b", specifier = ">=2.13.2" },
     { name = "fastapi", specifier = ">=0.127.0" },

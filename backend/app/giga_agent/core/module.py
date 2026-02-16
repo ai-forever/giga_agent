@@ -51,7 +51,7 @@ class BaseModule(Serializable):
         """
         return None
 
-    def get_tools(
+    async def get_tools(
         self,
         user: UserShort | None,
         agent: "BaseAgent",
@@ -62,7 +62,7 @@ class BaseModule(Serializable):
         """
         return []
 
-    def get_instructions(
+    async def get_instructions(
         self,
         user: UserShort | None,
         agent: "BaseAgent",
@@ -73,7 +73,7 @@ class BaseModule(Serializable):
         """
         return None
 
-    def get_middleware(self) -> Optional["AgentMiddleware"]:
+    async def get_middleware(self) -> Optional["AgentMiddleware"]:
         """
         Возвращает список AgentMiddleware, предоставляемых модулем.
         Переопределите в подклассе, чтобы добавить middleware в агент.

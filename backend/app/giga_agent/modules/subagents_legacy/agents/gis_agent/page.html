@@ -1,0 +1,70 @@
+<html lang="ru">
+<head>
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #tooltip {
+            padding: 5px 10px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+            background: #ffffff;
+            border-radius: 8px;
+            z-index: 2;
+            position: fixed;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            opacity: 0;
+            display: block;
+        }
+
+        body {
+            margin: 0;
+        }
+    </style>
+    <title></title>
+</head>
+<body>
+
+<div id="tooltip"></div>
+<div id="container"></div>
+<script src="https://mapgl.2gis.com/api/js/v1?callback=initMap" async defer></script>
+<script>
+    const data = <<MARKERS>>;
+
+    function initMap() {
+        const map = new mapgl.Map('container', {
+            center: data.coords,
+            zoom: data.zoom,
+            key: data.key,
+            defaultBackgroundColor: '#3b3b3b',
+        });
+        map.fitBounds(data.bounds, {
+        padding: { top: 100, left: 100, bottom: 100, right: 100 },
+    });
+        const tooltipEl = document.getElementById('tooltip');
+        data.markers.forEach((markerData) => {
+            const marker = new mapgl.Marker(map, markerData);
+            marker.on('mousemove', (event) => {
+                // Отступ в пикселях
+                const offset = 5;
+
+                tooltipEl.style.top = `${event.point[1] + offset}px`;
+                tooltipEl.style.left = `${event.point[0] + offset}px`;
+                tooltipEl.style.opacity = '1';
+                tooltipEl.innerHTML = event.targetData.userData.text;
+            });
+
+            marker.on('mouseout', (e) => {
+                tooltipEl.style.opacity = '0';
+            });
+        });
+    }
+</script>
+</body>
+</html>

@@ -7,10 +7,10 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
-from giga_agent.auth import security
-from giga_agent.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
+from giga_agent.modules.auth import security
+from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.core.events import event_bus
-from giga_agent.auth.events import UserCreatedEvent
+from giga_agent.modules.auth.events import UserCreatedEvent
 from giga_agent.models.users import (
     UserShort,
     UserRepository,

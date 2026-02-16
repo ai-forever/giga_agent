@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import get_session
-from giga_agent.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.models.users import User
 from giga_agent.models.llm import (
     LLM,

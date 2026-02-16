@@ -1,100 +1,102 @@
 # Архитектура проекта Giga Agent
 
-Проект спроектирован как расширяемый модульный монолит (Modular Monolith) с поддержкой гибридной среды запуска (Local vs Docker) и возможностью подключения пользовательских плагинов (External Modules).
+Проект реализован как расширяемый модульный монолит (Modular Monolith) с гибридной средой запуска (Local vs Docker) и поддержкой подключаемых модулей.
 
 ## 1. Стратегия хранения данных (Dual-Database Strategy)
 
-Проект абстрагируется от конкретного движка БД, используя `SQLAlchemy 2.0`. Драйвер и диалект выбираются автоматически в зависимости от среды:
+Проект абстрагируется от конкретного движка БД через `SQLAlchemy 2.0`. Драйвер выбирается по `GIGA_AGENT_RUNTIME`:
 
 ### Локальная разработка (Dev/Test)
-*   **СУБД:** SQLite (`sqlite+aiosqlite`).
-*   **Особенности:**
-    *   Работает без Docker, хранит данные в файле.
-    *   Тип `JSONB` эмулируется через `TEXT` (SQLAlchemy прозрачно сериализует/десериализует словари).
-    *   Миграции Alembic работают в режиме `render_as_batch` (обход ограничений SQLite на ALTER TABLE).
+
+- СУБД: SQLite (`sqlite+aiosqlite`).
+- Особенности:
+  - работает без Docker, хранит данные в файле;
+  - JSON-поля хранятся как `JSON` (в SQLite это TEXT-представление);
+  - миграции Alembic работают в режиме `render_as_batch`.
 
 ### Продакшн / Docker
-*   **СУБД:** PostgreSQL (`postgresql+asyncpg`).
-*   **Особенности:**
-    *   Используется нативный бинарный тип `JSONB` для высокой производительности.
-    *   Строгая типизация и надежность.
 
-### Реализация моделей
-Для кросс-платформенности JSON-полей используется метод `with_variant`:
+- СУБД: PostgreSQL (`postgresql+asyncpg`).
+- Особенности:
+  - используется нативный `JSONB`;
+  - строгая типизация и предсказуемое поведение миграций.
 
-from sqlalchemy import JSON
-from sqlalchemy.dialects.postgresql import JSONB
+### Реализация JSON-полей
 
-В Postgres это JSONB, в SQLite — TEXT (JSON)
-data = mapped_column(JSON().with_variant(JSONB, "postgresql"))## 2. Модульная архитектура и Плагины
+Для кросс-БД используется хелпер `JSON_VARIANT()` из `giga_agent.core.db`:
 
-Система состоит из ядра и модулей. Модули могут быть встроенными (`giga_agent/auth`) или внешними (пользовательскими).
-
-### Структура модуля
-Каждый модуль (встроенный или внешний) должен следовать единой структуре и наследоваться от базового класса, чтобы система могла найти его миграции.
-```
-my_module/
-├── migrations/        # Папка с версиями миграций Alembic для этого модуля
-├── __init__.py
-├── module.py          # Основной класс модуля
-└── models.py          # SQLAlchemy модели### Подключение пользовательских модулей
-```
-Пользователи могут создавать свои модули, не меняя код ядра. Инициализация происходит через передачу экземпляров модулей в конструктор агента:
-user_project/agent.py
 ```python
-from giga_agent.agent import Agent
-from my_custom_module import CustomAuthModule
+from sqlalchemy.orm import mapped_column
+from giga_agent.core.db import Base, JSON_VARIANT
 
-agent = Agent(
-    modules=[CustomAuthModule()]
-)
+class MyModel(Base):
+    __tablename__ = "my_table"
+    data = mapped_column(JSON_VARIANT())
 ```
-## 3. Управление миграциями (Dynamic Alembic Configuration)
-Alembic настроен на работу с множеством источников миграций (Multiple Version Locations).
 
-1.  **Сбор путей:** При старте CLI анализирует список подключенных модулей.
-2.  **Инъекция:** Пути к папкам `migrations` каждого модуля собираются и динамически передаются в конфигурацию Alembic (параметр `version_locations`) в runtime.
-3.  **Применение:** Команда `upgrade head` применяет миграции и ядра, и всех плагинов единым проходом.
+## 2. Модульная архитектура
 
-Для удобства разработки CLI должен предоставлять команду для создания миграций в нужном модуле:
-`giga_agent makemigrations --module=path/to/module "message"`
+Система состоит из core и модулей.
 
-## 4. Жизненный цикл и Запуск (`giga_agent up`)
+- Встроенные модули находятся в `giga_agent.modules.*` (сейчас: `auth`, `repl`, `image`).
+- Пользовательские модули могут быть внешними пакетами.
 
-Запуск проекта осуществляется единой CLI командой, которая оркестрирует весь процесс инициализации.
+### Контракт модуля
 
-**Алгоритм работы `giga_agent up`:**
+Модуль наследуется от `BaseModule` и может переопределять:
 
-1.  **Wait-for-DB (Только для Docker/Postgres):**
-    *   Запускает цикл проверки доступности порта БД.
-    *   Предотвращает падение приложения при "холодном старте", когда контейнер приложения поднимается быстрее базы данных.
-2.  **Dynamic Migrations:**
-    *   Считывает конфигурацию агента.
-    *   Программно запускает `alembic upgrade head`, накатывая актуальную схему.
-3.  **Application Start:**
-    *   Запускает основное приложение (API/Worker).
+- `get_api_router()` — API роутер модуля;
+- `async get_tools(user, agent)` — tools;
+- `async get_instructions(user, agent)` — системные инструкции;
+- `async get_middleware()` — middleware;
+- `on_startup(session)` — startup hook.
 
-## 5. Пример реализации базового класса модуля
+`BaseModule` автоматически вычисляет `module_path`, а миграции ищутся по пути `<module_path>/migrations`.
+
+### Роутинг модулей
+
+В `BaseAgent` core-роуты (`llms`, `sandboxes`, `files`) подключаются автоматически.
+Роутер модуля, если он есть, подключается с префиксом `/{module.id}`.
+
+### Пример подключения встроенных модулей
+
 ```python
-import os
-import inspect
+from giga_agent.core.agent.base import BaseAgent
+from giga_agent.modules.auth import AuthModule
+from giga_agent.modules.image import ImageModule
+from giga_agent.modules.repl import ReplModule
 
-class BaseModule:
-    def __init__(self):
-        # Автоматически определяем путь к файлу модуля
-        self.module_path = os.path.dirname(inspect.getfile(self.__class__))
-
-    @property
-    def migration_path(self) -> str | None:
-        """Абсолютный путь к папке миграций модуля, если она существует"""
-        path = os.path.join(self.module_path, "migrations")
-        if os.path.exists(path) and os.path.isdir(path):
-            return path
-        return None
+agent = BaseAgent(modules=[AuthModule(), ReplModule(), ImageModule()])
+app, graph = agent.app, agent.graph
 ```
 
-При создании агента через create_agent в langchain на каждый middleware в получающемся графе 
-создается отдельная нода. 
-Если мы хотим, чтобы модули можно было отключать у отдельных агентов, то нужно будет 
-переделать эту логику, чтобы ноды before_agent, after_agent и т.д. были уже созданы и 
-внутри них мы бы проходились по ним и делали merge стейтам.
+## 3. Управление миграциями
+
+Alembic работает в режиме multiple version locations.
+
+1. CLI собирает пути миграций core + активных модулей.
+2. Пути прокидываются в `version_locations` динамически.
+3. `upgrade head` применяется единым проходом.
+
+Дополнительно:
+
+- `giga_agent check` проверяет конфликтующие heads;
+- `giga_agent makemigrations <module_path> ...` создаёт миграцию для конкретного модуля с фильтром по табличному префиксу;
+- для core-моделей используется `make core-migrations`.
+
+## 4. Запуск и lifecycle
+
+Актуальная команда запуска в разработке: `giga_agent dev`.
+
+Пайплайн `giga_agent dev`:
+
+1. Поднимает runtime-конфиг (`GIGA_AGENT_RUNTIME=local` по умолчанию).
+2. Загружает graph/app из указанного entrypoint.
+3. Применяет миграции core + модулей.
+4. Выполняет `on_startup()` для всех модулей.
+5. Запускает LangGraph/FastAPI сервер.
+
+## 5. Правила текущей разработки
+
+- Удаляй неиспользуемые классы и мёртвый код, не оставляй заглушки «на потом».
+- Используй `uv` для локальных команд (test/lint/run/migrations).

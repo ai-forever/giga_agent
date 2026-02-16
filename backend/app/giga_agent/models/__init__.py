@@ -54,6 +54,15 @@ from giga_agent.models.file import (
     FileRepository,
 )
 
+from giga_agent.models.image_generator import (
+    ImageGenerator,
+    ImageGeneratorBase,
+    ImageGeneratorCreate,
+    ImageGeneratorUpdate,
+    ImageGeneratorResponse,
+    ImageGeneratorRepository,
+)
+
 __all__ = [
     # Users
     "User",
@@ -103,4 +112,11 @@ __all__ = [
     "FileUpdate",
     "FileResponse",
     "FileRepository",
+    # Image Generators
+    "ImageGenerator",
+    "ImageGeneratorBase",
+    "ImageGeneratorCreate",
+    "ImageGeneratorUpdate",
+    "ImageGeneratorResponse",
+    "ImageGeneratorRepository",
 ]

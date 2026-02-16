@@ -25,7 +25,14 @@ import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Secret } from "@/interfaces.ts";
-import type { LLMResponse } from "./forms/types";
+import type { ImageGeneratorResponse, LLMResponse } from "./forms/types";
+
+const NO_IMAGE_GENERATOR_VALUE = "__none__";
+
+interface CurrentImageGeneratorResponse {
+  image_generator_id: string | null;
+  generator: ImageGeneratorResponse | null;
+}
 
 type SecretItem = Secret & {
   id: string;
@@ -78,7 +85,14 @@ export const GeneralSettings: React.FC = () => {
   const { user, refreshUser } = useAuth();
 
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
+  const [imageGeneratorList, setImageGeneratorList] = useState<ImageGeneratorResponse[]>([]);
   const [defaultLLM, setDefaultLLM] = useState<string>("");
+  const [currentImageGenerator, setCurrentImageGenerator] = useState<string>(
+    NO_IMAGE_GENERATOR_VALUE,
+  );
+  const [initialImageGenerator, setInitialImageGenerator] = useState<string>(
+    NO_IMAGE_GENERATOR_VALUE,
+  );
   const [localTheme, setLocalTheme] = useState<ThemeMode>(themeMode);
   const [instructions, setInstructions] = useState<string>("");
   const [secrets, setSecrets] = useState<SecretItem[]>([]);
@@ -88,6 +102,7 @@ export const GeneralSettings: React.FC = () => {
   const [generalError, setGeneralError] = useState<string>("");
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(true);
   const [loadingLLMs, setLoadingLLMs] = useState(false);
+  const [loadingImageGenerators, setLoadingImageGenerators] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Инициализируем значения из настроек пользователя
@@ -123,9 +138,29 @@ export const GeneralSettings: React.FC = () => {
     }
   }, []);
 
+  const fetchImageGenerators = useCallback(async () => {
+    setLoadingImageGenerators(true);
+    try {
+      const [generators, current] = await Promise.all([
+        apiClient.get<ImageGeneratorResponse[]>("/api/generators/image?only_active=true"),
+        apiClient.get<CurrentImageGeneratorResponse>("/api/generators/image/current"),
+      ]);
+      setImageGeneratorList(generators);
+      const currentValue =
+        current.image_generator_id ?? NO_IMAGE_GENERATOR_VALUE;
+      setCurrentImageGenerator(currentValue);
+      setInitialImageGenerator(currentValue);
+    } catch {
+      // Ошибка уже обработана глобально
+    } finally {
+      setLoadingImageGenerators(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLLMs();
-  }, [fetchLLMs]);
+    fetchImageGenerators();
+  }, [fetchLLMs, fetchImageGenerators]);
 
   const parsedForValidation = useMemo(
     () =>
@@ -214,6 +249,15 @@ export const GeneralSettings: React.FC = () => {
           contextSecrets: normalizedSecrets,
         },
       });
+      if (currentImageGenerator !== initialImageGenerator) {
+        await apiClient.patch("/api/generators/image/current", {
+          image_generator_id:
+            currentImageGenerator === NO_IMAGE_GENERATOR_VALUE
+              ? null
+              : currentImageGenerator,
+        });
+        setInitialImageGenerator(currentImageGenerator);
+      }
       // ThemeProvider подхватит тему из обновлённых user.settings
       await refreshUser();
     } catch {
@@ -226,7 +270,7 @@ export const GeneralSettings: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 space-y-6">
-        <div className="flex items-center gap-5 grow-1 justify-between">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
           <Label className="block" htmlFor="theme-select">
             <div>Тема оформления</div>
             <p className="text-sm text-muted-foreground mt-2">
@@ -237,7 +281,7 @@ export const GeneralSettings: React.FC = () => {
             value={localTheme}
             onValueChange={(value) => setLocalTheme(value as ThemeMode)}
           >
-            <SelectTrigger id="theme-select" className="w-[180px]">
+            <SelectTrigger id="theme-select" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -256,7 +300,7 @@ export const GeneralSettings: React.FC = () => {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center gap-3 grow-1 justify-between">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
           <Label className="block grow-1" htmlFor="default-llm-select">
             <div>Модель по умолчанию</div>
             <p className="text-sm text-muted-foreground mt-2">
@@ -268,7 +312,7 @@ export const GeneralSettings: React.FC = () => {
             onValueChange={setDefaultLLM}
             disabled={loadingLLMs}
           >
-            <SelectTrigger id="default-llm-select" className="w-[180px]">
+            <SelectTrigger id="default-llm-select" className="w-full">
               <SelectValue
                 placeholder={loadingLLMs ? "Загрузка..." : "Выберите LLM"}
               />
@@ -277,6 +321,35 @@ export const GeneralSettings: React.FC = () => {
               {llmList.map((llm) => (
                 <SelectItem key={llm.id} value={llm.id}>
                   {llm.name || llm.model_id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+          <Label className="block grow-1" htmlFor="default-image-generator-select">
+            <div>Image generator</div>
+            <p className="text-sm text-muted-foreground mt-2">
+              Выберите генератор изображений по умолчанию
+            </p>
+          </Label>
+          <Select
+            value={currentImageGenerator}
+            onValueChange={setCurrentImageGenerator}
+            disabled={loadingImageGenerators}
+          >
+            <SelectTrigger id="default-image-generator-select" className="w-full">
+              <SelectValue
+                placeholder={
+                  loadingImageGenerators ? "Загрузка..." : "Не выбран"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_IMAGE_GENERATOR_VALUE}>Не выбран</SelectItem>
+              {imageGeneratorList.map((generator) => (
+                <SelectItem key={generator.id} value={generator.id}>
+                  {generator.name || generator.type}
                 </SelectItem>
               ))}
             </SelectContent>

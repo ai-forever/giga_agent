@@ -39,7 +39,6 @@ import uuid
 
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
-from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository
 from giga_agent.models.llm import LLMRepository
 
@@ -423,14 +422,9 @@ def create_graph(
         user_id = config["configurable"]["langgraph_auth_user"]["identity"]
         user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
-        user = await UserRepository.get_from_cache(user_uuid)
+        user = await UserRepository.get_cached_or_db(user_uuid)
         if user is None:
-            factory = await get_session_factory()
-            async with factory() as session:
-                user_repo = UserRepository(session)
-                user = await user_repo.get_by_id(user_uuid, use_cache=False)
-                if user is None:
-                    raise ValueError(f"User with id {user_id} not found")
+            raise ValueError(f"User with id {user_id} not found")
 
         default_llm_id = (user.settings or {}).get("default_llm")
         if not default_llm_id:
@@ -441,15 +435,10 @@ def create_graph(
             if isinstance(default_llm_id, str)
             else default_llm_id
         )
-        llm = await LLMRepository.get_langchain_chat_from_cache(llm_uuid)
-        if llm is None:
-            factory = await get_session_factory()
-            async with factory() as session:
-                llm_repo = LLMRepository(session)
-                llm = await llm_repo.get_langchain_chat_by_id(llm_uuid, use_cache=False)
-        agent_tools = agent.get_tools(user)
+        llm = await LLMRepository.get_cached_or_db(llm_uuid)
+        agent_tools = await agent.get_tools(user)
         llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
-        system_message = SystemMessage(content=agent.get_prompt(user))
+        system_message = SystemMessage(content=await agent.get_prompt(user))
 
         request = ModelRequest(
             model=llm,

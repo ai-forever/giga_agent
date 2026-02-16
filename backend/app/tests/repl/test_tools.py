@@ -1,7 +1,7 @@
 import base64
 import unittest
 
-from giga_agent.repl.tools import (
+from giga_agent.modules.repl.tools import (
     _build_attachment_info,
     _extract_upload_specs_from_display_data,
     _resolve_upload_prefix,

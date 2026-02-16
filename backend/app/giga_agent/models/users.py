@@ -4,12 +4,12 @@ from typing import Optional
 
 from cashews import cache
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import String, Boolean, DateTime, Uuid, select
+from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
 
 # ============ SQLAlchemy Models ============
@@ -36,6 +36,17 @@ class User(Base):
     settings: Mapped[dict | None] = mapped_column(
         JSON_VARIANT(), nullable=True, default=None
     )
+    image_generator_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_image_generators.id",
+            name="fk_core_users_image_generator_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+        default=None,
+    )
 
 
 # ============ Pydantic Schemas ============
@@ -48,6 +59,7 @@ class UserBase(BaseModel):
     is_active: bool = True
     is_superuser: bool = False
     settings: Optional[dict] = None
+    image_generator_id: Optional[uuid.UUID] = None
 
 
 class UserCreate(UserBase):
@@ -100,6 +112,26 @@ class UserRepository:
         if cached is None:
             return None
         return UserShort.model_validate(cached)
+
+    @classmethod
+    async def get_cached_or_db(
+        cls,
+        user_id: uuid.UUID,
+        *,
+        session: AsyncSession | None = None,
+        use_cache: bool = True,
+    ) -> UserShort | None:
+        if use_cache:
+            cached = await cls.get_from_cache(user_id)
+            if cached is not None:
+                return cached
+
+        if session is not None:
+            return await cls(session).get_by_id(user_id, use_cache=False)
+
+        factory = await get_session_factory()
+        async with factory() as db:
+            return await cls(db).get_by_id(user_id, use_cache=False)
 
     @staticmethod
     async def invalidate_cache(user_id: uuid.UUID) -> None:

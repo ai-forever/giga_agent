@@ -6,6 +6,7 @@ from typing import TypedDict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.models.sandbox import (
     Sandbox,
     SandboxProvider,
@@ -51,6 +52,49 @@ class SandboxManager:
         self._sandbox_repo = SandboxRepository(db)
         self._provider_repo = SandboxProviderRepository(db)
         self._file_repo = FileRepository(db)
+
+    @classmethod
+    async def get_cached_or_db(
+        cls,
+        owner_id: uuid.UUID,
+        provider_id: uuid.UUID | None = None,
+        settings: dict | None = None,
+        *,
+        session: AsyncSession | None = None,
+        use_cache: bool = True,
+    ) -> SandboxResolved:
+        if use_cache:
+            cached = await SandboxRepository.cache_get_pair(
+                owner_id=owner_id,
+                provider_id=provider_id,
+            )
+            if cached is not None:
+                if cached.sandbox.owner_id == owner_id:
+                    return SandboxResolved(
+                        provider=cached.provider,
+                        sandbox=cached.sandbox,
+                    )
+                await SandboxRepository.cache_invalidate_pair(
+                    owner_id=owner_id,
+                    provider_id=cached.provider.id,
+                )
+
+        if session is not None:
+            return await cls(session).get_or_create_for_user(
+                owner_id=owner_id,
+                provider_id=provider_id,
+                settings=settings,
+                use_cache=False,
+            )
+
+        factory = await get_session_factory()
+        async with factory() as db:
+            return await cls(db).get_or_create_for_user(
+                owner_id=owner_id,
+                provider_id=provider_id,
+                settings=settings,
+                use_cache=False,
+            )
 
     # ============ Runtime helpers ============
 

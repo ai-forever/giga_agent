@@ -10,11 +10,14 @@ import logging
 import binascii
 from typing import Any
 
+from cashews import cache
 from langchain.tools import tool, ToolRuntime
 from langchain_core.messages import ToolMessage
 
 from giga_agent.core.db import get_session_factory
+from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
+from giga_agent.models.sandbox import SandboxRepository
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
 logger = logging.getLogger(__name__)
@@ -135,6 +138,22 @@ def _build_attachment_info(file_type: str, path: str) -> str:
     return attachment_info
 
 
+def get_user_secrets_code(user: UserShort):
+    user_secrets = user.settings["contextSecrets"]
+    if not user_secrets:
+        return None
+    code_parts = []
+    for user_secret in user_secrets:
+        name = user_secret.get("name")
+        value = user_secret.get("value")
+        if not name or not value:
+            continue
+        code_parts.append(f"SECRETS['{name}'] = '{value}'")
+    if not code_parts:
+        return None
+    return "SECRETS = {}\n" + "\n".join(code_parts)
+
+
 @tool
 async def python(
     code: str,
@@ -156,74 +175,116 @@ async def python(
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
+    cached_user = await cache.get(UserRepository.cache_key(owner_id))
+    user = (
+        UserShort.model_validate(cached_user)
+        if cached_user is not None
+        else None
+    )
+    cached_sandbox = await SandboxRepository.cache_get_pair(
+        owner_id=owner_id,
+        provider_id=None,
+    )
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        if user is None:
+            user = await UserRepository.get_cached_or_db(
+                owner_id,
+                session=session,
+                use_cache=False,
+            )
+            if user is None:
+                raise ValueError(f"User with id {user_id} not found")
+
+        resolved = await SandboxManager.get_cached_or_db(
+            owner_id=owner_id,
+            session=session,
+            use_cache=(cached_sandbox is not None),
+        )
+        manager = SandboxManager(session)
+        sandbox_runtime = await manager.ensure_running_for_user(
+            owner_id=owner_id,
+            provider_id=resolved.provider.id,
+        )
+
+    if user is None:
+        raise ValueError(f"User with id {user_id} not found")
+
+    secrets_code = get_user_secrets_code(user)
+
     # Выполняем код и собираем результаты
     outputs: list[str] = []
     uploads: list[UploadFileSpec] = []
     giga_attachments: list[dict[str, Any]] = []
     upload_prefix = _resolve_upload_prefix(runtime)
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        manager = SandboxManager(session)
-        sandbox_runtime = await manager.get_runtime_for_user(owner_id)
+    # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)
+    kernel_id = runtime.state.get("kernel_id")
+    if kernel_id:
+        sandbox_runtime._kernel_id = kernel_id
 
-        # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)
-        kernel_id = runtime.state.get("kernel_id")
-        if kernel_id:
-            sandbox_runtime._kernel_id = kernel_id
+    if secrets_code is not None:
+        async for _ in sandbox_runtime.run_code(secrets_code):
+            pass
 
-        async for chunk in sandbox_runtime.run_code(code):
-            chunk_type = chunk.get("type")
+    async for chunk in sandbox_runtime.run_code(code):
+        chunk_type = chunk.get("type")
 
-            if chunk_type in ("stdout", "stderr"):
-                text = chunk.get("text", "")
-                if text.strip():
-                    if chunk_type == "stderr":
-                        outputs.append(f"[stderr] {text}")
-                    else:
-                        outputs.append(text)
+        if chunk_type in ("stdout", "stderr"):
+            text = chunk.get("text", "")
+            if text.strip():
+                if chunk_type == "stderr":
+                    outputs.append(f"[stderr] {text}")
+                else:
+                    outputs.append(text)
 
-            elif chunk_type == "result":
-                data = chunk.get("data", {})
-                # Предпочитаем text/plain представление
-                if "text/plain" in data:
-                    outputs.append(data["text/plain"])
-                elif "text/html" in data:
-                    outputs.append(data["text/html"])
+        elif chunk_type == "result":
+            data = chunk.get("data", {})
+            # Предпочитаем text/plain представление
+            if "text/plain" in data:
+                outputs.append(data["text/plain"])
+            elif "text/html" in data:
+                outputs.append(data["text/html"])
 
-            elif chunk_type == "error":
-                ename = chunk.get("ename", "Error")
-                evalue = chunk.get("evalue", "")
-                traceback_lines = chunk.get("traceback", [])
-                # Очищаем ANSI escape-коды из traceback
-                ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-                clean_tb = "\n".join(
-                    ansi_escape.sub("", line) for line in traceback_lines
-                )
-                outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
-            elif chunk_type == "display_data":
-                data = chunk.get("data", {})
-                if isinstance(data, dict):
-                    uploads.extend(
-                        _extract_upload_specs_from_display_data(data, upload_prefix)
-                    )
-
-        if uploads:
-            uploaded_files = await manager.upload_files_for_user(
-                owner_id=owner_id, files=uploads
+        elif chunk_type == "error":
+            ename = chunk.get("ename", "Error")
+            evalue = chunk.get("evalue", "")
+            traceback_lines = chunk.get("traceback", [])
+            # Очищаем ANSI escape-коды из traceback
+            ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+            clean_tb = "\n".join(
+                ansi_escape.sub("", line) for line in traceback_lines
             )
-            if len(uploaded_files) < len(uploads):
-                outputs.append(
-                    "Часть вложений не удалось загрузить в sandbox. "
-                    "Показываю только успешно загруженные файлы."
+            outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
+        elif chunk_type == "display_data":
+            data = chunk.get("data", {})
+            if isinstance(data, dict):
+                uploads.extend(
+                    _extract_upload_specs_from_display_data(data, upload_prefix)
                 )
-            for file in uploaded_files:
-                outputs.append(
-                    _build_attachment_info(file.file_type, file.sandbox_path)
-                )
-                giga_attachments.append(
-                    FileResponse.model_validate(file).model_dump(mode="json")
-                )
+
+    if uploads:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            uploaded_files = await manager.upload_files_for_user(
+                owner_id=owner_id,
+                files=uploads,
+            )
+
+        if len(uploaded_files) < len(uploads):
+            outputs.append(
+                "Часть вложений не удалось загрузить в sandbox. "
+                "Показываю только успешно загруженные файлы."
+            )
+        for file in uploaded_files:
+            outputs.append(
+                _build_attachment_info(file.file_type, file.sandbox_path)
+            )
+            giga_attachments.append(
+                FileResponse.model_validate(file).model_dump(mode="json")
+            )
 
     result = "\n".join(outputs).strip()
     if not result:

@@ -15,7 +15,7 @@ from fastapi import (
 from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from giga_agent.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.core.db import get_session
 from giga_agent.models.file import FileRepository, FileResponse, FileType
 from giga_agent.models.users import User

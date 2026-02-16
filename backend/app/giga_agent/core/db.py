@@ -31,7 +31,7 @@ class Base(DeclarativeBase):
             # Core модели - не добавляем автоматический префикс
             return
 
-        # giga_agent.auth.models -> auth
+        # giga_agent.modules.auth.models -> auth
         # my_plugin.models -> my_plugin
         if len(module_parts) > 1 and module_parts[-1] == "models":
             module_name = module_parts[-2]

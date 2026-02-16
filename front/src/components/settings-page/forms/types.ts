@@ -82,3 +82,21 @@ export interface LLMFormData {
   llm_settings: LLMSettings;
   is_active: boolean;
 }
+
+export interface ImageGeneratorResponse {
+  id: string;
+  owner_id: string;
+  type: string;
+  name: string | null;
+  settings: Record<string, unknown>;
+  llm_provider_id: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImageGeneratorTypeMeta {
+  type: string;
+  supported_llm_provider_types: string[];
+  requires_llm_provider: boolean;
+}

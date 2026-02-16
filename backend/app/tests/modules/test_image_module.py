@@ -1,0 +1,71 @@
+import types
+import unittest
+import uuid
+from unittest.mock import AsyncMock, patch
+
+from langchain.tools import tool
+
+from giga_agent.modules.image import ImageModule
+
+
+@tool
+def provider_image_tool(prompt: str) -> str:
+    """Provider-specific image generation tool stub."""
+    return prompt
+
+
+class _RuntimeStub:
+    @classmethod
+    def get_tools(cls):
+        return [provider_image_tool]
+
+
+class ImageModuleTests(unittest.IsolatedAsyncioTestCase):
+    async def test_module_disabled_without_current_generator(self):
+        module = ImageModule()
+        user = types.SimpleNamespace(image_generator_id=None)
+
+        tools = await module.get_tools(user=user, agent=object())
+        instructions = await module.get_instructions(user=user, agent=object())
+
+        self.assertEqual(tools, [])
+        self.assertIsNone(instructions)
+
+    async def test_module_enabled_with_current_generator(self):
+        module = ImageModule()
+        user = types.SimpleNamespace(id=uuid.uuid4(), image_generator_id=uuid.uuid4())
+        record = types.SimpleNamespace(
+            id=user.image_generator_id,
+            owner_id=user.id,
+            type="openai",
+            is_active=True,
+        )
+
+        with patch(
+            "giga_agent.modules.image.module.ImageGeneratorRepository.get_cached_or_db",
+            AsyncMock(return_value=record),
+        ), patch(
+            "giga_agent.modules.image.module.ImageGeneratorRegistry.get",
+            return_value=_RuntimeStub,
+        ):
+            tools = await module.get_tools(user=user, agent=object())
+            instructions = await module.get_instructions(user=user, agent=object())
+
+        self.assertEqual(len(tools), 1)
+        self.assertEqual(tools[0].name, "provider_image_tool")
+        self.assertIsNotNone(instructions)
+        self.assertIn("gen_image", instructions)
+
+    async def test_module_returns_no_tools_for_invalid_generator_ref(self):
+        module = ImageModule()
+        user = types.SimpleNamespace(id=uuid.uuid4(), image_generator_id=uuid.uuid4())
+
+        with patch(
+            "giga_agent.modules.image.module.ImageGeneratorRepository.get_cached_or_db",
+            AsyncMock(return_value=None),
+        ):
+            tools = await module.get_tools(user=user, agent=object())
+            instructions = await module.get_instructions(user=user, agent=object())
+
+        self.assertEqual(tools, [])
+        self.assertIsNone(instructions)

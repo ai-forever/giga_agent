@@ -3,6 +3,7 @@ import os
 import time
 import logging
 import asyncio
+import traceback
 import importlib
 import importlib.util
 import uvicorn
@@ -254,7 +255,9 @@ def apply_migrations(agent: BaseAgent):
         command.upgrade(alembic_cfg, "head")
         logger.info("Migrations applied successfully!")
     except Exception as e:
-        logger.error(f"Error applying migrations: {e}")
+        logger.exception("Error applying migrations")
+        typer.secho(f"Error applying migrations: {e}", err=True, fg=typer.colors.RED)
+        traceback.print_exc()
         raise typer.Exit(code=1)
 
 
@@ -455,7 +458,7 @@ def makemigrations(
     # Получаем префикс модуля
     mod_class = target_module.__class__
     module_parts = mod_class.__module__.split(".")
-    # giga_agent.auth.module -> auth
+    # giga_agent.modules.auth.module -> auth
     # my_plugin.module -> my_plugin
     if len(module_parts) > 1 and module_parts[-1] == "module":
         module_name = module_parts[-2]
@@ -654,7 +657,7 @@ def dev(
         port,
         not no_reload,
         {"giga_agent": f"{path_part}:{graph_var}"},
-        auth={"path": f"giga_agent.auth.langgraph_auth:auth"},
+        auth={"path": f"giga_agent.modules.auth.langgraph_auth:auth"},
         http={"app": f"{path_part}:{app_var}"},
     )
 

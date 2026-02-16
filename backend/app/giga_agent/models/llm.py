@@ -15,7 +15,7 @@ from langchain_gigachat import GigaChat
 from langchain_openai import ChatOpenAI
 
 from giga_agent.core.cache import setup_cache
-from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
 
 # ============ Exceptions ============
@@ -411,6 +411,32 @@ class LLMRepository:
         if cached is None:
             return None
         return LLMRepository._build_langchain_chat_from_cache(cached)
+
+    @classmethod
+    async def get_cached_or_db(
+        cls,
+        llm_id: uuid.UUID,
+        *,
+        session: AsyncSession | None = None,
+        use_cache: bool = True,
+    ) -> GigaChat | ChatOpenAI:
+        if use_cache:
+            cached = await cls.get_langchain_chat_from_cache(llm_id)
+            if cached is not None:
+                return cached
+
+        if session is not None:
+            return await cls(session).get_langchain_chat_by_id(
+                llm_id,
+                use_cache=False,
+            )
+
+        factory = await get_session_factory()
+        async with factory() as db:
+            return await cls(db).get_langchain_chat_by_id(
+                llm_id,
+                use_cache=False,
+            )
 
     @staticmethod
     def _build_langchain_chat_from_cache(config: dict) -> GigaChat | ChatOpenAI:
