@@ -2,6 +2,7 @@ spec:
   name: giga-agent
   services:
     - name: giga-agent-service
-      git:
+      github:
         branch: feature/add-do-integration
-        repo_clone_url: https://github.com/ai-forever/giga_agent.git
+        repo: ai-forever/giga_agent
+        deploy-on-push: true
