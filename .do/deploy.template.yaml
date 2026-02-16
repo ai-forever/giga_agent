@@ -11,18 +11,27 @@ spec:
       internal_ports:
         - 6379
       instance_size_slug: apps-s-1vcpu-1gb
-    - name: giga-agent-graph
+    - name: qdrant
+      image:
+        registry_type: DOCKER_HUB
+        registry: qdrant
+        repository: qdrant
+      internal_ports:
+        - 6333
+      instance_size_slug: apps-s-1vcpu-1gb
+    - name: langgraph-api
       github:
         branch: feature/add-do-integration
         repo: ai-forever/giga_agent
         deploy_on_push: true
       source_dir: backend/graph
+      dockerfile_path: backend/graph/Dockerfile
       instance_count: 1
       environment_slug: python
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 8000
-    - name: giga-agent-repl
+    - name: repl
       github:
         branch: feature/add-do-integration
         repo: ai-forever/giga_agent
@@ -33,7 +42,7 @@ spec:
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 9090
-    - name: giga-agent-front
+    - name: frontend
       github:
         branch: feature/add-do-integration
         repo: ai-forever/giga_agent
@@ -42,18 +51,88 @@ spec:
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
   envs:
+    # GIGA_AGENT SETTINGS
+    - key: GIGA_AGENT_LLM
+      value: "gigachat:GigaChat-2-Max"
+    - key: GIGA_AGENT_LLM_FAST
+      value: "gigachat:GigaChat-2-Pro"
+    - key: GIGA_AGENT_EMBEDDINGS
+      value: "gigachat:EmbeddingsGigaR"
+    - key: GIGA_AGENT_SENTIMENT_MODEL
+      value: "models/sentiment_gigachat.joblib"
+    - key: GIGA_AGENT_LANG
+      value: "ru-RU"
+    - key: GIGA_AGENT_MCP_CONFIG
+      value: "{}"
+    - key: GIGA_AGENT_USER_NOTES
+      value: ""
+    - key: GIGA_AGENT_MEMORY_ENABLED
+      value: 1
+    # GIGACHAT SETTINGS
     - key: GIGACHAT_CREDENTIALS
       type: SECRET
-      scope: RUN_TIME
     - key: GIGACHAT_SCOPE
-      value: "GIGACHAT_API_PERS"
-      scope: RUN_TIME
+      value: "GIGACHAT_API_CORP" # TODO change to PERS later
+    - key: GIGACHAT_VERIFY_SSL_CERTS
+      value: 0
+    - key: GIGACHAT_TIMEOUT
+      value: 60
     - key: MAIN_GIGACHAT_CREDENTIALS
       type: SECRET
-      scope: RUN_TIME
     - key: MAIN_GIGACHAT_SCOPE
-      value: "GIGACHAT_API_PERS"
-      scope: RUN_TIME
+      value: "GIGACHAT_API_CORP" # TODO change to PERS later
+    - key: MAIN_GIGACHAT_TIMEOUT
+      value: 15
+    - key: MAIN_GIGACHAT_TOP_P
+      value: 0.5
+    # IMAGE GENERATION
+    - key: IMAGE_GEN_NAME
+      value: "gigachat:kandinsky-4.1"
+    - key: IMAGE_GEN_PARALLEL
+      value: 5
+    # FOR ENABLING RAG
+    - key: LANGCONNECT_API_URL
+    - key: LANGCONNECT_API_SECRET_TOKEN
+      type: SECRET
+    # FUSION BRAIN
+    - key: IMAGE_GEN_NAME
+      value: "fusion_brain:123"
+    - key: KANDINSKY_API_KEY
+      type: SECRET
+    - key: KANDINSKY_SECRET_KEY
+      type: SECRET
+    # SERVICES
+    - key: TAVILY_API_KEY
+      type: SECRET
+    - key: VK_TOKEN
+      type: SECRET
+    - key: GITHUB_PERSONAL_ACCESS_TOKEN
+      type: SECRET
+    - key: OWM_API_KEY
+      type: SECRET
+    - key: TWOGIS_TOKEN
+      type: SECRET
+    - key: SALUTE_SPEECH
+      type: SECRET
+    - key: SBER_TTS_TIMEOUT
+      value: 30
+    # INTERNAL
+    - key: PLOTLY_RENDERER
+      value: "plotly_mimetype"
+    - key: MAX_KERNEL_LIVE
+      value: 300
+    - key: FILES_DIR
+      value: "/files"
+    - key: RUNS_DIR
+      value: "/runs"
+    - key: LANGGRAPH_API_URL
+      value: "http://langgraph-api:8000/"
+    - key: JINA_READER_URL
+      value: "https://r.jina.ai/"
+    - key: CHARACTER_LIMIT
+      value: 100000
+    - key: REPL_FROM_MESSAGE
+      value: 0
   databases:
     - name: aegra-postgres
       engine: PG
