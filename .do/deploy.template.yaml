@@ -1,8 +1,8 @@
 spec:
   name: giga-agent
-  services:
-    - name: giga-agent-service
-      github:
-        branch: feature/add-do-integration
-        repo: ai-forever/giga_agent
-        deploy-on-push: true
+  workers:
+  - name: giga-agent-service
+    github:
+      branch: feature/add-do-integration
+      repo: ai-forever/giga_agent
+      deploy-on-push: true
