@@ -11,6 +11,8 @@ spec:
       instance_count: 1
       environment_slug: python
       instance_size_slug: apps-s-1vcpu-1gb
+      internal_ports:
+        - 8000
     - name: giga-agent-repl
       github:
         branch: feature/add-do-integration
@@ -20,6 +22,8 @@ spec:
       instance_count: 1
       environment_slug: python
       instance_size_slug: apps-s-1vcpu-1gb
+      internal_ports:
+        - 9090
     - name: giga-agent-front
       github:
         branch: feature/add-do-integration
@@ -28,13 +32,6 @@ spec:
       source_dir: front
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
-  ingress:
-    rules:
-      - component:
-          name: giga-agent-front
-        match:
-          path:
-            prefix: /
   envs:
     - key: GIGACHAT_CREDENTIALS
       type: SECRET
