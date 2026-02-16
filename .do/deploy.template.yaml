@@ -2,6 +2,15 @@ spec:
   name: giga-agent
   region: fra
   services:
+    - name: langgraph-redis
+      image:
+        registry_type: DOCKER_HUB
+        registry: library
+        repository: redis
+        tag: "6"
+      internal_ports:
+        - 6379
+      instance_size_slug: apps-s-1vcpu-1gb
     - name: giga-agent-graph
       github:
         branch: feature/add-do-integration
@@ -51,6 +60,3 @@ spec:
       version: "16"
       db_name: postgres
       db_user: postgres
-    - name: langgraph-redis
-      engine: REDIS
-      version: "6"
