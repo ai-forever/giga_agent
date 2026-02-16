@@ -30,6 +30,28 @@ spec:
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 8000
+      envs:
+        - key: REDIS_URI
+          value: "redis://langgraph-redis:6379"
+        - key: DATABASE_URL
+          value: "postgresql+asyncpg://postgres:postgres@aegra-postgres:5432/postgres"
+        - key: AUTH_TYPE
+          value: noop
+        - key: JUPYTER_CLIENT_API
+          value: "http://repl:9090"
+        - key: JUPYTER_UPLOAD_API
+          value: "http://upload_server:9092"
+        - key: TOOL_CLIENT_API
+          value: "http://tool_server:9091"
+        - key: LANGGRAPH_API_URL
+          value: "http://langgraph-api:8000/"
+      run_command: >
+        sh -c "
+          echo 'Running database migrations...' &&
+          uv run alembic upgrade head &&
+          echo 'Starting Aegra server...' &&
+          uv run uvicorn src.agent_server.main:app --host 0.0.0.0 --port 8000
+        "
     - name: repl
       github:
         branch: feature/add-do-integration
