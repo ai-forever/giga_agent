@@ -19,7 +19,7 @@
 
 GigaAgent разработан в рамках проекта [GigaChain](https://github.com/ai-forever/gigachain) – открытого набора инструментов для разработки LLM-приложений и мультиагентных систем.
 
-[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/ai-forever/giga_agent/tree/main)
+[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/ai-forever/giga_agent/tree/feature/add-do-integration)
 
 > [!IMPORTANT]
 > GigaAgent может писать и исполнять код без участия пользователя.
