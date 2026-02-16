@@ -5,25 +5,26 @@ spec:
       git:
         branch: feature/add-do-integration
         repo_clone_url: https://github.com/ai-forever/giga_agent.git
-        http_port: 80
-        instance_count: 1
-        instance_size_slug: apps-s-2vcpu-4gb
-        envs:
-          - key: DATABASE_URL
-            value: "postgresql+asyncpg://${db.USERNAME}:${db.PASSWORD}@${db.HOSTNAME}:${db.PORT}/${db.DATABASE}"
-            scope: RUN_TIME
-          - key: GIGACHAT_CREDENTIALS
-            type: SECRET
-            scope: RUN_TIME
-          - key: GIGACHAT_SCOPE
-            value: "GIGACHAT_API_PERS"
-            scope: RUN_TIME
-          - key: MAIN_GIGACHAT_CREDENTIALS
-            type: SECRET
-            scope: RUN_TIME
-          - key: MAIN_GIGACHAT_SCOPE
-            value: "GIGACHAT_API_PERS"
-            scope: RUN_TIME
+      dockerfile_path: Dockerfile
+      http_port: 80
+      instance_count: 1
+      instance_size_slug: apps-s-2vcpu-4gb
+      envs:
+        - key: DATABASE_URL
+          value: "postgresql+asyncpg://${db.USERNAME}:${db.PASSWORD}@${db.HOSTNAME}:${db.PORT}/${db.DATABASE}"
+          scope: RUN_TIME
+        - key: GIGACHAT_CREDENTIALS
+          type: SECRET
+          scope: RUN_TIME
+        - key: GIGACHAT_SCOPE
+          value: "GIGACHAT_API_PERS"
+          scope: RUN_TIME
+        - key: MAIN_GIGACHAT_CREDENTIALS
+          type: SECRET
+          scope: RUN_TIME
+        - key: MAIN_GIGACHAT_SCOPE
+          value: "GIGACHAT_API_PERS"
+          scope: RUN_TIME
   databases:
     - name: db
       engine: PG
