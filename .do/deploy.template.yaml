@@ -2,12 +2,6 @@ spec:
   name: giga-agent
   region: fra
   services:
-    - name: langgraph-redis
-      image:
-        registry_type: DOCKER_HUB
-        registry: library
-        repository: redis
-        tag: "6"
     - name: giga-agent-graph
       github:
         branch: feature/add-do-integration
@@ -49,6 +43,11 @@ spec:
       value: "GIGACHAT_API_PERS"
       scope: RUN_TIME
   databases:
-    - name: db
+    - name: aegra-postgres
       engine: PG
       version: "16"
+      db_name: postgres
+      db_user: postgres
+    - name: langgraph-redis
+      engine: REDIS
+      version: "6"
