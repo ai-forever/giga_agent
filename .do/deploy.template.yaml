@@ -27,7 +27,6 @@ spec:
       source_dir: backend/graph
       dockerfile_path: backend/graph/Dockerfile
       instance_count: 1
-      environment_slug: python
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 8000
@@ -38,7 +37,6 @@ spec:
         deploy_on_push: true
       source_dir: backend/repl
       instance_count: 1
-      environment_slug: python
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 9090
