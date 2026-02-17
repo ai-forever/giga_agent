@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ProviderType, ProviderSettings, GigaChatApiType, GigaChatScope } from "./types";
+import type { ConnectorType, ConnectorSettings, GigaChatApiType, GigaChatScope } from "./types";
 
 const GIGACHAT_API_TYPES: { id: GigaChatApiType; label: string }[] = [
   { id: "prod", label: "GigaChat Prod" },
@@ -23,33 +23,35 @@ const GIGACHAT_SCOPES: { id: GigaChatScope; label: string }[] = [
   { id: "GIGACHAT_API_CORP", label: "GIGACHAT_API_CORP" },
 ];
 
-interface ProviderFormProps {
-  providerType: ProviderType;
-  onProviderTypeChange: (type: ProviderType) => void;
-  settings: ProviderSettings;
-  onSettingsChange: (settings: ProviderSettings) => void;
-  providerName?: string;
-  onProviderNameChange?: (name: string) => void;
+interface ConnectorFormProps {
+  connectorType: ConnectorType;
+  onConnectorTypeChange: (type: ConnectorType) => void;
+  settings: ConnectorSettings;
+  onSettingsChange: (settings: ConnectorSettings) => void;
+  connectorName?: string;
+  onConnectorNameChange?: (name: string) => void;
+  showConnectorTypeSelector?: boolean;
 }
 
-const PROVIDER_TYPES: { id: ProviderType; label: string }[] = [
+const CONNECTOR_TYPES: { id: ConnectorType; label: string }[] = [
   { id: "openai", label: "OpenAI Compatible" },
   { id: "gigachat", label: "GigaChat" },
 ];
 
-export const ProviderForm: React.FC<ProviderFormProps> = ({
-  providerType,
-  onProviderTypeChange,
+export const ConnectorForm: React.FC<ConnectorFormProps> = ({
+  connectorType,
+  onConnectorTypeChange,
   settings,
   onSettingsChange,
-  providerName,
-  onProviderNameChange,
+  connectorName,
+  onConnectorNameChange,
+  showConnectorTypeSelector = true,
 }) => {
-  const handleProviderTypeChange = (type: ProviderType) => {
-    onProviderTypeChange(type);
+  const handleConnectorTypeChange = (type: ConnectorType) => {
+    onConnectorTypeChange(type);
   };
 
-  const handleSettingChange = (key: keyof ProviderSettings, value: string) => {
+  const handleSettingChange = (key: keyof ConnectorSettings, value: string) => {
     onSettingsChange({
       ...settings,
       [key]: value || undefined,
@@ -173,38 +175,40 @@ export const ProviderForm: React.FC<ProviderFormProps> = ({
 
   return (
     <div className="space-y-4 p-4 border border-border rounded-lg bg-muted/30">
-      <div className="space-y-2">
-        <Label>Тип провайдера</Label>
-        <div className="flex gap-2">
-          {PROVIDER_TYPES.map((type) => (
-            <Badge
-              key={type.id}
-              variant={providerType === type.id ? "default" : "outline"}
-              className="cursor-pointer px-3 py-1.5"
-              onClick={() => handleProviderTypeChange(type.id)}
-            >
-              {type.label}
-            </Badge>
-          ))}
-        </div>
-      </div>
-
-      {onProviderNameChange && (
+      {showConnectorTypeSelector && (
         <div className="space-y-2">
-          <Label htmlFor="provider_name">Название провайдера</Label>
+          <Label>Тип коннектора</Label>
+          <div className="flex gap-2">
+            {CONNECTOR_TYPES.map((type) => (
+              <Badge
+                key={type.id}
+                variant={connectorType === type.id ? "default" : "outline"}
+                className="cursor-pointer px-3 py-1.5"
+                onClick={() => handleConnectorTypeChange(type.id)}
+              >
+                {type.label}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {onConnectorNameChange && (
+        <div className="space-y-2">
+          <Label htmlFor="connector_name">Название коннектора</Label>
           <Input
-            id="provider_name"
-            placeholder="Мой провайдер"
-            value={providerName || ""}
-            onChange={(e) => onProviderNameChange(e.target.value)}
+            id="connector_name"
+            placeholder="Мой коннектор"
+            value={connectorName || ""}
+            onChange={(e) => onConnectorNameChange(e.target.value)}
           />
         </div>
       )}
 
-      {providerType === "openai" && renderOpenAIFields()}
-      {providerType === "gigachat" && renderGigaChatFields()}
+      {connectorType === "openai" && renderOpenAIFields()}
+      {connectorType === "gigachat" && renderGigaChatFields()}
     </div>
   );
 };
 
-export default ProviderForm;
+export default ConnectorForm;

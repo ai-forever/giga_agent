@@ -5,10 +5,13 @@ from giga_agent.search_engines.tavily import TavilySearchEngine
 
 
 class SearchSettingsSchemaTests(unittest.TestCase):
-    def test_tavily_settings_schema_excludes_runtime_fields(self):
+    def test_tavily_settings_schema_excludes_runtime_and_connector_fields(self):
         schema = TavilySearchEngine.settings_schema()
 
-        self.assertIn("api_key", schema.model_fields)
+        self.assertIn("search_depth", schema.model_fields)
+        self.assertIn("max_results", schema.model_fields)
+        self.assertIn("topic", schema.model_fields)
+        self.assertNotIn("api_key", schema.model_fields)
         self.assertNotIn("parallel_calls", schema.model_fields)
 
     def test_registry_returns_tavily_engine(self):

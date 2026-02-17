@@ -39,8 +39,8 @@ import uuid
 
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
+from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository
-from giga_agent.models.llm import LLMRepository
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -435,7 +435,7 @@ def create_graph(
             if isinstance(default_llm_id, str)
             else default_llm_id
         )
-        llm = await LLMRepository.get_cached_or_db(llm_uuid)
+        llm = await LLMManager.resolve_by_id(llm_uuid)
         agent_tools = await agent.get_tools(user)
         llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
         system_message = SystemMessage(content=await agent.get_prompt(user))

@@ -30,6 +30,11 @@ async def search(
     user = await UserRepository.get_cached_or_db(owner_id)
     if user is None:
         raise ValueError(f"Пользователь {owner_id} не найден")
+    if user.search_engine_id is None:
+        raise ValueError(
+            "У пользователя не выбран поисковый движок. "
+            "Установите search_engine_id в настройках пользователя."
+        )
 
-    engine = await SearchEngineManager.resolve_for_user(owner_id, user)
+    engine = await SearchEngineManager.resolve_by_id(user.search_engine_id)
     return await engine.search(queries)

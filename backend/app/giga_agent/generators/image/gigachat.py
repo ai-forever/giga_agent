@@ -60,7 +60,7 @@ class GigaChatImageGen(BaseImageGenerator):
         await super().init()
 
     @classmethod
-    def supported_llm_provider_types(cls) -> list[str]:
+    def supported_connector_types(cls) -> list[str]:
         return ["gigachat"]
 
     def _resolve_gigachat_client_from_llm(self):

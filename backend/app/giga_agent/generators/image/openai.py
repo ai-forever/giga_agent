@@ -63,7 +63,7 @@ class OpenAIImageGen(BaseImageGenerator):
         await super().init()
 
     @classmethod
-    def supported_llm_provider_types(cls) -> list[str]:
+    def supported_connector_types(cls) -> list[str]:
         return ["openai"]
 
     def _resolve_openai_client_from_llm(self) -> AsyncOpenAI | None:

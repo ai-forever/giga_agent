@@ -1,144 +1,45 @@
-"""
-API роутер для управления LLM моделями и провайдерами.
+"""API router for LLM records and model discovery."""
 
-Endpoints:
-- POST /llms - Создать LLM + Провайдера (в одной ручке)
-- GET /llms - Получить доступные LLM
-- GET /llms/{llm_id} - Получить LLM по ID
-- PATCH /llms/{llm_id} - Изменить LLM + провайдера
-- DELETE /llms/{llm_id} - Удалить LLM
-- GET /llms/providers - Получить доступные провайдеры
-- GET /llms/providers/types - Получить список типов провайдеров
-- GET /llms/providers/{provider_id} - Получить провайдера по ID
-- GET /llms/providers/{provider_id}/models - Получить доступные модели по провайдеру
-- PATCH /llms/providers/{provider_id} - Обновить провайдера
-- DELETE /llms/providers/{provider_id} - Удалить провайдера (каскадно)
-- POST /llms/providers/models/fetch - Получить модели по настройкам (без создания провайдера)
-"""
+from __future__ import annotations
 
 import uuid
-from typing import Annotated, Optional
+from typing import Annotated, Any
 
-from cashews import cache
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from giga_agent.core.cache import setup_cache
+from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.db import get_session
-from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.models.users import User
+from giga_agent.llm.registry import LLMRegistry
+from giga_agent.models.connector import Connector, ConnectorRepository
 from giga_agent.models.llm import (
     LLM,
-    LLMProvider,
-    LLMProviderType,
-    LLMProviderRepository,
-    LLMRepository,
-    LLMProviderUpdate,
-    LLMProviderResponse,
-    LLMProviderSettings,
-    LLMResponse,
-    LLMSettings,
     AvailableModel,
+    LLMCreate,
+    LLMRepository,
+    LLMResponse,
+    LLMUpdate,
     ModelFetchError,
 )
+from giga_agent.models.users import UserShort
+from giga_agent.modules.auth.api import get_current_active_user
+
+# Ensure runtime registrations
+import giga_agent.connectors  # noqa: F401
+import giga_agent.llm  # noqa: F401
 
 router = APIRouter(prefix="/llms", tags=["llms"])
 
 
-# ============ Pydantic Schemas для комбинированных операций ============
-
-
-class LLMWithProviderCreate(BaseModel):
-    """
-    Схема для создания LLM вместе с провайдером.
-    
-    - Если указан provider_id и другие данные провайдера — провайдер будет обновлён.
-    - Если указан только provider_id — используется существующий провайдер без изменений.
-    - Если указан provider_type (без provider_id) — создаётся новый провайдер.
-    """
-
-    # Использование/обновление существующего провайдера
-    provider_id: Optional[uuid.UUID] = Field(
-        None, description="ID существующего провайдера (если указан вместе с другими полями провайдера — провайдер обновится)"
-    )
-
-    # Данные для создания/обновления провайдера
-    provider_type: Optional[str] = Field(
-        None,
-        description="Тип провайдера (openai, anthropic, gigachat, ollama, google, deepseek, custom)",
-    )
-    provider_name: Optional[str] = Field(None, description="Название провайдера")
-    provider_settings: LLMProviderSettings = Field(
-        default_factory=LLMProviderSettings, description="Настройки провайдера"
-    )
-
-    # Данные LLM
-    model_id: str = Field(..., description="ID модели у провайдера")
-    llm_name: Optional[str] = Field(None, description="Название LLM")
-    llm_settings: LLMSettings = Field(
-        default_factory=LLMSettings, description="Настройки LLM"
-    )
-    parallel_calls: int = Field(1, description="Количество параллельных вызовов")
-    is_active: bool = Field(True, description="Активен ли LLM")
-
-
-class LLMWithProviderResponse(BaseModel):
-    """Ответ с LLM и провайдером"""
-
-    llm: LLMResponse
-    provider: LLMProviderResponse
-
-
-class LLMWithProviderUpdate(BaseModel):
-    """
-    Схема для обновления LLM вместе с провайдером.
-    
-    Логика работы с провайдером:
-    - Если указан provider_id — переключиться на указанный провайдер (и обновить его, если переданы другие поля).
-    - Если указан provider_type (без provider_id) — создать нового провайдера и привязать к нему LLM.
-    - Если не указаны ни provider_id, ни provider_type — обновить текущий провайдер LLM переданными полями.
-    """
-
-    # Смена/создание провайдера
-    provider_id: Optional[uuid.UUID] = Field(
-        None, description="ID провайдера для переключения (если указан — LLM привяжется к этому провайдеру)"
-    )
-
-    # Данные провайдера (для создания нового или обновления существующего)
-    provider_type: Optional[str] = Field(None, description="Тип провайдера (если без provider_id — создаст нового)")
-    provider_name: Optional[str] = Field(None, description="Название провайдера")
-    provider_settings: Optional[LLMProviderSettings] = Field(
-        None, description="Настройки провайдера"
-    )
-    provider_is_active: Optional[bool] = Field(None, description="Активен ли провайдер")
-
-    # Данные LLM (опциональные)
-    model_id: Optional[str] = Field(None, description="ID модели у провайдера")
-    llm_name: Optional[str] = Field(None, description="Название LLM")
-    llm_settings: Optional[LLMSettings] = Field(None, description="Настройки LLM")
-    parallel_calls: Optional[int] = Field(
-        None, description="Количество параллельных вызовов"
-    )
-    is_active: Optional[bool] = Field(None, description="Активен ли LLM")
+class LLMTypeMeta(BaseModel):
+    type: str
+    supported_connector_types: list[str]
 
 
 class FetchModelsRequest(BaseModel):
-    """Схема для запроса моделей по настройкам провайдера"""
-
-    provider_type: str = Field(..., description="Тип провайдера")
-    settings: LLMProviderSettings = Field(
-        ..., description="Настройки провайдера для подключения"
-    )
-
-
-# ============ Dependencies ============
-
-
-async def get_llm_provider_repository(
-    db: Annotated[AsyncSession, Depends(get_session)],
-) -> LLMProviderRepository:
-    return LLMProviderRepository(db)
+    connector_type: str = Field(..., description="Connector type")
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 async def get_llm_repository(
@@ -147,17 +48,20 @@ async def get_llm_repository(
     return LLMRepository(db)
 
 
-# ============ Helper Functions ============
+async def get_connector_repository(
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> ConnectorRepository:
+    return ConnectorRepository(db)
 
 
-async def get_llm_with_owner_check(
+async def _get_llm_with_owner_check(
+    *,
     llm_id: uuid.UUID,
     owner_id: uuid.UUID,
     llm_repo: LLMRepository,
 ) -> LLM:
-    """Получить LLM с проверкой владельца"""
     llm = await llm_repo.get_by_id(llm_id)
-    if not llm:
+    if llm is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="LLM not found",
@@ -170,426 +74,330 @@ async def get_llm_with_owner_check(
     return llm
 
 
-async def get_provider_with_owner_check(
-    provider_id: uuid.UUID,
+async def _get_connector_with_owner_check(
+    *,
+    connector_id: uuid.UUID,
     owner_id: uuid.UUID,
-    provider_repo: LLMProviderRepository,
-) -> LLMProvider:
-    """Получить провайдера с проверкой владельца"""
-    provider = await provider_repo.get_by_id(provider_id)
-    if not provider:
+    connector_repo: ConnectorRepository,
+) -> Connector:
+    connector = await connector_repo.get_by_id(connector_id)
+    if connector is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Provider not found",
+            detail="Connector not found",
         )
-    if provider.owner_id != owner_id:
+    if connector.owner_id != owner_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
-    return provider
+    return connector
 
 
-# ============ LLM Endpoints ============
-
-
-@router.post(
-    "", response_model=LLMWithProviderResponse, status_code=status.HTTP_201_CREATED
-)
-async def create_llm_with_provider(
-    data: LLMWithProviderCreate,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
-    llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
-):
-    """
-    Создать LLM вместе с провайдером.
-
-    - Если указан provider_id и другие данные провайдера — провайдер обновляется.
-    - Если указан только provider_id — используется существующий провайдер без изменений.
-    - Если указан provider_type (и не указан provider_id) — создаётся новый провайдер.
-    """
-    if data.provider_id:
-        # Получаем существующий провайдер
-        provider = await get_provider_with_owner_check(
-            data.provider_id, current_user.id, provider_repo
-        )
-        
-        # Проверяем, есть ли данные для обновления провайдера
-        provider_updates = {}
-        if data.provider_type is not None:
-            provider_updates["type"] = data.provider_type
-        if data.provider_name is not None:
-            provider_updates["name"] = data.provider_name
-        if data.provider_settings is not None:
-            settings_dict = data.provider_settings.model_dump(exclude_none=True)
-            if settings_dict:  # Обновляем только если есть непустые настройки
-                provider_updates["settings"] = settings_dict
-        
-        # Обновляем провайдера если есть изменения
-        if provider_updates:
-            provider = await provider_repo.update(provider, **provider_updates)
-    elif data.provider_type:
-        # Создаём нового провайдера
-        provider = await provider_repo.create(
-            owner_id=current_user.id,
-            provider_type=data.provider_type,
-            name=data.provider_name,
-            settings=(
-                data.provider_settings.model_dump(exclude_none=True)
-                if data.provider_settings
-                else {}
-            ),
-            is_active=True,
-        )
-    else:
+def _resolve_llm_runtime(llm_type: str, *, status_code: int) -> type:
+    if not LLMRegistry.is_registered(llm_type):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Either provider_id or provider_type must be specified",
+            status_code=status_code,
+            detail=(
+                f"Unknown llm type: '{llm_type}'. "
+                f"Available: {LLMRegistry.available_types()}"
+            ),
+        )
+    return LLMRegistry.get(llm_type)
+
+
+def _resolve_llm_runtime_for_connector(connector_type: str, *, status_code: int) -> type:
+    key = (connector_type or "").lower()
+    if not LLMRegistry.is_registered(key):
+        raise HTTPException(
+            status_code=status_code,
+            detail=(
+                f"Connector type '{connector_type}' is not supported for LLM model discovery. "
+                f"Available llm types: {LLMRegistry.available_types()}"
+            ),
+        )
+    return LLMRegistry.get(key)
+
+
+async def _validate_connector_settings(
+    connector_type: str,
+    settings: dict[str, Any],
+) -> dict[str, Any]:
+    if not ConnectorRegistry.is_registered(connector_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Unknown connector type: '{connector_type}'. "
+                f"Available: {ConnectorRegistry.available_types()}"
+            ),
         )
 
-    # Создаём LLM
+    try:
+        return await ConnectorRegistry.validate_settings(connector_type, settings)
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=e.errors(),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        )
+
+
+def _validate_llm_connector_compatibility(
+    *,
+    llm_type: str,
+    connector_type: str,
+    status_code: int = status.HTTP_422_UNPROCESSABLE_ENTITY,
+) -> None:
+    runtime_cls = _resolve_llm_runtime(llm_type, status_code=status_code)
+    if not runtime_cls.is_connector_supported(connector_type):
+        raise HTTPException(
+            status_code=status_code,
+            detail=(
+                f"LLM type '{llm_type}' is not compatible with connector type '{connector_type}'. "
+                f"Supported connector types: {runtime_cls.supported_connector_types()}"
+            ),
+        )
+
+
+@router.get("/types", response_model=list[str])
+async def get_llm_types(
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+):
+    _ = current_user
+    return LLMRegistry.available_types()
+
+
+@router.get("/types/meta", response_model=list[LLMTypeMeta])
+async def get_llm_types_meta(
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+):
+    _ = current_user
+    return [
+        LLMTypeMeta(
+            type=item,
+            supported_connector_types=LLMRegistry.get(item).supported_connector_types(),
+        )
+        for item in LLMRegistry.available_types()
+    ]
+
+
+@router.post("", response_model=LLMResponse, status_code=status.HTTP_201_CREATED)
+async def create_llm(
+    data: LLMCreate,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
+):
+    connector = await _get_connector_with_owner_check(
+        connector_id=data.connector_id,
+        owner_id=current_user.id,
+        connector_repo=connector_repo,
+    )
+    if not connector.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connector must be active",
+        )
+
+    _validate_llm_connector_compatibility(
+        llm_type=data.type,
+        connector_type=connector.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+
     llm = await llm_repo.create(
         owner_id=current_user.id,
-        provider_id=provider.id,
+        llm_type=data.type,
+        connector_id=data.connector_id,
         model_id=data.model_id,
-        name=data.llm_name,
-        settings=(
-            data.llm_settings.model_dump(exclude_none=True) if data.llm_settings else {}
-        ),
+        name=data.name,
+        parallel_calls=data.parallel_calls,
+        settings=data.settings.model_dump(exclude_none=True),
         is_active=data.is_active,
     )
-
-    # Обновляем parallel_calls если указан
-    if data.parallel_calls != 1:
-        llm = await llm_repo.update(llm, parallel_calls=data.parallel_calls)
-
-    await cache.delete(LLMRepository.cache_key(llm.id))
-
-    return LLMWithProviderResponse(
-        llm=LLMRepository.to_response(llm),
-        provider=LLMProviderRepository.to_response(provider),
-    )
+    return LLMRepository.to_response(llm)
 
 
 @router.get("", response_model=list[LLMResponse])
 async def get_llms(
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
-    only_active: bool = Query(False, description="Только активные"),
+    only_active: bool = Query(False, description="Only active LLMs"),
 ):
-    """
-    Получить список LLM моделей пользователя.
-    """
-    items = await llm_repo.get_by_owner(
+    items = await llm_repo.get_by_owner(current_user.id, only_active=only_active)
+    return [LLMRepository.to_response(item) for item in items]
+
+
+@router.get("/models/{connector_id}", response_model=list[AvailableModel])
+async def get_available_models_by_connector(
+    connector_id: uuid.UUID,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
+):
+    connector = await _get_connector_with_owner_check(
+        connector_id=connector_id,
         owner_id=current_user.id,
-        only_active=only_active,
+        connector_repo=connector_repo,
     )
-    return [LLMRepository.to_response(llm) for llm in items]
+    if not connector.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connector must be active",
+        )
 
-
-@router.get("/providers", response_model=list[LLMProviderResponse])
-async def get_providers(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
-    only_active: bool = Query(False, description="Только активные"),
-):
-    """
-    Получить список провайдеров пользователя.
-    """
-    items = await provider_repo.get_by_owner(
-        owner_id=current_user.id,
-        only_active=only_active,
+    runtime_cls = _resolve_llm_runtime_for_connector(
+        connector.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
-    return [LLMProviderRepository.to_response(p) for p in items]
+
+    try:
+        return await runtime_cls.fetch_available_models(
+            connector_type=connector.type,
+            connector_settings=connector.settings or {},
+        )
+    except ModelFetchError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch models from llm '{e.llm_type}': {e.detail}",
+        )
 
 
-@router.get("/providers/types", response_model=list[str])
-async def get_provider_types(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-):
-    """
-    Получить список доступных типов провайдеров.
-    """
-    return [t.value for t in LLMProviderType]
-
-
-@router.post("/providers/models/fetch", response_model=list[AvailableModel])
+@router.post("/models/", response_model=list[AvailableModel])
 async def fetch_available_models(
     data: FetchModelsRequest,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
-    """
-    Получить список доступных моделей по типу провайдера и настройкам.
+    _ = current_user
+    normalized_settings = await _validate_connector_settings(
+        data.connector_type,
+        data.settings,
+    )
 
-    Позволяет получить модели без создания провайдера,
-    просто передав тип и настройки подключения.
-    """
-    # Создаём временный объект провайдера для получения моделей
-    temp_provider = LLMProvider(
-        id=uuid.uuid4(),
-        owner_id=current_user.id,
-        type=data.provider_type,
-        settings=data.settings.model_dump(exclude_none=True),
+    runtime_cls = _resolve_llm_runtime_for_connector(
+        data.connector_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
     try:
-        models = await LLMProviderRepository.fetch_available_models(temp_provider)
+        return await runtime_cls.fetch_available_models(
+            connector_type=data.connector_type,
+            connector_settings=normalized_settings,
+        )
     except ModelFetchError as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch models from provider '{e.provider_type}': {e.detail}",
+            detail=f"Failed to fetch models from llm '{e.llm_type}': {e.detail}",
         )
-    return models
 
 
-@router.get("/providers/{provider_id}", response_model=LLMProviderResponse)
-async def get_provider(
-    provider_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
-):
-    """
-    Получить провайдера по ID.
-    """
-    provider = await get_provider_with_owner_check(
-        provider_id, current_user.id, provider_repo
-    )
-    return LLMProviderRepository.to_response(provider)
-
-
-@router.get("/providers/{provider_id}/models", response_model=list[AvailableModel])
-async def get_available_models_by_provider(
-    provider_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
-):
-    """
-    Получить список доступных моделей от провайдера.
-
-    Использует настройки (settings) провайдера для подключения к API
-    и получения списка моделей.
-    """
-    provider = await get_provider_with_owner_check(
-        provider_id, current_user.id, provider_repo
-    )
-    try:
-        models = await LLMProviderRepository.fetch_available_models(provider)
-    except ModelFetchError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch models from provider '{e.provider_type}': {e.detail}",
-        )
-    return models
-
-
-@router.patch("/providers/{provider_id}", response_model=LLMProviderResponse)
-async def update_provider(
-    provider_id: uuid.UUID,
-    data: LLMProviderUpdate,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
-):
-    """
-    Обновить провайдера.
-    """
-    provider = await get_provider_with_owner_check(
-        provider_id, current_user.id, provider_repo
-    )
-
-    update_data = {}
-    if data.type is not None:
-        update_data["type"] = data.type
-    if data.name is not None:
-        update_data["name"] = data.name
-    if data.settings is not None:
-        update_data["settings"] = data.settings.model_dump(exclude_none=True)
-    if data.is_active is not None:
-        update_data["is_active"] = data.is_active
-
-    if update_data:
-        provider = await provider_repo.update(provider, **update_data)
-        await cache.delete_tags(f"llm_provider:{provider.id}")
-
-    return LLMProviderRepository.to_response(provider)
-
-
-@router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_provider(
-    provider_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
-):
-    """
-    Удалить провайдера.
-
-    ВНИМАНИЕ: Каскадно удалит все LLM модели, привязанные к этому провайдеру!
-    """
-    provider = await get_provider_with_owner_check(
-        provider_id, current_user.id, provider_repo
-    )
-    await provider_repo.delete(provider)
-    await cache.delete_tags(f"llm_provider:{provider.id}")
-
-
-@router.get("/{llm_id}", response_model=LLMWithProviderResponse)
+@router.get("/{llm_id}", response_model=LLMResponse)
 async def get_llm(
     llm_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
 ):
-    """
-    Получить LLM по ID вместе с информацией о провайдере.
-    """
-    llm = await get_llm_with_owner_check(llm_id, current_user.id, llm_repo)
-    old_provider_id = llm.provider_id
-    provider = await provider_repo.get_by_id(llm.provider_id)
-
-    if not provider:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Provider not found",
-        )
-
-    return LLMWithProviderResponse(
-        llm=LLMRepository.to_response(llm),
-        provider=LLMProviderRepository.to_response(provider),
+    llm = await _get_llm_with_owner_check(
+        llm_id=llm_id,
+        owner_id=current_user.id,
+        llm_repo=llm_repo,
     )
+    return LLMRepository.to_response(llm)
 
 
-@router.patch("/{llm_id}", response_model=LLMWithProviderResponse)
-async def update_llm_with_provider(
+@router.patch("/{llm_id}", response_model=LLMResponse)
+async def patch_llm(
     llm_id: uuid.UUID,
-    data: LLMWithProviderUpdate,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    data: LLMUpdate,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
-    provider_repo: Annotated[
-        LLMProviderRepository, Depends(get_llm_provider_repository)
-    ],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    """
-    Обновить LLM и/или его провайдера.
-    
-    Логика работы с провайдером:
-    - Если указан provider_id — переключиться на указанный провайдер (и обновить его, если переданы другие поля).
-    - Если указан provider_type (без provider_id) — создать нового провайдера и привязать к нему LLM.
-    - Если не указаны ни provider_id, ни provider_type — обновить текущий провайдер LLM переданными полями.
-    """
-    llm = await get_llm_with_owner_check(llm_id, current_user.id, llm_repo)
-    
-    # Собираем данные для обновления провайдера
-    provider_updates = {}
-    if data.provider_name is not None:
-        provider_updates["name"] = data.provider_name
-    if data.provider_settings is not None:
-        settings_dict = data.provider_settings.model_dump(exclude_none=True)
-        if settings_dict:
-            provider_updates["settings"] = settings_dict
-    if data.provider_is_active is not None:
-        provider_updates["is_active"] = data.provider_is_active
-    
-    provider_id_changed = False
-    
-    if data.provider_id:
-        # Переключаемся на указанный провайдер
-        provider = await get_provider_with_owner_check(
-            data.provider_id, current_user.id, provider_repo
-        )
-        
-        # Обновляем тип провайдера если указан
-        if data.provider_type is not None:
-            provider_updates["type"] = data.provider_type
-        
-        # Обновляем провайдера если есть изменения
-        if provider_updates:
-            provider = await provider_repo.update(provider, **provider_updates)
-        
-        # Проверяем, изменился ли provider_id
-        if llm.provider_id != data.provider_id:
-            provider_id_changed = True
-            
-    elif data.provider_type:
-        # Создаём нового провайдера
-        provider = await provider_repo.create(
-            owner_id=current_user.id,
-            provider_type=data.provider_type,
-            name=data.provider_name,
-            settings=(
-                data.provider_settings.model_dump(exclude_none=True)
-                if data.provider_settings
-                else {}
-            ),
-            is_active=data.provider_is_active if data.provider_is_active is not None else True,
-        )
-        provider_id_changed = True
-    else:
-        # Обновляем текущий провайдер LLM
-        provider = await provider_repo.get_by_id(llm.provider_id)
-        if not provider:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Provider not found",
-            )
-        
-        if provider_updates:
-            provider = await provider_repo.update(provider, **provider_updates)
-
-    # Обновляем LLM если переданы данные
-    llm_updates = {}
-    
-    # Обновляем provider_id если он изменился
-    if provider_id_changed:
-        llm_updates["provider_id"] = provider.id
-    
-    if data.model_id is not None:
-        llm_updates["model_id"] = data.model_id
-    if data.llm_name is not None:
-        llm_updates["name"] = data.llm_name
-    if data.llm_settings is not None:
-        llm_updates["settings"] = data.llm_settings.model_dump(exclude_none=True)
-    if data.parallel_calls is not None:
-        llm_updates["parallel_calls"] = data.parallel_calls
-    if data.is_active is not None:
-        llm_updates["is_active"] = data.is_active
-
-    if llm_updates:
-        llm = await llm_repo.update(llm, **llm_updates)
-
-    await cache.delete(LLMRepository.cache_key(llm.id))
-    if provider_updates:
-        # Provider settings affect connection kwargs for all LLMs on this provider.
-        await cache.delete_tags(f"llm_provider:{provider.id}")
-
-    return LLMWithProviderResponse(
-        llm=LLMRepository.to_response(llm),
-        provider=LLMProviderRepository.to_response(provider),
+    llm = await _get_llm_with_owner_check(
+        llm_id=llm_id,
+        owner_id=current_user.id,
+        llm_repo=llm_repo,
     )
+
+    effective_type = data.type if "type" in data.model_fields_set and data.type is not None else llm.type
+    effective_connector_id = (
+        data.connector_id
+        if "connector_id" in data.model_fields_set and data.connector_id is not None
+        else llm.connector_id
+    )
+
+    connector = await _get_connector_with_owner_check(
+        connector_id=effective_connector_id,
+        owner_id=current_user.id,
+        connector_repo=connector_repo,
+    )
+    if not connector.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connector must be active",
+        )
+
+    _validate_llm_connector_compatibility(
+        llm_type=effective_type,
+        connector_type=connector.type,
+    )
+
+    update_data: dict[str, Any] = {}
+
+    if "type" in data.model_fields_set:
+        if data.type is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="type must not be null when provided",
+            )
+        update_data["type"] = data.type
+
+    if "connector_id" in data.model_fields_set:
+        if data.connector_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="connector_id must not be null when provided",
+            )
+        update_data["connector_id"] = data.connector_id
+
+    if "model_id" in data.model_fields_set:
+        update_data["model_id"] = data.model_id
+
+    if "name" in data.model_fields_set:
+        update_data["name"] = data.name
+
+    if "parallel_calls" in data.model_fields_set:
+        update_data["parallel_calls"] = data.parallel_calls
+
+    if "is_active" in data.model_fields_set:
+        update_data["is_active"] = data.is_active
+
+    if "settings" in data.model_fields_set:
+        if data.settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="settings must be an object when provided",
+            )
+        update_data["settings"] = data.settings.model_dump(exclude_none=True)
+
+    if update_data:
+        llm = await llm_repo.update(llm, **update_data)
+
+    return LLMRepository.to_response(llm)
 
 
 @router.delete("/{llm_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_llm(
     llm_id: uuid.UUID,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
 ):
-    """
-    Удалить LLM модель.
-    """
-    llm = await get_llm_with_owner_check(llm_id, current_user.id, llm_repo)
-    await cache.delete(LLMRepository.cache_key(llm.id))
+    llm = await _get_llm_with_owner_check(
+        llm_id=llm_id,
+        owner_id=current_user.id,
+        llm_repo=llm_repo,
+    )
     await llm_repo.delete(llm)

@@ -13,7 +13,7 @@ from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
 
 class SearchEngine(Base):
-    """Поисковый движок, привязанный к пользователю."""
+    """Search engine configuration bound to a connector (optional)."""
 
     __tablename__ = "core_search_engines"
 
@@ -29,6 +29,16 @@ class SearchEngine(Base):
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     settings: Mapped[dict] = mapped_column(JSON_VARIANT(), default=dict)
+    connector_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_connectors.id",
+            name="fk_core_search_engines_connector_id",
+            ondelete="CASCADE",
+        ),
+        nullable=True,
+        index=True,
+    )
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -42,6 +52,7 @@ class SearchEngineBase(BaseModel):
     type: str
     name: Optional[str] = None
     settings: dict[str, Any] = Field(default_factory=dict)
+    connector_id: Optional[uuid.UUID] = None
     is_active: bool = True
 
 
@@ -53,6 +64,7 @@ class SearchEngineUpdate(BaseModel):
     type: Optional[str] = None
     name: Optional[str] = None
     settings: Optional[dict[str, Any]] = None
+    connector_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
 
 
@@ -67,7 +79,7 @@ class SearchEngineResponse(SearchEngineBase):
 
 
 class SearchEngineRepository:
-    """Repository для работы с поисковыми движками."""
+    """Repository for search engines."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -162,12 +174,25 @@ class SearchEngineRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_connector(
+        self,
+        connector_id: uuid.UUID,
+        only_active: bool = False,
+    ) -> list[SearchEngine]:
+        query = select(SearchEngine).where(SearchEngine.connector_id == connector_id)
+        if only_active:
+            query = query.where(SearchEngine.is_active == True)  # noqa: E712
+        query = query.order_by(SearchEngine.created_at.desc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
     async def create(
         self,
         owner_id: uuid.UUID,
         engine_type: str,
         name: Optional[str] = None,
         settings: Optional[dict] = None,
+        connector_id: uuid.UUID | None = None,
         is_active: bool = True,
     ) -> SearchEngine:
         engine = SearchEngine(
@@ -175,6 +200,7 @@ class SearchEngineRepository:
             type=engine_type,
             name=name,
             settings=settings or {},
+            connector_id=connector_id,
             is_active=is_active,
         )
         self.db.add(engine)

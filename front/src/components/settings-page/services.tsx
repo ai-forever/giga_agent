@@ -13,28 +13,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ConnectorForm } from "./forms/provider";
 import { apiClient } from "@/lib/api-client";
 import type {
   ConnectorResponse,
-  SearchEngineResponse,
-  SearchEngineTypeMeta,
+  ConnectorSettings,
+  ConnectorType,
+  ConnectorTypeMeta,
+  JsonSchema,
+  JsonSchemaProperty,
 } from "./forms/types";
 
-interface JsonSchemaProperty {
-  type?: string;
-  title?: string;
-  description?: string;
-  default?: unknown;
-  anyOf?: { type?: string }[];
-}
-
-interface JsonSchema {
-  properties?: Record<string, JsonSchemaProperty>;
-  required?: string[];
-}
-
+type FormMode = "create" | "edit";
 type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
-type SearchEngineFormMode = "create" | "edit";
+
+const MANAGED_CONNECTOR_TYPES: ConnectorType[] = ["openai", "gigachat"];
+
+function compactObject(values: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined),
+  );
+}
 
 function isSecretField(name: string): boolean {
   const lower = name.toLowerCase();
@@ -42,7 +41,8 @@ function isSecretField(name: string): boolean {
     lower.includes("key") ||
     lower.includes("secret") ||
     lower.includes("password") ||
-    lower.includes("token")
+    lower.includes("token") ||
+    lower.includes("credential")
   );
 }
 
@@ -57,9 +57,7 @@ function isFieldRequired(name: string, schema: JsonSchema): boolean {
   return schema.required?.includes(name) ?? false;
 }
 
-function resolvePropertyType(
-  property: JsonSchemaProperty,
-): SupportedPropertyType {
+function resolvePropertyType(property: JsonSchemaProperty): SupportedPropertyType {
   const directType = property.type;
   if (
     directType === "string" ||
@@ -85,20 +83,14 @@ function resolvePropertyType(
   return "string";
 }
 
-function compactObject(values: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value !== undefined),
-  );
-}
-
-interface SettingsFormProps {
+interface DynamicSettingsFormProps {
   schema: JsonSchema;
   values: Record<string, unknown>;
   onChange: (values: Record<string, unknown>) => void;
   disabled?: boolean;
 }
 
-const SettingsForm: React.FC<SettingsFormProps> = ({
+const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
   schema,
   values,
   onChange,
@@ -128,12 +120,12 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
         if (propertyType === "boolean") {
           return (
             <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`search-engine-setting-${name}`}>
+              <Label htmlFor={`connector-setting-${name}`}>
                 {fieldLabel(name, property)}
                 {required && <span className="text-destructive ml-1">*</span>}
               </Label>
               <Switch
-                id={`search-engine-setting-${name}`}
+                id={`connector-setting-${name}`}
                 checked={Boolean(rawValue)}
                 onCheckedChange={(checked) => setFieldValue(name, checked)}
                 disabled={disabled}
@@ -146,12 +138,12 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
           const value = typeof rawValue === "number" ? String(rawValue) : "";
           return (
             <div key={name} className="space-y-1.5">
-              <Label htmlFor={`search-engine-setting-${name}`}>
+              <Label htmlFor={`connector-setting-${name}`}>
                 {fieldLabel(name, property)}
                 {required && <span className="text-destructive ml-1">*</span>}
               </Label>
               <Input
-                id={`search-engine-setting-${name}`}
+                id={`connector-setting-${name}`}
                 type="number"
                 step={propertyType === "integer" ? 1 : "any"}
                 value={value}
@@ -173,9 +165,7 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
                 disabled={disabled}
               />
               {property.description && (
-                <p className="text-xs text-muted-foreground">
-                  {property.description}
-                </p>
+                <p className="text-xs text-muted-foreground">{property.description}</p>
               )}
             </div>
           );
@@ -186,12 +176,12 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
 
         return (
           <div key={name} className="space-y-1.5">
-            <Label htmlFor={`search-engine-setting-${name}`}>
+            <Label htmlFor={`connector-setting-${name}`}>
               {fieldLabel(name, property)}
               {required && <span className="text-destructive ml-1">*</span>}
             </Label>
             <InputComponent
-              id={`search-engine-setting-${name}`}
+              id={`connector-setting-${name}`}
               value={value}
               placeholder={
                 property.description ||
@@ -210,39 +200,34 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
   );
 };
 
-interface SearchEngineItemProps {
-  engine: SearchEngineResponse;
-  connectorName?: string;
-  onEdit: (engineId: string) => void;
-  onDelete: (engineId: string) => void;
+interface ConnectorItemProps {
+  connector: ConnectorResponse;
   disabled?: boolean;
+  onEdit: (connectorId: string) => void;
+  onDelete: (connectorId: string) => void;
 }
 
-const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
-  engine,
-  connectorName,
+const ConnectorItem: React.FC<ConnectorItemProps> = ({
+  connector,
+  disabled,
   onEdit,
   onDelete,
-  disabled,
 }) => {
   return (
     <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col gap-1">
-        <span className="font-medium">{engine.name || engine.type}</span>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Тип: {engine.type}</span>
-          {connectorName && <span>Connector: {connectorName}</span>}
-        </div>
+        <span className="font-medium">{connector.name || connector.type}</span>
+        <span className="text-xs text-muted-foreground">Тип: {connector.type}</span>
       </div>
       <div className="flex items-center gap-2">
-        <Badge variant="outline">{engine.type}</Badge>
-        <Badge variant={engine.is_active ? "default" : "secondary"}>
-          {engine.is_active ? "Активен" : "Неактивен"}
+        <Badge variant="outline">{connector.type}</Badge>
+        <Badge variant={connector.is_active ? "default" : "secondary"}>
+          {connector.is_active ? "Активен" : "Неактивен"}
         </Badge>
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onEdit(engine.id)}
+          onClick={() => onEdit(connector.id)}
           disabled={disabled}
         >
           <Pencil className="size-4" />
@@ -250,7 +235,7 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onDelete(engine.id)}
+          onClick={() => onDelete(connector.id)}
           disabled={disabled}
         >
           <Trash2 className="size-4 text-destructive" />
@@ -260,60 +245,52 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
   );
 };
 
-interface SearchEngineFormProps {
-  mode: SearchEngineFormMode;
+interface ConnectorEditorProps {
+  mode: FormMode;
+  connectorTypes: ConnectorTypeMeta[];
   selectedType: string;
-  engineTypes: SearchEngineTypeMeta[];
-  engineName: string;
-  settingsSchema: JsonSchema | null;
+  connectorName: string;
   settingsValues: Record<string, unknown>;
-  selectedConnectorId: string;
-  filteredConnectors: ConnectorResponse[];
-  requiresConnector: boolean;
+  settingsSchema: JsonSchema | null;
   isActive: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
-  loadingConnectors: boolean;
   saving: boolean;
   submitDisabled: boolean;
   onTypeChange: (type: string) => void;
-  onEngineNameChange: (name: string) => void;
-  onSettingsChange: (values: Record<string, unknown>) => void;
-  onConnectorChange: (connectorId: string) => void;
-  onActiveChange: (value: boolean) => void;
+  onConnectorNameChange: (name: string) => void;
+  onSettingsChange: (settings: Record<string, unknown>) => void;
+  onActiveChange: (active: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }
 
-const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
+const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
   mode,
+  connectorTypes,
   selectedType,
-  engineTypes,
-  engineName,
-  settingsSchema,
+  connectorName,
   settingsValues,
-  selectedConnectorId,
-  filteredConnectors,
-  requiresConnector,
+  settingsSchema,
   isActive,
   loadingTypes,
   loadingSchema,
-  loadingConnectors,
   saving,
   submitDisabled,
   onTypeChange,
-  onEngineNameChange,
+  onConnectorNameChange,
   onSettingsChange,
-  onConnectorChange,
   onActiveChange,
   onSubmit,
   onCancel,
 }) => {
+  const isManagedType = MANAGED_CONNECTOR_TYPES.includes(selectedType as ConnectorType);
+
   return (
     <div className="space-y-5">
       <div className="space-y-1.5">
-        <Label htmlFor="search-engine-type">
-          Тип движка <span className="text-destructive">*</span>
+        <Label htmlFor="connector-type">
+          Тип сервиса <span className="text-destructive">*</span>
         </Label>
         {mode === "create" ? (
           <Select
@@ -321,18 +298,18 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
             onValueChange={onTypeChange}
             disabled={loadingTypes || saving}
           >
-            <SelectTrigger id="search-engine-type" className="w-full">
+            <SelectTrigger id="connector-type" className="w-full">
               {loadingTypes ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
                   Загрузка типов...
                 </div>
               ) : (
-                <SelectValue placeholder="Выберите тип движка" />
+                <SelectValue placeholder="Выберите тип сервиса" />
               )}
             </SelectTrigger>
             <SelectContent>
-              {engineTypes.map((item) => (
+              {connectorTypes.map((item) => (
                 <SelectItem key={item.type} value={item.type}>
                   {item.type}
                 </SelectItem>
@@ -340,36 +317,48 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
             </SelectContent>
           </Select>
         ) : (
-          <Input id="search-engine-type" value={selectedType} disabled />
+          <Input id="connector-type" value={selectedType} disabled />
         )}
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="search-engine-name">
+        <Label htmlFor="connector-name">
           Название{" "}
           <span className="text-muted-foreground text-xs font-normal">
             (опционально)
           </span>
         </Label>
         <Input
-          id="search-engine-name"
-          placeholder="Мой движок"
-          value={engineName}
-          onChange={(e) => onEngineNameChange(e.target.value)}
+          id="connector-name"
+          placeholder="Мой сервис"
+          value={connectorName}
+          onChange={(e) => onConnectorNameChange(e.target.value)}
           disabled={saving}
         />
       </div>
 
       {selectedType && (
         <div className="space-y-2">
-          <Label>Настройки движка</Label>
-          {loadingSchema ? (
+          <Label>Настройки сервиса</Label>
+          {isManagedType ? (
+            <ConnectorForm
+              connectorType={selectedType as ConnectorType}
+              onConnectorTypeChange={() => {
+                // Type is controlled above.
+              }}
+              showConnectorTypeSelector={false}
+              settings={settingsValues as ConnectorSettings}
+              onSettingsChange={(nextSettings) =>
+                onSettingsChange(nextSettings as Record<string, unknown>)
+              }
+            />
+          ) : loadingSchema ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               Загрузка настроек...
             </div>
           ) : (
-            <SettingsForm
+            <DynamicSettingsForm
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={onSettingsChange}
@@ -379,53 +368,10 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
         </div>
       )}
 
-      {selectedType && requiresConnector && (
-        <div className="space-y-1.5">
-          <Label htmlFor="search-engine-connector">
-            Коннектор <span className="text-destructive">*</span>
-          </Label>
-          <Select
-            value={selectedConnectorId}
-            onValueChange={onConnectorChange}
-            disabled={loadingConnectors || saving || filteredConnectors.length === 0}
-          >
-            <SelectTrigger id="search-engine-connector" className="w-full">
-              {loadingConnectors ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  Загрузка коннекторов...
-                </div>
-              ) : (
-                <SelectValue placeholder="Выберите коннектор" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {filteredConnectors.map((connector) => (
-                <SelectItem key={connector.id} value={connector.id}>
-                  {connector.name || connector.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {filteredConnectors.length === 0 && !loadingConnectors && (
-            <p className="text-sm text-amber-600">
-              Нет активных коннекторов для типа{" "}
-              <span className="font-medium">{selectedType}</span>.
-            </p>
-          )}
-        </div>
-      )}
-
-      {selectedType && !requiresConnector && (
-        <p className="text-sm text-muted-foreground">
-          Для выбранного типа движка коннектор не требуется.
-        </p>
-      )}
-
       <div className="flex items-center justify-between">
-        <Label htmlFor="search-engine-active">Активен</Label>
+        <Label htmlFor="connector-active">Активен</Label>
         <Switch
-          id="search-engine-active"
+          id="connector-active"
           checked={isActive}
           onCheckedChange={onActiveChange}
           disabled={saving}
@@ -453,47 +399,28 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   );
 };
 
-export const SearchEnginesSettings: React.FC = () => {
-  const [engineTypes, setEngineTypes] = useState<SearchEngineTypeMeta[]>([]);
+export const ServicesSettings: React.FC = () => {
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
-  const [engines, setEngines] = useState<SearchEngineResponse[]>([]);
+  const [connectorTypes, setConnectorTypes] = useState<ConnectorTypeMeta[]>([]);
 
   const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [editingEngineId, setEditingEngineId] = useState<string | null>(null);
+  const [editingConnectorId, setEditingConnectorId] = useState<string | null>(null);
 
   const [selectedType, setSelectedType] = useState("");
-  const [engineName, setEngineName] = useState("");
-  const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
+  const [connectorName, setConnectorName] = useState("");
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
-  const [selectedConnectorId, setSelectedConnectorId] = useState("");
+  const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [isActive, setIsActive] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
-  const [loadingEngines, setLoadingEngines] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const fetchEngineTypes = useCallback(async () => {
-    setLoadingTypes(true);
-    try {
-      const data = await apiClient.get<SearchEngineTypeMeta[]>(
-        "/api/search-engines/types/meta",
-      );
-      setEngineTypes(data);
-    } catch {
-      // handled globally
-    } finally {
-      setLoadingTypes(false);
-    }
-  }, []);
 
   const fetchConnectors = useCallback(async () => {
     setLoadingConnectors(true);
     try {
-      const data = await apiClient.get<ConnectorResponse[]>(
-        "/api/connectors?only_active=true",
-      );
+      const data = await apiClient.get<ConnectorResponse[]>("/api/connectors");
       setConnectors(data);
     } catch {
       // handled globally
@@ -502,26 +429,30 @@ export const SearchEnginesSettings: React.FC = () => {
     }
   }, []);
 
-  const fetchEngines = useCallback(async () => {
-    setLoadingEngines(true);
+  const fetchConnectorTypes = useCallback(async () => {
+    setLoadingTypes(true);
     try {
-      const data = await apiClient.get<SearchEngineResponse[]>("/api/search-engines");
-      setEngines(data);
+      const data = await apiClient.get<ConnectorTypeMeta[]>("/api/connectors/types/meta");
+      setConnectorTypes(data);
     } catch {
       // handled globally
     } finally {
-      setLoadingEngines(false);
+      setLoadingTypes(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchEngineTypes();
     fetchConnectors();
-    fetchEngines();
-  }, [fetchEngineTypes, fetchConnectors, fetchEngines]);
+    fetchConnectorTypes();
+  }, [fetchConnectors, fetchConnectorTypes]);
+
+  const isManagedType = useMemo(
+    () => MANAGED_CONNECTOR_TYPES.includes(selectedType as ConnectorType),
+    [selectedType],
+  );
 
   useEffect(() => {
-    if (!selectedType) {
+    if (!selectedType || isManagedType) {
       setSettingsSchema(null);
       setLoadingSchema(false);
       return;
@@ -534,7 +465,7 @@ export const SearchEnginesSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `/api/search-engines/types/${selectedType}/settings-schema`,
+          `/api/connectors/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -555,68 +486,32 @@ export const SearchEnginesSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedType]);
-
-  const selectedTypeMeta = useMemo(
-    () => engineTypes.find((item) => item.type === selectedType),
-    [engineTypes, selectedType],
-  );
-
-  const requiresConnector = selectedTypeMeta?.requires_connector ?? false;
-  const supportedConnectorTypes = useMemo(
-    () => (selectedTypeMeta?.supported_connector_types || []).map((type) => type.toLowerCase()),
-    [selectedTypeMeta],
-  );
-
-  const filteredConnectors = useMemo(
-    () =>
-      connectors.filter((connector) =>
-        supportedConnectorTypes.includes((connector.type || "").toLowerCase()),
-      ),
-    [connectors, supportedConnectorTypes],
-  );
-
-  useEffect(() => {
-    if (!selectedConnectorId) return;
-    const exists = filteredConnectors.some(
-      (connector) => connector.id === selectedConnectorId,
-    );
-    if (!exists) {
-      setSelectedConnectorId("");
-    }
-  }, [filteredConnectors, selectedConnectorId]);
-
-  const connectorsMap = useMemo(
-    () => new Map(connectors.map((connector) => [connector.id, connector])),
-    [connectors],
-  );
+  }, [isManagedType, selectedType]);
 
   const resetFormState = useCallback(() => {
     setSelectedType("");
-    setEngineName("");
-    setSettingsSchema(null);
+    setConnectorName("");
     setSettingsValues({});
-    setSelectedConnectorId("");
+    setSettingsSchema(null);
     setIsActive(true);
   }, []);
 
   const handleCreateNew = () => {
-    setEditingEngineId(null);
+    setEditingConnectorId(null);
     resetFormState();
     setIsCreatingNew(true);
   };
 
-  const handleStartEdit = (engineId: string) => {
-    const engine = engines.find((item) => item.id === engineId);
-    if (!engine) return;
+  const handleStartEdit = (connectorId: string) => {
+    const connector = connectors.find((item) => item.id === connectorId);
+    if (!connector) return;
 
     setIsCreatingNew(false);
-    setEditingEngineId(engineId);
-    setSelectedType(engine.type);
-    setEngineName(engine.name || "");
-    setSettingsValues(engine.settings || {});
-    setSelectedConnectorId(engine.connector_id || "");
-    setIsActive(engine.is_active);
+    setEditingConnectorId(connectorId);
+    setSelectedType(connector.type);
+    setConnectorName(connector.name || "");
+    setSettingsValues((connector.settings || {}) as Record<string, unknown>);
+    setIsActive(connector.is_active);
   };
 
   const handleCancelCreate = () => {
@@ -625,21 +520,21 @@ export const SearchEnginesSettings: React.FC = () => {
   };
 
   const handleCancelEdit = () => {
-    setEditingEngineId(null);
+    setEditingConnectorId(null);
     resetFormState();
   };
 
-  const handleDelete = async (engineId: string) => {
+  const handleDelete = async (connectorId: string) => {
     // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
+    if (!confirm("Вы уверены, что хотите удалить этот сервис?")) return;
 
     try {
-      await apiClient.delete(`/api/search-engines/${engineId}`);
-      toast.success("Search engine удален");
-      if (editingEngineId === engineId) {
+      await apiClient.delete(`/api/connectors/${connectorId}`);
+      toast.success("Сервис удален");
+      if (editingConnectorId === connectorId) {
         handleCancelEdit();
       }
-      fetchEngines();
+      fetchConnectors();
     } catch {
       // handled globally
     }
@@ -647,29 +542,23 @@ export const SearchEnginesSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!selectedType) return;
-    if (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0)) {
-      return;
-    }
 
     setSaving(true);
     try {
-      const trimmedName = engineName.trim();
+      const trimmedName = connectorName.trim();
 
-      if (editingEngineId) {
+      if (editingConnectorId) {
         const payload: Record<string, unknown> = {
           name: trimmedName || null,
           settings: compactObject(settingsValues),
           is_active: isActive,
         };
-        if (requiresConnector) {
-          payload.connector_id = selectedConnectorId;
-        }
 
-        await apiClient.patch<SearchEngineResponse>(
-          `/api/search-engines/${editingEngineId}`,
+        await apiClient.patch<ConnectorResponse>(
+          `/api/connectors/${editingConnectorId}`,
           payload,
         );
-        toast.success("Search engine обновлен");
+        toast.success("Сервис обновлен");
         handleCancelEdit();
       } else {
         const payload: Record<string, unknown> = {
@@ -677,19 +566,17 @@ export const SearchEnginesSettings: React.FC = () => {
           settings: compactObject(settingsValues),
           is_active: isActive,
         };
+
         if (trimmedName) {
           payload.name = trimmedName;
         }
-        if (requiresConnector) {
-          payload.connector_id = selectedConnectorId;
-        }
 
-        await apiClient.post<SearchEngineResponse>("/api/search-engines", payload);
-        toast.success("Search engine создан");
+        await apiClient.post<ConnectorResponse>("/api/connectors", payload);
+        toast.success("Сервис создан");
         handleCancelCreate();
       }
 
-      fetchEngines();
+      fetchConnectors();
     } catch {
       // handled globally
     } finally {
@@ -697,20 +584,19 @@ export const SearchEnginesSettings: React.FC = () => {
     }
   };
 
-  const isEditing = editingEngineId !== null;
-  const isSaveDisabled =
+  const isBusy = isCreatingNew || editingConnectorId !== null;
+  const isSubmitDisabled =
     saving ||
-    loadingSchema ||
     !selectedType ||
-    (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0));
+    (!isManagedType && loadingSchema);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">Search Engines</h3>
+          <h3 className="font-medium">Сервисы</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Управление поисковыми движками
+            Управление коннекторами для LLM и генераторов
           </p>
         </div>
         {!isCreatingNew && (
@@ -729,7 +615,7 @@ export const SearchEnginesSettings: React.FC = () => {
       {isCreatingNew && (
         <div className="border border-border rounded-lg p-4 bg-muted/30">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium">Новый search engine</h3>
+            <h3 className="font-medium">Новый сервис</h3>
             <Button
               variant="ghost"
               size="icon"
@@ -739,30 +625,25 @@ export const SearchEnginesSettings: React.FC = () => {
               <X className="size-4" />
             </Button>
           </div>
-          <SearchEngineForm
+
+          <ConnectorEditor
             mode="create"
+            connectorTypes={connectorTypes}
             selectedType={selectedType}
-            engineTypes={engineTypes}
-            engineName={engineName}
-            settingsSchema={settingsSchema}
+            connectorName={connectorName}
             settingsValues={settingsValues}
-            selectedConnectorId={selectedConnectorId}
-            filteredConnectors={filteredConnectors}
-            requiresConnector={requiresConnector}
+            settingsSchema={settingsSchema}
             isActive={isActive}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
-            loadingConnectors={loadingConnectors}
             saving={saving}
-            submitDisabled={isSaveDisabled}
-            onTypeChange={(nextType) => {
-              setSelectedType(nextType);
+            submitDisabled={isSubmitDisabled}
+            onTypeChange={(type) => {
+              setSelectedType(type);
               setSettingsValues({});
-              setSelectedConnectorId("");
             }}
-            onEngineNameChange={setEngineName}
+            onConnectorNameChange={setConnectorName}
             onSettingsChange={setSettingsValues}
-            onConnectorChange={setSelectedConnectorId}
             onActiveChange={setIsActive}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
@@ -771,83 +652,65 @@ export const SearchEnginesSettings: React.FC = () => {
       )}
 
       <div className="space-y-4">
-        {engines.map((engine) => {
-          const connector = engine.connector_id
-            ? connectorsMap.get(engine.connector_id)
-            : undefined;
-
-          if (editingEngineId === engine.id) {
-            return (
-              <div
-                key={engine.id}
-                className="border border-border rounded-lg p-4 bg-muted/30"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-medium">
-                    Редактирование: {engine.name || engine.type}
-                  </h3>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={handleCancelEdit}
-                    disabled={saving}
-                  >
-                    <X className="size-4" />
-                  </Button>
-                </div>
-                <SearchEngineForm
-                  mode="edit"
-                  selectedType={selectedType}
-                  engineTypes={engineTypes}
-                  engineName={engineName}
-                  settingsSchema={settingsSchema}
-                  settingsValues={settingsValues}
-                  selectedConnectorId={selectedConnectorId}
-                  filteredConnectors={filteredConnectors}
-                  requiresConnector={requiresConnector}
-                  isActive={isActive}
-                  loadingTypes={loadingTypes}
-                  loadingSchema={loadingSchema}
-                  loadingConnectors={loadingConnectors}
-                  saving={saving}
-                  submitDisabled={isSaveDisabled}
-                  onTypeChange={() => {
-                    // Type is read-only in edit mode.
-                  }}
-                  onEngineNameChange={setEngineName}
-                  onSettingsChange={setSettingsValues}
-                  onConnectorChange={setSelectedConnectorId}
-                  onActiveChange={setIsActive}
-                  onSubmit={handleSave}
-                  onCancel={handleCancelEdit}
-                />
+        {connectors.map((connector) =>
+          editingConnectorId === connector.id ? (
+            <div
+              key={connector.id}
+              className="border border-border rounded-lg p-4 bg-muted/30"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium">
+                  Редактирование: {connector.name || connector.type}
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCancelEdit}
+                  disabled={saving}
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
-            );
-          }
-
-          return (
-            <SearchEngineItem
-              key={engine.id}
-              engine={engine}
-              connectorName={
-                connector
-                  ? connector.name || connector.type
-                  : engine.connector_id || undefined
-              }
+              <ConnectorEditor
+                mode="edit"
+                connectorTypes={connectorTypes}
+                selectedType={selectedType}
+                connectorName={connectorName}
+                settingsValues={settingsValues}
+                settingsSchema={settingsSchema}
+                isActive={isActive}
+                loadingTypes={loadingTypes}
+                loadingSchema={loadingSchema}
+                saving={saving}
+                submitDisabled={isSubmitDisabled}
+                onTypeChange={() => {
+                  // Type is read-only in edit mode.
+                }}
+                onConnectorNameChange={setConnectorName}
+                onSettingsChange={setSettingsValues}
+                onActiveChange={setIsActive}
+                onSubmit={handleSave}
+                onCancel={handleCancelEdit}
+              />
+            </div>
+          ) : (
+            <ConnectorItem
+              key={connector.id}
+              connector={connector}
               onEdit={handleStartEdit}
               onDelete={handleDelete}
-              disabled={isEditing || saving}
+              disabled={isBusy || saving}
             />
-          );
-        })}
+          ),
+        )}
 
-        {engines.length === 0 && !loadingEngines && (
+        {connectors.length === 0 && !loadingConnectors && (
           <p className="text-center text-muted-foreground py-8">
-            Нет добавленных search engines
+            Нет добавленных сервисов
           </p>
         )}
 
-        {loadingEngines && (
+        {loadingConnectors && (
           <p className="text-center text-muted-foreground py-8">Загрузка...</p>
         )}
       </div>
@@ -855,4 +718,4 @@ export const SearchEnginesSettings: React.FC = () => {
   );
 };
 
-export default SearchEnginesSettings;
+export default ServicesSettings;

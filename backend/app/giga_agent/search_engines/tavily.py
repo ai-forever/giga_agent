@@ -1,4 +1,4 @@
-"""Поисковый движок через Tavily Search API."""
+"""Search engine via Tavily Search API."""
 
 from __future__ import annotations
 
@@ -14,19 +14,27 @@ from giga_agent.search_engines.registry import SearchEngineRegistry
 
 @SearchEngineRegistry.register("tavily")
 class TavilySearchEngine(BaseSearchEngine):
-    """Поисковый движок Tavily."""
+    """Tavily search engine runtime."""
 
     api_key: str | None = Field(default=None, description="Tavily API key")
 
     _api_key: str | None = PrivateAttr(default=None)
     _search_tool: TavilySearch | None = PrivateAttr(default=None)
 
+    @classmethod
+    def supported_connector_types(cls) -> list[str]:
+        return ["tavily"]
+
+    @classmethod
+    def connector_settings_fields(cls) -> set[str]:
+        return {"api_key"}
+
     async def init(self) -> None:
         resolved_api_key = self._resolve_api_key()
         if not resolved_api_key:
             raise ValueError(
                 "Tavily API key is not configured. "
-                "Provide api_key in search engine settings or set TAVILY_API_KEY."
+                "Provide connector credentials or set TAVILY_API_KEY."
             )
 
         self._api_key = resolved_api_key
@@ -54,21 +62,3 @@ class TavilySearchEngine(BaseSearchEngine):
         if from_settings:
             return from_settings
         return (os.getenv("TAVILY_API_KEY") or "").strip()
-
-    @classmethod
-    async def validate_settings(cls, settings: dict) -> dict:
-        validated = await super().validate_settings(settings)
-        provided = str(validated.get("api_key", "") or "").strip()
-        from_env = (os.getenv("TAVILY_API_KEY") or "").strip()
-
-        if provided:
-            validated["api_key"] = provided
-            return validated
-
-        if from_env:
-            validated.pop("api_key", None)
-            return validated
-
-        raise ValueError(
-            "Tavily api_key is required when TAVILY_API_KEY environment variable is not set."
-        )

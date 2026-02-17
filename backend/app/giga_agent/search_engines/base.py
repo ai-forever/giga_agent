@@ -1,4 +1,4 @@
-"""Базовый абстрактный класс поискового движка."""
+"""Base runtime class for search engines."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
 
 class BaseSearchEngine(BaseModel, abc.ABC):
-    """Абстрактный базовый класс для поисковых движков."""
+    """Abstract base runtime for search engines."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
@@ -27,11 +27,9 @@ class BaseSearchEngine(BaseModel, abc.ABC):
         self._semaphore = asyncio.Semaphore(self.parallel_calls)
 
     async def init(self) -> None:
-        """Подготовка runtime-ресурсов движка перед поиском."""
         self._initialized = True
 
     async def search(self, queries: list[str]) -> list[dict[str, Any]]:
-        """Выполнить поиск по списку запросов."""
         if not self._initialized:
             raise RuntimeError(
                 f"{self.__class__.__name__}.init() must be called before search()."
@@ -46,18 +44,27 @@ class BaseSearchEngine(BaseModel, abc.ABC):
         raise NotImplementedError
 
     @classmethod
+    def supported_connector_types(cls) -> list[str]:
+        """Connector types accepted by this search runtime. Empty means no connector."""
+        return []
+
+    @classmethod
+    def connector_settings_fields(cls) -> set[str]:
+        """Runtime fields that are sourced from connector settings, not engine settings."""
+        return set()
+
+    @classmethod
     def get_tools(cls) -> list[BaseTool]:
-        """Возвращает tools, предоставляемые runtime-поисковиком."""
         from giga_agent.search_engines.tool import search
 
         return [search]
 
     @classmethod
     def settings_schema(cls) -> Type[BaseModel]:
-        """Сгенерировать Pydantic-модель для валидации settings."""
         fields: dict[str, tuple[Any, Any]] = {}
+        excluded = cls._runtime_fields | cls.connector_settings_fields()
         for name, field_info in cls.model_fields.items():
-            if name in cls._runtime_fields:
+            if name in excluded:
                 continue
             fields[name] = (field_info.annotation, field_info)
 
@@ -65,6 +72,5 @@ class BaseSearchEngine(BaseModel, abc.ABC):
 
     @classmethod
     async def validate_settings(cls, settings: dict) -> dict:
-        """Валидировать и нормализовать settings."""
         schema = cls.settings_schema()
         return schema(**settings).model_dump(exclude_none=True)

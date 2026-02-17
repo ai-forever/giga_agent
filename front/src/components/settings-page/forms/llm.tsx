@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { ChevronDown, Plus, Loader2 } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,14 +16,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ProviderForm } from "./provider";
 import type {
-  ProviderType,
-  ProviderSettings,
-  ProviderResponse,
+  ConnectorResponse,
   AvailableModel,
   LLMSettings,
   LLMResponse,
+  LLMTypeMeta,
 } from "./types";
 import { apiClient } from "@/lib/api-client";
 
@@ -34,135 +32,150 @@ interface LLMFormProps {
 }
 
 export interface LLMFormSubmitData {
-  // Existing provider or new one
-  provider_id?: string;
-  // New provider data
-  provider_type?: string;
-  provider_name?: string;
-  provider_settings?: ProviderSettings;
-  // LLM data
+  connector_id: string;
+  llm_type: string;
   model_id: string;
   llm_name?: string;
   llm_settings: LLMSettings;
   is_active: boolean;
 }
 
-const CREATE_NEW_PROVIDER = "__create_new__";
-
 export const LLMForm: React.FC<LLMFormProps> = ({
   llm,
   onSave,
   onCancel,
 }) => {
-  // Provider state
-  const [providers, setProviders] = useState<ProviderResponse[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState<string>(
-    llm?.provider_id || CREATE_NEW_PROVIDER
-  );
-  const [showNewProviderForm, setShowNewProviderForm] = useState(!selectedProviderId);
-  const [newProviderType, setNewProviderType] = useState<ProviderType>("openai");
-  const [newProviderSettings, setNewProviderSettings] = useState<ProviderSettings>({});
-  const [newProviderName, setNewProviderName] = useState("");
+  const [llmTypes, setLlmTypes] = useState<LLMTypeMeta[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
 
-  // Model state
+  const [selectedLLMType, setSelectedLLMType] = useState<string>(llm?.type || "");
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string>(
+    llm?.connector_id || "",
+  );
+
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [modelId, setModelId] = useState(llm?.model_id || "");
   const [llmName, setLlmName] = useState(llm?.name || "");
   const [isActive, setIsActive] = useState(llm?.is_active ?? true);
 
-  // Settings state
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [temperature, setTemperature] = useState<number>(
-    llm?.settings?.temperature ?? 0.7
+    llm?.settings?.temperature ?? 0.7,
   );
   const [tempInput, setTempInput] = useState<string>(
-    String(llm?.settings?.temperature ?? 0.7)
+    String(llm?.settings?.temperature ?? 0.7),
   );
 
-  // Loading state
-  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [loadingLLMTypes, setLoadingLLMTypes] = useState(false);
+  const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
 
-  // Track previous provider for model fetching
-  const prevProviderRef = useRef<string | null>(null);
+  const prevConnectorRef = useRef<string | null>(null);
   const modelsFetchedRef = useRef<Set<string>>(new Set());
 
-  // Fetch providers on mount
-  useEffect(() => {
-    fetchProviders();
+  const selectedTypeMeta = useMemo(
+    () => llmTypes.find((item) => item.type === selectedLLMType),
+    [llmTypes, selectedLLMType],
+  );
+
+  const supportedConnectorTypes = useMemo(
+    () =>
+      (selectedTypeMeta?.supported_connector_types || []).map((type) =>
+        type.toLowerCase(),
+      ),
+    [selectedTypeMeta],
+  );
+
+  const filteredConnectors = useMemo(
+    () =>
+      connectors.filter((connector) =>
+        supportedConnectorTypes.includes((connector.type || "").toLowerCase()),
+      ),
+    [connectors, supportedConnectorTypes],
+  );
+
+  const fetchLLMTypes = useCallback(async () => {
+    setLoadingLLMTypes(true);
+    try {
+      const data = await apiClient.get<LLMTypeMeta[]>("/api/llms/types/meta");
+      setLlmTypes(data);
+      if (!llm?.type && data.length > 0) {
+        setSelectedLLMType((prev) => prev || data[0].type);
+      }
+    } catch {
+      // handled globally
+    } finally {
+      setLoadingLLMTypes(false);
+    }
+  }, [llm?.type]);
+
+  const fetchConnectors = useCallback(async () => {
+    setLoadingConnectors(true);
+    try {
+      const data = await apiClient.get<ConnectorResponse[]>(
+        "/api/connectors?only_active=true",
+      );
+      setConnectors(data);
+    } catch {
+      // handled globally
+    } finally {
+      setLoadingConnectors(false);
+    }
   }, []);
 
-  // Handle provider selection change
+  const fetchModelsForConnector = useCallback(async (connectorId: string) => {
+    setLoadingModels(true);
+    try {
+      const data = await apiClient.get<AvailableModel[]>(`/api/llms/models/${connectorId}`);
+      setAvailableModels(data);
+    } catch {
+      // handled globally
+    } finally {
+      setLoadingModels(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (selectedProviderId === CREATE_NEW_PROVIDER) {
-      setShowNewProviderForm(true);
+    fetchLLMTypes();
+    fetchConnectors();
+  }, [fetchLLMTypes, fetchConnectors]);
+
+  useEffect(() => {
+    if (!selectedConnectorId) {
       setAvailableModels([]);
-    } else {
-      setShowNewProviderForm(false);
-      // Only fetch models if provider changed and not already fetched
-      if (
-        selectedProviderId &&
-        prevProviderRef.current !== selectedProviderId &&
-        !modelsFetchedRef.current.has(selectedProviderId)
-      ) {
-        fetchModelsForProvider(selectedProviderId);
-        modelsFetchedRef.current.add(selectedProviderId);
-      }
-      prevProviderRef.current = selectedProviderId;
+      return;
     }
-  }, [selectedProviderId]);
 
-  // Initialize from existing LLM's provider
-  useEffect(() => {
-    if (llm?.provider_id && providers.length > 0) {
-      const existingProvider = providers.find(p => p.id === llm.provider_id);
-      if (existingProvider) {
-        setSelectedProviderId(existingProvider.id);
-        setNewProviderType(existingProvider.type as ProviderType);
-        setNewProviderSettings(existingProvider.settings);
-        setNewProviderName(existingProvider.name || "");
-      }
-    }
-  }, [llm?.provider_id, providers]);
+    const exists = filteredConnectors.some(
+      (connector) => connector.id === selectedConnectorId,
+    );
 
-  const fetchProviders = useCallback(async () => {
-    setLoadingProviders(true);
-    try {
-      const data = await apiClient.get<ProviderResponse[]>("/api/llms/providers");
-      setProviders(data);
-    } catch {
-      // Ошибка уже обработана глобально
-    } finally {
-      setLoadingProviders(false);
+    if (!exists) {
+      setSelectedConnectorId("");
+      setModelId("");
+      setAvailableModels([]);
+      return;
     }
-  }, []);
 
-  const fetchModelsForProvider = useCallback(async (providerId: string) => {
-    setLoadingModels(true);
-    try {
-      const data = await apiClient.get<AvailableModel[]>(`/api/llms/providers/${providerId}/models`);
-      setAvailableModels(data);
-    } catch {
-      // Ошибка уже обработана глобально
-    } finally {
-      setLoadingModels(false);
+    if (
+      prevConnectorRef.current !== selectedConnectorId &&
+      !modelsFetchedRef.current.has(selectedConnectorId)
+    ) {
+      fetchModelsForConnector(selectedConnectorId);
+      modelsFetchedRef.current.add(selectedConnectorId);
+      setModelId((prev) => (prev && llm?.connector_id === selectedConnectorId ? prev : ""));
     }
-  }, []);
 
-  const fetchModelsForNewProvider = useCallback(async () => {
-    setLoadingModels(true);
-    try {
-      const data = await apiClient.post<AvailableModel[]>("/api/llms/providers/models/fetch", {
-        provider_type: newProviderType,
-        settings: newProviderSettings,
-      });
-      setAvailableModels(data);
-    } catch {
-      // Ошибка уже обработана глобально
-    } finally {
-      setLoadingModels(false);
-    }
-  }, [newProviderType, newProviderSettings]);
+    prevConnectorRef.current = selectedConnectorId;
+  }, [selectedConnectorId, filteredConnectors, fetchModelsForConnector, llm?.connector_id]);
+
+  const handleLLMTypeChange = (type: string) => {
+    if (llm) return;
+    setSelectedLLMType(type);
+    setSelectedConnectorId("");
+    setAvailableModels([]);
+    setModelId("");
+  };
 
   const handleTemperatureSliderChange = (values: number[]) => {
     const value = values[0];
@@ -194,7 +207,11 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   };
 
   const handleSubmit = () => {
+    if (!selectedLLMType || !selectedConnectorId) return;
+
     const data: LLMFormSubmitData = {
+      llm_type: selectedLLMType,
+      connector_id: selectedConnectorId,
       model_id: modelId,
       llm_name: llmName || undefined,
       llm_settings: {
@@ -203,83 +220,82 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       is_active: isActive,
     };
 
-    if (selectedProviderId === CREATE_NEW_PROVIDER) {
-      data.provider_type = newProviderType;
-      data.provider_name = newProviderName || undefined;
-      data.provider_settings = newProviderSettings;
-    } else {
-      data.provider_id = selectedProviderId;
-    }
-
     onSave(data);
   };
 
+  const isSaveDisabled =
+    !selectedLLMType ||
+    !selectedConnectorId ||
+    !modelId ||
+    loadingLLMTypes ||
+    loadingConnectors ||
+    loadingModels;
+
   return (
     <div className="space-y-6">
-      {/* Provider selection */}
       <div className="space-y-2">
-        <Label htmlFor="provider-select">Провайдер</Label>
+        <Label htmlFor="llm-type">Тип LLM</Label>
+        {llm ? (
+          <Input id="llm-type" value={selectedLLMType} disabled />
+        ) : (
+          <Select
+            value={selectedLLMType}
+            onValueChange={handleLLMTypeChange}
+            disabled={loadingLLMTypes}
+          >
+            <SelectTrigger id="llm-type" className="w-full">
+              {loadingLLMTypes ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" />
+                  Загрузка типов LLM...
+                </div>
+              ) : (
+                <SelectValue placeholder="Выберите тип LLM" />
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              {llmTypes.map((item) => (
+                <SelectItem key={item.type} value={item.type}>
+                  {item.type}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="connector-select">Коннектор</Label>
         <Select
-          value={selectedProviderId}
-          onValueChange={setSelectedProviderId}
-          disabled={loadingProviders}
+          value={selectedConnectorId}
+          onValueChange={setSelectedConnectorId}
+          disabled={loadingConnectors || !selectedLLMType || filteredConnectors.length === 0}
         >
-          <SelectTrigger id="provider-select" className="w-full">
-            {loadingProviders ? (
+          <SelectTrigger id="connector-select" className="w-full">
+            {loadingConnectors ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
-                Загрузка провайдеров...
+                Загрузка коннекторов...
               </div>
             ) : (
-              <SelectValue placeholder="Выберите провайдера" />
+              <SelectValue placeholder="Выберите коннектор" />
             )}
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={CREATE_NEW_PROVIDER}>
-              <div className="flex items-center gap-2">
-                <Plus className="size-4" />
-                Создать новый
-              </div>
-            </SelectItem>
-            {providers.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name || p.type}
+            {filteredConnectors.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                {item.name || item.type}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {selectedLLMType && filteredConnectors.length === 0 && !loadingConnectors && (
+          <p className="text-sm text-amber-600">
+            Нет активных коннекторов для типа <span className="font-medium">{selectedLLMType}</span>.
+          </p>
+        )}
       </div>
 
-      {/* New provider form */}
-      {showNewProviderForm && (
-        <div className="space-y-4">
-          <ProviderForm
-            providerType={newProviderType}
-            onProviderTypeChange={setNewProviderType}
-            settings={newProviderSettings}
-            onSettingsChange={setNewProviderSettings}
-            providerName={newProviderName}
-            onProviderNameChange={setNewProviderName}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchModelsForNewProvider}
-            disabled={loadingModels}
-          >
-            {loadingModels ? (
-              <>
-                <Loader2 className="size-4 animate-spin mr-2" />
-                Загрузка...
-              </>
-            ) : (
-              "Загрузить модели"
-            )}
-          </Button>
-        </div>
-      )}
-
-      {/* Model name */}
       <div className="space-y-2">
         <Label htmlFor="model-id">Название модели</Label>
         {availableModels.length > 0 ? (
@@ -308,7 +324,6 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         )}
       </div>
 
-      {/* LLM display name */}
       <div className="space-y-2">
         <Label htmlFor="llm-name">Отображаемое название (опционально)</Label>
         <Input
@@ -319,7 +334,6 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         />
       </div>
 
-      {/* Advanced settings */}
       <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
         <CollapsibleTrigger asChild>
           <button className="flex items-center gap-2 w-full py-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -334,7 +348,6 @@ export const LLMForm: React.FC<LLMFormProps> = ({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-4 pt-4">
-          {/* Temperature */}
           <div className="space-y-3">
             <Label>Температура</Label>
             <div className="flex items-center gap-4">
@@ -362,9 +375,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Action buttons */}
       <div className="flex gap-2 pt-4">
-        <Button onClick={handleSubmit} disabled={!modelId}>
+        <Button onClick={handleSubmit} disabled={isSaveDisabled}>
           {llm ? "Сохранить" : "Создать"}
         </Button>
         <Button variant="outline" onClick={onCancel}>

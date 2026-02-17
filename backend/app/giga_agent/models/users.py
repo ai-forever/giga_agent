@@ -11,7 +11,9 @@ from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
-# Ensure core_search_engines table is registered in metadata alongside User.
+# Ensure referenced core tables are registered in metadata alongside User.
+import giga_agent.models.connector  # noqa: F401
+import giga_agent.models.image_generator  # noqa: F401
 import giga_agent.models.search_engine  # noqa: F401
 
 

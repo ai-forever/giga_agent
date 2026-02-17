@@ -1,4 +1,4 @@
-"""API роутер для управления image generators."""
+"""API router for image generators."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
+from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.image_generator import (
     ImageGenerator,
     ImageGeneratorCreate,
     ImageGeneratorRepository,
     ImageGeneratorResponse,
 )
-from giga_agent.models.llm import LLMProviderRepository
 from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user
 
@@ -30,7 +30,7 @@ class ImageGeneratorPatchRequest(BaseModel):
 
     name: str | None = None
     settings: dict[str, Any] | None = None
-    llm_provider_id: uuid.UUID | None = None
+    connector_id: uuid.UUID | None = None
     is_active: bool | None = None
 
 
@@ -45,8 +45,8 @@ class CurrentImageGeneratorResponse(BaseModel):
 
 class ImageGeneratorTypeMeta(BaseModel):
     type: str
-    supported_llm_provider_types: list[str]
-    requires_llm_provider: bool
+    supported_connector_types: list[str]
+    requires_connector: bool
 
 
 async def get_image_generator_repository(
@@ -55,10 +55,10 @@ async def get_image_generator_repository(
     return ImageGeneratorRepository(db)
 
 
-async def get_llm_provider_repository(
+async def get_connector_repository(
     db: Annotated[AsyncSession, Depends(get_session)],
-) -> LLMProviderRepository:
-    return LLMProviderRepository(db)
+) -> ConnectorRepository:
+    return ConnectorRepository(db)
 
 
 def _resolve_runtime_cls(
@@ -95,60 +95,60 @@ async def _validate_settings(
         )
 
 
-async def _validate_llm_provider_link(
+async def _validate_connector_link(
     *,
     owner_id: uuid.UUID,
-    llm_provider_id: uuid.UUID | None,
-    supported_provider_types: list[str],
-    provider_repo: LLMProviderRepository,
+    connector_id: uuid.UUID | None,
+    supported_connector_types: list[str],
+    connector_repo: ConnectorRepository,
 ) -> uuid.UUID | None:
-    normalized_supported = [t.lower() for t in supported_provider_types]
+    normalized_supported = [t.lower() for t in supported_connector_types]
 
     if not normalized_supported:
-        if llm_provider_id is not None:
+        if connector_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="This image generator type does not support llm_provider_id.",
+                detail="This image generator type does not support connector_id.",
             )
         return None
 
-    if llm_provider_id is None:
+    if connector_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                "llm_provider_id is required for this image generator type. "
-                f"Supported provider types: {normalized_supported}"
+                "connector_id is required for this image generator type. "
+                f"Supported connector types: {normalized_supported}"
             ),
         )
 
-    provider = await provider_repo.get_by_id(llm_provider_id)
-    if provider is None:
+    connector = await connector_repo.get_by_id(connector_id)
+    if connector is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="LLM provider not found",
+            detail="Connector not found",
         )
-    if provider.owner_id != owner_id:
+    if connector.owner_id != owner_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
         )
-    if not provider.is_active:
+    if not connector.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="LLM provider must be active",
+            detail="Connector must be active",
         )
 
-    provider_type = (provider.type or "").lower()
-    if provider_type not in normalized_supported:
+    connector_type = (connector.type or "").lower()
+    if connector_type not in normalized_supported:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"LLM provider type '{provider_type}' is not supported by this "
+                f"Connector type '{connector_type}' is not supported by this "
                 f"image generator. Supported: {normalized_supported}"
             ),
         )
 
-    return llm_provider_id
+    return connector_id
 
 
 async def _get_generator_with_owner_check(
@@ -232,12 +232,12 @@ async def get_generator_types_meta(
     response: list[ImageGeneratorTypeMeta] = []
     for generator_type in ImageGeneratorRegistry.available_types():
         runtime_cls = ImageGeneratorRegistry.get(generator_type)
-        supported_types = [t.lower() for t in runtime_cls.supported_llm_provider_types()]
+        supported_types = [t.lower() for t in runtime_cls.supported_connector_types()]
         response.append(
             ImageGeneratorTypeMeta(
                 type=generator_type,
-                supported_llm_provider_types=supported_types,
-                requires_llm_provider=len(supported_types) > 0,
+                supported_connector_types=supported_types,
+                requires_connector=len(supported_types) > 0,
             )
         )
     return response
@@ -258,15 +258,15 @@ async def create_image_generator(
     data: ImageGeneratorCreate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
-    provider_repo: Annotated[LLMProviderRepository, Depends(get_llm_provider_repository)],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
-    validated_llm_provider_id = await _validate_llm_provider_link(
+    validated_connector_id = await _validate_connector_link(
         owner_id=current_user.id,
-        llm_provider_id=data.llm_provider_id,
-        supported_provider_types=runtime_cls.supported_llm_provider_types(),
-        provider_repo=provider_repo,
+        connector_id=data.connector_id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
+        connector_repo=connector_repo,
     )
 
     generator = await generator_repo.create(
@@ -274,7 +274,7 @@ async def create_image_generator(
         generator_type=data.type,
         name=data.name,
         settings=validated_settings,
-        llm_provider_id=validated_llm_provider_id,
+        connector_id=validated_connector_id,
         is_active=data.is_active,
     )
     return ImageGeneratorRepository.to_response(generator)
@@ -373,7 +373,7 @@ async def patch_image_generator(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
-    provider_repo: Annotated[LLMProviderRepository, Depends(get_llm_provider_repository)],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     generator = await _get_generator_with_owner_check(
         generator_id=generator_id,
@@ -395,17 +395,19 @@ async def patch_image_generator(
             )
         update_data["settings"] = await _validate_settings(generator.type, data.settings)
 
-    effective_llm_provider_id = (
-        data.llm_provider_id if "llm_provider_id" in data.model_fields_set else generator.llm_provider_id
+    effective_connector_id = (
+        data.connector_id
+        if "connector_id" in data.model_fields_set
+        else generator.connector_id
     )
-    validated_llm_provider_id = await _validate_llm_provider_link(
+    validated_connector_id = await _validate_connector_link(
         owner_id=current_user.id,
-        llm_provider_id=effective_llm_provider_id,
-        supported_provider_types=runtime_cls.supported_llm_provider_types(),
-        provider_repo=provider_repo,
+        connector_id=effective_connector_id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
+        connector_repo=connector_repo,
     )
-    if "llm_provider_id" in data.model_fields_set:
-        update_data["llm_provider_id"] = validated_llm_provider_id
+    if "connector_id" in data.model_fields_set:
+        update_data["connector_id"] = validated_connector_id
 
     is_deactivating_current = False
     if "is_active" in data.model_fields_set:

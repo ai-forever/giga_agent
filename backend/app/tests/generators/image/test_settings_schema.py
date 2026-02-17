@@ -34,7 +34,7 @@ class ImageSettingsSchemaTests(unittest.TestCase):
         self.assertNotIn("llm", schema.model_fields)
         self.assertNotIn("parallel_calls", schema.model_fields)
 
-    def test_supported_llm_provider_types(self):
-        self.assertEqual(OpenAIImageGen.supported_llm_provider_types(), ["openai"])
-        self.assertEqual(GigaChatImageGen.supported_llm_provider_types(), ["gigachat"])
-        self.assertEqual(FusionBrainImageGen.supported_llm_provider_types(), [])
+    def test_supported_connector_types(self):
+        self.assertEqual(OpenAIImageGen.supported_connector_types(), ["openai"])
+        self.assertEqual(GigaChatImageGen.supported_connector_types(), ["gigachat"])
+        self.assertEqual(FusionBrainImageGen.supported_connector_types(), [])

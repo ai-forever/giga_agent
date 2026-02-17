@@ -12,11 +12,8 @@ from sqlalchemy.sql import func
 from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
 
-# ============ SQLAlchemy Models ============
-
-
 class ImageGenerator(Base):
-    """Генератор изображений, привязанный к пользователю."""
+    """Image generator configuration bound to a connector (optional)."""
 
     __tablename__ = "core_image_generators"
 
@@ -32,11 +29,12 @@ class ImageGenerator(Base):
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     settings: Mapped[dict] = mapped_column(JSON_VARIANT(), default=dict)
-    llm_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+    connector_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
         ForeignKey(
-            "core_llm_providers.id",
-            name="fk_core_image_generators_llm_provider_id",
+            "core_connectors.id",
+            name="fk_core_image_generators_connector_id",
+            ondelete="CASCADE",
         ),
         nullable=True,
         index=True,
@@ -50,14 +48,11 @@ class ImageGenerator(Base):
     )
 
 
-# ============ Pydantic Schemas ============
-
-
 class ImageGeneratorBase(BaseModel):
     type: str
     name: Optional[str] = None
     settings: dict[str, Any] = Field(default_factory=dict)
-    llm_provider_id: Optional[uuid.UUID] = None
+    connector_id: Optional[uuid.UUID] = None
     is_active: bool = True
 
 
@@ -69,7 +64,7 @@ class ImageGeneratorUpdate(BaseModel):
     type: Optional[str] = None
     name: Optional[str] = None
     settings: Optional[dict[str, Any]] = None
-    llm_provider_id: Optional[uuid.UUID] = None
+    connector_id: Optional[uuid.UUID] = None
     is_active: Optional[bool] = None
 
 
@@ -83,11 +78,8 @@ class ImageGeneratorResponse(ImageGeneratorBase):
         from_attributes = True
 
 
-# ============ Repository ============
-
-
 class ImageGeneratorRepository:
-    """Repository для работы с генераторами изображений."""
+    """Repository for image generators."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -130,7 +122,6 @@ class ImageGeneratorRepository:
         await cache.delete(ImageGeneratorRepository.cache_key(generator_id))
 
     async def get_by_id(self, generator_id: uuid.UUID) -> ImageGenerator | None:
-        """Получить генератор по ID."""
         result = await self.db.execute(
             select(ImageGenerator).where(ImageGenerator.id == generator_id)
         )
@@ -164,7 +155,6 @@ class ImageGeneratorRepository:
         owner_id: uuid.UUID,
         only_active: bool = False,
     ) -> list[ImageGenerator]:
-        """Получить все генераторы пользователя."""
         query = select(ImageGenerator).where(ImageGenerator.owner_id == owner_id)
         if only_active:
             query = query.where(ImageGenerator.is_active == True)  # noqa: E712
@@ -177,7 +167,6 @@ class ImageGeneratorRepository:
         owner_id: uuid.UUID,
         generator_type: str,
     ) -> ImageGenerator | None:
-        """Получить генератор по владельцу и типу."""
         result = await self.db.execute(
             select(ImageGenerator)
             .where(ImageGenerator.owner_id == owner_id)
@@ -185,14 +174,13 @@ class ImageGeneratorRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_by_llm_provider(
+    async def get_by_connector(
         self,
-        llm_provider_id: uuid.UUID,
+        connector_id: uuid.UUID,
         only_active: bool = False,
     ) -> list[ImageGenerator]:
-        """Получить генераторы, привязанные к LLM провайдеру."""
         query = select(ImageGenerator).where(
-            ImageGenerator.llm_provider_id == llm_provider_id
+            ImageGenerator.connector_id == connector_id
         )
         if only_active:
             query = query.where(ImageGenerator.is_active == True)  # noqa: E712
@@ -206,16 +194,15 @@ class ImageGeneratorRepository:
         generator_type: str,
         name: Optional[str] = None,
         settings: Optional[dict] = None,
-        llm_provider_id: Optional[uuid.UUID] = None,
+        connector_id: Optional[uuid.UUID] = None,
         is_active: bool = True,
     ) -> ImageGenerator:
-        """Создать новый генератор."""
         generator = ImageGenerator(
             owner_id=owner_id,
             type=generator_type,
             name=name,
             settings=settings or {},
-            llm_provider_id=llm_provider_id,
+            connector_id=connector_id,
             is_active=is_active,
         )
         self.db.add(generator)
@@ -233,7 +220,6 @@ class ImageGeneratorRepository:
         generator: ImageGenerator,
         **kwargs: Any,
     ) -> ImageGenerator:
-        """Обновить генератор."""
         for key, value in kwargs.items():
             if hasattr(generator, key) and value is not None:
                 setattr(generator, key, value)
@@ -243,7 +229,6 @@ class ImageGeneratorRepository:
         return generator
 
     async def delete(self, generator: ImageGenerator) -> None:
-        """Удалить генератор."""
         generator_id = generator.id
         await self.db.delete(generator)
         await self.db.commit()
@@ -251,5 +236,4 @@ class ImageGeneratorRepository:
 
     @staticmethod
     def to_response(generator: ImageGenerator) -> ImageGeneratorResponse:
-        """Преобразовать в Pydantic response."""
         return ImageGeneratorResponse.model_validate(generator)

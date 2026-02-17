@@ -17,7 +17,7 @@ import { apiClient } from "@/lib/api-client";
 import type {
   ImageGeneratorResponse,
   ImageGeneratorTypeMeta,
-  ProviderResponse,
+  ConnectorResponse,
 } from "./forms/types";
 
 interface JsonSchemaProperty {
@@ -213,7 +213,7 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
 
 interface ImageGeneratorItemProps {
   generator: ImageGeneratorResponse;
-  providerName?: string;
+  connectorName?: string;
   onEdit: (generatorId: string) => void;
   onDelete: (generatorId: string) => void;
   disabled?: boolean;
@@ -221,7 +221,7 @@ interface ImageGeneratorItemProps {
 
 const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
   generator,
-  providerName,
+  connectorName,
   onEdit,
   onDelete,
   disabled,
@@ -232,7 +232,7 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
         <span className="font-medium">{generator.name || generator.type}</span>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Тип: {generator.type}</span>
-          {providerName && <span>Provider: {providerName}</span>}
+          {connectorName && <span>Connector: {connectorName}</span>}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -268,19 +268,19 @@ interface ImageGeneratorFormProps {
   generatorName: string;
   settingsSchema: JsonSchema | null;
   settingsValues: Record<string, unknown>;
-  selectedProviderId: string;
-  filteredProviders: ProviderResponse[];
-  requiresLlmProvider: boolean;
+  selectedConnectorId: string;
+  filteredConnectors: ConnectorResponse[];
+  requiresConnector: boolean;
   isActive: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
-  loadingProviders: boolean;
+  loadingConnectors: boolean;
   saving: boolean;
   submitDisabled: boolean;
   onTypeChange: (type: string) => void;
   onGeneratorNameChange: (name: string) => void;
   onSettingsChange: (values: Record<string, unknown>) => void;
-  onProviderChange: (providerId: string) => void;
+  onConnectorChange: (connectorId: string) => void;
   onActiveChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -293,19 +293,19 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   generatorName,
   settingsSchema,
   settingsValues,
-  selectedProviderId,
-  filteredProviders,
-  requiresLlmProvider,
+  selectedConnectorId,
+  filteredConnectors,
+  requiresConnector,
   isActive,
   loadingTypes,
   loadingSchema,
-  loadingProviders,
+  loadingConnectors,
   saving,
   submitDisabled,
   onTypeChange,
   onGeneratorNameChange,
   onSettingsChange,
-  onProviderChange,
+  onConnectorChange,
   onActiveChange,
   onSubmit,
   onCancel,
@@ -380,46 +380,46 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
         </div>
       )}
 
-      {selectedType && requiresLlmProvider && (
+      {selectedType && requiresConnector && (
         <div className="space-y-1.5">
-          <Label htmlFor="image-generator-provider">
-            LLM Provider <span className="text-destructive">*</span>
+          <Label htmlFor="image-generator-connector">
+            Коннектор <span className="text-destructive">*</span>
           </Label>
           <Select
-            value={selectedProviderId}
-            onValueChange={onProviderChange}
-            disabled={loadingProviders || saving || filteredProviders.length === 0}
+            value={selectedConnectorId}
+            onValueChange={onConnectorChange}
+            disabled={loadingConnectors || saving || filteredConnectors.length === 0}
           >
-            <SelectTrigger id="image-generator-provider" className="w-full">
-              {loadingProviders ? (
+            <SelectTrigger id="image-generator-connector" className="w-full">
+              {loadingConnectors ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
-                  Загрузка провайдеров...
+                  Загрузка коннекторов...
                 </div>
               ) : (
-                <SelectValue placeholder="Выберите LLM provider" />
+                <SelectValue placeholder="Выберите коннектор" />
               )}
             </SelectTrigger>
             <SelectContent>
-              {filteredProviders.map((provider) => (
-                <SelectItem key={provider.id} value={provider.id}>
-                  {provider.name || provider.type}
+              {filteredConnectors.map((connector) => (
+                <SelectItem key={connector.id} value={connector.id}>
+                  {connector.name || connector.type}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          {filteredProviders.length === 0 && !loadingProviders && (
+          {filteredConnectors.length === 0 && !loadingConnectors && (
             <p className="text-sm text-amber-600">
-              Нет активных LLM provider для типа{" "}
+              Нет активных коннекторов для типа{" "}
               <span className="font-medium">{selectedType}</span>.
             </p>
           )}
         </div>
       )}
 
-      {selectedType && !requiresLlmProvider && (
+      {selectedType && !requiresConnector && (
         <p className="text-sm text-muted-foreground">
-          Для выбранного типа генератора LLM provider не требуется.
+          Для выбранного типа генератора коннектор не требуется.
         </p>
       )}
 
@@ -456,7 +456,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
 
 export const ImageGeneratorsSettings: React.FC = () => {
   const [generatorTypes, setGeneratorTypes] = useState<ImageGeneratorTypeMeta[]>([]);
-  const [providers, setProviders] = useState<ProviderResponse[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [generators, setGenerators] = useState<ImageGeneratorResponse[]>([]);
 
   const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -466,11 +466,11 @@ export const ImageGeneratorsSettings: React.FC = () => {
   const [generatorName, setGeneratorName] = useState("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
-  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
-  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingGenerators, setLoadingGenerators] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -489,17 +489,17 @@ export const ImageGeneratorsSettings: React.FC = () => {
     }
   }, []);
 
-  const fetchProviders = useCallback(async () => {
-    setLoadingProviders(true);
+  const fetchConnectors = useCallback(async () => {
+    setLoadingConnectors(true);
     try {
-      const data = await apiClient.get<ProviderResponse[]>(
-        "/api/llms/providers?only_active=true",
+      const data = await apiClient.get<ConnectorResponse[]>(
+        "/api/connectors?only_active=true",
       );
-      setProviders(data);
+      setConnectors(data);
     } catch {
       // Handled globally
     } finally {
-      setLoadingProviders(false);
+      setLoadingConnectors(false);
     }
   }, []);
 
@@ -519,9 +519,9 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   useEffect(() => {
     fetchGeneratorTypes();
-    fetchProviders();
+    fetchConnectors();
     fetchGenerators();
-  }, [fetchGeneratorTypes, fetchProviders, fetchGenerators]);
+  }, [fetchGeneratorTypes, fetchConnectors, fetchGenerators]);
 
   useEffect(() => {
     if (!selectedType) {
@@ -565,36 +565,36 @@ export const ImageGeneratorsSettings: React.FC = () => {
     [generatorTypes, selectedType],
   );
 
-  const requiresLlmProvider = selectedTypeMeta?.requires_llm_provider ?? false;
-  const supportedProviderTypes = useMemo(
+  const requiresConnector = selectedTypeMeta?.requires_connector ?? false;
+  const supportedConnectorTypes = useMemo(
     () =>
-      (selectedTypeMeta?.supported_llm_provider_types || []).map((type) =>
+      (selectedTypeMeta?.supported_connector_types || []).map((type) =>
         type.toLowerCase(),
       ),
     [selectedTypeMeta],
   );
 
-  const filteredProviders = useMemo(
+  const filteredConnectors = useMemo(
     () =>
-      providers.filter((provider) =>
-        supportedProviderTypes.includes((provider.type || "").toLowerCase()),
+      connectors.filter((connector) =>
+        supportedConnectorTypes.includes((connector.type || "").toLowerCase()),
       ),
-    [providers, supportedProviderTypes],
+    [connectors, supportedConnectorTypes],
   );
 
   useEffect(() => {
-    if (!selectedProviderId) return;
-    const exists = filteredProviders.some(
-      (provider) => provider.id === selectedProviderId,
+    if (!selectedConnectorId) return;
+    const exists = filteredConnectors.some(
+      (connector) => connector.id === selectedConnectorId,
     );
     if (!exists) {
-      setSelectedProviderId("");
+      setSelectedConnectorId("");
     }
-  }, [filteredProviders, selectedProviderId]);
+  }, [filteredConnectors, selectedConnectorId]);
 
-  const providersMap = useMemo(
-    () => new Map(providers.map((provider) => [provider.id, provider])),
-    [providers],
+  const connectorsMap = useMemo(
+    () => new Map(connectors.map((connector) => [connector.id, connector])),
+    [connectors],
   );
 
   const resetFormState = useCallback(() => {
@@ -602,7 +602,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setGeneratorName("");
     setSettingsSchema(null);
     setSettingsValues({});
-    setSelectedProviderId("");
+    setSelectedConnectorId("");
     setIsActive(true);
   }, []);
 
@@ -621,7 +621,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSelectedType(generator.type);
     setGeneratorName(generator.name || "");
     setSettingsValues(generator.settings || {});
-    setSelectedProviderId(generator.llm_provider_id || "");
+    setSelectedConnectorId(generator.connector_id || "");
     setIsActive(generator.is_active);
   };
 
@@ -653,7 +653,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!selectedType) return;
-    if (requiresLlmProvider && (!selectedProviderId || filteredProviders.length === 0)) {
+    if (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0)) {
       return;
     }
 
@@ -668,8 +668,8 @@ export const ImageGeneratorsSettings: React.FC = () => {
           is_active: isActive,
         };
 
-        if (requiresLlmProvider) {
-          payload.llm_provider_id = selectedProviderId;
+        if (requiresConnector) {
+          payload.connector_id = selectedConnectorId;
         }
 
         await apiClient.patch<ImageGeneratorResponse>(
@@ -689,8 +689,8 @@ export const ImageGeneratorsSettings: React.FC = () => {
           payload.name = trimmedName;
         }
 
-        if (requiresLlmProvider) {
-          payload.llm_provider_id = selectedProviderId;
+        if (requiresConnector) {
+          payload.connector_id = selectedConnectorId;
         }
 
         await apiClient.post<ImageGeneratorResponse>("/api/generators/image", payload);
@@ -711,7 +711,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     saving ||
     loadingSchema ||
     !selectedType ||
-    (requiresLlmProvider && (!selectedProviderId || filteredProviders.length === 0));
+    (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0));
 
   return (
     <div className="space-y-6">
@@ -755,23 +755,23 @@ export const ImageGeneratorsSettings: React.FC = () => {
             generatorName={generatorName}
             settingsSchema={settingsSchema}
             settingsValues={settingsValues}
-            selectedProviderId={selectedProviderId}
-            filteredProviders={filteredProviders}
-            requiresLlmProvider={requiresLlmProvider}
+            selectedConnectorId={selectedConnectorId}
+            filteredConnectors={filteredConnectors}
+            requiresConnector={requiresConnector}
             isActive={isActive}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
-            loadingProviders={loadingProviders}
+            loadingConnectors={loadingConnectors}
             saving={saving}
             submitDisabled={isSaveDisabled}
             onTypeChange={(nextType) => {
               setSelectedType(nextType);
               setSettingsValues({});
-              setSelectedProviderId("");
+              setSelectedConnectorId("");
             }}
             onGeneratorNameChange={setGeneratorName}
             onSettingsChange={setSettingsValues}
-            onProviderChange={setSelectedProviderId}
+            onConnectorChange={setSelectedConnectorId}
             onActiveChange={setIsActive}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
@@ -781,8 +781,8 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
       <div className="space-y-4">
         {generators.map((generator) => {
-          const provider = generator.llm_provider_id
-            ? providersMap.get(generator.llm_provider_id)
+          const connector = generator.connector_id
+            ? connectorsMap.get(generator.connector_id)
             : undefined;
 
           if (editingGeneratorId === generator.id) {
@@ -811,13 +811,13 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   generatorName={generatorName}
                   settingsSchema={settingsSchema}
                   settingsValues={settingsValues}
-                  selectedProviderId={selectedProviderId}
-                  filteredProviders={filteredProviders}
-                  requiresLlmProvider={requiresLlmProvider}
+                  selectedConnectorId={selectedConnectorId}
+                  filteredConnectors={filteredConnectors}
+                  requiresConnector={requiresConnector}
                   isActive={isActive}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
-                  loadingProviders={loadingProviders}
+                  loadingConnectors={loadingConnectors}
                   saving={saving}
                   submitDisabled={isSaveDisabled}
                   onTypeChange={() => {
@@ -825,7 +825,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   }}
                   onGeneratorNameChange={setGeneratorName}
                   onSettingsChange={setSettingsValues}
-                  onProviderChange={setSelectedProviderId}
+                  onConnectorChange={setSelectedConnectorId}
                   onActiveChange={setIsActive}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
@@ -838,10 +838,10 @@ export const ImageGeneratorsSettings: React.FC = () => {
             <ImageGeneratorItem
               key={generator.id}
               generator={generator}
-              providerName={
-                provider
-                  ? provider.name || provider.type
-                  : generator.llm_provider_id || undefined
+              connectorName={
+                connector
+                  ? connector.name || connector.type
+                  : generator.connector_id || undefined
               }
               onEdit={handleStartEdit}
               onDelete={handleDelete}

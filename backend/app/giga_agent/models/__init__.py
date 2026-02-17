@@ -7,22 +7,25 @@ from giga_agent.models.users import (
     UserRepository,
 )
 
+from giga_agent.models.connector import (
+    Connector,
+    ConnectorBase,
+    ConnectorCreate,
+    ConnectorUpdate,
+    ConnectorResponse,
+    ConnectorRepository,
+)
+
 from giga_agent.models.llm import (
-    LLMProviderType,
-    LLMProvider,
     LLM,
-    LLMProviderSettings,
-    LLMProviderBase,
-    LLMProviderCreate,
-    LLMProviderUpdate,
-    LLMProviderResponse,
     LLMSettings,
     LLMBase,
     LLMCreate,
     LLMUpdate,
     LLMResponse,
+    LLMContext,
     AvailableModel,
-    LLMProviderRepository,
+    ModelFetchError,
     LLMRepository,
 )
 
@@ -80,22 +83,23 @@ __all__ = [
     "UserResponse",
     "UserShort",
     "UserRepository",
+    # Connectors
+    "Connector",
+    "ConnectorBase",
+    "ConnectorCreate",
+    "ConnectorUpdate",
+    "ConnectorResponse",
+    "ConnectorRepository",
     # LLM
-    "LLMProviderType",
-    "LLMProvider",
     "LLM",
-    "LLMProviderSettings",
-    "LLMProviderBase",
-    "LLMProviderCreate",
-    "LLMProviderUpdate",
-    "LLMProviderResponse",
     "LLMSettings",
     "LLMBase",
     "LLMCreate",
     "LLMUpdate",
     "LLMResponse",
+    "LLMContext",
     "AvailableModel",
-    "LLMProviderRepository",
+    "ModelFetchError",
     "LLMRepository",
     # Sandbox
     "SandboxProviderType",

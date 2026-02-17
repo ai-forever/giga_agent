@@ -1,4 +1,4 @@
-"""API роутер для управления search engines."""
+"""API router for search engine management."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
+from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.search_engine import (
     SearchEngine,
     SearchEngineCreate,
@@ -21,7 +22,7 @@ from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
-# Убедимся, что провайдеры зарегистрированы.
+# Ensure providers are registered.
 import giga_agent.search_engines  # noqa: F401
 
 router = APIRouter(prefix="/search-engines", tags=["search-engines"])
@@ -32,6 +33,7 @@ class SearchEnginePatchRequest(BaseModel):
 
     name: str | None = None
     settings: dict[str, Any] | None = None
+    connector_id: uuid.UUID | None = None
     is_active: bool | None = None
 
 
@@ -46,12 +48,20 @@ class CurrentSearchEngineResponse(BaseModel):
 
 class SearchEngineTypeMeta(BaseModel):
     type: str
+    supported_connector_types: list[str]
+    requires_connector: bool
 
 
 async def get_search_engine_repository(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> SearchEngineRepository:
     return SearchEngineRepository(db)
+
+
+async def get_connector_repository(
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> ConnectorRepository:
+    return ConnectorRepository(db)
 
 
 def _resolve_runtime_cls(
@@ -86,6 +96,62 @@ async def _validate_settings(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
+
+
+async def _validate_connector_link(
+    *,
+    owner_id: uuid.UUID,
+    connector_id: uuid.UUID | None,
+    supported_connector_types: list[str],
+    connector_repo: ConnectorRepository,
+) -> uuid.UUID | None:
+    normalized_supported = [t.lower() for t in supported_connector_types]
+
+    if not normalized_supported:
+        if connector_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="This search engine type does not support connector_id.",
+            )
+        return None
+
+    if connector_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "connector_id is required for this search engine type. "
+                f"Supported connector types: {normalized_supported}"
+            ),
+        )
+
+    connector = await connector_repo.get_by_id(connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
+    if connector.owner_id != owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    if not connector.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Connector must be active",
+        )
+
+    connector_type = (connector.type or "").lower()
+    if connector_type not in normalized_supported:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Connector type '{connector_type}' is not supported by this "
+                f"search engine. Supported: {normalized_supported}"
+            ),
+        )
+
+    return connector_id
 
 
 async def _get_engine_with_owner_check(
@@ -167,7 +233,13 @@ async def get_engine_types_meta(
 ):
     _ = current_user
     return [
-        SearchEngineTypeMeta(type=engine_type)
+        SearchEngineTypeMeta(
+            type=engine_type,
+            supported_connector_types=[
+                t.lower() for t in SearchEngineRegistry.get(engine_type).supported_connector_types()
+            ],
+            requires_connector=len(SearchEngineRegistry.get(engine_type).supported_connector_types()) > 0,
+        )
         for engine_type in SearchEngineRegistry.available_types()
     ]
 
@@ -187,15 +259,23 @@ async def create_search_engine(
     data: SearchEngineCreate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
+    validated_connector_id = await _validate_connector_link(
+        owner_id=current_user.id,
+        connector_id=data.connector_id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
+        connector_repo=connector_repo,
+    )
 
     engine = await engine_repo.create(
         owner_id=current_user.id,
         engine_type=data.type,
         name=data.name,
         settings=validated_settings,
+        connector_id=validated_connector_id,
         is_active=data.is_active,
     )
     return SearchEngineRepository.to_response(engine)
@@ -294,6 +374,7 @@ async def patch_search_engine(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     engine = await _get_engine_with_owner_check(
         engine_id=engine_id,
@@ -301,6 +382,7 @@ async def patch_search_engine(
         engine_repo=engine_repo,
     )
 
+    runtime_cls = _resolve_runtime_cls(engine.type, status_code=status.HTTP_400_BAD_REQUEST)
     update_data: dict[str, Any] = {}
 
     if "name" in data.model_fields_set:
@@ -313,6 +395,20 @@ async def patch_search_engine(
                 detail="settings must be an object when provided",
             )
         update_data["settings"] = await _validate_settings(engine.type, data.settings)
+
+    effective_connector_id = (
+        data.connector_id
+        if "connector_id" in data.model_fields_set
+        else engine.connector_id
+    )
+    validated_connector_id = await _validate_connector_link(
+        owner_id=current_user.id,
+        connector_id=effective_connector_id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
+        connector_repo=connector_repo,
+    )
+    if "connector_id" in data.model_fields_set:
+        update_data["connector_id"] = validated_connector_id
 
     is_deactivating_current = False
     if "is_active" in data.model_fields_set:

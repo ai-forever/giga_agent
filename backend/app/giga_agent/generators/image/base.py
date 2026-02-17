@@ -77,11 +77,11 @@ class BaseImageGenerator(BaseModel, abc.ABC):
         raise NotImplementedError
 
     @classmethod
-    def supported_llm_provider_types(cls) -> list[str]:
+    def supported_connector_types(cls) -> list[str]:
         """
-        Возвращает список поддерживаемых типов llm_provider для генератора.
+        Возвращает список поддерживаемых типов connector для генератора.
 
-        Пустой список означает, что к генератору нельзя подключать llm_provider.
+        Пустой список означает, что к генератору нельзя подключать connector.
         """
         return []
 
