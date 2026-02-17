@@ -56,12 +56,24 @@ spec:
       github:
         branch: feature/add-do-integration
         repo: ai-forever/giga_agent
-        deploy_on_push: true
       source_dir: backend/repl
+      dockerfile_path: backend/repl/Dockerfile
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 9090
+      run_command: sh -c "chown -R jupyter:jupyter /home/jupyter /kernel_states /runs && exec su -s /bin/bash -c 'uv run uvicorn app.main:app --host 0.0.0.0 --port 9090' jupyter"
+      envs:
+        - key: PLOTLY_RENDERER
+          value: plotly_mimetype
+        - key: MAX_KERNEL_LIVE
+          value: "300"
+        - key: FILES_DIR
+          value: /files
+        - key: STATE_DIR
+          value: /kernel_states
+    - name: upload_server
+      github:
     - name: frontend
       github:
         branch: feature/add-do-integration
