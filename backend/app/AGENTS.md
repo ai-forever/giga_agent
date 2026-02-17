@@ -10,7 +10,7 @@
 ## 1. Текущее устройство пакета
 
 - Основной пакет: `giga_agent`.
-- Встроенные модули: `giga_agent.modules.auth`, `giga_agent.modules.repl`, `giga_agent.modules.image`.
+- Встроенные модули: `giga_agent.modules.auth`, `giga_agent.modules.repl`, `giga_agent.modules.image`, `giga_agent.modules.search`.
 - Базовый агент: `giga_agent.core.agent.base.BaseAgent`.
 - Базовый модуль: `giga_agent.core.module.BaseModule`.
 - Core API роуты подключаются автоматически: `llms`, `sandboxes`, `files`.

@@ -1,0 +1,249 @@
+import types
+import unittest
+import uuid
+from unittest.mock import AsyncMock, patch
+
+from fastapi import FastAPI
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+from giga_agent.core.db import get_session
+from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.routes.search_engines import router
+
+
+class SearchGeneratorsRouterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.app = FastAPI()
+        self.app.include_router(router)
+
+        async def _override_current_user():
+            return self.user
+
+        async def _override_get_session():
+            yield object()
+
+        self.app.dependency_overrides[get_current_active_user] = _override_current_user
+        self.app.dependency_overrides[get_session] = _override_get_session
+        self.client = TestClient(self.app)
+
+    def _engine_obj(
+        self,
+        *,
+        engine_id: uuid.UUID | None = None,
+        engine_type: str = "tavily",
+        owner_id: uuid.UUID | None = None,
+        settings: dict | None = None,
+        is_active: bool = True,
+    ):
+        return types.SimpleNamespace(
+            id=engine_id or uuid.uuid4(),
+            owner_id=owner_id or self.user.id,
+            type=engine_type,
+            name="engine",
+            settings=settings or {"api_key": "tvly-key"},
+            is_active=is_active,
+            created_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+        )
+
+    def _response_payload(self, engine_obj) -> dict:
+        return {
+            "id": str(engine_obj.id),
+            "owner_id": str(engine_obj.owner_id),
+            "type": engine_obj.type,
+            "name": engine_obj.name,
+            "settings": engine_obj.settings,
+            "is_active": engine_obj.is_active,
+            "created_at": engine_obj.created_at,
+            "updated_at": engine_obj.updated_at,
+        }
+
+    def test_create_success(self):
+        created = self._engine_obj()
+
+        with patch(
+            "giga_agent.routes.search_engines._resolve_runtime_cls",
+            return_value=object(),
+        ), patch(
+            "giga_agent.routes.search_engines._validate_settings",
+            AsyncMock(return_value={"api_key": "tvly-key"}),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+            return_value=self._response_payload(created),
+        ):
+            response = self.client.post(
+                "/search-engines",
+                json={
+                    "type": "tavily",
+                    "name": "Tavily",
+                    "settings": {"api_key": "tvly-key"},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["type"], "tavily")
+
+    def test_get_engine_types_meta(self):
+        with patch(
+            "giga_agent.routes.search_engines.SearchEngineRegistry.available_types",
+            return_value=["tavily"],
+        ):
+            response = self.client.get("/search-engines/types/meta")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"type": "tavily"}])
+
+    def test_get_current_returns_empty_when_not_set(self):
+        user_model = types.SimpleNamespace(search_engine_id=None)
+        with patch(
+            "giga_agent.routes.search_engines._get_user_model",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.get("/search-engines/current")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"search_engine_id": None, "engine": None})
+
+    def test_patch_current_sets_engine(self):
+        engine_id = uuid.uuid4()
+        existing = self._engine_obj(engine_id=engine_id, is_active=True)
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.search_engines._set_user_current_search_engine",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+            return_value=self._response_payload(existing),
+        ):
+            response = self.client.patch(
+                "/search-engines/current",
+                json={"search_engine_id": str(engine_id)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["search_engine_id"], str(engine_id))
+
+    def test_patch_with_type_returns_422(self):
+        response = self.client.patch(
+            f"/search-engines/{uuid.uuid4()}",
+            json={"type": "another"},
+        )
+        self.assertEqual(response.status_code, 422)
+
+    def test_patch_settings_uses_current_engine_type(self):
+        engine_id = uuid.uuid4()
+        existing = self._engine_obj(
+            engine_id=engine_id,
+            settings={"api_key": "old"},
+        )
+        updated = self._engine_obj(
+            engine_id=engine_id,
+            settings={"api_key": "new"},
+        )
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.search_engines._validate_settings",
+            AsyncMock(return_value={"api_key": "new"}),
+        ) as mocked_validate_settings, patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.update",
+            AsyncMock(return_value=updated),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+            return_value=self._response_payload(updated),
+        ):
+            response = self.client.patch(
+                f"/search-engines/{engine_id}",
+                json={"settings": {"api_key": "new"}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_validate_settings.assert_awaited_once_with("tavily", {"api_key": "new"})
+
+    def test_deactivate_current_auto_clears_current(self):
+        engine_id = uuid.uuid4()
+        existing = self._engine_obj(engine_id=engine_id, is_active=True)
+        updated = self._engine_obj(engine_id=engine_id, is_active=False)
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.update",
+            AsyncMock(return_value=updated),
+        ), patch(
+            "giga_agent.routes.search_engines._clear_current_if_matches",
+            AsyncMock(return_value=True),
+        ) as mocked_clear_current, patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+            return_value=self._response_payload(updated),
+        ):
+            response = self.client.patch(
+                f"/search-engines/{engine_id}",
+                json={"is_active": False},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_clear_current.assert_awaited_once()
+
+    def test_delete_current_auto_clears_current(self):
+        engine_id = uuid.uuid4()
+        existing = self._engine_obj(engine_id=engine_id)
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.delete",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.search_engines._clear_current_if_matches",
+            AsyncMock(return_value=True),
+        ) as mocked_clear_current:
+            response = self.client.delete(f"/search-engines/{engine_id}")
+
+        self.assertEqual(response.status_code, 204)
+        mocked_clear_current.assert_awaited_once()
+
+    def test_owner_check_returns_403(self):
+        engine_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=403,
+                    detail="Access denied",
+                )
+            ),
+        ):
+            response = self.client.get(f"/search-engines/{engine_id}")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_not_found_returns_404(self):
+        engine_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=404,
+                    detail="Search engine not found",
+                )
+            ),
+        ):
+            response = self.client.get(f"/search-engines/{engine_id}")
+
+        self.assertEqual(response.status_code, 404)

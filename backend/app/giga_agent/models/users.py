@@ -11,6 +11,9 @@ from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
+# Ensure core_search_engines table is registered in metadata alongside User.
+import giga_agent.models.search_engine  # noqa: F401
+
 
 # ============ SQLAlchemy Models ============
 
@@ -47,6 +50,17 @@ class User(Base):
         index=True,
         default=None,
     )
+    search_engine_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_search_engines.id",
+            name="fk_core_users_search_engine_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+        default=None,
+    )
 
 
 # ============ Pydantic Schemas ============
@@ -60,6 +74,7 @@ class UserBase(BaseModel):
     is_superuser: bool = False
     settings: Optional[dict] = None
     image_generator_id: Optional[uuid.UUID] = None
+    search_engine_id: Optional[uuid.UUID] = None
 
 
 class UserCreate(UserBase):
@@ -253,7 +268,7 @@ class UserRepository:
         """Получить список пользователей"""
         query = select(User)
         if only_active:
-            query = query.where(User.is_active == True)
+            query = query.where(User.is_active.is_(True))
         query = query.offset(skip).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())

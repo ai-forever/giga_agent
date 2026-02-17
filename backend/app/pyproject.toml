@@ -34,6 +34,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "langgraph-api==0.7.28",
     "langchain-openai>=1.1.6",
+    "langchain-tavily>=0.2.11",
     "langchain-gigachat-lc1>=0.4.0b4",
     "e2b>=2.13.2",
     "aioboto3>=15.5.0",

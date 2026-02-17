@@ -25,13 +25,23 @@ import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Secret } from "@/interfaces.ts";
-import type { ImageGeneratorResponse, LLMResponse } from "./forms/types";
+import type {
+  ImageGeneratorResponse,
+  LLMResponse,
+  SearchEngineResponse,
+} from "./forms/types";
 
 const NO_IMAGE_GENERATOR_VALUE = "__none__";
+const NO_SEARCH_ENGINE_VALUE = "__none__";
 
 interface CurrentImageGeneratorResponse {
   image_generator_id: string | null;
   generator: ImageGeneratorResponse | null;
+}
+
+interface CurrentSearchEngineResponse {
+  search_engine_id: string | null;
+  engine: SearchEngineResponse | null;
 }
 
 type SecretItem = Secret & {
@@ -86,12 +96,19 @@ export const GeneralSettings: React.FC = () => {
 
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
   const [imageGeneratorList, setImageGeneratorList] = useState<ImageGeneratorResponse[]>([]);
+  const [searchEngineList, setSearchEngineList] = useState<SearchEngineResponse[]>([]);
   const [defaultLLM, setDefaultLLM] = useState<string>("");
   const [currentImageGenerator, setCurrentImageGenerator] = useState<string>(
     NO_IMAGE_GENERATOR_VALUE,
   );
   const [initialImageGenerator, setInitialImageGenerator] = useState<string>(
     NO_IMAGE_GENERATOR_VALUE,
+  );
+  const [currentSearchEngine, setCurrentSearchEngine] = useState<string>(
+    NO_SEARCH_ENGINE_VALUE,
+  );
+  const [initialSearchEngine, setInitialSearchEngine] = useState<string>(
+    NO_SEARCH_ENGINE_VALUE,
   );
   const [localTheme, setLocalTheme] = useState<ThemeMode>(themeMode);
   const [instructions, setInstructions] = useState<string>("");
@@ -103,6 +120,7 @@ export const GeneralSettings: React.FC = () => {
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(true);
   const [loadingLLMs, setLoadingLLMs] = useState(false);
   const [loadingImageGenerators, setLoadingImageGenerators] = useState(false);
+  const [loadingSearchEngines, setLoadingSearchEngines] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Инициализируем значения из настроек пользователя
@@ -157,10 +175,29 @@ export const GeneralSettings: React.FC = () => {
     }
   }, []);
 
+  const fetchSearchEngines = useCallback(async () => {
+    setLoadingSearchEngines(true);
+    try {
+      const [engines, current] = await Promise.all([
+        apiClient.get<SearchEngineResponse[]>("/api/search-engines?only_active=true"),
+        apiClient.get<CurrentSearchEngineResponse>("/api/search-engines/current"),
+      ]);
+      setSearchEngineList(engines);
+      const currentValue = current.search_engine_id ?? NO_SEARCH_ENGINE_VALUE;
+      setCurrentSearchEngine(currentValue);
+      setInitialSearchEngine(currentValue);
+    } catch {
+      // Ошибка уже обработана глобально
+    } finally {
+      setLoadingSearchEngines(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLLMs();
     fetchImageGenerators();
-  }, [fetchLLMs, fetchImageGenerators]);
+    fetchSearchEngines();
+  }, [fetchLLMs, fetchImageGenerators, fetchSearchEngines]);
 
   const parsedForValidation = useMemo(
     () =>
@@ -258,6 +295,15 @@ export const GeneralSettings: React.FC = () => {
         });
         setInitialImageGenerator(currentImageGenerator);
       }
+      if (currentSearchEngine !== initialSearchEngine) {
+        await apiClient.patch("/api/search-engines/current", {
+          search_engine_id:
+            currentSearchEngine === NO_SEARCH_ENGINE_VALUE
+              ? null
+              : currentSearchEngine,
+        });
+        setInitialSearchEngine(currentSearchEngine);
+      }
       // ThemeProvider подхватит тему из обновлённых user.settings
       await refreshUser();
     } catch {
@@ -350,6 +396,33 @@ export const GeneralSettings: React.FC = () => {
               {imageGeneratorList.map((generator) => (
                 <SelectItem key={generator.id} value={generator.id}>
                   {generator.name || generator.type}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+          <Label className="block grow-1" htmlFor="default-search-engine-select">
+            <div>Search engine</div>
+            <p className="text-sm text-muted-foreground mt-2">
+              Выберите поисковый движок по умолчанию
+            </p>
+          </Label>
+          <Select
+            value={currentSearchEngine}
+            onValueChange={setCurrentSearchEngine}
+            disabled={loadingSearchEngines}
+          >
+            <SelectTrigger id="default-search-engine-select" className="w-full">
+              <SelectValue
+                placeholder={loadingSearchEngines ? "Загрузка..." : "Не выбран"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_SEARCH_ENGINE_VALUE}>Не выбран</SelectItem>
+              {searchEngineList.map((engine) => (
+                <SelectItem key={engine.id} value={engine.id}>
+                  {engine.name || engine.type}
                 </SelectItem>
               ))}
             </SelectContent>

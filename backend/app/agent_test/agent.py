@@ -1,6 +1,7 @@
 from giga_agent.modules.auth import AuthModule
 from giga_agent.modules.image import ImageModule
 from giga_agent.modules.repl import ReplModule
+from giga_agent.modules.search import SearchModule
 from giga_agent.core.agent.base import BaseAgent
 
 from langchain_core.tools import tool
@@ -13,7 +14,7 @@ def get_weather(city: str):
 
 
 agent = BaseAgent(
-    modules=[AuthModule(), ReplModule(), ImageModule()],
+    modules=[AuthModule(), ReplModule(), ImageModule(), SearchModule()],
     tools=[get_weather],
 )
 

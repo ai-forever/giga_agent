@@ -101,5 +101,5 @@ class ReplModule(BaseModule):
     async def get_instructions(self, user: UserShort, agent: BaseAgent) -> str | None:
         return JUPYTER_REPL_INSTRUCTIONS + get_user_secrets_prompt(user)
 
-    async def get_middleware(self) -> AgentMiddleware:
+    def get_middleware(self) -> AgentMiddleware:
         return ReplMiddleware()

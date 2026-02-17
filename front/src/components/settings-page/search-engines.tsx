@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -14,11 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiClient } from "@/lib/api-client";
-import type {
-  ImageGeneratorResponse,
-  ImageGeneratorTypeMeta,
-  ProviderResponse,
-} from "./forms/types";
+import type { SearchEngineResponse, SearchEngineTypeMeta } from "./forms/types";
 
 interface JsonSchemaProperty {
   type?: string;
@@ -35,7 +31,7 @@ interface JsonSchema {
 
 type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
 
-type GeneratorFormMode = "create" | "edit";
+type SearchEngineFormMode = "create" | "edit";
 
 function isSecretField(name: string): boolean {
   const lower = name.toLowerCase();
@@ -129,12 +125,12 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
         if (propertyType === "boolean") {
           return (
             <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`image-gen-setting-${name}`}>
+              <Label htmlFor={`search-engine-setting-${name}`}>
                 {fieldLabel(name, property)}
                 {required && <span className="text-destructive ml-1">*</span>}
               </Label>
               <Switch
-                id={`image-gen-setting-${name}`}
+                id={`search-engine-setting-${name}`}
                 checked={Boolean(rawValue)}
                 onCheckedChange={(checked) => setFieldValue(name, checked)}
                 disabled={disabled}
@@ -147,12 +143,12 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
           const value = typeof rawValue === "number" ? String(rawValue) : "";
           return (
             <div key={name} className="space-y-1.5">
-              <Label htmlFor={`image-gen-setting-${name}`}>
+              <Label htmlFor={`search-engine-setting-${name}`}>
                 {fieldLabel(name, property)}
                 {required && <span className="text-destructive ml-1">*</span>}
               </Label>
               <Input
-                id={`image-gen-setting-${name}`}
+                id={`search-engine-setting-${name}`}
                 type="number"
                 step={propertyType === "integer" ? 1 : "any"}
                 value={value}
@@ -187,12 +183,12 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
 
         return (
           <div key={name} className="space-y-1.5">
-            <Label htmlFor={`image-gen-setting-${name}`}>
+            <Label htmlFor={`search-engine-setting-${name}`}>
               {fieldLabel(name, property)}
               {required && <span className="text-destructive ml-1">*</span>}
             </Label>
             <InputComponent
-              id={`image-gen-setting-${name}`}
+              id={`search-engine-setting-${name}`}
               value={value}
               placeholder={
                 property.description ||
@@ -211,17 +207,15 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
   );
 };
 
-interface ImageGeneratorItemProps {
-  generator: ImageGeneratorResponse;
-  providerName?: string;
-  onEdit: (generatorId: string) => void;
-  onDelete: (generatorId: string) => void;
+interface SearchEngineItemProps {
+  engine: SearchEngineResponse;
+  onEdit: (engineId: string) => void;
+  onDelete: (engineId: string) => void;
   disabled?: boolean;
 }
 
-const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
-  generator,
-  providerName,
+const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
+  engine,
   onEdit,
   onDelete,
   disabled,
@@ -229,21 +223,20 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
   return (
     <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col gap-1">
-        <span className="font-medium">{generator.name || generator.type}</span>
+        <span className="font-medium">{engine.name || engine.type}</span>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Тип: {generator.type}</span>
-          {providerName && <span>Provider: {providerName}</span>}
+          <span>Тип: {engine.type}</span>
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <Badge variant="outline">{generator.type}</Badge>
-        <Badge variant={generator.is_active ? "default" : "secondary"}>
-          {generator.is_active ? "Активен" : "Неактивен"}
+        <Badge variant="outline">{engine.type}</Badge>
+        <Badge variant={engine.is_active ? "default" : "secondary"}>
+          {engine.is_active ? "Активен" : "Неактивен"}
         </Badge>
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onEdit(generator.id)}
+          onClick={() => onEdit(engine.id)}
           disabled={disabled}
         >
           <Pencil className="size-4" />
@@ -251,7 +244,7 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => onDelete(generator.id)}
+          onClick={() => onDelete(engine.id)}
           disabled={disabled}
         >
           <Trash2 className="size-4 text-destructive" />
@@ -261,51 +254,41 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
   );
 };
 
-interface ImageGeneratorFormProps {
-  mode: GeneratorFormMode;
+interface SearchEngineFormProps {
+  mode: SearchEngineFormMode;
   selectedType: string;
-  generatorTypes: ImageGeneratorTypeMeta[];
-  generatorName: string;
+  engineTypes: SearchEngineTypeMeta[];
+  engineName: string;
   settingsSchema: JsonSchema | null;
   settingsValues: Record<string, unknown>;
-  selectedProviderId: string;
-  filteredProviders: ProviderResponse[];
-  requiresLlmProvider: boolean;
   isActive: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
-  loadingProviders: boolean;
   saving: boolean;
   submitDisabled: boolean;
   onTypeChange: (type: string) => void;
-  onGeneratorNameChange: (name: string) => void;
+  onEngineNameChange: (name: string) => void;
   onSettingsChange: (values: Record<string, unknown>) => void;
-  onProviderChange: (providerId: string) => void;
   onActiveChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }
 
-const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
+const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   mode,
   selectedType,
-  generatorTypes,
-  generatorName,
+  engineTypes,
+  engineName,
   settingsSchema,
   settingsValues,
-  selectedProviderId,
-  filteredProviders,
-  requiresLlmProvider,
   isActive,
   loadingTypes,
   loadingSchema,
-  loadingProviders,
   saving,
   submitDisabled,
   onTypeChange,
-  onGeneratorNameChange,
+  onEngineNameChange,
   onSettingsChange,
-  onProviderChange,
   onActiveChange,
   onSubmit,
   onCancel,
@@ -313,8 +296,8 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   return (
     <div className="space-y-5">
       <div className="space-y-1.5">
-        <Label htmlFor="image-generator-type">
-          Тип генератора <span className="text-destructive">*</span>
+        <Label htmlFor="search-engine-type">
+          Тип движка <span className="text-destructive">*</span>
         </Label>
         {mode === "create" ? (
           <Select
@@ -322,18 +305,18 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
             onValueChange={onTypeChange}
             disabled={loadingTypes || saving}
           >
-            <SelectTrigger id="image-generator-type" className="w-full">
+            <SelectTrigger id="search-engine-type" className="w-full">
               {loadingTypes ? (
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
                   Загрузка типов...
                 </div>
               ) : (
-                <SelectValue placeholder="Выберите тип генератора" />
+                <SelectValue placeholder="Выберите тип движка" />
               )}
             </SelectTrigger>
             <SelectContent>
-              {generatorTypes.map((item) => (
+              {engineTypes.map((item) => (
                 <SelectItem key={item.type} value={item.type}>
                   {item.type}
                 </SelectItem>
@@ -341,29 +324,29 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
             </SelectContent>
           </Select>
         ) : (
-          <Input id="image-generator-type" value={selectedType} disabled />
+          <Input id="search-engine-type" value={selectedType} disabled />
         )}
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="image-generator-name">
+        <Label htmlFor="search-engine-name">
           Название{" "}
           <span className="text-muted-foreground text-xs font-normal">
             (опционально)
           </span>
         </Label>
         <Input
-          id="image-generator-name"
-          placeholder="Мой генератор"
-          value={generatorName}
-          onChange={(e) => onGeneratorNameChange(e.target.value)}
+          id="search-engine-name"
+          placeholder="Мой движок"
+          value={engineName}
+          onChange={(e) => onEngineNameChange(e.target.value)}
           disabled={saving}
         />
       </div>
 
       {selectedType && (
         <div className="space-y-2">
-          <Label>Настройки генератора</Label>
+          <Label>Настройки движка</Label>
           {loadingSchema ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -380,53 +363,10 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
         </div>
       )}
 
-      {selectedType && requiresLlmProvider && (
-        <div className="space-y-1.5">
-          <Label htmlFor="image-generator-provider">
-            LLM Provider <span className="text-destructive">*</span>
-          </Label>
-          <Select
-            value={selectedProviderId}
-            onValueChange={onProviderChange}
-            disabled={loadingProviders || saving || filteredProviders.length === 0}
-          >
-            <SelectTrigger id="image-generator-provider" className="w-full">
-              {loadingProviders ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  Загрузка провайдеров...
-                </div>
-              ) : (
-                <SelectValue placeholder="Выберите LLM provider" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {filteredProviders.map((provider) => (
-                <SelectItem key={provider.id} value={provider.id}>
-                  {provider.name || provider.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {filteredProviders.length === 0 && !loadingProviders && (
-            <p className="text-sm text-amber-600">
-              Нет активных LLM provider для типа{" "}
-              <span className="font-medium">{selectedType}</span>.
-            </p>
-          )}
-        </div>
-      )}
-
-      {selectedType && !requiresLlmProvider && (
-        <p className="text-sm text-muted-foreground">
-          Для выбранного типа генератора LLM provider не требуется.
-        </p>
-      )}
-
       <div className="flex items-center justify-between">
-        <Label htmlFor="image-generator-active">Активен</Label>
+        <Label htmlFor="search-engine-active">Активен</Label>
         <Switch
-          id="image-generator-active"
+          id="search-engine-active"
           checked={isActive}
           onCheckedChange={onActiveChange}
           disabled={saving}
@@ -454,34 +394,31 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   );
 };
 
-export const ImageGeneratorsSettings: React.FC = () => {
-  const [generatorTypes, setGeneratorTypes] = useState<ImageGeneratorTypeMeta[]>([]);
-  const [providers, setProviders] = useState<ProviderResponse[]>([]);
-  const [generators, setGenerators] = useState<ImageGeneratorResponse[]>([]);
+export const SearchEnginesSettings: React.FC = () => {
+  const [engineTypes, setEngineTypes] = useState<SearchEngineTypeMeta[]>([]);
+  const [engines, setEngines] = useState<SearchEngineResponse[]>([]);
 
   const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [editingGeneratorId, setEditingGeneratorId] = useState<string | null>(null);
+  const [editingEngineId, setEditingEngineId] = useState<string | null>(null);
 
   const [selectedType, setSelectedType] = useState("");
-  const [generatorName, setGeneratorName] = useState("");
+  const [engineName, setEngineName] = useState("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
-  const [selectedProviderId, setSelectedProviderId] = useState("");
   const [isActive, setIsActive] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
-  const [loadingProviders, setLoadingProviders] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
-  const [loadingGenerators, setLoadingGenerators] = useState(false);
+  const [loadingEngines, setLoadingEngines] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const fetchGeneratorTypes = useCallback(async () => {
+  const fetchEngineTypes = useCallback(async () => {
     setLoadingTypes(true);
     try {
-      const data = await apiClient.get<ImageGeneratorTypeMeta[]>(
-        "/api/generators/image/types/meta",
+      const data = await apiClient.get<SearchEngineTypeMeta[]>(
+        "/api/search-engines/types/meta",
       );
-      setGeneratorTypes(data);
+      setEngineTypes(data);
     } catch {
       // Handled globally
     } finally {
@@ -489,39 +426,22 @@ export const ImageGeneratorsSettings: React.FC = () => {
     }
   }, []);
 
-  const fetchProviders = useCallback(async () => {
-    setLoadingProviders(true);
+  const fetchEngines = useCallback(async () => {
+    setLoadingEngines(true);
     try {
-      const data = await apiClient.get<ProviderResponse[]>(
-        "/api/llms/providers?only_active=true",
-      );
-      setProviders(data);
+      const data = await apiClient.get<SearchEngineResponse[]>("/api/search-engines");
+      setEngines(data);
     } catch {
       // Handled globally
     } finally {
-      setLoadingProviders(false);
-    }
-  }, []);
-
-  const fetchGenerators = useCallback(async () => {
-    setLoadingGenerators(true);
-    try {
-      const data = await apiClient.get<ImageGeneratorResponse[]>(
-        "/api/generators/image",
-      );
-      setGenerators(data);
-    } catch {
-      // Handled globally
-    } finally {
-      setLoadingGenerators(false);
+      setLoadingEngines(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchGeneratorTypes();
-    fetchProviders();
-    fetchGenerators();
-  }, [fetchGeneratorTypes, fetchProviders, fetchGenerators]);
+    fetchEngineTypes();
+    fetchEngines();
+  }, [fetchEngineTypes, fetchEngines]);
 
   useEffect(() => {
     if (!selectedType) {
@@ -537,7 +457,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `/api/generators/image/types/${selectedType}/settings-schema`,
+          `/api/search-engines/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -560,69 +480,30 @@ export const ImageGeneratorsSettings: React.FC = () => {
     };
   }, [selectedType]);
 
-  const selectedTypeMeta = useMemo(
-    () => generatorTypes.find((item) => item.type === selectedType),
-    [generatorTypes, selectedType],
-  );
-
-  const requiresLlmProvider = selectedTypeMeta?.requires_llm_provider ?? false;
-  const supportedProviderTypes = useMemo(
-    () =>
-      (selectedTypeMeta?.supported_llm_provider_types || []).map((type) =>
-        type.toLowerCase(),
-      ),
-    [selectedTypeMeta],
-  );
-
-  const filteredProviders = useMemo(
-    () =>
-      providers.filter((provider) =>
-        supportedProviderTypes.includes((provider.type || "").toLowerCase()),
-      ),
-    [providers, supportedProviderTypes],
-  );
-
-  useEffect(() => {
-    if (!selectedProviderId) return;
-    const exists = filteredProviders.some(
-      (provider) => provider.id === selectedProviderId,
-    );
-    if (!exists) {
-      setSelectedProviderId("");
-    }
-  }, [filteredProviders, selectedProviderId]);
-
-  const providersMap = useMemo(
-    () => new Map(providers.map((provider) => [provider.id, provider])),
-    [providers],
-  );
-
   const resetFormState = useCallback(() => {
     setSelectedType("");
-    setGeneratorName("");
+    setEngineName("");
     setSettingsSchema(null);
     setSettingsValues({});
-    setSelectedProviderId("");
     setIsActive(true);
   }, []);
 
   const handleCreateNew = () => {
-    setEditingGeneratorId(null);
+    setEditingEngineId(null);
     resetFormState();
     setIsCreatingNew(true);
   };
 
-  const handleStartEdit = (generatorId: string) => {
-    const generator = generators.find((item) => item.id === generatorId);
-    if (!generator) return;
+  const handleStartEdit = (engineId: string) => {
+    const engine = engines.find((item) => item.id === engineId);
+    if (!engine) return;
 
     setIsCreatingNew(false);
-    setEditingGeneratorId(generatorId);
-    setSelectedType(generator.type);
-    setGeneratorName(generator.name || "");
-    setSettingsValues(generator.settings || {});
-    setSelectedProviderId(generator.llm_provider_id || "");
-    setIsActive(generator.is_active);
+    setEditingEngineId(engineId);
+    setSelectedType(engine.type);
+    setEngineName(engine.name || "");
+    setSettingsValues(engine.settings || {});
+    setIsActive(engine.is_active);
   };
 
   const handleCancelCreate = () => {
@@ -631,21 +512,21 @@ export const ImageGeneratorsSettings: React.FC = () => {
   };
 
   const handleCancelEdit = () => {
-    setEditingGeneratorId(null);
+    setEditingEngineId(null);
     resetFormState();
   };
 
-  const handleDelete = async (generatorId: string) => {
+  const handleDelete = async (engineId: string) => {
     // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот image generator?")) return;
+    if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
 
     try {
-      await apiClient.delete(`/api/generators/image/${generatorId}`);
-      toast.success("Image generator удален");
-      if (editingGeneratorId === generatorId) {
+      await apiClient.delete(`/api/search-engines/${engineId}`);
+      toast.success("Search engine удален");
+      if (editingEngineId === engineId) {
         handleCancelEdit();
       }
-      fetchGenerators();
+      fetchEngines();
     } catch {
       // Handled globally
     }
@@ -653,30 +534,21 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!selectedType) return;
-    if (requiresLlmProvider && (!selectedProviderId || filteredProviders.length === 0)) {
-      return;
-    }
 
     setSaving(true);
     try {
-      const trimmedName = generatorName.trim();
+      const trimmedName = engineName.trim();
 
-      if (editingGeneratorId) {
-        const payload: Record<string, unknown> = {
-          name: trimmedName || null,
-          settings: compactObject(settingsValues),
-          is_active: isActive,
-        };
-
-        if (requiresLlmProvider) {
-          payload.llm_provider_id = selectedProviderId;
-        }
-
-        await apiClient.patch<ImageGeneratorResponse>(
-          `/api/generators/image/${editingGeneratorId}`,
-          payload,
+      if (editingEngineId) {
+        await apiClient.patch<SearchEngineResponse>(
+          `/api/search-engines/${editingEngineId}`,
+          {
+            name: trimmedName || null,
+            settings: compactObject(settingsValues),
+            is_active: isActive,
+          },
         );
-        toast.success("Image generator обновлен");
+        toast.success("Search engine обновлен");
         handleCancelEdit();
       } else {
         const payload: Record<string, unknown> = {
@@ -689,16 +561,12 @@ export const ImageGeneratorsSettings: React.FC = () => {
           payload.name = trimmedName;
         }
 
-        if (requiresLlmProvider) {
-          payload.llm_provider_id = selectedProviderId;
-        }
-
-        await apiClient.post<ImageGeneratorResponse>("/api/generators/image", payload);
-        toast.success("Image generator создан");
+        await apiClient.post<SearchEngineResponse>("/api/search-engines", payload);
+        toast.success("Search engine создан");
         handleCancelCreate();
       }
 
-      fetchGenerators();
+      fetchEngines();
     } catch {
       // Handled globally
     } finally {
@@ -706,20 +574,16 @@ export const ImageGeneratorsSettings: React.FC = () => {
     }
   };
 
-  const isEditing = editingGeneratorId !== null;
-  const isSaveDisabled =
-    saving ||
-    loadingSchema ||
-    !selectedType ||
-    (requiresLlmProvider && (!selectedProviderId || filteredProviders.length === 0));
+  const isEditing = editingEngineId !== null;
+  const isSaveDisabled = saving || loadingSchema || !selectedType;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">Image Generators</h3>
+          <h3 className="font-medium">Search Engines</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Управление генераторами изображений
+            Управление поисковыми движками
           </p>
         </div>
         {!isCreatingNew && (
@@ -738,7 +602,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
       {isCreatingNew && (
         <div className="border border-border rounded-lg p-4 bg-muted/30">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium">Новый image generator</h3>
+            <h3 className="font-medium">Новый search engine</h3>
             <Button
               variant="ghost"
               size="icon"
@@ -748,30 +612,24 @@ export const ImageGeneratorsSettings: React.FC = () => {
               <X className="size-4" />
             </Button>
           </div>
-          <ImageGeneratorForm
+          <SearchEngineForm
             mode="create"
             selectedType={selectedType}
-            generatorTypes={generatorTypes}
-            generatorName={generatorName}
+            engineTypes={engineTypes}
+            engineName={engineName}
             settingsSchema={settingsSchema}
             settingsValues={settingsValues}
-            selectedProviderId={selectedProviderId}
-            filteredProviders={filteredProviders}
-            requiresLlmProvider={requiresLlmProvider}
             isActive={isActive}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
-            loadingProviders={loadingProviders}
             saving={saving}
             submitDisabled={isSaveDisabled}
             onTypeChange={(nextType) => {
               setSelectedType(nextType);
               setSettingsValues({});
-              setSelectedProviderId("");
             }}
-            onGeneratorNameChange={setGeneratorName}
+            onEngineNameChange={setEngineName}
             onSettingsChange={setSettingsValues}
-            onProviderChange={setSelectedProviderId}
             onActiveChange={setIsActive}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
@@ -780,20 +638,16 @@ export const ImageGeneratorsSettings: React.FC = () => {
       )}
 
       <div className="space-y-4">
-        {generators.map((generator) => {
-          const provider = generator.llm_provider_id
-            ? providersMap.get(generator.llm_provider_id)
-            : undefined;
-
-          if (editingGeneratorId === generator.id) {
+        {engines.map((engine) => {
+          if (editingEngineId === engine.id) {
             return (
               <div
-                key={generator.id}
+                key={engine.id}
                 className="border border-border rounded-lg p-4 bg-muted/30"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-medium">
-                    Редактирование: {generator.name || generator.type}
+                    Редактирование: {engine.name || engine.type}
                   </h3>
                   <Button
                     variant="ghost"
@@ -804,28 +658,23 @@ export const ImageGeneratorsSettings: React.FC = () => {
                     <X className="size-4" />
                   </Button>
                 </div>
-                <ImageGeneratorForm
+                <SearchEngineForm
                   mode="edit"
                   selectedType={selectedType}
-                  generatorTypes={generatorTypes}
-                  generatorName={generatorName}
+                  engineTypes={engineTypes}
+                  engineName={engineName}
                   settingsSchema={settingsSchema}
                   settingsValues={settingsValues}
-                  selectedProviderId={selectedProviderId}
-                  filteredProviders={filteredProviders}
-                  requiresLlmProvider={requiresLlmProvider}
                   isActive={isActive}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
-                  loadingProviders={loadingProviders}
                   saving={saving}
                   submitDisabled={isSaveDisabled}
                   onTypeChange={() => {
                     // Type is read-only in edit mode.
                   }}
-                  onGeneratorNameChange={setGeneratorName}
+                  onEngineNameChange={setEngineName}
                   onSettingsChange={setSettingsValues}
-                  onProviderChange={setSelectedProviderId}
                   onActiveChange={setIsActive}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
@@ -835,14 +684,9 @@ export const ImageGeneratorsSettings: React.FC = () => {
           }
 
           return (
-            <ImageGeneratorItem
-              key={generator.id}
-              generator={generator}
-              providerName={
-                provider
-                  ? provider.name || provider.type
-                  : generator.llm_provider_id || undefined
-              }
+            <SearchEngineItem
+              key={engine.id}
+              engine={engine}
               onEdit={handleStartEdit}
               onDelete={handleDelete}
               disabled={isEditing || saving}
@@ -850,13 +694,13 @@ export const ImageGeneratorsSettings: React.FC = () => {
           );
         })}
 
-        {generators.length === 0 && !loadingGenerators && (
+        {engines.length === 0 && !loadingEngines && (
           <p className="text-center text-muted-foreground py-8">
-            Нет добавленных image generators
+            Нет добавленных search engines
           </p>
         )}
 
-        {loadingGenerators && (
+        {loadingEngines && (
           <p className="text-center text-muted-foreground py-8">Загрузка...</p>
         )}
       </div>
@@ -864,4 +708,4 @@ export const ImageGeneratorsSettings: React.FC = () => {
   );
 };
 
-export default ImageGeneratorsSettings;
+export default SearchEnginesSettings;

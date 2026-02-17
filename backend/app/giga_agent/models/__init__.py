@@ -63,6 +63,15 @@ from giga_agent.models.image_generator import (
     ImageGeneratorRepository,
 )
 
+from giga_agent.models.search_engine import (
+    SearchEngine,
+    SearchEngineBase,
+    SearchEngineCreate,
+    SearchEngineUpdate,
+    SearchEngineResponse,
+    SearchEngineRepository,
+)
+
 __all__ = [
     # Users
     "User",
@@ -119,4 +128,11 @@ __all__ = [
     "ImageGeneratorUpdate",
     "ImageGeneratorResponse",
     "ImageGeneratorRepository",
+    # Search Engines
+    "SearchEngine",
+    "SearchEngineBase",
+    "SearchEngineCreate",
+    "SearchEngineUpdate",
+    "SearchEngineResponse",
+    "SearchEngineRepository",
 ]

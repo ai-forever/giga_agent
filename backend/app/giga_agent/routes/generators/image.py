@@ -22,7 +22,7 @@ from giga_agent.models.llm import LLMProviderRepository
 from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user
 
-router = APIRouter(prefix="/generators/image", tags=["generators"])
+router = APIRouter(prefix="/image", tags=["generators"])
 
 
 class ImageGeneratorPatchRequest(BaseModel):

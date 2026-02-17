@@ -1,6 +1,4 @@
-import asyncio
-import threading
-from typing import Any, List, Set, Optional, TypeVar, Coroutine, cast
+from typing import Any, List, Set, Optional
 
 from giga_agent.core.agent.core_middleware import (
     CoreFirstMiddleware,
@@ -22,7 +20,7 @@ from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.routes import llms_router, sandboxes_router, files_router, generators_router
+from giga_agent.routes import router as api_router
 
 NOTES_PROMPT = """
 ====
@@ -36,32 +34,6 @@ NOTES_PROMPT = """
 
 ====
 """  # noqa: E501
-
-_T = TypeVar("_T")
-
-
-def _run_coroutine_sync(coro: Coroutine[Any, Any, _T]) -> _T:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    result: dict[str, Any] = {}
-
-    def _runner():
-        try:
-            result["value"] = asyncio.run(coro)
-        except Exception as exc:  # pragma: no cover - defensive
-            result["error"] = exc
-
-    thread = threading.Thread(target=_runner, daemon=True)
-    thread.start()
-    thread.join()
-
-    if "error" in result:
-        raise cast(Exception, result["error"])
-    return cast(_T, result["value"])
-
 
 class BaseAgent(Serializable):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -92,10 +64,7 @@ class BaseAgent(Serializable):
         self._app.state.agent = self
 
         # Подключаем core routes
-        self._app.include_router(llms_router)
-        self._app.include_router(sandboxes_router)
-        self._app.include_router(files_router)
-        self._app.include_router(generators_router)
+        self._app.include_router(api_router)
 
         # Re-initialize modules through add_module to ensure validation and route registration
         initial_modules = self.modules
@@ -105,8 +74,12 @@ class BaseAgent(Serializable):
             self.add_module(module)
 
         # Собираем middleware из модулей
-        module_middlewares = _run_coroutine_sync(self._get_module_middlewares())
-        all_middleware = [CoreFirstMiddleware(), *module_middlewares, CoreLastMiddleware()]
+        module_middlewares = self._get_module_middlewares()
+        all_middleware = [
+            CoreFirstMiddleware(),
+            *module_middlewares,
+            CoreLastMiddleware(),
+        ]
 
         self._graph = create_graph(self, middleware=all_middleware)
         setattr(self.graph, "giga_agent", self)
@@ -138,10 +111,10 @@ class BaseAgent(Serializable):
     def graph(self):
         return self._graph
 
-    async def _get_module_middlewares(self):
+    def _get_module_middlewares(self):
         middlewares = []
         for module in self.modules:
-            mw = await module.get_middleware()
+            mw = module.get_middleware()
             if mw is not None:
                 middlewares.append(mw)
         return middlewares

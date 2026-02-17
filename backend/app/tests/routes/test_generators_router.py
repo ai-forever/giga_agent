@@ -87,7 +87,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             return_value=self._response_payload(created),
         ):
             response = self.client.post(
-                "/generators/image",
+                "/image",
                 json={
                     "type": "openai",
                     "name": "OpenAI Gen",
@@ -117,7 +117,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             "giga_agent.routes.generators.image.ImageGeneratorRegistry.get",
             side_effect=lambda generator_type: runtime_map[generator_type],
         ):
-            response = self.client.get("/generators/image/types/meta")
+            response = self.client.get("/image/types/meta")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -157,7 +157,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             return_value=self._response_payload(created),
         ):
             response = self.client.post(
-                "/generators/image",
+                "/image",
                 json={
                     "type": "fusion_brain",
                     "settings": {"api_key": "k", "secret_key": "s"},
@@ -170,7 +170,7 @@ class GeneratorsRouterTests(unittest.TestCase):
 
     def test_patch_with_type_returns_422(self):
         response = self.client.patch(
-            f"/generators/image/{uuid.uuid4()}",
+            f"/image/{uuid.uuid4()}",
             json={"type": "gigachat"},
         )
 
@@ -211,7 +211,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             return_value=self._response_payload(updated),
         ):
             response = self.client.patch(
-                f"/generators/image/{generator_id}",
+                f"/image/{generator_id}",
                 json={"settings": {"model": "gpt-image-1"}, "name": "updated"},
             )
 
@@ -253,7 +253,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             return_value=self._response_payload(updated),
         ):
             response = self.client.patch(
-                f"/generators/image/{generator_id}",
+                f"/image/{generator_id}",
                 json={"settings": {"api_key": "k2", "secret_key": "s2"}},
             )
 
@@ -287,7 +287,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             return_value=self._response_payload(updated),
         ):
             response = self.client.patch(
-                f"/generators/image/{generator_id}",
+                f"/image/{generator_id}",
                 json={"is_active": False},
             )
 
@@ -308,7 +308,7 @@ class GeneratorsRouterTests(unittest.TestCase):
             "giga_agent.routes.generators.image._clear_current_if_matches",
             AsyncMock(return_value=True),
         ) as mocked_clear_current:
-            response = self.client.delete(f"/generators/image/{generator_id}")
+            response = self.client.delete(f"/image/{generator_id}")
 
         self.assertEqual(response.status_code, 204)
         mocked_clear_current.assert_awaited_once()
@@ -325,7 +325,7 @@ class GeneratorsRouterTests(unittest.TestCase):
                 )
             ),
         ):
-            response = self.client.get(f"/generators/image/{generator_id}")
+            response = self.client.get(f"/image/{generator_id}")
 
         self.assertEqual(response.status_code, 403)
 
@@ -341,6 +341,6 @@ class GeneratorsRouterTests(unittest.TestCase):
                 )
             ),
         ):
-            response = self.client.get(f"/generators/image/{generator_id}")
+            response = self.client.get(f"/image/{generator_id}")
 
         self.assertEqual(response.status_code, 404)

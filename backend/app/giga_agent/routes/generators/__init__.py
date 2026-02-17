@@ -1,3 +1,8 @@
-from giga_agent.routes.generators.image import router
+from fastapi import APIRouter
 
-__all__ = ["router"]
+from giga_agent.routes.generators.image import router as image_router
+
+router = APIRouter(prefix="/generators")
+router.include_router(image_router)
+
+__all__ = ["router", "image_router"]

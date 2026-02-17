@@ -13,7 +13,7 @@ from giga_agent.core.module import BaseModule
 
 @tool
 def async_contract_tool() -> str:
-    """Test tool for async module hooks."""
+    """Test tool for module hooks."""
     return "ok"
 
 
@@ -35,13 +35,13 @@ class _AsyncHooksModule(BaseModule):
         self._calls.append("get_instructions")
         return "async module instructions"
 
-    async def get_middleware(self):
+    def get_middleware(self):
         self._calls.append("get_middleware")
         return None
 
 
 class AsyncModuleHooksTests(unittest.IsolatedAsyncioTestCase):
-    async def test_base_agent_awaits_async_module_hooks(self):
+    async def test_base_agent_calls_module_hooks(self):
         module = _AsyncHooksModule()
         agent = BaseAgent(modules=[module], tools=[])
         user = types.SimpleNamespace(settings={})

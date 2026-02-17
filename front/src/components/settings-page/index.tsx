@@ -7,8 +7,9 @@ import { GeneralSettings } from "./general";
 import { LLMSettings } from "./llms";
 import { SandboxSettings } from "./sandbox";
 import { ImageGeneratorsSettings } from "./image-generators";
+import { SearchEnginesSettings } from "./search-engines";
 
-type SettingsTab = "general" | "llm" | "sandbox" | "image";
+type SettingsTab = "general" | "llm" | "sandbox" | "image" | "search";
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ const SettingsPage: React.FC = () => {
     { id: "general", label: "Основные" },
     { id: "llm", label: "LLM" },
     { id: "image", label: "Image" },
+    { id: "search", label: "Поиск" },
     { id: "sandbox", label: "Sandbox" },
   ];
 
@@ -33,6 +35,8 @@ const SettingsPage: React.FC = () => {
         return <LLMSettings />;
       case "image":
         return <ImageGeneratorsSettings />;
+      case "search":
+        return <SearchEnginesSettings />;
       case "sandbox":
         return <SandboxSettings />;
       default:

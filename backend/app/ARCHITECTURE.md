@@ -38,7 +38,7 @@ class MyModel(Base):
 
 Система состоит из core и модулей.
 
-- Встроенные модули находятся в `giga_agent.modules.*` (сейчас: `auth`, `repl`, `image`).
+- Встроенные модули находятся в `giga_agent.modules.*` (сейчас: `auth`, `repl`, `image`, `search`).
 - Пользовательские модули могут быть внешними пакетами.
 
 ### Контракт модуля
@@ -48,7 +48,7 @@ class MyModel(Base):
 - `get_api_router()` — API роутер модуля;
 - `async get_tools(user, agent)` — tools;
 - `async get_instructions(user, agent)` — системные инструкции;
-- `async get_middleware()` — middleware;
+- `get_middleware()` — middleware;
 - `on_startup(session)` — startup hook.
 
 `BaseModule` автоматически вычисляет `module_path`, а миграции ищутся по пути `<module_path>/migrations`.
@@ -65,8 +65,9 @@ from giga_agent.core.agent.base import BaseAgent
 from giga_agent.modules.auth import AuthModule
 from giga_agent.modules.image import ImageModule
 from giga_agent.modules.repl import ReplModule
+from giga_agent.modules.search import SearchModule
 
-agent = BaseAgent(modules=[AuthModule(), ReplModule(), ImageModule()])
+agent = BaseAgent(modules=[AuthModule(), ReplModule(), ImageModule(), SearchModule()])
 app, graph = agent.app, agent.graph
 ```
 

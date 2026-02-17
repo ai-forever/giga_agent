@@ -100,3 +100,18 @@ export interface ImageGeneratorTypeMeta {
   supported_llm_provider_types: string[];
   requires_llm_provider: boolean;
 }
+
+export interface SearchEngineResponse {
+  id: string;
+  owner_id: string;
+  type: string;
+  name: string | null;
+  settings: Record<string, unknown>;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SearchEngineTypeMeta {
+  type: string;
+}
