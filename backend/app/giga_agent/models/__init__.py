@@ -2,6 +2,7 @@ from giga_agent.models.users import (
     User,
     UserBase,
     UserCreate,
+    UserUpdate,
     UserResponse,
     UserShort,
     UserRepository,
@@ -75,11 +76,25 @@ from giga_agent.models.search_engine import (
     SearchEngineRepository,
 )
 
+from giga_agent.models.embedding import (
+    Embedding,
+    EmbeddingSettings,
+    EmbeddingBase,
+    EmbeddingCreate,
+    EmbeddingUpdate,
+    EmbeddingResponse,
+    EmbeddingContext,
+    AvailableEmbeddingModel,
+    EmbeddingModelFetchError,
+    EmbeddingRepository,
+)
+
 __all__ = [
     # Users
     "User",
     "UserBase",
     "UserCreate",
+    "UserUpdate",
     "UserResponse",
     "UserShort",
     "UserRepository",
@@ -139,4 +154,15 @@ __all__ = [
     "SearchEngineUpdate",
     "SearchEngineResponse",
     "SearchEngineRepository",
+    # Embeddings
+    "Embedding",
+    "EmbeddingSettings",
+    "EmbeddingBase",
+    "EmbeddingCreate",
+    "EmbeddingUpdate",
+    "EmbeddingResponse",
+    "EmbeddingContext",
+    "AvailableEmbeddingModel",
+    "EmbeddingModelFetchError",
+    "EmbeddingRepository",
 ]

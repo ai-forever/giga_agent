@@ -55,8 +55,15 @@ class MyModel(Base):
 
 ### Роутинг модулей
 
-В `BaseAgent` core-роуты (`llms`, `sandboxes`, `files`) подключаются автоматически.
+В `BaseAgent` core-роуты (`connectors`, `llms`, `embeddings`, `sandboxes`, `files`, `generators`, `search-engines`) подключаются автоматически.
 Роутер модуля, если он есть, подключается с префиксом `/{module.id}`.
+
+### Core runtime-ресурсы
+
+Core-уровень хранит runtime-конфигурации в отдельных таблицах:
+`core_connectors`, `core_llms`, `core_embeddings`, `core_image_generators`, `core_search_engines`.
+Для активного выбора пользователем используются nullable-ссылки в `core_users`:
+`embedding_id`, `image_generator_id`, `search_engine_id`.
 
 ### Пример подключения встроенных модулей
 

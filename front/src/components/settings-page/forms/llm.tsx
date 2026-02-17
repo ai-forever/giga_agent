@@ -69,6 +69,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const [loadingLLMTypes, setLoadingLLMTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [llmTypesLoaded, setLlmTypesLoaded] = useState(false);
+  const [connectorsLoaded, setConnectorsLoaded] = useState(false);
 
   const prevConnectorRef = useRef<string | null>(null);
   const modelsFetchedRef = useRef<Set<string>>(new Set());
@@ -106,6 +108,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       // handled globally
     } finally {
       setLoadingLLMTypes(false);
+      setLlmTypesLoaded(true);
     }
   }, [llm?.type]);
 
@@ -120,6 +123,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       // handled globally
     } finally {
       setLoadingConnectors(false);
+      setConnectorsLoaded(true);
     }
   }, []);
 
@@ -146,6 +150,10 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       return;
     }
 
+    if (!llmTypesLoaded || !connectorsLoaded) {
+      return;
+    }
+
     const exists = filteredConnectors.some(
       (connector) => connector.id === selectedConnectorId,
     );
@@ -167,7 +175,14 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     }
 
     prevConnectorRef.current = selectedConnectorId;
-  }, [selectedConnectorId, filteredConnectors, fetchModelsForConnector, llm?.connector_id]);
+  }, [
+    selectedConnectorId,
+    filteredConnectors,
+    fetchModelsForConnector,
+    llm?.connector_id,
+    llmTypesLoaded,
+    connectorsLoaded,
+  ]);
 
   const handleLLMTypeChange = (type: string) => {
     if (llm) return;

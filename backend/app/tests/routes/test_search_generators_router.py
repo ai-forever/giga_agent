@@ -122,39 +122,6 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             ],
         )
 
-    def test_get_current_returns_empty_when_not_set(self):
-        user_model = types.SimpleNamespace(search_engine_id=None)
-        with patch(
-            "giga_agent.routes.search_engines._get_user_model",
-            AsyncMock(return_value=user_model),
-        ):
-            response = self.client.get("/search-engines/current")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"search_engine_id": None, "engine": None})
-
-    def test_patch_current_sets_engine(self):
-        engine_id = uuid.uuid4()
-        existing = self._engine_obj(engine_id=engine_id, is_active=True)
-
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_owner_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines._set_user_current_search_engine",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(existing),
-        ):
-            response = self.client.patch(
-                "/search-engines/current",
-                json={"search_engine_id": str(engine_id)},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["search_engine_id"], str(engine_id))
-
     def test_patch_with_type_returns_422(self):
         response = self.client.patch(
             f"/search-engines/{uuid.uuid4()}",

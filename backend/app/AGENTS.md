@@ -13,7 +13,7 @@
 - Встроенные модули: `giga_agent.modules.auth`, `giga_agent.modules.repl`, `giga_agent.modules.image`, `giga_agent.modules.search`.
 - Базовый агент: `giga_agent.core.agent.base.BaseAgent`.
 - Базовый модуль: `giga_agent.core.module.BaseModule`.
-- Core API роуты подключаются автоматически: `llms`, `sandboxes`, `files`.
+- Core API роуты подключаются автоматически: `connectors`, `llms`, `embeddings`, `sandboxes`, `files`, `generators`, `search-engines`.
 - Роуты модулей подключаются автоматически с префиксом `/{module.id}`.
 
 ## 2. Команды разработки

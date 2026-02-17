@@ -15,6 +15,11 @@ interface User {
   is_active: boolean;
   is_superuser: boolean;
   settings: Record<string, unknown> | null;
+  llm_id: string | null;
+  fast_llm_id: string | null;
+  embedding_id: string | null;
+  image_generator_id: string | null;
+  search_engine_id: string | null;
 }
 
 interface AuthContextType {

@@ -426,16 +426,10 @@ def create_graph(
         if user is None:
             raise ValueError(f"User with id {user_id} not found")
 
-        default_llm_id = (user.settings or {}).get("default_llm")
-        if not default_llm_id:
+        if not user.llm_id:
             raise ValueError("User has no default LLM configured")
 
-        llm_uuid = (
-            uuid.UUID(default_llm_id)
-            if isinstance(default_llm_id, str)
-            else default_llm_id
-        )
-        llm = await LLMManager.resolve_by_id(llm_uuid)
+        llm = await LLMManager.resolve_by_id(user.llm_id)
         agent_tools = await agent.get_tools(user)
         llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
         system_message = SystemMessage(content=await agent.get_prompt(user))

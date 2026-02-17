@@ -37,15 +37,6 @@ class SearchEnginePatchRequest(BaseModel):
     is_active: bool | None = None
 
 
-class CurrentSearchEngineUpdate(BaseModel):
-    search_engine_id: uuid.UUID | None = None
-
-
-class CurrentSearchEngineResponse(BaseModel):
-    search_engine_id: uuid.UUID | None
-    engine: SearchEngineResponse | None
-
-
 class SearchEngineTypeMeta(BaseModel):
     type: str
     supported_connector_types: list[str]
@@ -189,19 +180,6 @@ async def _get_user_model(
     return user
 
 
-async def _set_user_current_search_engine(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    search_engine_id: uuid.UUID | None,
-) -> None:
-    user = await _get_user_model(db=db, owner_id=owner_id)
-    user.search_engine_id = search_engine_id
-    await db.commit()
-    await db.refresh(user)
-    await UserRepository.invalidate_cache(owner_id)
-
-
 async def _clear_current_if_matches(
     *,
     db: AsyncSession,
@@ -289,68 +267,6 @@ async def get_search_engines(
 ):
     engines = await engine_repo.get_by_owner(current_user.id, only_active=only_active)
     return [SearchEngineRepository.to_response(engine) for engine in engines]
-
-
-@router.get("/current", response_model=CurrentSearchEngineResponse)
-async def get_current_search_engine(
-    current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
-):
-    user = await _get_user_model(db=db, owner_id=current_user.id)
-    if user.search_engine_id is None:
-        return CurrentSearchEngineResponse(search_engine_id=None, engine=None)
-
-    engine = await engine_repo.get_by_id(user.search_engine_id)
-    if engine is None or engine.owner_id != current_user.id or not engine.is_active:
-        await _set_user_current_search_engine(
-            db=db,
-            owner_id=current_user.id,
-            search_engine_id=None,
-        )
-        return CurrentSearchEngineResponse(search_engine_id=None, engine=None)
-
-    return CurrentSearchEngineResponse(
-        search_engine_id=engine.id,
-        engine=SearchEngineRepository.to_response(engine),
-    )
-
-
-@router.patch("/current", response_model=CurrentSearchEngineResponse)
-async def patch_current_search_engine(
-    data: CurrentSearchEngineUpdate,
-    current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
-):
-    if data.search_engine_id is None:
-        await _set_user_current_search_engine(
-            db=db,
-            owner_id=current_user.id,
-            search_engine_id=None,
-        )
-        return CurrentSearchEngineResponse(search_engine_id=None, engine=None)
-
-    engine = await _get_engine_with_owner_check(
-        engine_id=data.search_engine_id,
-        owner_id=current_user.id,
-        engine_repo=engine_repo,
-    )
-    if not engine.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Search engine must be active",
-        )
-
-    await _set_user_current_search_engine(
-        db=db,
-        owner_id=current_user.id,
-        search_engine_id=engine.id,
-    )
-    return CurrentSearchEngineResponse(
-        search_engine_id=engine.id,
-        engine=SearchEngineRepository.to_response(engine),
-    )
 
 
 @router.get("/{engine_id}", response_model=SearchEngineResponse)

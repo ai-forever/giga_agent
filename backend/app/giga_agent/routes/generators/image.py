@@ -34,15 +34,6 @@ class ImageGeneratorPatchRequest(BaseModel):
     is_active: bool | None = None
 
 
-class CurrentImageGeneratorUpdate(BaseModel):
-    image_generator_id: uuid.UUID | None = None
-
-
-class CurrentImageGeneratorResponse(BaseModel):
-    image_generator_id: uuid.UUID | None
-    generator: ImageGeneratorResponse | None
-
-
 class ImageGeneratorTypeMeta(BaseModel):
     type: str
     supported_connector_types: list[str]
@@ -186,19 +177,6 @@ async def _get_user_model(
     return user
 
 
-async def _set_user_current_image_generator(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    image_generator_id: uuid.UUID | None,
-) -> None:
-    user = await _get_user_model(db=db, owner_id=owner_id)
-    user.image_generator_id = image_generator_id
-    await db.commit()
-    await db.refresh(user)
-    await UserRepository.invalidate_cache(owner_id)
-
-
 async def _clear_current_if_matches(
     *,
     db: AsyncSession,
@@ -288,68 +266,6 @@ async def get_image_generators(
 ):
     generators = await generator_repo.get_by_owner(current_user.id, only_active=only_active)
     return [ImageGeneratorRepository.to_response(g) for g in generators]
-
-
-@router.get("/current", response_model=CurrentImageGeneratorResponse)
-async def get_current_image_generator(
-    current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
-):
-    user = await _get_user_model(db=db, owner_id=current_user.id)
-    if user.image_generator_id is None:
-        return CurrentImageGeneratorResponse(image_generator_id=None, generator=None)
-
-    generator = await generator_repo.get_by_id(user.image_generator_id)
-    if generator is None or generator.owner_id != current_user.id or not generator.is_active:
-        await _set_user_current_image_generator(
-            db=db,
-            owner_id=current_user.id,
-            image_generator_id=None,
-        )
-        return CurrentImageGeneratorResponse(image_generator_id=None, generator=None)
-
-    return CurrentImageGeneratorResponse(
-        image_generator_id=generator.id,
-        generator=ImageGeneratorRepository.to_response(generator),
-    )
-
-
-@router.patch("/current", response_model=CurrentImageGeneratorResponse)
-async def patch_current_image_generator(
-    data: CurrentImageGeneratorUpdate,
-    current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
-):
-    if data.image_generator_id is None:
-        await _set_user_current_image_generator(
-            db=db,
-            owner_id=current_user.id,
-            image_generator_id=None,
-        )
-        return CurrentImageGeneratorResponse(image_generator_id=None, generator=None)
-
-    generator = await _get_generator_with_owner_check(
-        generator_id=data.image_generator_id,
-        owner_id=current_user.id,
-        generator_repo=generator_repo,
-    )
-    if not generator.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Image generator must be active",
-        )
-
-    await _set_user_current_image_generator(
-        db=db,
-        owner_id=current_user.id,
-        image_generator_id=generator.id,
-    )
-    return CurrentImageGeneratorResponse(
-        image_generator_id=generator.id,
-        generator=ImageGeneratorRepository.to_response(generator),
-    )
 
 
 @router.get("/{generator_id}", response_model=ImageGeneratorResponse)

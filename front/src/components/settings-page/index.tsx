@@ -5,12 +5,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GeneralSettings } from "./general";
 import { LLMSettings } from "./llms";
+import { EmbeddingsSettings } from "./embeddings";
 import { SandboxSettings } from "./sandbox";
 import { ImageGeneratorsSettings } from "./image-generators";
 import { SearchEnginesSettings } from "./search-engines";
 import { ServicesSettings } from "./services";
 
-type SettingsTab = "general" | "llm" | "services" | "sandbox" | "image" | "search";
+type SettingsTab =
+  | "general"
+  | "llm"
+  | "embedding"
+  | "services"
+  | "sandbox"
+  | "image"
+  | "search";
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -19,6 +27,7 @@ const SettingsPage: React.FC = () => {
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "Основные" },
     { id: "llm", label: "LLM" },
+    { id: "embedding", label: "Embeddings" },
     { id: "services", label: "Сервисы" },
     { id: "image", label: "Image" },
     { id: "search", label: "Поиск" },
@@ -35,6 +44,8 @@ const SettingsPage: React.FC = () => {
         return <GeneralSettings />;
       case "llm":
         return <LLMSettings />;
+      case "embedding":
+        return <EmbeddingsSettings />;
       case "services":
         return <ServicesSettings />;
       case "image":

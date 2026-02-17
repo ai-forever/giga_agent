@@ -9,7 +9,7 @@ from giga_agent.models.users import (
     UserCreate,
     UserResponse,
     UserShort,
-    UserSettingsUpdate,
+    UserUpdate,
 )
 
 
@@ -28,6 +28,6 @@ __all__ = [
     "UserBase",
     "UserCreate",
     "UserResponse",
-    "UserSettingsUpdate",
+    "UserUpdate",
     "UserShort",
 ]

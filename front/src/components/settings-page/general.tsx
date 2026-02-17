@@ -26,23 +26,17 @@ import { z } from "zod";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Secret } from "@/interfaces.ts";
 import type {
+  EmbeddingResponse,
   ImageGeneratorResponse,
   LLMResponse,
   SearchEngineResponse,
 } from "./forms/types";
 
+const NO_EMBEDDING_VALUE = "__none__";
 const NO_IMAGE_GENERATOR_VALUE = "__none__";
 const NO_SEARCH_ENGINE_VALUE = "__none__";
-
-interface CurrentImageGeneratorResponse {
-  image_generator_id: string | null;
-  generator: ImageGeneratorResponse | null;
-}
-
-interface CurrentSearchEngineResponse {
-  search_engine_id: string | null;
-  engine: SearchEngineResponse | null;
-}
+const NO_LLM_VALUE = "__none_llm__";
+const FAST_LLM_INHERIT_VALUE = "__inherit__";
 
 type SecretItem = Secret & {
   id: string;
@@ -79,7 +73,10 @@ const parseSettingsSecrets = (value: unknown): SecretItem[] => {
   return value
     .filter(
       (item): item is Secret =>
-        typeof item === "object" && item !== null && "name" in item && "value" in item,
+        typeof item === "object" &&
+        item !== null &&
+        "name" in item &&
+        "value" in item,
     )
     .map((item) => ({
       id: crypto.randomUUID(),
@@ -90,24 +87,34 @@ const parseSettingsSecrets = (value: unknown): SecretItem[] => {
     }));
 };
 
+const normalizeSecrets = (items: SecretItem[]) =>
+  items.map(({ id, ...rest }) => ({
+    ...rest,
+    name: rest.name.trim(),
+    value: rest.value.trim(),
+    description: rest.description?.trim() || undefined,
+  }));
+
 export const GeneralSettings: React.FC = () => {
   const { themeMode } = useTheme();
   const { user, refreshUser } = useAuth();
 
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
-  const [imageGeneratorList, setImageGeneratorList] = useState<ImageGeneratorResponse[]>([]);
-  const [searchEngineList, setSearchEngineList] = useState<SearchEngineResponse[]>([]);
-  const [defaultLLM, setDefaultLLM] = useState<string>("");
+  const [embeddingList, setEmbeddingList] = useState<EmbeddingResponse[]>([]);
+  const [imageGeneratorList, setImageGeneratorList] = useState<
+    ImageGeneratorResponse[]
+  >([]);
+  const [searchEngineList, setSearchEngineList] = useState<
+    SearchEngineResponse[]
+  >([]);
+  const [defaultLLM, setDefaultLLM] = useState<string>(NO_LLM_VALUE);
+  const [fastLLM, setFastLLM] = useState<string>(FAST_LLM_INHERIT_VALUE);
+  const [currentEmbedding, setCurrentEmbedding] =
+    useState<string>(NO_EMBEDDING_VALUE);
   const [currentImageGenerator, setCurrentImageGenerator] = useState<string>(
     NO_IMAGE_GENERATOR_VALUE,
   );
-  const [initialImageGenerator, setInitialImageGenerator] = useState<string>(
-    NO_IMAGE_GENERATOR_VALUE,
-  );
   const [currentSearchEngine, setCurrentSearchEngine] = useState<string>(
-    NO_SEARCH_ENGINE_VALUE,
-  );
-  const [initialSearchEngine, setInitialSearchEngine] = useState<string>(
     NO_SEARCH_ENGINE_VALUE,
   );
   const [localTheme, setLocalTheme] = useState<ThemeMode>(themeMode);
@@ -119,17 +126,22 @@ export const GeneralSettings: React.FC = () => {
   const [generalError, setGeneralError] = useState<string>("");
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(true);
   const [loadingLLMs, setLoadingLLMs] = useState(false);
+  const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
   const [loadingImageGenerators, setLoadingImageGenerators] = useState(false);
   const [loadingSearchEngines, setLoadingSearchEngines] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Инициализируем значения из настроек пользователя
+  // Инициализируем значения из профиля пользователя
   useEffect(() => {
-    if (!user?.settings) return;
-    const settings = user.settings as Record<string, unknown>;
-    setDefaultLLM(
-      typeof settings.default_llm === "string" ? settings.default_llm : "",
+    if (!user) return;
+    const settings = (user.settings ?? {}) as Record<string, unknown>;
+    setDefaultLLM(user.llm_id ?? NO_LLM_VALUE);
+    setFastLLM(user.fast_llm_id ?? FAST_LLM_INHERIT_VALUE);
+    setCurrentEmbedding(user.embedding_id ?? NO_EMBEDDING_VALUE);
+    setCurrentImageGenerator(
+      user.image_generator_id ?? NO_IMAGE_GENERATOR_VALUE,
     );
+    setCurrentSearchEngine(user.search_engine_id ?? NO_SEARCH_ENGINE_VALUE);
     setInstructions(
       typeof settings.contextInstructions === "string"
         ? settings.contextInstructions
@@ -156,18 +168,27 @@ export const GeneralSettings: React.FC = () => {
     }
   }, []);
 
+  const fetchEmbeddings = useCallback(async () => {
+    setLoadingEmbeddings(true);
+    try {
+      const embeddings = await apiClient.get<EmbeddingResponse[]>(
+        "/api/embeddings?only_active=true",
+      );
+      setEmbeddingList(embeddings);
+    } catch {
+      // Ошибка уже обработана глобально
+    } finally {
+      setLoadingEmbeddings(false);
+    }
+  }, []);
+
   const fetchImageGenerators = useCallback(async () => {
     setLoadingImageGenerators(true);
     try {
-      const [generators, current] = await Promise.all([
-        apiClient.get<ImageGeneratorResponse[]>("/api/generators/image?only_active=true"),
-        apiClient.get<CurrentImageGeneratorResponse>("/api/generators/image/current"),
-      ]);
+      const generators = await apiClient.get<ImageGeneratorResponse[]>(
+        "/api/generators/image?only_active=true",
+      );
       setImageGeneratorList(generators);
-      const currentValue =
-        current.image_generator_id ?? NO_IMAGE_GENERATOR_VALUE;
-      setCurrentImageGenerator(currentValue);
-      setInitialImageGenerator(currentValue);
     } catch {
       // Ошибка уже обработана глобально
     } finally {
@@ -178,14 +199,10 @@ export const GeneralSettings: React.FC = () => {
   const fetchSearchEngines = useCallback(async () => {
     setLoadingSearchEngines(true);
     try {
-      const [engines, current] = await Promise.all([
-        apiClient.get<SearchEngineResponse[]>("/api/search-engines?only_active=true"),
-        apiClient.get<CurrentSearchEngineResponse>("/api/search-engines/current"),
-      ]);
+      const engines = await apiClient.get<SearchEngineResponse[]>(
+        "/api/search-engines?only_active=true",
+      );
       setSearchEngineList(engines);
-      const currentValue = current.search_engine_id ?? NO_SEARCH_ENGINE_VALUE;
-      setCurrentSearchEngine(currentValue);
-      setInitialSearchEngine(currentValue);
     } catch {
       // Ошибка уже обработана глобально
     } finally {
@@ -195,9 +212,10 @@ export const GeneralSettings: React.FC = () => {
 
   useEffect(() => {
     fetchLLMs();
+    fetchEmbeddings();
     fetchImageGenerators();
     fetchSearchEngines();
-  }, [fetchLLMs, fetchImageGenerators, fetchSearchEngines]);
+  }, [fetchLLMs, fetchEmbeddings, fetchImageGenerators, fetchSearchEngines]);
 
   const parsedForValidation = useMemo(
     () =>
@@ -208,6 +226,11 @@ export const GeneralSettings: React.FC = () => {
       })),
     [secrets],
   );
+  const selectedDefaultLlmLabel = useMemo(() => {
+    if (defaultLLM === NO_LLM_VALUE) return "Не выбрана";
+    const selected = llmList.find((llm) => llm.id === defaultLLM);
+    return selected ? selected.name || selected.model_id : "Не выбрана";
+  }, [llmList, defaultLLM]);
 
   const validate = (): boolean => {
     setGeneralError("");
@@ -272,39 +295,79 @@ export const GeneralSettings: React.FC = () => {
     if (!validate()) return;
     setSaving(true);
     try {
-      const normalizedSecrets = secrets.map(({ id, ...rest }) => ({
-        ...rest,
-        name: rest.name.trim(),
-        value: rest.value.trim(),
-        description: rest.description?.trim() || undefined,
-      }));
-      await apiClient.patch("/api/auth/users/me/settings", {
-        settings: {
-          default_llm: defaultLLM || null,
-          theme: localTheme,
-          contextInstructions: instructions,
-          contextSecrets: normalizedSecrets,
-        },
-      });
-      if (currentImageGenerator !== initialImageGenerator) {
-        await apiClient.patch("/api/generators/image/current", {
-          image_generator_id:
-            currentImageGenerator === NO_IMAGE_GENERATOR_VALUE
-              ? null
-              : currentImageGenerator,
-        });
-        setInitialImageGenerator(currentImageGenerator);
+      const patchBody: Record<string, unknown> = {};
+      const currentSettings = (user?.settings ?? {}) as Record<string, unknown>;
+      const settingsPatch: Record<string, unknown> = {};
+
+      const currentTheme =
+        typeof currentSettings.theme === "string"
+          ? (currentSettings.theme as ThemeMode)
+          : "system";
+      if (localTheme !== currentTheme) {
+        settingsPatch.theme = localTheme;
       }
-      if (currentSearchEngine !== initialSearchEngine) {
-        await apiClient.patch("/api/search-engines/current", {
-          search_engine_id:
-            currentSearchEngine === NO_SEARCH_ENGINE_VALUE
-              ? null
-              : currentSearchEngine,
-        });
-        setInitialSearchEngine(currentSearchEngine);
+
+      const currentInstructions =
+        typeof currentSettings.contextInstructions === "string"
+          ? currentSettings.contextInstructions
+          : "";
+      if (instructions !== currentInstructions) {
+        settingsPatch.contextInstructions = instructions;
       }
-      // ThemeProvider подхватит тему из обновлённых user.settings
+
+      const normalizedSecrets = normalizeSecrets(secrets);
+      const currentSecrets = normalizeSecrets(
+        parseSettingsSecrets(currentSettings.contextSecrets),
+      );
+      if (
+        JSON.stringify(normalizedSecrets) !== JSON.stringify(currentSecrets)
+      ) {
+        settingsPatch.contextSecrets = normalizedSecrets;
+      }
+
+      if (Object.keys(settingsPatch).length > 0) {
+        patchBody.settings = settingsPatch;
+      }
+
+      if (defaultLLM !== (user?.llm_id ?? NO_LLM_VALUE)) {
+        patchBody.llm_id = defaultLLM === NO_LLM_VALUE ? null : defaultLLM;
+      }
+
+      const initialFastValue = user?.fast_llm_id ?? FAST_LLM_INHERIT_VALUE;
+      if (fastLLM !== initialFastValue) {
+        patchBody.fast_llm_id =
+          fastLLM === FAST_LLM_INHERIT_VALUE ? null : fastLLM;
+      }
+
+      if (currentEmbedding !== (user?.embedding_id ?? NO_EMBEDDING_VALUE)) {
+        patchBody.embedding_id =
+          currentEmbedding === NO_EMBEDDING_VALUE ? null : currentEmbedding;
+      }
+
+      if (
+        currentImageGenerator !==
+        (user?.image_generator_id ?? NO_IMAGE_GENERATOR_VALUE)
+      ) {
+        patchBody.image_generator_id =
+          currentImageGenerator === NO_IMAGE_GENERATOR_VALUE
+            ? null
+            : currentImageGenerator;
+      }
+
+      if (
+        currentSearchEngine !==
+        (user?.search_engine_id ?? NO_SEARCH_ENGINE_VALUE)
+      ) {
+        patchBody.search_engine_id =
+          currentSearchEngine === NO_SEARCH_ENGINE_VALUE
+            ? null
+            : currentSearchEngine;
+      }
+
+      if (Object.keys(patchBody).length > 0) {
+        await apiClient.patch("/api/auth/users/me", patchBody);
+      }
+
       await refreshUser();
     } catch {
       // Ошибка уже обработана глобально
@@ -315,7 +378,7 @@ export const GeneralSettings: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 space-y-6">
+      <div className="flex-1 space-y-6 pb-20">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
           <Label className="block" htmlFor="theme-select">
             <div>Тема оформления</div>
@@ -364,6 +427,7 @@ export const GeneralSettings: React.FC = () => {
               />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={NO_LLM_VALUE}>Не выбрана</SelectItem>
               {llmList.map((llm) => (
                 <SelectItem key={llm.id} value={llm.id}>
                   {llm.name || llm.model_id}
@@ -373,7 +437,67 @@ export const GeneralSettings: React.FC = () => {
           </Select>
         </div>
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label className="block grow-1" htmlFor="default-image-generator-select">
+          <Label className="block grow-1" htmlFor="fast-llm-select">
+            <div>Быстрая модель</div>
+            <p className="text-sm text-muted-foreground mt-2">
+              Используется в быстрых и вспомогательных задачах. Если не выбрана,
+              наследуется основная модель.
+            </p>
+          </Label>
+          <Select
+            value={fastLLM}
+            onValueChange={setFastLLM}
+            disabled={loadingLLMs}
+          >
+            <SelectTrigger id="fast-llm-select" className="w-full">
+              <SelectValue
+                placeholder={loadingLLMs ? "Загрузка..." : "Выберите LLM"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FAST_LLM_INHERIT_VALUE}>
+                ({selectedDefaultLlmLabel})
+              </SelectItem>
+              {llmList.map((llm) => (
+                <SelectItem key={llm.id} value={llm.id}>
+                  {llm.name || llm.model_id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+          <Label className="block grow-1" htmlFor="default-embedding-select">
+            <div>Embeddings</div>
+            <p className="text-sm text-muted-foreground mt-2">
+              Выберите embedding модель по умолчанию
+            </p>
+          </Label>
+          <Select
+            value={currentEmbedding}
+            onValueChange={setCurrentEmbedding}
+            disabled={loadingEmbeddings}
+          >
+            <SelectTrigger id="default-embedding-select" className="w-full">
+              <SelectValue
+                placeholder={loadingEmbeddings ? "Загрузка..." : "Не выбран"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_EMBEDDING_VALUE}>Не выбран</SelectItem>
+              {embeddingList.map((embedding) => (
+                <SelectItem key={embedding.id} value={embedding.id}>
+                  {embedding.name || embedding.model_id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+          <Label
+            className="block grow-1"
+            htmlFor="default-image-generator-select"
+          >
             <div>Image generator</div>
             <p className="text-sm text-muted-foreground mt-2">
               Выберите генератор изображений по умолчанию
@@ -384,7 +508,10 @@ export const GeneralSettings: React.FC = () => {
             onValueChange={setCurrentImageGenerator}
             disabled={loadingImageGenerators}
           >
-            <SelectTrigger id="default-image-generator-select" className="w-full">
+            <SelectTrigger
+              id="default-image-generator-select"
+              className="w-full"
+            >
               <SelectValue
                 placeholder={
                   loadingImageGenerators ? "Загрузка..." : "Не выбран"
@@ -392,7 +519,9 @@ export const GeneralSettings: React.FC = () => {
               />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_IMAGE_GENERATOR_VALUE}>Не выбран</SelectItem>
+              <SelectItem value={NO_IMAGE_GENERATOR_VALUE}>
+                Не выбран
+              </SelectItem>
               {imageGeneratorList.map((generator) => (
                 <SelectItem key={generator.id} value={generator.id}>
                   {generator.name || generator.type}
@@ -402,7 +531,10 @@ export const GeneralSettings: React.FC = () => {
           </Select>
         </div>
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label className="block grow-1" htmlFor="default-search-engine-select">
+          <Label
+            className="block grow-1"
+            htmlFor="default-search-engine-select"
+          >
             <div>Search engine</div>
             <p className="text-sm text-muted-foreground mt-2">
               Выберите поисковый движок по умолчанию
@@ -488,7 +620,9 @@ export const GeneralSettings: React.FC = () => {
                   </div>
 
                   {generalError && (
-                    <div className="text-sm text-destructive">{generalError}</div>
+                    <div className="text-sm text-destructive">
+                      {generalError}
+                    </div>
                   )}
 
                   <div className="space-y-4">
@@ -554,7 +688,11 @@ export const GeneralSettings: React.FC = () => {
                               placeholder="Описание (где/как применять секрет)"
                               value={s.description ?? ""}
                               onChange={(e) =>
-                                updateSecret(s.id, "description", e.target.value)
+                                updateSecret(
+                                  s.id,
+                                  "description",
+                                  e.target.value,
+                                )
                               }
                             />
                           </div>

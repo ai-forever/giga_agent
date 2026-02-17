@@ -3,12 +3,12 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.routes.connectors import router
+from giga_agent.routes.connectors import _validate_type_change_compatibility, router
 
 
 class ConnectorsRouterTests(unittest.TestCase):
@@ -125,9 +125,6 @@ class ConnectorsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.connectors.ConnectorRepository.to_response",
             return_value=self._response_payload(updated),
-        ), patch(
-            "giga_agent.routes.connectors.cache.delete_tags",
-            AsyncMock(return_value=None),
         ):
             response = self.client.patch(
                 f"/connectors/{connector_id}",
@@ -138,45 +135,56 @@ class ConnectorsRouterTests(unittest.TestCase):
         mocked_validate_compat.assert_awaited_once()
         self.assertEqual(response.json()["type"], "gigachat")
 
-    def test_delete_connector_invalidates_dependent_caches(self):
+    def test_delete_connector_success(self):
         connector = self._connector_obj()
-        llm = types.SimpleNamespace(id=uuid.uuid4())
-        generator = types.SimpleNamespace(id=uuid.uuid4())
-        engine = types.SimpleNamespace(id=uuid.uuid4())
 
         with patch(
             "giga_agent.routes.connectors._get_connector_with_owner_check",
             AsyncMock(return_value=connector),
         ), patch(
-            "giga_agent.routes.connectors.LLMRepository.get_by_connector",
-            AsyncMock(return_value=[llm]),
-        ), patch(
-            "giga_agent.routes.connectors.ImageGeneratorRepository.get_by_connector",
-            AsyncMock(return_value=[generator]),
-        ), patch(
-            "giga_agent.routes.connectors.SearchEngineRepository.get_by_connector",
-            AsyncMock(return_value=[engine]),
-        ), patch(
-            "giga_agent.routes.connectors.LLMRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_llm_invalidate, patch(
-            "giga_agent.routes.connectors.ImageGeneratorRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_gen_invalidate, patch(
-            "giga_agent.routes.connectors.SearchEngineRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_engine_invalidate, patch(
             "giga_agent.routes.connectors.ConnectorRepository.delete",
             AsyncMock(return_value=None),
-        ) as mocked_delete, patch(
-            "giga_agent.routes.connectors.cache.delete_tags",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_tags:
+        ) as mocked_delete:
             response = self.client.delete(f"/connectors/{connector.id}")
 
         self.assertEqual(response.status_code, 204)
-        mocked_llm_invalidate.assert_awaited_once_with(llm.id)
-        mocked_gen_invalidate.assert_awaited_once_with(generator.id)
-        mocked_engine_invalidate.assert_awaited_once_with(engine.id)
         mocked_delete.assert_awaited_once()
-        mocked_delete_tags.assert_awaited_once()
+
+
+class ConnectorCompatibilityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_validate_type_change_checks_embedding_dependency(self):
+        connector_id = uuid.uuid4()
+        embedding = types.SimpleNamespace(id=uuid.uuid4(), type="openai")
+
+        class _EmbeddingRuntime:
+            @classmethod
+            def is_connector_supported(cls, connector_type: str) -> bool:
+                return False
+
+            @classmethod
+            def supported_connector_types(cls) -> list[str]:
+                return ["openai"]
+
+        llm_repo = types.SimpleNamespace(get_by_connector=AsyncMock(return_value=[]))
+        embedding_repo = types.SimpleNamespace(
+            get_by_connector=AsyncMock(return_value=[embedding])
+        )
+        image_repo = types.SimpleNamespace(get_by_connector=AsyncMock(return_value=[]))
+        search_repo = types.SimpleNamespace(get_by_connector=AsyncMock(return_value=[]))
+
+        with patch(
+            "giga_agent.routes.connectors.EmbeddingRegistry.get",
+            return_value=_EmbeddingRuntime,
+        ):
+            with self.assertRaises(HTTPException) as ctx:
+                await _validate_type_change_compatibility(
+                    connector_id=connector_id,
+                    connector_type="gigachat",
+                    llm_repo=llm_repo,
+                    embedding_repo=embedding_repo,
+                    image_repo=image_repo,
+                    search_repo=search_repo,
+                )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("embedding", str(ctx.exception.detail))

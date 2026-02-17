@@ -13,7 +13,9 @@ from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
 
 # Ensure referenced core tables are registered in metadata alongside User.
 import giga_agent.models.connector  # noqa: F401
+import giga_agent.models.embedding  # noqa: F401
 import giga_agent.models.image_generator  # noqa: F401
+import giga_agent.models.llm  # noqa: F401
 import giga_agent.models.search_engine  # noqa: F401
 
 
@@ -63,6 +65,39 @@ class User(Base):
         index=True,
         default=None,
     )
+    embedding_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_embeddings.id",
+            name="fk_core_users_embedding_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+        default=None,
+    )
+    llm_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_llms.id",
+            name="fk_core_users_llm_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+        default=None,
+    )
+    fast_llm_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_llms.id",
+            name="fk_core_users_fast_llm_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+        default=None,
+    )
 
 
 # ============ Pydantic Schemas ============
@@ -77,6 +112,9 @@ class UserBase(BaseModel):
     settings: Optional[dict] = None
     image_generator_id: Optional[uuid.UUID] = None
     search_engine_id: Optional[uuid.UUID] = None
+    embedding_id: Optional[uuid.UUID] = None
+    llm_id: Optional[uuid.UUID] = None
+    fast_llm_id: Optional[uuid.UUID] = None
 
 
 class UserCreate(UserBase):
@@ -101,10 +139,15 @@ class UserShort(UserBase):
         from_attributes = True
 
 
-class UserSettingsUpdate(BaseModel):
-    """Схема для обновления настроек пользователя"""
+class UserUpdate(BaseModel):
+    """Схема для частичного обновления полей пользователя."""
 
-    settings: dict
+    settings: dict | None = None
+    llm_id: uuid.UUID | None = None
+    fast_llm_id: uuid.UUID | None = None
+    image_generator_id: uuid.UUID | None = None
+    search_engine_id: uuid.UUID | None = None
+    embedding_id: uuid.UUID | None = None
 
 
 # ============ Repository ============

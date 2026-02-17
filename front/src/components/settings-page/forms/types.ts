@@ -58,7 +58,19 @@ export interface AvailableModel {
   owned_by?: string;
 }
 
+export interface AvailableEmbeddingModel {
+  id: string;
+  name: string | null;
+  created?: number;
+  owned_by?: string;
+}
+
 export interface LLMTypeMeta {
+  type: string;
+  supported_connector_types: string[];
+}
+
+export interface EmbeddingTypeMeta {
   type: string;
   supported_connector_types: string[];
 }
@@ -87,6 +99,28 @@ export interface LLMFormData {
   llm_name?: string;
   llm_settings: LLMSettings;
   is_active: boolean;
+}
+
+export interface EmbeddingSettings {
+  dimensions?: number;
+  chunk_size?: number;
+  max_retries?: number;
+  request_timeout?: number;
+  timeout?: number;
+  extra?: Record<string, unknown>;
+}
+
+export interface EmbeddingResponse {
+  id: string;
+  owner_id: string;
+  type: string;
+  connector_id: string;
+  model_id: string;
+  name: string | null;
+  settings: EmbeddingSettings;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ImageGeneratorResponse {

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.db import get_session
+from giga_agent.embeddings.registry import EmbeddingRegistry
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.llm.registry import LLMRegistry
 from giga_agent.models.connector import (
@@ -20,6 +21,7 @@ from giga_agent.models.connector import (
     ConnectorResponse,
     ConnectorUpdate,
 )
+from giga_agent.models.embedding import EmbeddingRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
 from giga_agent.models.search_engine import SearchEngineRepository
@@ -29,6 +31,7 @@ from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure runtime registrations
 import giga_agent.connectors  # noqa: F401
+import giga_agent.embeddings  # noqa: F401
 import giga_agent.generators.image  # noqa: F401
 import giga_agent.llm  # noqa: F401
 import giga_agent.search_engines  # noqa: F401
@@ -56,6 +59,12 @@ async def get_image_generator_repository(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ImageGeneratorRepository:
     return ImageGeneratorRepository(db)
+
+
+async def get_embedding_repository(
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> EmbeddingRepository:
+    return EmbeddingRepository(db)
 
 
 async def get_search_engine_repository(
@@ -119,10 +128,12 @@ async def _validate_type_change_compatibility(
     connector_id: uuid.UUID,
     connector_type: str,
     llm_repo: LLMRepository,
+    embedding_repo: EmbeddingRepository,
     image_repo: ImageGeneratorRepository,
     search_repo: SearchEngineRepository,
 ) -> None:
     llms = await llm_repo.get_by_connector(connector_id, only_active=False)
+    embeddings = await embedding_repo.get_by_connector(connector_id, only_active=False)
     generators = await image_repo.get_by_connector(connector_id, only_active=False)
     engines = await search_repo.get_by_connector(connector_id, only_active=False)
 
@@ -161,6 +172,24 @@ async def _validate_type_change_compatibility(
                 detail=(
                     f"Connector type '{normalized_type}' is not compatible with image generator "
                     f"'{generator.id}' (type '{generator.type}'). Supported connector types: {supported}"
+                ),
+            )
+
+    for embedding in embeddings:
+        try:
+            runtime_cls = EmbeddingRegistry.get(embedding.type)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            ) from e
+        if not runtime_cls.is_connector_supported(normalized_type):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Connector type '{normalized_type}' is not compatible with embedding "
+                    f"'{embedding.id}' (type '{embedding.type}'). Supported connector types: "
+                    f"{runtime_cls.supported_connector_types()}"
                 ),
             )
 
@@ -265,6 +294,7 @@ async def patch_connector(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
+    embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
     image_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
     search_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
 ):
@@ -309,6 +339,7 @@ async def patch_connector(
             connector_id=connector.id,
             connector_type=effective_type,
             llm_repo=llm_repo,
+            embedding_repo=embedding_repo,
             image_repo=image_repo,
             search_repo=search_repo,
         )

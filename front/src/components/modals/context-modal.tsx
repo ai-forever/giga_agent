@@ -146,7 +146,7 @@ const ContextModal: React.FC<ContextModalProps> = ({
     };
     setSaving(true);
     try {
-      await apiClient.patch("/api/auth/users/me/settings", {
+      await apiClient.patch("/api/auth/users/me", {
         settings: {
           contextInstructions: payload.instructions,
           contextSecrets: payload.secrets,

@@ -1,22 +1,29 @@
+import uuid
 from datetime import timedelta
 from typing import Annotated
 
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
+from giga_agent.models.embedding import EmbeddingRepository
+from giga_agent.models.image_generator import ImageGeneratorRepository
+from giga_agent.models.llm import LLMRepository
+from giga_agent.models.search_engine import SearchEngineRepository
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.core.events import event_bus
 from giga_agent.modules.auth.events import UserCreatedEvent
 from giga_agent.models.users import (
+    User,
     UserShort,
     UserRepository,
     UserResponse,
     UserCreate,
-    UserSettingsUpdate,
+    UserUpdate,
 )
 
 router = APIRouter(tags=["auth"])
@@ -92,6 +99,97 @@ class Token(BaseModel):
     token_type: str
 
 
+async def _get_user_model_by_id(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> User:
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return user
+
+
+def _invalid_reference_error(field_name: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"Invalid value for {field_name}: record must exist, belong to user, and be active",
+    )
+
+
+async def _validate_llm_id(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    llm_id: uuid.UUID,
+) -> None:
+    llm = await LLMRepository.get_cached_or_db(
+        llm_id,
+        session=db,
+        use_cache=True,
+    )
+    if llm is None or llm.owner_id != owner_id or not llm.is_active:
+        raise _invalid_reference_error("llm_id")
+
+
+async def _validate_fast_llm_id(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    fast_llm_id: uuid.UUID,
+) -> None:
+    llm = await LLMRepository.get_cached_or_db(
+        fast_llm_id,
+        session=db,
+        use_cache=True,
+    )
+    if llm is None or llm.owner_id != owner_id or not llm.is_active:
+        raise _invalid_reference_error("fast_llm_id")
+
+
+async def _validate_embedding_id(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    embedding_id: uuid.UUID,
+) -> None:
+    embedding = await EmbeddingRepository.get_cached_or_db(
+        embedding_id,
+        session=db,
+        use_cache=True,
+    )
+    if embedding is None or embedding.owner_id != owner_id or not embedding.is_active:
+        raise _invalid_reference_error("embedding_id")
+
+
+async def _validate_image_generator_id(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    image_generator_id: uuid.UUID,
+) -> None:
+    generator = await ImageGeneratorRepository.get_cached_or_db(
+        image_generator_id,
+        session=db,
+        use_cache=True,
+    )
+    if generator is None or generator.owner_id != owner_id or not generator.is_active:
+        raise _invalid_reference_error("image_generator_id")
+
+
+async def _validate_search_engine_id(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    search_engine_id: uuid.UUID,
+) -> None:
+    engine = await SearchEngineRepository.get_cached_or_db(
+        search_engine_id,
+        session=db,
+        use_cache=True,
+    )
+    if engine is None or engine.owner_id != owner_id or not engine.is_active:
+        raise _invalid_reference_error("search_engine_id")
+
+
 # ============ Endpoints ============
 
 
@@ -145,17 +243,61 @@ async def read_users_me(
     return current_user
 
 
-@router.patch("/users/me/settings", response_model=UserShort)
-async def update_user_settings(
-    body: UserSettingsUpdate,
+@router.patch("/users/me", response_model=UserShort)
+async def update_user(
+    body: UserUpdate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ):
-    """Обновить настройки текущего пользователя (merge с существующими)"""
-    return await user_repo.update_settings(
-        current_user.id,
-        body.settings,
-    )
+    """Частично обновить профиль текущего пользователя."""
+    if not body.model_fields_set:
+        return current_user
+
+    user = await _get_user_model_by_id(db, current_user.id)
+
+    if "settings" in body.model_fields_set:
+        if body.settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="settings must be an object when provided",
+            )
+        merged_settings = dict(user.settings or {})
+        merged_settings.update(body.settings)
+        user.settings = merged_settings
+
+    if "llm_id" in body.model_fields_set:
+        if body.llm_id is not None:
+            await _validate_llm_id(db, current_user.id, body.llm_id)
+        user.llm_id = body.llm_id
+
+    if "fast_llm_id" in body.model_fields_set:
+        if body.fast_llm_id is not None:
+            await _validate_fast_llm_id(db, current_user.id, body.fast_llm_id)
+        user.fast_llm_id = body.fast_llm_id
+
+    if "embedding_id" in body.model_fields_set:
+        if body.embedding_id is not None:
+            await _validate_embedding_id(db, current_user.id, body.embedding_id)
+        user.embedding_id = body.embedding_id
+
+    if "image_generator_id" in body.model_fields_set:
+        if body.image_generator_id is not None:
+            await _validate_image_generator_id(
+                db,
+                current_user.id,
+                body.image_generator_id,
+            )
+        user.image_generator_id = body.image_generator_id
+
+    if "search_engine_id" in body.model_fields_set:
+        if body.search_engine_id is not None:
+            await _validate_search_engine_id(db, current_user.id, body.search_engine_id)
+        user.search_engine_id = body.search_engine_id
+
+    await db.commit()
+    await db.refresh(user)
+    await UserRepository.invalidate_cache(user.id)
+    return UserRepository.to_short(user)
 
 
 @router.post("/users", response_model=UserResponse)
