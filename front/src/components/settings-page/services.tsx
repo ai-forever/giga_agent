@@ -28,6 +28,7 @@ type FormMode = "create" | "edit";
 type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
 
 const MANAGED_CONNECTOR_TYPES: ConnectorType[] = ["openai", "gigachat"];
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
 function compactObject(values: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
@@ -339,7 +340,6 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
 
       {selectedType && (
         <div className="space-y-2">
-          <Label>Настройки сервиса</Label>
           {isManagedType ? (
             <ConnectorForm
               connectorType={selectedType as ConnectorType}
@@ -347,6 +347,7 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
                 // Type is controlled above.
               }}
               showConnectorTypeSelector={false}
+              compact
               settings={settingsValues as ConnectorSettings}
               onSettingsChange={(nextSettings) =>
                 onSettingsChange(nextSettings as Record<string, unknown>)
@@ -640,7 +641,9 @@ export const ServicesSettings: React.FC = () => {
             submitDisabled={isSubmitDisabled}
             onTypeChange={(type) => {
               setSelectedType(type);
-              setSettingsValues({});
+              setSettingsValues(
+                type === "openai" ? { base_url: OPENAI_DEFAULT_BASE_URL } : {},
+              );
             }}
             onConnectorNameChange={setConnectorName}
             onSettingsChange={setSettingsValues}

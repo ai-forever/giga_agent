@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/select";
 import type { ConnectorType, ConnectorSettings, GigaChatApiType, GigaChatScope } from "./types";
 
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
 const GIGACHAT_API_TYPES: { id: GigaChatApiType; label: string }[] = [
   { id: "prod", label: "GigaChat Prod" },
   { id: "preview", label: "GigaChat Preview" },
@@ -31,6 +33,7 @@ interface ConnectorFormProps {
   connectorName?: string;
   onConnectorNameChange?: (name: string) => void;
   showConnectorTypeSelector?: boolean;
+  compact?: boolean;
 }
 
 const CONNECTOR_TYPES: { id: ConnectorType; label: string }[] = [
@@ -46,6 +49,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
   connectorName,
   onConnectorNameChange,
   showConnectorTypeSelector = true,
+  compact = false,
 }) => {
   const handleConnectorTypeChange = (type: ConnectorType) => {
     onConnectorTypeChange(type);
@@ -64,8 +68,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
         <Label htmlFor="base_url">Base URL</Label>
         <Input
           id="base_url"
-          placeholder="https://api.openai.com/v1"
-          value={settings.base_url || ""}
+          placeholder={OPENAI_DEFAULT_BASE_URL}
+          value={settings.base_url || OPENAI_DEFAULT_BASE_URL}
           onChange={(e) => handleSettingChange("base_url", e.target.value)}
         />
       </div>
@@ -174,7 +178,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
   );
 
   return (
-    <div className="space-y-4 p-4 border border-border rounded-lg bg-muted/30">
+    <div className={compact ? "space-y-4" : "space-y-4 p-4 border border-border rounded-lg bg-muted/30"}>
       {showConnectorTypeSelector && (
         <div className="space-y-2">
           <Label>Тип коннектора</Label>

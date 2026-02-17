@@ -11,6 +11,8 @@ from pydantic import Field
 from giga_agent.connectors.base import BaseConnector
 from giga_agent.connectors.registry import ConnectorRegistry
 
+OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
 
 @ConnectorRegistry.register("openai")
 class OpenAIConnector(BaseConnector):
@@ -34,10 +36,7 @@ class OpenAIConnector(BaseConnector):
             validated.pop("api_key", None)
 
         base_url = str(validated.get("base_url", "") or "").strip().rstrip("/")
-        if base_url:
-            validated["base_url"] = base_url
-        else:
-            validated.pop("base_url", None)
+        validated["base_url"] = base_url or OPENAI_DEFAULT_BASE_URL
 
         return validated
 
@@ -53,7 +52,7 @@ class OpenAIConnector(BaseConnector):
 
         return {
             "api_key": api_key,
-            "base_url": base_url or None,
+            "base_url": base_url or OPENAI_DEFAULT_BASE_URL,
         }
 
     @classmethod
