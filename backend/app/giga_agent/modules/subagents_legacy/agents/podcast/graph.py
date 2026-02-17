@@ -10,12 +10,12 @@ from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 from pydub import AudioSegment
 
-from giga_agent.agents.podcast.config import (
+from giga_agent.modules.subagents_legacy.agents.podcast.config import (
     ConfigSchema,
     PodcastState,
     podcast_llm,
 )
-from giga_agent.agents.podcast.prompts import (
+from giga_agent.modules.subagents_legacy.agents.podcast.prompts import (
     LANGUAGE_PROMPT,
     LENGTH_MODIFIERS,
     QUESTION_MODIFIER,
@@ -23,15 +23,18 @@ from giga_agent.agents.podcast.prompts import (
     TONE_MODIFIER,
     TONE_MODIFIERS,
 )
-from giga_agent.agents.podcast.schema import MediumDialogue, ShortDialogue
-from giga_agent.agents.podcast.tts_sber import (
+from giga_agent.modules.subagents_legacy.agents.podcast.schema import (
+    MediumDialogue,
+    ShortDialogue,
+)
+from giga_agent.modules.subagents_legacy.agents.podcast.tts_sber import (
     generate_podcast_audio,
     get_sber_tts_token,
 )
-from giga_agent.agents.podcast.utils import generate_script, parse_url
-from giga_agent.settings import settings
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.lang import LANG
+from giga_agent.modules.subagents_legacy.agents.podcast.utils import (
+    generate_script,
+    parse_url,
+)
 from giga_agent.utils.messages import filter_tool_calls
 
 
@@ -72,7 +75,7 @@ async def summarize_messages(state: PodcastState):
 async def script(state: PodcastState):
     # Модифицируем системный промпт на основе пользовательского ввода
     modified_system_prompt = SYSTEM_PROMPT
-    lang_prompt = LANGUAGE_PROMPT.format(language=LANG)
+    lang_prompt = LANGUAGE_PROMPT.format(language="ru")
 
     if state.get("question") is not None:
         modified_system_prompt += f"\n\n{QUESTION_MODIFIER} {state.get('question')}"
@@ -194,7 +197,6 @@ async def podcast_generate(
         use_messages: Использовать переписку с пользователем для генерации подкаста?
 
     """
-    from giga_agent.settings import settings
 
     if not url and not use_messages:
         raise ValueError("You must specify either url or use_messages!")
@@ -219,7 +221,7 @@ async def podcast_generate(
     if url:
         input_["url"] = url
 
-    client = get_client(url=settings.internal.langgraph_api_url)
+    client = get_client()
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     state = {}

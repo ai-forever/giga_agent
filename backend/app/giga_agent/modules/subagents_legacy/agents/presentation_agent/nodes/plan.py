@@ -1,8 +1,14 @@
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableConfig
 
-from giga_agent.agents.presentation_agent.config import PresentationState, llm
-from giga_agent.agents.presentation_agent.prompts.ru import FORMAT, PLAN_PROMPT
+from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
+    PresentationState,
+    llm,
+)
+from giga_agent.modules.subagents_legacy.agents.presentation_agent.prompts.ru import (
+    FORMAT,
+    PLAN_PROMPT,
+)
 
 
 async def plan_node(state: PresentationState, config: RunnableConfig):

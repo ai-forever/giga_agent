@@ -1,5 +1,3 @@
-from giga_agent.settings import settings
-
 CHARACTER_LIMIT = 500_000
 
 # Error messages-related constants

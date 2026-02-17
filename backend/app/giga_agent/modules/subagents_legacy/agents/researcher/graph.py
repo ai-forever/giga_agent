@@ -6,9 +6,6 @@ from langchain_core.tools import tool
 from langchain_tavily import TavilySearch
 from langgraph_sdk import get_client
 
-from giga_agent.settings import settings
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.llm import load_llm
 from giga_agent.utils.messages import filter_tool_calls
 
 llm = load_llm().bind(timeout=120).with_config(tags=["nostream"])
@@ -186,7 +183,7 @@ agent = async_create_deep_agent(
 async def researcher_agent(question: str, runtime: ToolRuntime):
     """Проводит исследование и создает на его основе отчёт по запросу пользователя"""
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
-    client = get_client(url=settings.internal.langgraph_api_url)
+    client = get_client()
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
 

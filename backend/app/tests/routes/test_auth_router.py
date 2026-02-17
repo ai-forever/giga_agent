@@ -38,6 +38,7 @@ class AuthRouterTests(unittest.TestCase):
             is_active=True,
             is_superuser=False,
             settings={"theme": "dark", "keep": "value"},
+            secrets={"api_key": "old", "keep_secret": "value"},
             llm_id=None,
             fast_llm_id=None,
             embedding_id=None,
@@ -63,6 +64,7 @@ class AuthRouterTests(unittest.TestCase):
                 "/users/me",
                 json={
                     "settings": {"theme": "light"},
+                    "secrets": {"api_key": "new"},
                     "llm_id": str(new_llm_id),
                 },
             )
@@ -71,6 +73,8 @@ class AuthRouterTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["settings"]["theme"], "light")
         self.assertEqual(payload["settings"]["keep"], "value")
+        self.assertEqual(payload["secrets"]["api_key"], "new")
+        self.assertEqual(payload["secrets"]["keep_secret"], "value")
         self.assertEqual(payload["llm_id"], str(new_llm_id))
         self.assertIsNone(payload["fast_llm_id"])
         mocked_validate_llm.assert_awaited_once_with(self.db, self.user.id, new_llm_id)
@@ -152,6 +156,21 @@ class AuthRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_patch_users_me_returns_422_when_secrets_is_null(self):
+        user_model = self._user_model()
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"secrets": None},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "secrets must be an object when provided")
 
 
 if __name__ == "__main__":

@@ -12,11 +12,15 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
-from giga_agent.agents.landing_agent.config import LandingState, llm
-from giga_agent.agents.landing_agent.prompts.ru import IMAGE_PROMPT
+from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
+    LandingState,
+    llm,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.prompts.ru import (
+    IMAGE_PROMPT,
+)
 from giga_agent.generators.image import load_image_gen
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.lang import LANG
 
 
 async def image_node(state: LandingState, config: RunnableConfig):
@@ -33,7 +37,7 @@ async def image_node(state: LandingState, config: RunnableConfig):
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")],
-    ).partial(language=LANG)
+    ).partial(language="ru")
 
     chain = (
         prompt

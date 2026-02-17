@@ -265,6 +265,16 @@ async def update_user(
         merged_settings.update(body.settings)
         user.settings = merged_settings
 
+    if "secrets" in body.model_fields_set:
+        if body.secrets is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="secrets must be an object when provided",
+            )
+        merged_secrets = dict(user.secrets or {})
+        merged_secrets.update(body.secrets)
+        user.secrets = merged_secrets
+
     if "llm_id" in body.model_fields_set:
         if body.llm_id is not None:
             await _validate_llm_id(db, current_user.id, body.llm_id)

@@ -8,10 +8,14 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
-from giga_agent.agents.presentation_agent.config import PresentationState, llm
-from giga_agent.agents.presentation_agent.prompts.ru import SLIDE_PROMPT
+from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
+    PresentationState,
+    llm,
+)
+from giga_agent.modules.subagents_legacy.agents.presentation_agent.prompts.ru import (
+    SLIDE_PROMPT,
+)
 from giga_agent.output_parsers.html_parser import HTMLParser
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
 slide_sem = asyncio.Semaphore(4)
 

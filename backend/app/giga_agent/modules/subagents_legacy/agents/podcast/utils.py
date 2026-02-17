@@ -6,13 +6,15 @@ from typing import Any
 import aiohttp
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from giga_agent.agents.podcast.config import podcast_llm
-from giga_agent.agents.podcast.constants import (
+from giga_agent.modules.subagents_legacy.agents.podcast.constants import (
     JINA_READER_URL,
     JINA_RETRY_ATTEMPTS,
     JINA_RETRY_DELAY,
 )
-from giga_agent.agents.podcast.schema import MediumDialogue, ShortDialogue
+from giga_agent.modules.subagents_legacy.agents.podcast.schema import (
+    MediumDialogue,
+    ShortDialogue,
+)
 
 
 async def parse_url(url: str) -> str:

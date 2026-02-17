@@ -5,8 +5,6 @@ import httpx
 from langchain_tavily import TavilySearch
 from markdownify import markdownify as md
 
-from giga_agent.settings import settings
-
 
 class GISException(Exception):
     pass

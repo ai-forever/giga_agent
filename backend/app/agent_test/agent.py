@@ -6,6 +6,8 @@ from giga_agent.core.agent.base import BaseAgent
 
 from langchain_core.tools import tool
 
+from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
+
 
 @tool
 def get_weather(city: str):
@@ -14,7 +16,13 @@ def get_weather(city: str):
 
 
 agent = BaseAgent(
-    modules=[AuthModule(), ReplModule(), ImageModule(), SearchModule()],
+    modules=[
+        AuthModule(),
+        ReplModule(),
+        ImageModule(),
+        SearchModule(),
+        SubAgentLegacyModule(),
+    ],
     tools=[get_weather],
 )
 

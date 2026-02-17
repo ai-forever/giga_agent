@@ -10,6 +10,16 @@
 core-migrations:
 	uv run python -m giga_agent.scripts.make_core_migration -m "$(m)"
 
+# Run arbitrary Alembic commands with core migration settings
+# Usage:
+#   make core-alembic args="upgrade head"
+#   make core-alembic args="downgrade -1"
+#   make core-alembic args="history"
+#   make core-alembic args="current"
+#   make core-alembic args="heads"
+core-alembic:
+	uv run python -m giga_agent.scripts.core_alembic $(args)
+
 # =============================================================================
 # Linting & Formatting
 # =============================================================================

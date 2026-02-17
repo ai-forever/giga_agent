@@ -1,7 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from giga_agent.utils.lang import LANG
-
 IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
@@ -60,7 +58,11 @@ IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     }
   ]
 }
-```""".replace("{", "{{").replace("}", "}}"),
+```""".replace(
+                "{", "{{"
+            ).replace(
+                "}", "}}"
+            ),
         ),
         MessagesPlaceholder("messages"),
     ],
@@ -104,7 +106,7 @@ PLAN_PROMPT = ChatPromptTemplate.from_messages(
         ),
         MessagesPlaceholder("messages"),
     ],
-).partial(language=LANG)
+).partial(language="ru")
 
 SLIDE_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -208,4 +210,4 @@ SLIDE_PROMPT = ChatPromptTemplate.from_messages(
         ),
         MessagesPlaceholder("messages"),
     ],
-).partial(language=LANG)
+).partial(language="ru")

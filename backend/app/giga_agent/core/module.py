@@ -1,6 +1,6 @@
 import os
 import inspect
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, Optional, List, TypedDict
 from typing_extensions import override
 
 from pydantic import ConfigDict, PrivateAttr
@@ -13,6 +13,11 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
     from giga_agent.core.agent.middleware import AgentMiddleware
     from giga_agent.core.agent.base import BaseAgent
+
+
+class SecretMetadata(TypedDict):
+    name: str
+    description: str | None
 
 
 class BaseModule(Serializable):
@@ -72,6 +77,12 @@ class BaseModule(Serializable):
         добавляет к системному промпту агента. Возвращает None если инструкций нет.
         """
         return None
+
+    def get_secrets(self) -> list[SecretMetadata]:
+        """
+        Возвращает метаданные секретов, которые нужны модулю.
+        """
+        return []
 
     def get_middleware(self) -> Optional["AgentMiddleware"]:
         """

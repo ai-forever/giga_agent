@@ -1,7 +1,5 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from giga_agent.utils.lang import LANG
-
 MEME_TEXT_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
@@ -30,7 +28,7 @@ MEME_TEXT_PROMPT = ChatPromptTemplate.from_messages(
         ),
         MessagesPlaceholder("messages"),
     ],
-).partial(language=LANG)
+).partial(language="ru")
 
 IMAGE_FORMAT = """## Формат ответа  
 Сначала 1–2 предложения размышлений внутри тега `<thinking>`, затем **строго JSON**:
@@ -65,7 +63,11 @@ IMAGE_FORMAT = """## Формат ответа
   }
 }
 ```
-""".replace("{", "{{").replace("}", "}}")
+""".replace(
+    "{", "{{"
+).replace(
+    "}", "}}"
+)
 
 IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -102,4 +104,4 @@ IMAGE_PROMPT = ChatPromptTemplate.from_messages(
         ),
         MessagesPlaceholder("messages"),
     ],
-).partial(language=LANG)
+).partial(language="ru")

@@ -2,7 +2,10 @@ from typing import Literal, TypedDict
 
 from langchain_core.messages import AnyMessage
 
-from giga_agent.agents.podcast.schema import MediumDialogue, ShortDialogue
+from giga_agent.modules.subagents_legacy.agents.podcast.schema import (
+    MediumDialogue,
+    ShortDialogue,
+)
 from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import UploadedFile
 

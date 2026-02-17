@@ -10,8 +10,10 @@ from langchain_core.runnables import (
 )
 from PIL import Image, ImageDraw, ImageFont
 
-from giga_agent.agents.meme_agent.config import MemeState, llm
-from giga_agent.agents.meme_agent.prompts.ru import IMAGE_PROMPT
+from giga_agent.modules.subagents_legacy.agents.meme_agent.config import MemeState, llm
+from giga_agent.modules.subagents_legacy.agents.meme_agent.prompts.ru import (
+    IMAGE_PROMPT,
+)
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 

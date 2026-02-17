@@ -3,7 +3,6 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import AnyMessage
 from langgraph.graph import add_messages
 
-from giga_agent.utils.llm import load_llm
 from giga_agent.utils.types import UploadedFile
 
 llm = load_llm().with_config(tags=["nostream"]).bind(top_p=0.2)

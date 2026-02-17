@@ -1,6 +1,10 @@
 from typing import TypedDict
 
-from giga_agent.agents.gis_agent.utils.gis_client import Attraction, Location, Point
+from giga_agent.modules.subagents_legacy.agents.gis_agent.utils.gis_client import (
+    Attraction,
+    Location,
+    Point,
+)
 from giga_agent.utils.llm import load_llm
 
 llm = load_llm().with_config(tags=["nostream"])

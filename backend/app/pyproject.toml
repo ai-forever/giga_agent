@@ -39,6 +39,10 @@ dependencies = [
     "e2b>=2.13.2",
     "aioboto3>=15.5.0",
     "cashews[redis]>=7.0.0",
+    "deepagents==0.0.5",
+    "pydub>=0.25.1",
+    "pillow>=12.1.1",
+    "markdownify>=1.2.2",
 ]
 
 [project.scripts]

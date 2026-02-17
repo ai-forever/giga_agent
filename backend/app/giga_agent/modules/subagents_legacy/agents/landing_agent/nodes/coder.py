@@ -12,19 +12,23 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
-from giga_agent.agents.landing_agent.config import LandingState, llm
-from giga_agent.agents.landing_agent.prompts.ru import CODER_PROMPT
-from giga_agent.agents.landing_agent.tools import done
+from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
+    LandingState,
+    llm,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.prompts.ru import (
+    CODER_PROMPT,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.tools import done
 from giga_agent.output_parsers.html_parser import HTMLParser
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.lang import LANG
 
 prompt = ChatPromptTemplate.from_messages(
     [
         ("system", CODER_PROMPT),
         MessagesPlaceholder("messages"),
     ],
-).partial(language=LANG)
+).partial(language="ru")
 
 coder_chain = (
     prompt

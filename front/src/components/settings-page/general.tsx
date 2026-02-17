@@ -42,6 +42,11 @@ type SecretItem = Secret & {
   id: string;
 };
 
+type AgentSecretMeta = {
+  name: string;
+  description?: string | null;
+};
+
 const secretSchema = z.object({
   name: z.string().trim().min(1, "Заполните название"),
   value: z.string().trim().min(1, "Заполните значение"),
@@ -95,6 +100,37 @@ const normalizeSecrets = (items: SecretItem[]) =>
     description: rest.description?.trim() || undefined,
   }));
 
+const parseUserSecrets = (value: unknown): Record<string, string> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+
+  const parsed: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (typeof rawValue === "string") {
+      parsed[key] = rawValue;
+      continue;
+    }
+    if (rawValue == null) {
+      parsed[key] = "";
+      continue;
+    }
+    parsed[key] = String(rawValue);
+  }
+  return parsed;
+};
+
+const dedupeAgentSecretsMeta = (items: AgentSecretMeta[]): AgentSecretMeta[] => {
+  const seen = new Set<string>();
+  const deduped: AgentSecretMeta[] = [];
+  for (const item of items) {
+    if (!item?.name || seen.has(item.name)) continue;
+    seen.add(item.name);
+    deduped.push(item);
+  }
+  return deduped;
+};
+
 export const GeneralSettings: React.FC = () => {
   const { themeMode } = useTheme();
   const { user, refreshUser } = useAuth();
@@ -107,6 +143,11 @@ export const GeneralSettings: React.FC = () => {
   const [searchEngineList, setSearchEngineList] = useState<
     SearchEngineResponse[]
   >([]);
+  const [agentSecretMeta, setAgentSecretMeta] = useState<AgentSecretMeta[]>([]);
+  const [loadingAgentSecrets, setLoadingAgentSecrets] = useState(false);
+  const [agentSecretsValues, setAgentSecretsValues] = useState<
+    Record<string, string>
+  >({});
   const [defaultLLM, setDefaultLLM] = useState<string>(NO_LLM_VALUE);
   const [fastLLM, setFastLLM] = useState<string>(FAST_LLM_INHERIT_VALUE);
   const [currentEmbedding, setCurrentEmbedding] =
@@ -148,6 +189,7 @@ export const GeneralSettings: React.FC = () => {
         : "",
     );
     setSecrets(parseSettingsSecrets(settings.contextSecrets));
+    setAgentSecretsValues(parseUserSecrets(user.secrets));
   }, [user]);
 
   // Синхронизируем локальную тему с themeMode из провайдера
@@ -210,12 +252,33 @@ export const GeneralSettings: React.FC = () => {
     }
   }, []);
 
+  const fetchAgentSecrets = useCallback(async () => {
+    setLoadingAgentSecrets(true);
+    try {
+      const secretsMeta =
+        await apiClient.get<AgentSecretMeta[]>("/api/agent/secrets");
+      setAgentSecretMeta(dedupeAgentSecretsMeta(secretsMeta));
+    } catch {
+      setAgentSecretMeta([]);
+      // Ошибка уже обработана глобально
+    } finally {
+      setLoadingAgentSecrets(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLLMs();
     fetchEmbeddings();
     fetchImageGenerators();
     fetchSearchEngines();
-  }, [fetchLLMs, fetchEmbeddings, fetchImageGenerators, fetchSearchEngines]);
+    fetchAgentSecrets();
+  }, [
+    fetchLLMs,
+    fetchEmbeddings,
+    fetchImageGenerators,
+    fetchSearchEngines,
+    fetchAgentSecrets,
+  ]);
 
   const parsedForValidation = useMemo(
     () =>
@@ -291,6 +354,13 @@ export const GeneralSettings: React.FC = () => {
     );
   };
 
+  const updateAgentSecretValue = (name: string, value: string) => {
+    setAgentSecretsValues((prev) => ({
+      ...prev,
+      [name]: value,
+    }));
+  };
+
   const handleSave = async () => {
     if (!validate()) return;
     setSaving(true);
@@ -327,6 +397,37 @@ export const GeneralSettings: React.FC = () => {
 
       if (Object.keys(settingsPatch).length > 0) {
         patchBody.settings = settingsPatch;
+      }
+
+      const currentUserSecrets =
+        typeof user?.secrets === "object" &&
+        user.secrets !== null &&
+        !Array.isArray(user.secrets)
+          ? (user.secrets as Record<string, unknown>)
+          : {};
+      const normalizedAgentSecretsValues: Record<string, string> = {};
+      for (const secretMeta of agentSecretMeta) {
+        normalizedAgentSecretsValues[secretMeta.name] = (
+          agentSecretsValues[secretMeta.name] ?? ""
+        ).trim();
+      }
+
+      const hasAgentSecretChanges = agentSecretMeta.some((secretMeta) => {
+        const currentRaw = currentUserSecrets[secretMeta.name];
+        const currentValue =
+          typeof currentRaw === "string"
+            ? currentRaw.trim()
+            : currentRaw == null
+              ? ""
+              : String(currentRaw).trim();
+        return normalizedAgentSecretsValues[secretMeta.name] !== currentValue;
+      });
+
+      if (hasAgentSecretChanges) {
+        patchBody.secrets = {
+          ...currentUserSecrets,
+          ...normalizedAgentSecretsValues,
+        };
       }
 
       if (defaultLLM !== (user?.llm_id ?? NO_LLM_VALUE)) {
@@ -602,6 +703,60 @@ export const GeneralSettings: React.FC = () => {
                     onChange={(e) => setInstructions(e.target.value)}
                     className="min-h-28 max-h-67"
                   />
+                </section>
+
+                <section className="space-y-3">
+                  <div>
+                    <h3 className="font-medium text-sm">API-ключи модулей</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Ключи, которые запрашиваются активными модулями агента.
+                    </p>
+                  </div>
+
+                  {loadingAgentSecrets && (
+                    <div className="text-sm text-muted-foreground">
+                      Загрузка API-ключей...
+                    </div>
+                  )}
+
+                  {!loadingAgentSecrets && agentSecretMeta.length === 0 && (
+                    <div className="text-sm text-muted-foreground">
+                      Модули не запросили API-ключи.
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {agentSecretMeta.map((secretMeta) => (
+                      <div
+                        key={secretMeta.name}
+                        className="border rounded-lg p-3 bg-muted/40"
+                      >
+                        <div className="grid gap-3 md:grid-cols-2 md:items-center">
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`agent-secret-${secretMeta.name}`}>
+                              {secretMeta.name}
+                            </Label>
+                            {secretMeta.description && (
+                              <p className="text-sm text-muted-foreground">
+                                {secretMeta.description}
+                              </p>
+                            )}
+                          </div>
+                          <SecretInput
+                            id={`agent-secret-${secretMeta.name}`}
+                            placeholder="Введите значение API-ключа"
+                            value={agentSecretsValues[secretMeta.name] ?? ""}
+                            onChange={(e) =>
+                              updateAgentSecretValue(
+                                secretMeta.name,
+                                e.target.value,
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </section>
 
                 <section className="space-y-3">

@@ -5,8 +5,10 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
-from giga_agent.agents.meme_agent.config import MemeState, llm
-from giga_agent.agents.meme_agent.prompts.ru import MEME_TEXT_PROMPT
+from giga_agent.modules.subagents_legacy.agents.meme_agent.config import MemeState, llm
+from giga_agent.modules.subagents_legacy.agents.meme_agent.prompts.ru import (
+    MEME_TEXT_PROMPT,
+)
 
 ch = (
     MEME_TEXT_PROMPT

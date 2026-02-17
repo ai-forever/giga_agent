@@ -13,9 +13,7 @@ from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-from giga_agent.settings import settings
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.lang import LANG
 from giga_agent.utils.llm import load_llm
 
 llm = load_llm().with_config(tags=["nostream"])
@@ -91,7 +89,7 @@ async def ask_llm(state: LeanGraphState, question: str, config: RunnableConfig) 
     """  # noqa: E501
 
     prompt = ChatPromptTemplate.from_messages([("system", TEMPLATE)]).partial(
-        language=LANG,
+        language="ru",
     )
 
     chain = prompt | llm | StrOutputParser()
@@ -221,7 +219,7 @@ async def check_unique(
     parser = PydanticOutputParser(pydantic_object=CompetitorsAnalysisResult)
     prompt = ChatPromptTemplate.from_messages(
         [("system", COMPETITION_ANALYSIS_TEMPLATE)],
-    ).partial(format_instructions=parser.get_format_instructions(), language=LANG)
+    ).partial(format_instructions=parser.get_format_instructions(), language="ru")
 
     search_results_text = await TavilySearch(
         tavily_api_key=settings.external.tavily_api_key,
@@ -318,7 +316,7 @@ async def get_feedback(
     parser = PydanticOutputParser(pydantic_object=UserFeedback)
     prompt = ChatPromptTemplate.from_messages([("system", FEEDBACK_TEMPLATE)]).partial(
         format_instructions=parser.get_format_instructions(),
-        language=LANG,
+        language="ru",
     )
 
     chain = prompt | llm | parser
@@ -503,7 +501,7 @@ async def lean_canvas(
     runtime: ToolRuntime = None,
 ):
     """Создает Lean Canvas под задачу пользователя. Полезно для проработки стартапов."""
-    client = get_client(url=settings.internal.langgraph_api_url)
+    client = get_client()
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(

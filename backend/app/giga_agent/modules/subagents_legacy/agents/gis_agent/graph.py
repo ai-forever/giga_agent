@@ -10,15 +10,22 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
-from giga_agent.agents.gis_agent.config import MapState
-from giga_agent.agents.gis_agent.nodes.attractions import attractions_node
-from giga_agent.agents.gis_agent.nodes.food import food_node
-from giga_agent.agents.gis_agent.nodes.hotels import hotels_node
-from giga_agent.agents.gis_agent.utils.gis_client import Attraction, Location, Point
+from giga_agent.modules.subagents_legacy.agents.gis_agent.config import MapState
+from giga_agent.modules.subagents_legacy.agents.gis_agent.nodes.attractions import (
+    attractions_node,
+)
+from giga_agent.modules.subagents_legacy.agents.gis_agent.nodes.food import food_node
+from giga_agent.modules.subagents_legacy.agents.gis_agent.nodes.hotels import (
+    hotels_node,
+)
+from giga_agent.modules.subagents_legacy.agents.gis_agent.utils.gis_client import (
+    Attraction,
+    Location,
+    Point,
+)
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-from giga_agent.settings import settings
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
 with open(os.path.join(__location__, "page.html")) as f:

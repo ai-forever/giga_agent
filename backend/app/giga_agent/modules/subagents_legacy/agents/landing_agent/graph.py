@@ -14,20 +14,36 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 
-from giga_agent.agents.landing_agent.config import ConfigSchema, LandingState, llm
-from giga_agent.agents.landing_agent.nodes.coder import coder_node
-from giga_agent.agents.landing_agent.nodes.image import image_node
-from giga_agent.agents.landing_agent.nodes.plan import plan_node
-from giga_agent.agents.landing_agent.prompts.ru import AGENT_PROMPT
-from giga_agent.agents.landing_agent.tools import coder, done, image, plan
-from giga_agent.settings import settings
+from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
+    ConfigSchema,
+    LandingState,
+    llm,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.nodes.coder import (
+    coder_node,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.nodes.image import (
+    image_node,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.nodes.plan import (
+    plan_node,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.prompts.ru import (
+    AGENT_PROMPT,
+)
+from giga_agent.modules.subagents_legacy.agents.landing_agent.tools import (
+    coder,
+    done,
+    image,
+    plan,
+)
 from giga_agent.utils.messages import filter_tool_messages
 
 
 async def agent(state: LandingState, config: RunnableConfig):
     prompt = ChatPromptTemplate.from_messages(
         [("system", AGENT_PROMPT), MessagesPlaceholder("messages")],
-    ).partial(language=settings.llm.giga_agent_lang)
+    ).partial(language="ru")
     chain = prompt | llm.bind_tools(
         [plan, image, coder, done],
         parallel_tool_calls=False,
@@ -123,7 +139,7 @@ async def create_landing(
         нужно продолжить работу над веб-страницей
 
     """
-    client = get_client(url=settings.internal.langgraph_api_url)
+    client = get_client()
     if not thread_id:
         thread = await client.threads.create()
         thread_id = thread["thread_id"]

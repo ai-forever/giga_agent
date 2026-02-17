@@ -43,6 +43,9 @@ class User(Base):
     settings: Mapped[dict | None] = mapped_column(
         JSON_VARIANT(), nullable=True, default=None
     )
+    secrets: Mapped[dict | None] = mapped_column(
+        JSON_VARIANT(), nullable=True, default=None
+    )
     image_generator_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
         ForeignKey(
@@ -110,6 +113,7 @@ class UserBase(BaseModel):
     is_active: bool = True
     is_superuser: bool = False
     settings: Optional[dict] = None
+    secrets: Optional[dict] = None
     image_generator_id: Optional[uuid.UUID] = None
     search_engine_id: Optional[uuid.UUID] = None
     embedding_id: Optional[uuid.UUID] = None
@@ -143,6 +147,7 @@ class UserUpdate(BaseModel):
     """Схема для частичного обновления полей пользователя."""
 
     settings: dict | None = None
+    secrets: dict | None = None
     llm_id: uuid.UUID | None = None
     fast_llm_id: uuid.UUID | None = None
     image_generator_id: uuid.UUID | None = None

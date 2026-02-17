@@ -9,8 +9,13 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
-from giga_agent.agents.presentation_agent.config import PresentationState, llm
-from giga_agent.agents.presentation_agent.prompts.ru import IMAGE_PROMPT
+from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
+    PresentationState,
+    llm,
+)
+from giga_agent.modules.subagents_legacy.agents.presentation_agent.prompts.ru import (
+    IMAGE_PROMPT,
+)
 from giga_agent.generators.image import load_image_gen
 from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
