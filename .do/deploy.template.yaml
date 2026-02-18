@@ -241,5 +241,3 @@ spec:
     - name: aegra-postgres
       engine: PG
       version: "16"
-      db_name: postgres
-      db_user: postgres
