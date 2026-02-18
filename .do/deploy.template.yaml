@@ -34,15 +34,15 @@ spec:
         - key: REDIS_URI
           value: "redis://langgraph-redis:6379"
         - key: DATABASE_URL
-          value: "postgresql+asyncpg://postgres:postgres@aegra-postgres:5432/postgres"
+          value: "postgresql+asyncpg://${aegra-postgres.USERNAME}:${aegra-postgres.PASSWORD}@${aegra-postgres.HOSTNAME}:${aegra-postgres.PORT}/${aegra-postgres.DATABASE}"
         - key: AUTH_TYPE
           value: noop
         - key: JUPYTER_CLIENT_API
           value: "http://repl:9090"
         - key: JUPYTER_UPLOAD_API
-          value: "http://upload_server:9092"
+          value: "http://upload-server:9092"
         - key: TOOL_CLIENT_API
-          value: "http://tool_server:9091"
+          value: "http://tool-server:9091"
         - key: LANGGRAPH_API_URL
           value: "http://langgraph-api:8000/"
       run_command: >
@@ -62,7 +62,9 @@ spec:
       instance_size_slug: apps-s-1vcpu-1gb
       internal_ports:
         - 9090
-      run_command: sh -c "chown -R jupyter:jupyter /home/jupyter /kernel_states /runs && exec su -s /bin/bash -c 'uv run uvicorn app.main:app --host 0.0.0.0 --port 9090' jupyter"
+      run_command: >-
+        sh -c "chown -R jupyter:jupyter /home/jupyter /kernel_states /runs &&
+        exec su -s /bin/bash -c 'uv run uvicorn app.main:app --host 0.0.0.0 --port 9090' jupyter"
       envs:
         - key: PLOTLY_RENDERER
           value: plotly_mimetype
@@ -72,16 +74,86 @@ spec:
           value: /files
         - key: STATE_DIR
           value: /kernel_states
-    - name: upload_server
+    - name: upload-server
       github:
+        branch: feature/add-do-integration
+        repo: ai-forever/giga_agent
+        deploy_on_push: true
+      source_dir: backend/repl
+      dockerfile_path: backend/repl/Dockerfile
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-1gb
+      internal_ports:
+        - 9092
+      run_command: "uv run uvicorn app.upload_server:app --host 0.0.0.0 --port 9092"
+      envs:
+        - key: PLOTLY_RENDERER
+          value: plotly_mimetype
+        - key: MAX_KERNEL_LIVE
+          value: "300"
+        - key: FILES_DIR
+          value: /files
+        - key: STATE_DIR
+          value: /kernel_states
+        - key: GIGA_AGENT_API
+          value: "http://giga-agent-server:8822"
+    - name: tool-server
+      github:
+        branch: feature/add-do-integration
+        repo: ai-forever/giga_agent
+        deploy_on_push: true
+      source_dir: backend/graph
+      dockerfile_path: backend/graph/Dockerfile
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-1gb
+      internal_ports:
+        - 9091
+      run_command: "uv run uvicorn giga_agent.tool_server.tool_server:app --host 0.0.0.0 --port 9091"
+      envs:
+        - key: JUPYTER_CLIENT_API
+          value: "http://repl:9090"
+        - key: TOOL_CLIENT_API
+          value: "http://tool-server:9091"
+        - key: JUPYTER_UPLOAD_API
+          value: "http://upload-server:9092"
+    - name: giga-agent-server
+      github:
+        branch: feature/add-do-integration
+        repo: ai-forever/giga_agent
+        deploy_on_push: true
+      source_dir: backend/graph
+      dockerfile_path: backend/graph/Dockerfile
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-1gb
+      internal_ports:
+        - 8822
+      run_command: "uv run uvicorn giga_agent.tasks_app:app --host 0.0.0.0 --port 8822"
+      envs:
+        - key: JUPYTER_CLIENT_API
+          value: "http://repl:9090"
+        - key: LANGGRAPH_API_URL
+          value: "http://langgraph-api:8000/"
     - name: frontend
       github:
         branch: feature/add-do-integration
         repo: ai-forever/giga_agent
         deploy_on_push: true
       source_dir: front
+      dockerfile_path: front/Dockerfile.do
+      http_port: 80
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-1gb
+      envs:
+        - key: VITE_LANGCONNECT_API_URL
+          scope: BUILD_TIME
+        - key: VITE_LANGCONNECT_API_SECRET_TOKEN
+          scope: BUILD_TIME
+          type: SECRET
+        - key: VITE_MCP_PROXY_URL
+          scope: BUILD_TIME
+        - key: VITE_MEMORY_ENABLED
+          value: "1"
+          scope: BUILD_TIME
   envs:
     # GIGA_AGENT SETTINGS
     - key: GIGA_AGENT_LLM
