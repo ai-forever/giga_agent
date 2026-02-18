@@ -10,7 +10,7 @@ spec:
         tag: "6"
       internal_ports:
         - 6379
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       instance_count: 1
     - name: qdrant
       image:
@@ -19,7 +19,7 @@ spec:
         repository: qdrant
       internal_ports:
         - 6333
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       instance_count: 1
     - name: langgraph-api
       github:
@@ -29,7 +29,7 @@ spec:
       source_dir: backend/graph
       dockerfile_path: backend/graph/Dockerfile
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       internal_ports:
         - 8000
       envs:
@@ -61,7 +61,7 @@ spec:
       source_dir: backend/repl
       dockerfile_path: backend/repl/Dockerfile
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       internal_ports:
         - 9090
       run_command: >-
@@ -84,7 +84,7 @@ spec:
       source_dir: backend/repl
       dockerfile_path: backend/repl/Dockerfile
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       internal_ports:
         - 9092
       run_command: "uv run uvicorn app.upload_server:app --host 0.0.0.0 --port 9092"
@@ -107,7 +107,7 @@ spec:
       source_dir: backend/graph
       dockerfile_path: backend/graph/Dockerfile
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       internal_ports:
         - 9091
       run_command: "uv run uvicorn giga_agent.tool_server.tool_server:app --host 0.0.0.0 --port 9091"
@@ -126,7 +126,7 @@ spec:
       source_dir: backend/graph
       dockerfile_path: backend/graph/Dockerfile
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       internal_ports:
         - 8822
       run_command: "uv run uvicorn giga_agent.tasks_app:app --host 0.0.0.0 --port 8822"
@@ -144,7 +144,7 @@ spec:
       dockerfile_path: front/Dockerfile.do
       http_port: 80
       instance_count: 1
-      instance_size_slug: apps-s-1vcpu-1gb
+      instance_size_slug: apps-s-1vcpu-1gb-fixed
       envs:
         - key: VITE_LANGCONNECT_API_URL
           scope: BUILD_TIME
