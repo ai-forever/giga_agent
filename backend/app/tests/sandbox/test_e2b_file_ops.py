@@ -5,17 +5,19 @@ from unittest.mock import AsyncMock, patch
 
 from botocore.exceptions import ClientError
 
+from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
 from giga_agent.sandbox.e2b import E2BSandbox
 
 
 class _FakeS3Client:
-    def __init__(self, existing_keys: set[str] | None = None):
+    def __init__(self, existing_keys: set[str] | None = None, content_length: int = 100):
         self.existing_keys = existing_keys or set()
         self.put_calls: list[dict] = []
+        self._content_length = content_length
 
     async def head_object(self, Bucket: str, Key: str):
         if Key in self.existing_keys:
-            return {"Bucket": Bucket, "Key": Key}
+            return {"Bucket": Bucket, "Key": Key, "ContentLength": self._content_length}
         raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
 
     async def put_object(self, **kwargs):
@@ -95,23 +97,84 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sandbox_path, f"/home/user/bucket/giga_agent/{owner_id}/file.txt")
         self.assertEqual(fake_client.put_calls[0]["Key"], f"giga_agent/{owner_id}/file.txt")
 
-    async def test_read_file_returns_presigned_url_for_s3(self):
+    async def test_read_file_returns_redirect_for_s3(self):
         sandbox = self._sandbox()
-        with patch.object(
-            sandbox,
-            "_generate_presigned_url",
-            AsyncMock(return_value="https://signed.example.local"),
-        ) as mocked:
-            result = await sandbox.read_file("/home/user/bucket/giga_agent/u/report.txt")
+        with (
+            patch.object(
+                sandbox,
+                "_get_s3_object_size",
+                AsyncMock(return_value=100),
+            ),
+            patch.object(
+                sandbox,
+                "_generate_presigned_url",
+                AsyncMock(return_value="https://signed.example.local"),
+            ) as mocked,
+        ):
+            result = await sandbox.read_file("/bucket/u/report.txt")
 
-        self.assertEqual(result, "https://signed.example.local")
-        mocked.assert_awaited_once_with(key="giga_agent/u/report.txt", expires_in=3600)
+        self.assertIsInstance(result, RedirectResult)
+        self.assertEqual(result.url, "https://signed.example.local")
+        mocked.assert_awaited_once_with(key="u/report.txt", expires_in=3600)
 
-    async def test_read_file_returns_bytes_for_non_s3(self):
+    async def test_read_file_returns_content_for_html(self):
+        sandbox = self._sandbox()
+        with (
+            patch.object(
+                sandbox,
+                "_get_s3_object_size",
+                AsyncMock(return_value=500),
+            ),
+            patch.object(
+                sandbox,
+                "_download_s3_object",
+                AsyncMock(return_value=b"<html></html>"),
+            ),
+        ):
+            result = await sandbox.read_file("/bucket/u/page.html")
+
+        self.assertIsInstance(result, ContentResult)
+        self.assertEqual(result.data, b"<html></html>")
+        self.assertEqual(result.media_type, "text/html")
+        self.assertTrue(result.inline)
+
+    async def test_read_file_returns_stream_for_large_file(self):
+        sandbox = self._sandbox()
+        large_size = 25 * 1024 * 1024
+
+        mock_stream_result = StreamResult(
+            stream=_empty_async_iter(),
+            media_type="application/octet-stream",
+            content_length=large_size,
+        )
+        with (
+            patch.object(
+                sandbox,
+                "_get_s3_object_size",
+                AsyncMock(return_value=large_size),
+            ),
+            patch.object(
+                sandbox,
+                "_stream_s3_object",
+                AsyncMock(return_value=mock_stream_result),
+            ),
+        ):
+            result = await sandbox.read_file("/bucket/u/big.bin")
+
+        self.assertIsInstance(result, StreamResult)
+        self.assertEqual(result.content_length, large_size)
+
+    async def test_read_file_returns_content_for_non_s3(self):
         sandbox = self._sandbox()
         sandbox._e2b_sandbox = types.SimpleNamespace(
             files=types.SimpleNamespace(read=AsyncMock(return_value=b"payload"))
         )
 
         result = await sandbox.read_file("/tmp/local.txt")
-        self.assertEqual(result, b"payload")
+        self.assertIsInstance(result, ContentResult)
+        self.assertEqual(result.data, b"payload")
+
+
+async def _empty_async_iter():
+    return
+    yield  # noqa: RET504

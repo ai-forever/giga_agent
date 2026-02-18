@@ -56,6 +56,7 @@ class GigaChatLLM(BaseLLM):
             "temperature": settings.get("temperature"),
             "max_tokens": settings.get("max_tokens"),
             "top_p": settings.get("top_p"),
+            "profanity_check": False,
         }
         clean_model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         return GigaChat(model=model_id, **connection_kwargs, **clean_model_kwargs)

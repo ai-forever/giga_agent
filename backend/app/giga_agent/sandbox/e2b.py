@@ -1,13 +1,22 @@
+import mimetypes
 import secrets
 import time
 import asyncio
 import logging
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import PurePosixPath
 from typing import Optional, Any
 
 from pydantic import Field, PrivateAttr
 
+from giga_agent.sandbox.base import (
+    LARGE_FILE_THRESHOLD,
+    ContentResult,
+    FileReadResult,
+    RedirectResult,
+    StreamResult,
+)
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.registry import SandboxRegistry
 
@@ -257,6 +266,12 @@ class E2BSandbox(JupyterSandbox):
 
         key = await self._uniquify_s3_key(owner_id=owner_id, file_name=clean_name)
 
+        content_type, _ = mimetypes.guess_type(clean_name)
+        if not content_type:
+            content_type = "application/octet-stream"
+        if content_type.startswith("text/") and "charset" not in content_type:
+            content_type += "; charset=utf-8"
+
         session = aioboto3.Session()
         last_error: Exception | None = None
         for _ in range(10):
@@ -272,6 +287,7 @@ class E2BSandbox(JupyterSandbox):
                         Bucket=self.s3_bucket,
                         Key=key,
                         Body=content,
+                        ContentType=content_type,
                         IfNoneMatch="*",
                     )
                     return f"{S3_MOUNT_PREFIX}{key}"
@@ -296,15 +312,30 @@ class E2BSandbox(JupyterSandbox):
         # Upload идёт напрямую в S3, поднятый E2B sandbox не нужен.
         return False
 
-    async def read_file(self, sandbox_path: str) -> bytes | str:
+    async def read_file(self, sandbox_path: str) -> FileReadResult:
         """
-        Читает файл:
-        - для S3 path возвращает presigned URL
-        - для локального path возвращает bytes
+        Читает файл и возвращает структурированный результат:
+        - HTML на S3 → ContentResult / StreamResult (проксируем через backend)
+        - Прочие S3 → RedirectResult (presigned URL)
+        - Большие S3-объекты (>= 20 MB) → StreamResult
+        - Локальные файлы → ContentResult
         """
         if self._is_s3_path(sandbox_path):
             key = self._s3_key_from_sandbox_path(sandbox_path)
-            return await self._generate_presigned_url(key=key, expires_in=3600)
+            content_type, _ = mimetypes.guess_type(sandbox_path)
+            media_type = content_type or "application/octet-stream"
+            inline = sandbox_path.lower().endswith((".html", ".htm"))
+
+            size = await self._get_s3_object_size(key)
+            if size >= LARGE_FILE_THRESHOLD:
+                return await self._stream_s3_object(
+                    key, media_type=media_type, inline=inline, content_length=size,
+                )
+            if inline:
+                data = await self._download_s3_object(key)
+                return ContentResult(data=data, media_type=media_type, inline=True)
+            url = await self._generate_presigned_url(key=key, expires_in=3600)
+            return RedirectResult(url=url)
 
         await self._ensure_e2b_sandbox_connected()
         try:
@@ -313,14 +344,15 @@ class E2BSandbox(JupyterSandbox):
             raise FileNotFoundError(f"Unable to read file '{sandbox_path}': {e}") from e
 
         if isinstance(data, bytes):
-            return data
-        if isinstance(data, bytearray):
-            return bytes(data)
-        if isinstance(data, str):
-            return data.encode("utf-8")
+            raw = data
+        elif isinstance(data, bytearray):
+            raw = bytes(data)
+        elif isinstance(data, str):
+            raw = data.encode("utf-8")
+        else:
+            raw = str(data).encode("utf-8")
 
-        # Нормализуем неожиданные типы ответа SDK в bytes.
-        return str(data).encode("utf-8")
+        return ContentResult(data=raw)
 
     def requires_running_for_read(self, sandbox_path: str) -> bool:
         # Для S3 paths читаем через presigned URL без поднятия sandbox.
@@ -338,6 +370,111 @@ class E2BSandbox(JupyterSandbox):
         if not key:
             raise ValueError(f"Path '{path}' does not contain a valid S3 object key")
         return key
+
+    async def _get_s3_object_size(self, key: str) -> int:
+        """Возвращает размер объекта в S3 (в байтах)."""
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                resp = await s3.head_object(Bucket=self.s3_bucket, Key=key)
+                return int(resp["ContentLength"])
+        except ClientError as e:
+            code = (e.response.get("Error") or {}).get("Code")
+            if code in {"NoSuchKey", "404"}:
+                raise FileNotFoundError(f"S3 object not found: {key}") from e
+            raise RuntimeError(f"Failed to get S3 object size for '{key}': {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"Failed to get S3 object size for '{key}': {e}") from e
+
+    async def _download_s3_object(self, key: str) -> bytes:
+        """Скачивает объект из S3 целиком и возвращает содержимое."""
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                resp = await s3.get_object(Bucket=self.s3_bucket, Key=key)
+                return await resp["Body"].read()
+        except ClientError as e:
+            code = (e.response.get("Error") or {}).get("Code")
+            if code in {"NoSuchKey", "404"}:
+                raise FileNotFoundError(f"S3 object not found: {key}") from e
+            raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
+
+    async def _stream_s3_object(
+        self,
+        key: str,
+        *,
+        media_type: str = "application/octet-stream",
+        inline: bool = False,
+        content_length: int | None = None,
+    ) -> StreamResult:
+        """Создаёт StreamResult для потоковой отдачи S3-объекта."""
+        import contextlib
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        session = aioboto3.Session()
+        stack = contextlib.AsyncExitStack()
+        try:
+            s3 = await stack.enter_async_context(
+                session.client(
+                    "s3",
+                    endpoint_url=self.s3_endpoint,
+                    region_name=self.s3_region,
+                    aws_access_key_id=self.aws_access_key_id,
+                    aws_secret_access_key=self.aws_secret_access_key,
+                )
+            )
+            resp = await s3.get_object(Bucket=self.s3_bucket, Key=key)
+        except ClientError as e:
+            with contextlib.suppress(Exception):
+                await stack.aclose()
+            code = (e.response.get("Error") or {}).get("Code")
+            if code in {"NoSuchKey", "404"}:
+                raise FileNotFoundError(f"S3 object not found: {key}") from e
+            raise RuntimeError(f"Failed to stream S3 object '{key}': {e}") from e
+        except BotoCoreError as e:
+            with contextlib.suppress(Exception):
+                await stack.aclose()
+            raise RuntimeError(f"Failed to stream S3 object '{key}': {e}") from e
+        except Exception:
+            with contextlib.suppress(Exception):
+                await stack.aclose()
+            raise
+
+        async def _chunk_iter() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in resp["Body"]:
+                    yield chunk
+            finally:
+                with contextlib.suppress(Exception):
+                    await stack.aclose()
+
+        return StreamResult(
+            stream=_chunk_iter(),
+            media_type=media_type,
+            inline=inline,
+            content_length=content_length,
+        )
 
     async def _generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         import aioboto3

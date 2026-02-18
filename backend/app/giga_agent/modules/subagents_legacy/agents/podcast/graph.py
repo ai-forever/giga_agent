@@ -10,10 +10,10 @@ from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 from pydub import AudioSegment
 
+from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.podcast.config import (
     ConfigSchema,
     PodcastState,
-    podcast_llm,
 )
 from giga_agent.modules.subagents_legacy.agents.podcast.prompts import (
     LANGUAGE_PROMPT,
@@ -35,7 +35,22 @@ from giga_agent.modules.subagents_legacy.agents.podcast.utils import (
     generate_script,
     parse_url,
 )
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    get_user_secret,
+    resolve_user_llm,
+)
+from giga_agent.modules.subagents_legacy.uploads import (
+    build_tool_message,
+    upload_files_for_config_user,
+)
 from giga_agent.utils.messages import filter_tool_calls
+
+
+async def _resolve_llm(config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
+    return llm.with_config(tags=["nostream"])
 
 
 async def download_url(state: PodcastState):
@@ -44,7 +59,7 @@ async def download_url(state: PodcastState):
     return {"podcast_text": ""}
 
 
-async def summarize_messages(state: PodcastState):
+async def summarize_messages(state: PodcastState, config: RunnableConfig):
     system = (
         "Ты — продюсер подкастов мирового класса, задача которого — "
         "проанализировать переписку ниже, выделить все важные моменты для подкаста и "
@@ -56,7 +71,8 @@ async def summarize_messages(state: PodcastState):
         "которая пригодится для подкаста"
     )
     if state.get("use_messages"):
-        resp = await podcast_llm.ainvoke(
+        llm = await _resolve_llm(config)
+        resp = await llm.ainvoke(
             [
                 (
                     "system",
@@ -72,7 +88,7 @@ async def summarize_messages(state: PodcastState):
     return {}
 
 
-async def script(state: PodcastState):
+async def script(state: PodcastState, config: RunnableConfig):
     # Модифицируем системный промпт на основе пользовательского ввода
     modified_system_prompt = SYSTEM_PROMPT
     lang_prompt = LANGUAGE_PROMPT.format(language="ru")
@@ -86,17 +102,20 @@ async def script(state: PodcastState):
     modified_system_prompt += f"\n\n{lang_prompt}"
     if state.get("length") and state.get("length") in LENGTH_MODIFIERS:
         modified_system_prompt += f"\n\n{LENGTH_MODIFIERS[state.get('length')]}"
+    llm = await _resolve_llm(config)
     if state.get("length") == "short":
         llm_output = await generate_script(
             modified_system_prompt,
             state.get("podcast_text"),
             ShortDialogue,
+            llm,
         )
     else:
         llm_output = await generate_script(
             modified_system_prompt,
             state.get("podcast_text"),
             MediumDialogue,
+            llm,
         )
     return {"dialogue": llm_output}
 
@@ -116,8 +135,13 @@ async def audio_gen(state: PodcastState, config: RunnableConfig):
 
         transcript += speaker_label + "\n\n"
         total_characters += len(line.text)
-        sber_auth_token = settings.external.salute_speech
-        salute_speech_scope = settings.external.salute_speech_scope
+        user = await get_current_user_from_config(config)
+        sber_auth_token = get_user_secret(user, "SALUTE_SPEECH")
+        salute_speech_scope = (
+            get_user_secret(user, "SALUTE_SCOPE") or "SALUTE_SPEECH_PERS"
+        )
+        if not sber_auth_token:
+            raise ValueError("SALUTE_SPEECH отсутствует в user.secrets")
         salute_access_token = await get_sber_tts_token(
             sber_auth_token,
             scope=salute_speech_scope,
@@ -148,21 +172,18 @@ async def audio_gen(state: PodcastState, config: RunnableConfig):
     audio_file = await asyncio.to_thread(combined_audio.export, format="mp3")
     audio_bytes = await asyncio.to_thread(audio_file.read)
 
-    uploader = REPLUploader()
-    upload_files = [
-        RunUploadFile(
-            path="podcast.mp3",
-            file_type="audio",
-            content=audio_bytes,
-        ),
-    ]
-    upload_resp = await uploader.upload_run_files(
-        upload_files,
-        config["configurable"]["thread_id"],
+    uploaded = await upload_files_for_config_user(
+        config,
+        files=[
+            {
+                "file_name": f"{config['configurable']['thread_id']}/podcast.mp3",
+                "file_type": "audio",
+                "content": audio_bytes,
+            }
+        ],
     )
-    uploaded = upload_resp[0]
 
-    return {"audio": uploaded, "transcript": transcript}
+    return {"audio": uploaded[0].model_dump(mode="json"), "transcript": transcript}
 
 
 workflow = StateGraph(PodcastState, ConfigSchema)
@@ -244,17 +265,22 @@ async def podcast_generate(
                     "tool_call_id": runtime.tool_call_id,
                 },
             )
-    return {
-        "transcript": state.get("transcript"),
-        "message": (
-            f"В результате выполнения было сгенерирован аудио-файл "
-            f"{state.get('audio')['path']}. "
-            f"Покажи его пользователю через "
-            f'"![alt-описание](attachment:{state.get("audio")["path"]})" '
-            f"и напиши ответ с краткой информацией по подкасту"
-        ),
-        "giga_attachments": [state.get("audio")],
-    }
+    audio = FileResponse.model_validate(state.get("audio"))
+    return build_tool_message(
+        runtime,
+        tool_name="podcast_generate",
+        payload={
+            "transcript": state.get("transcript"),
+            "message": (
+                f"В результате выполнения было сгенерирован аудио-файл "
+                f"{audio.sandbox_path}. "
+                f"Покажи его пользователю через "
+                f'"![alt-описание](attachment:{audio.sandbox_path})" '
+                f"и напиши ответ с краткой информацией по подкасту"
+            ),
+        },
+        attachments=[audio],
+    )
 
 
 # async def main():

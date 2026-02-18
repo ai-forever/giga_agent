@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Annotated, TypedDict, get_args, get_origin, get_type_hints
+from typing import (
+    Any,
+    Callable,
+    Annotated,
+    TypedDict,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 TypedDictType = type[TypedDict]
 
@@ -24,6 +32,8 @@ def _collect_typed_dict_hints(state_type: TypedDictType) -> dict[str, Any]:
 
 
 def merge_state(a: dict, b: dict, state_type: TypedDictType) -> dict:
+    if b is None:
+        return a
     hints = _collect_typed_dict_hints(state_type)
     result: dict = {}
     all_keys = set(a) | set(b)

@@ -22,7 +22,6 @@ GIGACHAT_TEMPERATURE = 0.1
 GIGACHAT_SCOPE = "GIGACHAT_API_CORP"
 
 # Sber TTS constants
-SBER_AUTH_TOKEN = settings.external.salute_speech
 SBER_TTS_RETRY_ATTEMPTS = 3
 SBER_TTS_RETRY_DELAY = 5  # in seconds
 

@@ -5,6 +5,7 @@ from typing import Any
 
 import aiohttp
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.language_models import BaseChatModel
 
 from giga_agent.modules.subagents_legacy.agents.podcast.constants import (
     JINA_READER_URL,
@@ -39,10 +40,11 @@ async def generate_script(
     system_prompt: str,
     input_text: str,
     output_model: type[ShortDialogue] | type[MediumDialogue],
+    llm: BaseChatModel,
 ) -> ShortDialogue | MediumDialogue:
     """Получение диалога от LLM."""
     # Вызов LLM в первый раз
-    first_draft_dialogue = await call_gigachat(system_prompt, input_text, output_model)
+    first_draft_dialogue = await call_gigachat(system_prompt, input_text, output_model, llm)
 
     if first_draft_dialogue is None:
         raise Exception("Failed to get the first dialogue draft from GigaChat")
@@ -56,6 +58,7 @@ async def generate_script(
         system_prompt_with_dialogue,
         "Пожалуйста, улучши диалог. Сделай его более естественным и увлекательным.",
         output_model,
+        llm,
     )
 
     if final_dialogue is None:
@@ -135,12 +138,13 @@ async def call_gigachat(
     system_prompt: str,
     text: str,
     dialogue_format: Any,
+    llm: BaseChatModel,
 ) -> Any | None:
     """Вызов GigaChat API с заданным промптом и форматом диалога."""
     try:
         messages = [SystemMessage(content=system_prompt), HumanMessage(content=text)]
 
-        response = await podcast_llm.ainvoke(messages)
+        response = await llm.ainvoke(messages)
         response_text = response.content
 
         # Парсим JSON ответ

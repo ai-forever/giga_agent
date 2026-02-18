@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 
+from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     ConfigSchema,
     PresentationState,
@@ -22,6 +23,8 @@ from giga_agent.modules.subagents_legacy.agents.presentation_agent.nodes.plan im
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.nodes.slides import (
     slides_node,
 )
+from giga_agent.modules.subagents_legacy.runtime import with_auth_from_runtime
+from giga_agent.modules.subagents_legacy.uploads import build_tool_message
 from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(PresentationState, ConfigSchema)
@@ -86,16 +89,20 @@ async def generate_presentation(
                     "tool_call_id": runtime.tool_call_id,
                 },
             )
-    code = state["presentation_html"]
-    return {
-        "message": (
-            f"В результате выполнения была сгенерирована HTML страница {code['path']}. "
-            f"Покажи её пользователю через "
-            f'"![alt-описание](attachment:{code["path"]})" '
-            f"и напиши куда двигаться пользователю дальше"
-        ),
-        "giga_attachments": [code],
-    }
+    code = FileResponse.model_validate(state["presentation_html"])
+    return build_tool_message(
+        runtime,
+        tool_name="generate_presentation",
+        payload={
+            "message": (
+                f"В результате выполнения была сгенерирована HTML страница "
+                f"{code.sandbox_path}. Покажи её пользователю через "
+                f'"![alt-описание](attachment:{code.sandbox_path})" '
+                f"и напиши куда двигаться пользователю дальше"
+            )
+        },
+        attachments=[code],
+    )
 
 
 async def main():

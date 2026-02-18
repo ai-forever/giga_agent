@@ -91,6 +91,13 @@ class BaseModule(Serializable):
         """
         return None
 
+    def get_subgraphs(self) -> dict[str, str]:
+        """
+        Возвращает дополнительные subgraph entrypoints для langgraph dev server.
+        Формат значения: "python.import.path:variable_name".
+        """
+        return {}
+
     async def on_startup(self, session: "AsyncSession"):
         """
         Hook executed on application startup.

@@ -2,14 +2,11 @@ from typing import Literal, TypedDict
 
 from langchain_core.messages import AnyMessage
 
+from giga_agent.models import FileResponse
 from giga_agent.modules.subagents_legacy.agents.podcast.schema import (
     MediumDialogue,
     ShortDialogue,
 )
-from giga_agent.utils.llm import load_llm
-from giga_agent.utils.types import UploadedFile
-
-podcast_llm = load_llm().with_config(tags=["nostream"])
 
 
 class ConfigSchema(TypedDict):
@@ -25,5 +22,5 @@ class PodcastState(TypedDict):
     question: str
     tone: Literal["entertaining", "formal"]
     length: Literal["short", "medium"]
-    audio: UploadedFile
+    audio: FileResponse
     transcript: str

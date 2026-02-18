@@ -10,12 +10,16 @@ from langchain_core.runnables import (
 
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     PresentationState,
-    llm,
 )
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.prompts.ru import (
     SLIDE_PROMPT,
 )
 from giga_agent.output_parsers.html_parser import HTMLParser
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    resolve_user_llm,
+)
+from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_user
 
 slide_sem = asyncio.Semaphore(4)
 
@@ -25,7 +29,7 @@ with open(os.path.join(__location__, "presentation.html")) as f:
     presentation_html = f.read()
 
 
-async def generate_slide(messages):
+async def _generate_slide(messages, llm):
     async with slide_sem:
         ch_2 = (
             SLIDE_PROMPT
@@ -47,6 +51,9 @@ async def generate_slide(messages):
 
 
 async def slides_node(state: PresentationState, config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
+    llm = llm.with_config(tags=["nostream"]).bind(top_p=0.2)
     slide_tasks = []
     for idx, slide in enumerate(state["slides"]):
         user_message = (
@@ -72,25 +79,28 @@ async def slides_node(state: PresentationState, config: RunnableConfig):
                     user_message += f"\nИспользуй график: '{graph}'"
                 elif graph.startswith("/runs/") or graph.startswith("/files/"):
                     user_message += f"\nИспользуй график: 'attachment:{graph}'"
-        slide_tasks.append(generate_slide(state["messages"] + [("user", user_message)]))
+        slide_tasks.append(
+            _generate_slide(state["messages"] + [("user", user_message)], llm)
+        )
     slide_resps = await asyncio.gather(*slide_tasks)
     result = presentation_html.replace("<SECTIONS></SECTIONS>", "\n".join(slide_resps))
     for key, value in state["images_uploaded"].items():
-        result_2 = result.replace(f"attachment:{key}", f"/files{value['path']}")
+        result_2 = result.replace(
+            f"attachment:{key}",
+            f"/files{value['sandbox_path']}",
+        )
         if result == result_2:
-            result = result.replace(f"{key}", f"/files{value['path']}")
+            result = result.replace(f"{key}", f"/files{value['sandbox_path']}")
         else:
             result = result_2
-    uploader = REPLUploader()
-    upload_files = [
-        RunUploadFile(
-            path="presentation.html",
-            file_type="html",
-            content=result,
-        ),
-    ]
-    upload_resp = await uploader.upload_run_files(
-        upload_files,
-        config["configurable"]["thread_id"],
+    upload_resp = await upload_files_for_config_user(
+        config,
+        files=[
+            {
+                "file_name": f"{config['configurable']['thread_id']}/presentation.html",
+                "file_type": "html",
+                "content": result.encode("utf-8"),
+            }
+        ],
     )
-    return {"presentation_html": upload_resp[0]}
+    return {"presentation_html": upload_resp[0].model_dump(mode="json")}

@@ -5,9 +5,6 @@ from giga_agent.modules.subagents_legacy.agents.gis_agent.utils.gis_client impor
     Location,
     Point,
 )
-from giga_agent.utils.llm import load_llm
-
-llm = load_llm().with_config(tags=["nostream"])
 
 
 class ConfigSchema(TypedDict):

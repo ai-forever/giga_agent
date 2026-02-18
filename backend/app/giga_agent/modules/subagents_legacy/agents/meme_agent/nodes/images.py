@@ -10,15 +10,18 @@ from langchain_core.runnables import (
 )
 from PIL import Image, ImageDraw, ImageFont
 
-from giga_agent.modules.subagents_legacy.agents.meme_agent.config import MemeState, llm
+from giga_agent.modules.subagents_legacy.agents.meme_agent.config import MemeState
 from giga_agent.modules.subagents_legacy.agents.meme_agent.prompts.ru import (
     IMAGE_PROMPT,
 )
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    resolve_user_image_generator,
+    resolve_user_llm,
+)
+from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_user
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-from giga_agent.generators.image import load_image_gen
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
 
 def memeify(
@@ -245,14 +248,16 @@ def memeify(
     return out.getvalue()
 
 
-img_ch = (
-    IMAGE_PROMPT
-    | llm
-    | RunnableParallel({"message": RunnablePassthrough(), "json": JsonOutputParser()})
-).with_retry()
-
-
 async def image_node(state: MemeState, config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
+    img_ch = (
+        IMAGE_PROMPT
+        | llm.with_config(tags=["nostream"])
+        | RunnableParallel(
+            {"message": RunnablePassthrough(), "json": JsonOutputParser()}
+        )
+    ).with_retry()
     resp = await img_ch.ainvoke(
         {
             "messages": [
@@ -266,7 +271,7 @@ async def image_node(state: MemeState, config: RunnableConfig):
     )
     if config["configurable"].get("print_messages", False):
         resp["message"].pretty_print()
-    image_gen = load_image_gen()
+    image_gen = await resolve_user_image_generator(user)
     await image_gen.init()
     image_data = await image_gen.generate_image(
         resp["json"]["image"]["description"],
@@ -280,18 +285,16 @@ async def image_node(state: MemeState, config: RunnableConfig):
         stroke=6,
     )
 
-    uploader = REPLUploader()
-    upload_files = [
-        RunUploadFile(
-            path="meme.jpg",
-            file_type="image",
-            content=image_data,
-        ),
-    ]
-    upload_resp = await uploader.upload_run_files(
-        upload_files,
-        config["configurable"]["thread_id"],
+    upload_resp = await upload_files_for_config_user(
+        config,
+        files=[
+            {
+                "file_name": f"{config['configurable']['thread_id']}/meme.jpg",
+                "file_type": "image",
+                "content": image_data,
+            }
+        ],
     )
-    uploaded = upload_resp[0]
+    uploaded = upload_resp[0].model_dump(mode="json")
 
     return {"meme_image": uploaded}

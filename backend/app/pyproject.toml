@@ -50,3 +50,8 @@ giga_agent = "giga_agent.cli:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["giga_agent"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

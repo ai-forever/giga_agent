@@ -14,16 +14,21 @@ from langchain_core.runnables import (
 
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     LandingState,
-    llm,
 )
 from giga_agent.modules.subagents_legacy.agents.landing_agent.prompts.ru import (
     IMAGE_PROMPT,
 )
-from giga_agent.generators.image import load_image_gen
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    resolve_user_image_generator,
+    resolve_user_llm,
+)
+from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_user
 
 
 async def image_node(state: LandingState, config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
     image_messages = state.get("image_messages", [])
     new_message = HumanMessage(content=state["task"])
     additional_info = (
@@ -41,7 +46,7 @@ async def image_node(state: LandingState, config: RunnableConfig):
 
     chain = (
         prompt
-        | llm
+        | llm.with_config(tags=["nostream"])
         | RunnableParallel(
             {"message": RunnablePassthrough(), "json": JsonOutputParser()},
         )
@@ -92,7 +97,7 @@ async def image_node(state: LandingState, config: RunnableConfig):
         existing_names.append(image["name"])
         # image["name"] = str(uuid.uuid4()) + ".jpg"
         filtered_images.append(image)
-    generator = load_image_gen()
+    generator = await resolve_user_image_generator(user)
     await generator.init()
     tasks = [
         generator.generate_image(i["description"], i["width"], i["height"])
@@ -103,18 +108,16 @@ async def image_node(state: LandingState, config: RunnableConfig):
         (i, d) for i, d in zip(filtered_images, images_data) if isinstance(d, str)
     ]
 
-    uploader = REPLUploader()
-    upload_files = [
-        RunUploadFile(
-            path=i["name"],
-            file_type="image",
-            content=base64.b64decode(image),
-        )
-        for i, image in images_data_filtered
-    ]
-    upload_resp = await uploader.upload_run_files(
-        upload_files,
-        config["configurable"]["thread_id"],
+    upload_resp = await upload_files_for_config_user(
+        config,
+        files=[
+            {
+                "file_name": f"{config['configurable']['thread_id']}/{i['name']}",
+                "file_type": "image",
+                "content": base64.b64decode(image),
+            }
+            for i, image in images_data_filtered
+        ],
     )
 
     images_uploaded = state.get("images_uploaded", {})
@@ -122,7 +125,7 @@ async def image_node(state: LandingState, config: RunnableConfig):
     for i, b in zip(images_data_filtered, upload_resp):
         if isinstance(b, Exception):
             continue
-        images_uploaded[i[0]["name"]] = b
+        images_uploaded[i[0]["name"]] = b.model_dump(mode="json")
         new_images.append(i[0])
     action = state["agent_messages"][-1].tool_calls[0]
     return {
@@ -141,31 +144,3 @@ async def image_node(state: LandingState, config: RunnableConfig):
         "images_uploaded": images_uploaded,
         "image_plan_loaded": True,
     }
-
-
-if __name__ == "__main__":
-    prompt = ChatPromptTemplate.from_messages(
-        [("system", IMAGE_PROMPT), MessagesPlaceholder("messages")],
-    )
-
-    chain = (
-        prompt
-        | llm.bind(top_p=0.9)
-        | RunnableParallel(
-            {"message": RunnablePassthrough(), "json": JsonOutputParser()},
-        )
-    ).with_retry()
-
-    chain.invoke(
-        {
-            "messages": [
-                (
-                    "user",
-                    (
-                        "Придумай промпт для мема в конце презентации про "
-                        "недвижимость в москве. без котов + минимум текста"
-                    ),
-                ),
-            ],
-        },
-    )["message"].pretty_print()

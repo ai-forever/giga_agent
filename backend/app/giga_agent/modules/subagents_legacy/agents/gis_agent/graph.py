@@ -23,10 +23,17 @@ from giga_agent.modules.subagents_legacy.agents.gis_agent.utils.gis_client impor
     Location,
     Point,
 )
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_runtime,
+    get_user_secret,
+)
+from giga_agent.modules.subagents_legacy.uploads import (
+    build_tool_message,
+    resolve_upload_prefix,
+    upload_files_for_runtime_user,
+)
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
 
 with open(os.path.join(__location__, "page.html")) as f:
     map_html = f.read()
@@ -97,10 +104,21 @@ async def city_explore(city: str, runtime: ToolRuntime):
 
     """
     thread_id = str(uuid.uuid4())
+    user = await get_current_user_from_runtime(runtime)
+    twogis_token = get_user_secret(user, "TWOGIS_TOKEN")
+    if not twogis_token:
+        return build_tool_message(
+            runtime,
+            tool_name="city_explore",
+            payload={"error": "TWOGIS_TOKEN отсутствует в user.secrets"},
+        )
     conf = {
         "configurable": {
             "thread_id": thread_id,
-            "skip_search": False if settings.external.tavily_api_key else True,
+            "skip_search": user.search_engine_id is None,
+            "langgraph_auth_user": dict(
+                runtime.config["configurable"]["langgraph_auth_user"]
+            ),
         },
     }
     push_ui_message(
@@ -135,7 +153,6 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [hotel["point"]["lon"], hotel["point"]["lat"]],
-                "icon": "/public/hotel.svg",
                 "userData": {"text": hotel["name"]},
             },
         )
@@ -145,7 +162,6 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [food["point"]["lon"], food["point"]["lat"]],
-                "icon": "/public/food.svg",
                 "userData": {"text": food["name"]},
             },
         )
@@ -155,7 +171,6 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [attraction["point"]["lon"], attraction["point"]["lat"]],
-                "icon": "/public/bust.svg",
                 "userData": {"text": attraction["name"]},
             },
         )
@@ -169,7 +184,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
             "coords": [center_lon, center_lat],
             "zoom": 8,
             "bounds": get_bbox(points),
-            "key": settings.external.twogis_token,
+            "key": twogis_token,
         },
         ensure_ascii=False,
     )
@@ -184,26 +199,31 @@ async def city_explore(city: str, runtime: ToolRuntime):
         + "\n\n".join(food_message)
     )
 
-    uploader = REPLUploader()
-    upload_files = [
-        RunUploadFile(
-            path="map.html",
-            file_type="html",
-            content=new_map_html,
-        ),
-    ]
-    upload_resp = await uploader.upload_run_files(upload_files, thread_id)
-    uploaded = upload_resp[0]
-
-    return {
-        "data": data_message,
-        "message": (
-            f"В результате была получена информация о городе и "
-            f"страница с картой {uploaded['path']}. Покажи её пользователю через "
-            f'"![alt-описание](attachment:{uploaded["path"]})".'
-        ),
-        "giga_attachments": upload_resp,
-    }
+    prefix = resolve_upload_prefix(runtime)
+    uploaded = await upload_files_for_runtime_user(
+        runtime,
+        files=[
+            {
+                "file_name": f"{prefix}/map_{uuid.uuid4().hex}.html",
+                "file_type": "html",
+                "content": new_map_html.encode("utf-8"),
+            }
+        ],
+    )
+    file = uploaded[0]
+    return build_tool_message(
+        runtime,
+        tool_name="city_explore",
+        payload={
+            "data": data_message,
+            "message": (
+                f"В результате была получена информация о городе и "
+                f"страница с картой {file.sandbox_path}. Покажи её пользователю через "
+                f'"![alt-описание](attachment:{file.sandbox_path})".'
+            ),
+        },
+        attachments=uploaded,
+    )
 
 
 def location_to_string(location: Location):

@@ -9,6 +9,7 @@ from giga_agent.core.db import Base
 from giga_agent.models.file import FileRepository
 from giga_agent.models.sandbox import SandboxProvider
 from giga_agent.models.users import User
+from giga_agent.sandbox.base import ContentResult
 from giga_agent.sandbox.manager import SandboxManager
 
 
@@ -104,18 +105,20 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(file)
 
             manager = SandboxManager(session)
-            runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=b"abc"))
+            content = ContentResult(data=b"abc")
+            runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=content))
             runtime.requires_running_for_read = lambda path: False
             manager._build_runtime = lambda provider, sandbox: runtime  # type: ignore[method-assign]
             manager.ensure_running_for_user = AsyncMock()
 
-            fetched, payload = await manager.read_file_for_user(
+            fetched, result = await manager.read_file_for_user(
                 owner_id=user.id,
                 file_id=file.id,
             )
 
             self.assertEqual(fetched.id, file.id)
-            self.assertEqual(payload, b"abc")
+            self.assertIsInstance(result, ContentResult)
+            self.assertEqual(result.data, b"abc")
             runtime.read_file.assert_awaited_once_with(file.sandbox_path)
             manager.ensure_running_for_user.assert_not_awaited()
 
@@ -137,19 +140,21 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             cold_runtime = types.SimpleNamespace(
                 requires_running_for_read=lambda path: True,
             )
-            hot_runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=b"abc"))
+            content = ContentResult(data=b"abc")
+            hot_runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=content))
 
             manager = SandboxManager(session)
             manager._build_runtime = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
             manager.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
 
-            fetched, payload = await manager.read_file_for_user(
+            fetched, result = await manager.read_file_for_user(
                 owner_id=user.id,
                 file_id=file.id,
             )
 
             self.assertEqual(fetched.id, file.id)
-            self.assertEqual(payload, b"abc")
+            self.assertIsInstance(result, ContentResult)
+            self.assertEqual(result.data, b"abc")
             manager.ensure_running_for_user.assert_awaited_once_with(
                 owner_id=user.id,
                 provider_id=provider.id,
@@ -192,15 +197,17 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(file)
 
             manager = SandboxManager(session)
-            manager.read_file_for_user = AsyncMock(return_value=(file, b"by-path"))
+            content = ContentResult(data=b"by-path")
+            manager.read_file_for_user = AsyncMock(return_value=(file, content))
 
-            fetched, payload = await manager.read_file_by_path_for_user(
+            fetched, result = await manager.read_file_by_path_for_user(
                 owner_id=user.id,
                 sandbox_path="/home/user/bucket/giga_agent/u/by-path.txt",
             )
 
             self.assertEqual(fetched.id, file.id)
-            self.assertEqual(payload, b"by-path")
+            self.assertIsInstance(result, ContentResult)
+            self.assertEqual(result.data, b"by-path")
             manager.read_file_for_user.assert_awaited_once_with(
                 owner_id=user.id,
                 file_id=file.id,

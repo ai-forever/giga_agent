@@ -14,10 +14,10 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 
+from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     ConfigSchema,
     LandingState,
-    llm,
 )
 from giga_agent.modules.subagents_legacy.agents.landing_agent.nodes.coder import (
     coder_node,
@@ -37,6 +37,12 @@ from giga_agent.modules.subagents_legacy.agents.landing_agent.tools import (
     image,
     plan,
 )
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    resolve_user_llm,
+    with_auth_from_runtime,
+)
+from giga_agent.modules.subagents_legacy.uploads import build_tool_message
 from giga_agent.utils.messages import filter_tool_messages
 
 
@@ -44,7 +50,9 @@ async def agent(state: LandingState, config: RunnableConfig):
     prompt = ChatPromptTemplate.from_messages(
         [("system", AGENT_PROMPT), MessagesPlaceholder("messages")],
     ).partial(language="ru")
-    chain = prompt | llm.bind_tools(
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
+    chain = prompt | llm.with_config(tags=["nostream"]).bind_tools(
         [plan, image, coder, done],
         parallel_tool_calls=False,
     )
@@ -199,23 +207,27 @@ async def create_landing(
                                 "tool_call_id": runtime.tool_call_id,
                             },
                         )
-    html_page = result_state["html"]
+    html_page = FileResponse.model_validate(result_state["html"])
     message = (
-        f"В результате выполнения была сгенерирована HTML страница {html_page['path']}."
+        f"В результате выполнения была сгенерирована HTML страница {html_page.sandbox_path}."
         f" Покажи её пользователю через "
-        f'"![alt-описание](attachment:{html_page["path"]})" и напиши '
+        f'"![alt-описание](attachment:{html_page.sandbox_path})" и напиши '
         f"ответ с использованием информации из `text` и "
         f'куда двигаться пользователю дальше\nТекущий thread_id: "{thread_id}" '
         f"используй его, если пользователю нужно будет продолжить работу над страницей."
         f" Ни в коем случае не пиши thread_id пользователю — "
         f"он нужен только для параметра thread_id!"
     )
-    return {
-        "text": result_state.get("done", "Страница готова"),
-        "message": message,
-        "giga_attachments": [html_page],
-        "thread_id": thread_id,
-    }
+    return build_tool_message(
+        runtime,
+        tool_name="create_landing",
+        payload={
+            "text": result_state.get("done", "Страница готова"),
+            "message": message,
+            "thread_id": thread_id,
+        },
+        attachments=[html_page],
+    )
 
 
 # coffee = (

@@ -10,8 +10,8 @@ from giga_agent.modules.subagents_legacy.agents.gis_agent.utils.gis_client impor
 
 
 async def attractions_node(state: MapState, config: RunnableConfig):
-    cords = await fetch_city_cords(state["city_name"])
-    attractions = await fetch_attractions(cords)
+    cords = await fetch_city_cords(state["city_name"], config)
+    attractions = await fetch_attractions(cords, config)
     try:
         attractions = random.sample(attractions, 3)
     except ValueError:

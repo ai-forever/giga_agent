@@ -5,7 +5,6 @@ from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import tool
-from langchain_tavily import TavilySearch
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph.types import Command, interrupt
@@ -13,10 +12,18 @@ from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-from giga_agent.utils.jupyter import REPLUploader, RunUploadFile
-from giga_agent.utils.llm import load_llm
-
-llm = load_llm().with_config(tags=["nostream"])
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    get_current_user_from_runtime,
+    normalize_search_result,
+    resolve_user_llm,
+    resolve_user_search_engine,
+)
+from giga_agent.modules.subagents_legacy.uploads import (
+    build_tool_message,
+    resolve_upload_prefix,
+    upload_files_for_runtime_user,
+)
 
 
 class LeanGraphState(TypedDict):
@@ -52,6 +59,12 @@ class LeanGraphState(TypedDict):
     ]
     cost_structure: Annotated[str, "Основные затраты, связанные с ведением бизнеса."]
     revenue_streams: Annotated[str, "Как бизнес будет зарабатывать деньги."]
+
+
+async def _resolve_llm(config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
+    return llm.with_config(tags=["nostream"])
 
 
 def state_to_string(state: LeanGraphState) -> str:
@@ -92,6 +105,7 @@ async def ask_llm(state: LeanGraphState, question: str, config: RunnableConfig) 
         language="ru",
     )
 
+    llm = await _resolve_llm(config)
     chain = prompt | llm | StrOutputParser()
     return await chain.ainvoke({"state": state_to_string(state), "question": question})
 
@@ -221,10 +235,15 @@ async def check_unique(
         [("system", COMPETITION_ANALYSIS_TEMPLATE)],
     ).partial(format_instructions=parser.get_format_instructions(), language="ru")
 
-    search_results_text = await TavilySearch(
-        tavily_api_key=settings.external.tavily_api_key,
-    ).arun(state["unique_value_proposition"])
+    user = await get_current_user_from_config(config)
+    search_engine = await resolve_user_search_engine(user)
+    search_results = await search_engine.search([state["unique_value_proposition"]])
+    search_results_text = "\n\n".join(
+        normalize_search_result(item) for item in search_results
+    )
 
+    llm = await _resolve_llm(config)
+    llm = await _resolve_llm(config)
     chain = prompt | llm | parser
     res = await chain.ainvoke(
         {
@@ -312,6 +331,7 @@ async def get_feedback(
         )
     else:
         feedback = "Все хорошо!"
+    llm = await _resolve_llm(config)
 
     parser = PydanticOutputParser(pydantic_object=UserFeedback)
     prompt = ChatPromptTemplate.from_messages([("system", FEEDBACK_TEMPLATE)]).partial(
@@ -441,6 +461,7 @@ def lean_canvas_to_html(state) -> str:
 
     # --- HTML-разметка ------------------------------------------------------
     html = f"""
+    <meta charset="utf-8">
     {css}
     <div class="canvas">
         <div class="canvas-title-cell">{state["main_task"].replace(NEW_LINE, "<br>")}</div>
@@ -501,6 +522,7 @@ async def lean_canvas(
     runtime: ToolRuntime = None,
 ):
     """Создает Lean Canvas под задачу пользователя. Полезно для проработки стартапов."""
+    user = await get_current_user_from_runtime(runtime)
     client = get_client()
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
@@ -523,7 +545,7 @@ async def lean_canvas(
             "configurable": {
                 "thread_id": thread_id,
                 "need_interrupt": False,
-                "skip_search": False if settings.external.tavily_api_key else True,
+                "skip_search": user.search_engine_id is None,
             },
         },
     ):
@@ -540,24 +562,30 @@ async def lean_canvas(
             )
     html = lean_canvas_to_html(state)
     text = lean_canvas_to_text(state)
-    uploader = REPLUploader()
-    upload_files = [
-        RunUploadFile(
-            path="lean_canvas.html",
-            file_type="html",
-            content=html,
-        ),
-    ]
-    upload_resp = await uploader.upload_run_files(upload_files, thread_id)
-    uploaded = upload_resp[0]
-    return {
-        "text": text,
-        "message": (
-            f"В результате выполнения была сгенерирована HTML страница "
-            f"{uploaded['path']}. Покажи её пользователю через "
-            f'"![alt-описание](attachment:{uploaded["path"]})" и '
-            f"напиши ответ с использованием текста lean canvas и "
-            f"куда двигаться пользователю дальше"
-        ),
-        "giga_attachments": [uploaded],
-    }
+    prefix = resolve_upload_prefix(runtime)
+    uploaded = await upload_files_for_runtime_user(
+        runtime,
+        files=[
+            {
+                "file_name": f"{prefix}/lean_canvas.html",
+                "file_type": "html",
+                "content": html.encode("utf-8"),
+            }
+        ],
+    )
+    file = uploaded[0]
+    return build_tool_message(
+        runtime,
+        tool_name="lean_canvas",
+        payload={
+            "text": text,
+            "message": (
+                f"В результате выполнения была сгенерирована HTML страница "
+                f"{file.sandbox_path}. Покажи её пользователю через "
+                f'"![alt-описание](attachment:{file.sandbox_path})" и '
+                f"напиши ответ с использованием текста lean canvas и "
+                f"куда двигаться пользователю дальше"
+            ),
+        },
+        attachments=uploaded,
+    )

@@ -18,7 +18,7 @@ from giga_agent.models.sandbox import (
     SandboxSnapshot,
 )
 from giga_agent.models.file import File, FileRepository, FileType
-from giga_agent.sandbox.base import BaseSandbox
+from giga_agent.sandbox.base import BaseSandbox, FileReadResult
 from giga_agent.sandbox.registry import SandboxRegistry
 
 logger = logging.getLogger(__name__)
@@ -548,7 +548,7 @@ class SandboxManager:
         self,
         owner_id: uuid.UUID,
         file_id: uuid.UUID,
-    ) -> tuple[File, bytes | str]:
+    ) -> tuple[File, FileReadResult]:
         """
         Прочитать файл пользователя по file_id через соответствующий sandbox provider.
         """
@@ -597,7 +597,7 @@ class SandboxManager:
                 provider_id=provider_obj.id,
             )
         try:
-            content_or_url = await runtime.read_file(file.sandbox_path)
+            result = await runtime.read_file(file.sandbox_path)
         except FileNotFoundError:
             raise
         except PermissionError:
@@ -607,13 +607,13 @@ class SandboxManager:
                 f"Failed to read file '{file.sandbox_path}' (id={file.id}): {e}"
             ) from e
 
-        return file, content_or_url
+        return file, result
 
     async def read_file_by_path_for_user(
         self,
         owner_id: uuid.UUID,
         sandbox_path: str,
-    ) -> tuple[File, bytes | str]:
+    ) -> tuple[File, FileReadResult]:
         """
         Прочитать файл пользователя по sandbox_path.
         """

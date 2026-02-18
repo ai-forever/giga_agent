@@ -7,15 +7,20 @@ from langchain_core.runnables import RunnableConfig
 
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     LandingState,
-    llm,
 )
 from giga_agent.modules.subagents_legacy.agents.landing_agent.prompts.ru import (
     PLANNER_PROMPT,
+)
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    resolve_user_llm,
 )
 from giga_agent.utils.messages import filter_tool_messages
 
 
 async def plan_node(state: LandingState, config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
     plan_messages = filter_tool_messages(state.get("plan_messages", []))
     new_message = HumanMessage(content=state["task"])
     additional_info = (
@@ -33,7 +38,7 @@ async def plan_node(state: LandingState, config: RunnableConfig):
         [("system", PLANNER_PROMPT), MessagesPlaceholder("messages")],
     ).partial(language="ru")
 
-    chain = (prompt | llm).with_retry()
+    chain = (prompt | llm.with_config(tags=["nostream"])).with_retry()
 
     resp = await chain.ainvoke({"messages": plan_messages + [new_message]})
     if config["configurable"].get("print_messages", False):

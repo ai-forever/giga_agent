@@ -14,22 +14,117 @@ import {
   inferAttachmentTypeFromPath,
 } from "./file-utils.ts";
 
-// Оборачивает ссылки/картинки вида ](/files/...) и ](attachment:/files/...) с пробелами в <...>,
+// Оборачивает ссылки/картинки вида ](attachment:...) с пробелами или скобками в <...>,
 // чтобы CommonMark корректно парсил URI без URL-энкода.
+// Ручной парсер, а не regex, т.к. скобки внутри URL ломают regex-подход.
 const wrapFilesLinksWithAngles = (
   markdown: string | null | undefined,
 ): string => {
   if (!markdown) return "";
-  return markdown.replace(
-    /(!?\[[^\]]*\]\()(<)?((?:attachment:)[^)\n]*?)(>)?\)/g,
-    (match, prefix: string, hasLt: string, url: string, hasRt: string) => {
-      if (hasLt || hasRt) return match;
-      if (url.includes(" ")) {
-        return `${prefix}<${url}>)`;
+
+  const ATTACHMENT_PREFIX = "attachment:";
+  let result = "";
+  let i = 0;
+
+  while (i < markdown.length) {
+    // Ищем начало ссылки: "![" или "["
+    const bangBracket = markdown.indexOf("![", i);
+    const bracket = markdown.indexOf("[", i);
+
+    let linkStart: number;
+    if (bangBracket === -1 && bracket === -1) {
+      result += markdown.slice(i);
+      break;
+    } else if (bangBracket === -1) {
+      linkStart = bracket;
+    } else if (bracket === -1) {
+      linkStart = bangBracket;
+    } else {
+      linkStart = Math.min(bangBracket, bracket);
+    }
+
+    result += markdown.slice(i, linkStart);
+
+    const prefixStart = linkStart;
+    // Пропускаем "!" если есть
+    let pos = markdown[linkStart] === "!" ? linkStart + 1 : linkStart;
+    if (markdown[pos] !== "[") {
+      result += markdown[linkStart];
+      i = linkStart + 1;
+      continue;
+    }
+    pos++; // после "["
+
+    // Ищем закрывающую "]"
+    let depth = 1;
+    while (pos < markdown.length && depth > 0) {
+      if (markdown[pos] === "[") depth++;
+      else if (markdown[pos] === "]") depth--;
+      if (depth > 0) pos++;
+    }
+    if (depth !== 0 || pos >= markdown.length) {
+      result += markdown[linkStart];
+      i = linkStart + 1;
+      continue;
+    }
+    pos++; // после "]"
+
+    // Ожидаем "("
+    if (pos >= markdown.length || markdown[pos] !== "(") {
+      result += markdown.slice(linkStart, pos);
+      i = pos;
+      continue;
+    }
+    pos++; // после "("
+
+    // Проверяем, начинается ли URL с "attachment:" (возможно с "<")
+    const alreadyAngled = markdown[pos] === "<";
+    const urlCheckStart = alreadyAngled ? pos + 1 : pos;
+    if (!markdown.slice(urlCheckStart).startsWith(ATTACHMENT_PREFIX)) {
+      result += markdown.slice(linkStart, pos);
+      i = pos;
+      continue;
+    }
+
+    if (alreadyAngled) {
+      // Уже обёрнуто в <>, не трогаем — ищем >)
+      const closeAngle = markdown.indexOf(">)", pos);
+      if (closeAngle === -1) {
+        result += markdown.slice(linkStart, pos);
+        i = pos;
+        continue;
       }
-      return match;
-    },
-  );
+      result += markdown.slice(linkStart, closeAngle + 2);
+      i = closeAngle + 2;
+      continue;
+    }
+
+    // Извлекаем URL со сбалансированными скобками
+    let parenDepth = 1;
+    let urlEnd = pos;
+    while (urlEnd < markdown.length && parenDepth > 0) {
+      if (markdown[urlEnd] === "(") parenDepth++;
+      else if (markdown[urlEnd] === ")") parenDepth--;
+      if (parenDepth > 0) urlEnd++;
+    }
+    if (parenDepth !== 0) {
+      result += markdown.slice(linkStart, pos);
+      i = pos;
+      continue;
+    }
+
+    const url = markdown.slice(pos, urlEnd);
+    const prefix = markdown.slice(prefixStart, pos); // "![alt](" или "[text]("
+
+    if (url.includes(" ") || url.includes("(") || url.includes(")")) {
+      result += `${prefix}<${url}>)`;
+    } else {
+      result += `${prefix}${url})`;
+    }
+    i = urlEnd + 1; // после финальной ")"
+  }
+
+  return result;
 };
 
 const getYouTubeId = (url: string): string | null => {

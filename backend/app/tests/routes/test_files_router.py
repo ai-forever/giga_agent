@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.core.db import get_session
 from giga_agent.routes.files import router
+from giga_agent.sandbox.base import ContentResult, RedirectResult
 
 
 class FilesRouterTests(unittest.TestCase):
@@ -83,10 +84,11 @@ class FilesRouterTests(unittest.TestCase):
 
     def test_read_s3_file_returns_redirect(self):
         file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        result = RedirectResult(url="https://signed.example.local/object")
 
         with patch(
             "giga_agent.routes.files.SandboxManager.read_file_for_user",
-            AsyncMock(return_value=(file_obj, "https://signed.example.local/object")),
+            AsyncMock(return_value=(file_obj, result)),
         ):
             response = self.client.get(
                 f"/files/{file_obj.id}/content",
@@ -98,10 +100,11 @@ class FilesRouterTests(unittest.TestCase):
 
     def test_read_local_file_returns_stream(self):
         file_obj = self._file_obj("/tmp/local.bin")
+        result = ContentResult(data=b"payload")
 
         with patch(
             "giga_agent.routes.files.SandboxManager.read_file_for_user",
-            AsyncMock(return_value=(file_obj, b"payload")),
+            AsyncMock(return_value=(file_obj, result)),
         ):
             response = self.client.get(f"/files/{file_obj.id}/content")
 
@@ -131,9 +134,10 @@ class FilesRouterTests(unittest.TestCase):
 
     def test_read_by_path_returns_redirect(self):
         file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        result = RedirectResult(url="https://signed.example.local/by-path")
         with patch(
             "giga_agent.routes.files.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(return_value=(file_obj, "https://signed.example.local/by-path")),
+            AsyncMock(return_value=(file_obj, result)),
         ):
             response = self.client.get(
                 "/files/content/by-path",

@@ -108,7 +108,7 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
           settings.sideBarOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none",
-          "fixed top-0 left-0 h-full w-full bg-black/50 z-50 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
+          "fixed top-0 left-0 h-full w-full bg-black/50 z-10 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
         ].join(" ")}
       />
 
@@ -206,7 +206,11 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
                   <span className="truncate">{displayName}</span>
                 </div>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="w-[200px]">
+              <DropdownMenuContent
+                align="start"
+                side="top"
+                className="w-[200px]"
+              >
                 <DropdownMenuItem onSelect={handleProfile}>
                   <User className="mr-2 h-4 w-4" />
                   Профиль

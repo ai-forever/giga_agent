@@ -3,15 +3,21 @@ from langchain_core.runnables import RunnableConfig
 
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     PresentationState,
-    llm,
 )
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.prompts.ru import (
     FORMAT,
     PLAN_PROMPT,
 )
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    resolve_user_llm,
+)
 
 
 async def plan_node(state: PresentationState, config: RunnableConfig):
+    user = await get_current_user_from_config(config)
+    llm = await resolve_user_llm(user)
+    llm = llm.with_config(tags=["nostream"]).bind(top_p=0.2)
     ch = PLAN_PROMPT | llm
     resp = await ch.ainvoke(
         {

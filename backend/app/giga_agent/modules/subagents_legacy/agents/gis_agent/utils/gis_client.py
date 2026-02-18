@@ -2,8 +2,14 @@ import json
 from typing import TypedDict
 
 import httpx
-from langchain_tavily import TavilySearch
 from markdownify import markdownify as md
+
+from giga_agent.modules.subagents_legacy.runtime import (
+    get_current_user_from_config,
+    get_user_secret,
+    normalize_search_result,
+    resolve_user_search_engine,
+)
 
 
 class GISException(Exception):
@@ -34,21 +40,28 @@ class Attraction(TypedDict):
     point: Point
 
 
-async def fetch_city_cords(city_name: str) -> Point:
+async def _require_twogis_token(config: dict) -> str:
+    user = await get_current_user_from_config(config)
+    token = get_user_secret(user, "TWOGIS_TOKEN")
+    if not token:
+        raise GISException("TWOGIS_TOKEN не найден в user.secrets")
+    return token
+
+
+async def fetch_city_cords(city_name: str, config: dict) -> Point:
+    token = await _require_twogis_token(config)
     url = "https://catalog.api.2gis.com/3.0/items"
     params = {
         "q": city_name.strip(),
         "type": "adm_div",
         "page_size": 10,
         "page": 1,
-        "key": settings.external.twogis_token,
+        "key": token,
         "fields": "items.external_content,items.point",
     }
-    headers = {}
-    # Если payload на GET не нужен, можно убрать data; параметры переданы в params
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()  # выбросит исключение при ошибке
+        response = await client.get(url, params=params)
+        response.raise_for_status()
         data = response.json()
         response_code = data["meta"]["code"]
         if response_code != 200:
@@ -58,7 +71,8 @@ async def fetch_city_cords(city_name: str) -> Point:
         return data["result"]["items"][0]["point"]
 
 
-async def fetch_branches(q: str, point: Point, district_id=None):
+async def fetch_branches(q: str, point: Point, config: dict, district_id=None):
+    token = await _require_twogis_token(config)
     url = "https://catalog.api.2gis.com/3.0/items"
     params = {
         "q": q,
@@ -68,7 +82,7 @@ async def fetch_branches(q: str, point: Point, district_id=None):
         "search_nearby": True,
         "page": 1,
         "sort": "rating",
-        "key": settings.external.twogis_token,
+        "key": token,
         "fields": (
             "items.context,items.rubrics,items.external_content,"
             "items.attribute_groups,items.point"
@@ -78,12 +92,11 @@ async def fetch_branches(q: str, point: Point, district_id=None):
     }
     if district_id is not None:
         params["district_id"] = district_id
-    headers = {}
     result_items: list[Location] = []
     names = []
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()  # выбросит исключение при ошибке
+        response = await client.get(url, params=params)
+        response.raise_for_status()
         data = response.json()
         response_code = data["meta"]["code"]
         if response_code != 200:
@@ -125,7 +138,8 @@ async def fetch_branches(q: str, point: Point, district_id=None):
     return result_items
 
 
-async def fetch_attractions(point: Point):
+async def fetch_attractions(point: Point, config: dict):
+    token = await _require_twogis_token(config)
     url = "https://catalog.api.2gis.com/3.0/items"
     params = {
         "q": "достопримечательности",
@@ -134,18 +148,17 @@ async def fetch_attractions(point: Point):
         "radius": 3000,
         "sort": "rating",
         "page": 1,
-        "key": settings.external.twogis_token,
+        "key": token,
         "fields": (
             "items.description,items.context,items.rubrics,"
             "items.external_content,items.attribute_groups,items.point"
         ),
         "point": f"{point['lon']},{point['lat']}",
     }
-    headers = {}
     result_items: list[Attraction] = []
     async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()  # выбросит исключение при ошибке
+        response = await client.get(url, params=params)
+        response.raise_for_status()
         data = response.json()
         response_code = data["meta"]["code"]
         if response_code != 200:
@@ -174,28 +187,13 @@ async def fetch_attractions(point: Point):
     return result_items
 
 
-async def location_to_description(location: Location, city: str) -> str | None:
-    search = TavilySearch(
-        include_answer="advanced",
-        tavily_api_key=settings.external.tavily_api_key,
-    )
+async def location_to_description(location: Location, city: str, config: dict) -> str | None:
+    user = await get_current_user_from_config(config)
+    if user.search_engine_id is None:
+        return None
+    engine = await resolve_user_search_engine(user)
     query = f"{location['name']} номер телефона; {city}, {location['address']}"
-    result = await search.ainvoke(
-        {
-            "query": query,
-        },
-    )
-    return result["answer"]
-
-
-# if __name__ == "__main__":
-#
-#     async def main():
-#         city = "мурино"
-#         cords = await fetch_city_cords(city)
-#         print(cords)
-#         # branches = await fetch_branches("поесть", cords)
-#         # attractions = await fetch_attractions(cords)
-#         # print(await location_to_description(branches[0], city))
-#
-#     asyncio.run(main())
+    result = await engine.search([query])
+    if not result:
+        return None
+    return normalize_search_result(result[0]) or None

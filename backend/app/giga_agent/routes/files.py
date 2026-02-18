@@ -17,8 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.core.db import get_session
-from giga_agent.models.file import FileRepository, FileResponse, FileType
+from giga_agent.models.file import File as FileModel, FileRepository, FileResponse, FileType
 from giga_agent.models.users import User
+from giga_agent.sandbox.base import (
+    FileReadResult,
+    RedirectResult,
+    StreamResult,
+)
 from giga_agent.sandbox.manager import SandboxManager
 
 router = APIRouter(prefix="/files", tags=["files"])
@@ -133,7 +138,7 @@ async def read_file_content(
 ):
     manager = SandboxManager(db)
     try:
-        file, content_or_url = await manager.read_file_for_user(
+        file, result = await manager.read_file_for_user(
             owner_id=current_user.id,
             file_id=file_id,
         )
@@ -148,17 +153,7 @@ async def read_file_content(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         ) from e
 
-    if isinstance(content_or_url, str):
-        return RedirectResponse(
-            url=content_or_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
-        )
-
-    file_name = os.path.basename(file.sandbox_path.rstrip("/")) or "download.bin"
-    return StreamingResponse(
-        iter([content_or_url]),
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
-    )
+    return _build_file_response(file, result)
 
 
 @router.get("/content/by-path")
@@ -169,7 +164,7 @@ async def read_file_content_by_path(
 ):
     manager = SandboxManager(db)
     try:
-        file, content_or_url = await manager.read_file_by_path_for_user(
+        file, result = await manager.read_file_by_path_for_user(
             owner_id=current_user.id,
             sandbox_path=path,
         )
@@ -184,16 +179,37 @@ async def read_file_content_by_path(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         ) from e
 
-    if isinstance(content_or_url, str):
+    return _build_file_response(file, result)
+
+
+def _build_file_response(
+    file: FileModel,
+    result: FileReadResult,
+) -> RedirectResponse | StreamingResponse:
+    if isinstance(result, RedirectResult):
         return RedirectResponse(
-            url=content_or_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
+            url=result.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )
 
     file_name = os.path.basename(file.sandbox_path.rstrip("/")) or "download.bin"
+    disposition = "inline" if result.inline else "attachment"
+    headers: dict[str, str] = {
+        "Content-Disposition": f'{disposition}; filename="{file_name}"',
+    }
+
+    if isinstance(result, StreamResult):
+        if result.content_length is not None:
+            headers["Content-Length"] = str(result.content_length)
+        return StreamingResponse(
+            result.stream,
+            media_type=result.media_type,
+            headers=headers,
+        )
+
     return StreamingResponse(
-        iter([content_or_url]),
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        iter([result.data]),
+        media_type=result.media_type,
+        headers=headers,
     )
 
 

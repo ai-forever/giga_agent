@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import traceback
 import uuid
 from collections.abc import Awaitable, Callable
 from copy import copy, deepcopy
@@ -47,7 +48,7 @@ from langgraph._internal._runnable import RunnableCallable
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.store.base import BaseStore  # noqa: TC002
-from langgraph.types import Command, Send, StreamWriter
+from langgraph.types import Command, Send, StreamWriter, interrupt
 from pydantic import BaseModel, ValidationError
 from typing_extensions import TypeVar, Unpack
 
@@ -65,6 +66,7 @@ from langgraph.prebuilt.tool_node import (
     AsyncToolCallWrapper,
 )
 
+from giga_agent.core.agent.types import AgentState
 from giga_agent.models import UserRepository
 
 if TYPE_CHECKING:
@@ -83,6 +85,9 @@ def _default_handle_tool_errors(e: Exception) -> str:
     """
     if isinstance(e, ToolInvocationError):
         return e.message
+    elif isinstance(e, Exception):
+        traceback.print_exception(e)
+        return TOOL_CALL_ERROR_TEMPLATE.format(error=repr(e))
     raise e
 
 
@@ -385,7 +390,7 @@ class ToolNode(RunnableCallable):
 
     async def _afunc(
         self,
-        input: list[AnyMessage] | dict[str, Any] | BaseModel,
+        input: AgentState,
         config: RunnableConfig,
         runtime: Runtime,
     ) -> Any:

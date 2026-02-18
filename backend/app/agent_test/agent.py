@@ -7,6 +7,7 @@ from giga_agent.core.agent.base import BaseAgent
 from langchain_core.tools import tool
 
 from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
+from giga_agent.modules.tool_call_interrupt.module import ToolCallInterruptModule
 
 
 @tool
@@ -22,6 +23,7 @@ agent = BaseAgent(
         ImageModule(),
         SearchModule(),
         SubAgentLegacyModule(),
+        ToolCallInterruptModule(),
     ],
     tools=[get_weather],
 )

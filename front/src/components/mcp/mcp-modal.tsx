@@ -463,7 +463,6 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
     try {
       const incoming: Tool[] = Array.isArray(data?.tools) ? data.tools : [];
       const isReady = data?.state === "ready";
-      console.log(incoming);
       if (!isReady || incoming.length === 0) return;
       updateServerTools((prev) => {
         const prevList = prev[serverId];

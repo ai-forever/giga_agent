@@ -1,11 +1,45 @@
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import ClassVar, Type
 
 from pydantic import BaseModel, create_model
 from typing_extensions import override
 
 from langchain_core.load.serializable import Serializable
+
+
+LARGE_FILE_THRESHOLD = 20 * 1024 * 1024  # 20 MB
+
+
+@dataclass(frozen=True, slots=True)
+class RedirectResult:
+    """Route должен сделать HTTP redirect на этот URL."""
+
+    url: str
+
+
+@dataclass(frozen=True, slots=True)
+class ContentResult:
+    """Route должен отдать содержимое как StreamingResponse."""
+
+    data: bytes
+    media_type: str = "application/octet-stream"
+    inline: bool = False
+
+
+@dataclass(slots=True)
+class StreamResult:
+    """Route должен отдать содержимое потоково (для больших файлов)."""
+
+    stream: AsyncIterator[bytes]
+    media_type: str = "application/octet-stream"
+    inline: bool = False
+    content_length: int | None = None
+
+
+FileReadResult = RedirectResult | ContentResult | StreamResult
 
 
 class BaseSandbox(Serializable, ABC):
@@ -103,13 +137,14 @@ class BaseSandbox(Serializable, ABC):
             f"{self.__class__.__name__} does not implement upload_file()"
         )
 
-    async def read_file(self, sandbox_path: str) -> bytes | str:
+    async def read_file(self, sandbox_path: str) -> FileReadResult:
         """
         Прочитать файл из sandbox_path.
 
-        Возвращает:
-        - `str` для ссылок на удалённое хранилище (например, presigned S3 URL)
-        - `bytes` для локального содержимого файла
+        Возвращает один из вариантов FileReadResult:
+        - RedirectResult — redirect на presigned URL
+        - ContentResult — содержимое целиком (< 20 MB)
+        - StreamResult — потоковая отдача (>= 20 MB)
 
         Базовая реализация — заглушка. Подклассы переопределяют метод.
         """

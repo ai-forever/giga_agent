@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 
+from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.meme_agent.config import (
     ConfigSchema,
     MemeState,
@@ -17,6 +18,8 @@ from giga_agent.modules.subagents_legacy.agents.meme_agent.nodes.images import (
     image_node,
 )
 from giga_agent.modules.subagents_legacy.agents.meme_agent.nodes.text import text_node
+from giga_agent.modules.subagents_legacy.runtime import with_auth_from_runtime
+from giga_agent.modules.subagents_legacy.uploads import build_tool_message
 from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(MemeState, ConfigSchema)
@@ -39,8 +42,6 @@ async def create_meme(task: str, runtime: ToolRuntime):
         task: Описание мема
 
     """
-    from giga_agent.settings import settings
-
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
     client = get_client()
     thread = await client.threads.create()
@@ -82,17 +83,22 @@ async def create_meme(task: str, runtime: ToolRuntime):
                     "tool_call_id": runtime.tool_call_id,
                 },
             )
-    return {
-        "meme_text": state["meme_idea"],
-        "message": (
-            f"В результате выполнения было сгенерировано изображение "
-            f"{state['meme_image']['path']}. "
-            f"Покажи его пользователю через "
-            f'"![alt-описание](attachment:{state["meme_image"]["path"]})" '
-            f"и напиши куда двигаться пользователю дальше"
-        ),
-        "giga_attachments": [state["meme_image"]],
-    }
+    image = FileResponse.model_validate(state["meme_image"])
+    return build_tool_message(
+        runtime,
+        tool_name="create_meme",
+        payload={
+            "meme_text": state["meme_idea"],
+            "message": (
+                f"В результате выполнения было сгенерировано изображение "
+                f"{image.sandbox_path}. "
+                f"Покажи его пользователю через "
+                f'"![alt-описание](attachment:{image.sandbox_path})" '
+                f"и напиши куда двигаться пользователю дальше"
+            ),
+        },
+        attachments=[image],
+    )
 
 
 async def main():

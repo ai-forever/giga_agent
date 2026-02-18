@@ -11,7 +11,7 @@ from giga_agent.modules.subagents_legacy.agents.gis_agent.utils.gis_client impor
 
 
 async def food_node(state: MapState, config: RunnableConfig):
-    branches = await fetch_branches("поесть", state["city_point"])
+    branches = await fetch_branches("поесть", state["city_point"], config)
     try:
         branches = random.sample(branches, 3)
     except ValueError:
@@ -19,7 +19,7 @@ async def food_node(state: MapState, config: RunnableConfig):
     if not config["configurable"].get("skip_search", False):
         tasks = []
         for branch in branches:
-            tasks.append(location_to_description(branch, state["city_name"]))
+            tasks.append(location_to_description(branch, state["city_name"], config))
         results = await asyncio.gather(*tasks)
         for branch, result in zip(branches, results):
             branch["description"] = result

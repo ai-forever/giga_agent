@@ -546,6 +546,25 @@ async def run_startup_hooks(agent: BaseAgent):
                 pass
 
 
+def _collect_run_server_graphs(
+    agent: BaseAgent, base_graph_name: str, base_graph_target: str
+) -> dict[str, str]:
+    graphs: dict[str, str] = {base_graph_name: base_graph_target}
+
+    for module in agent.modules:
+        module_subgraphs = module.get_subgraphs()
+        for key, value in module_subgraphs.items():
+            if key in graphs:
+                raise CLIException(
+                    "Duplicate subgraph key "
+                    f"'{key}' from module '{module.id}'. "
+                    f"Key is already used by target '{graphs[key]}'."
+                )
+            graphs[key] = value
+
+    return graphs
+
+
 @app.command()
 def dev(
     graph_and_app_path: Annotated[
@@ -652,11 +671,17 @@ def dev(
 
     uvicorn.run = _uvicorn_run_with_suppression
 
+    graphs = _collect_run_server_graphs(
+        agent=agent,
+        base_graph_name="giga_agent",
+        base_graph_target=f"{path_part}:{graph_var}",
+    )
+
     run_server(
         host,
         port,
         not no_reload,
-        {"giga_agent": f"{path_part}:{graph_var}"},
+        graphs,
         auth={"path": f"giga_agent.modules.auth.langgraph_auth:auth"},
         http={"app": f"{path_part}:{app_var}"},
     )
