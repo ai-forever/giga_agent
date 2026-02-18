@@ -11,6 +11,7 @@ spec:
       internal_ports:
         - 6379
       instance_size_slug: apps-s-1vcpu-1gb
+      instance_count: 1
     - name: qdrant
       image:
         registry_type: DOCKER_HUB
@@ -19,6 +20,7 @@ spec:
       internal_ports:
         - 6333
       instance_size_slug: apps-s-1vcpu-1gb
+      instance_count: 1
     - name: langgraph-api
       github:
         branch: feature/add-do-integration
