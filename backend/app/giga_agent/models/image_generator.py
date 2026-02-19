@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
+from giga_agent.core.db import Base, JSON_VARIANT
 
 
 class ImageGenerator(Base):
@@ -102,20 +102,13 @@ class ImageGeneratorRepository:
         cls,
         generator_id: uuid.UUID,
         *,
-        session: AsyncSession | None = None,
-        use_cache: bool = True,
+        session: AsyncSession,
     ) -> ImageGeneratorResponse | None:
-        if use_cache:
-            cached = await cls.get_from_cache(generator_id)
-            if cached is not None:
-                return cached
+        cached = await cls.get_from_cache(generator_id)
+        if cached is not None:
+            return cached
 
-        if session is not None:
-            return await cls(session).get_by_id_response(generator_id, use_cache=False)
-
-        factory = await get_session_factory()
-        async with factory() as db:
-            return await cls(db).get_by_id_response(generator_id, use_cache=False)
+        return await cls(session).get_by_id_response(generator_id, use_cache=False)
 
     @staticmethod
     async def invalidate_cache(generator_id: uuid.UUID) -> None:

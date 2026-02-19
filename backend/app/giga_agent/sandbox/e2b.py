@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 JUPYTER_PORT = 8888
 S3_MOUNT_PREFIX = "/bucket/"
+_S3_KEY_PREFIX = "giga_agent"
+_S3_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
 @SandboxRegistry.register("e2b")
@@ -504,41 +506,35 @@ class E2BSandbox(JupyterSandbox):
             raise RuntimeError(f"Failed to generate S3 URL for '{key}': {e}") from e
 
     async def _uniquify_s3_key(self, owner_id: uuid.UUID, file_name: str) -> str:
-        import aioboto3
-        from botocore.exceptions import BotoCoreError, ClientError
-
-        path = PurePosixPath(file_name)
+        clean = file_name.strip().replace("\\", "/").lstrip("/")
+        path = PurePosixPath(clean)
         if path.name in {"", ".", ".."}:
             raise ValueError("file_name must contain a valid file name")
+        if any(part in {".", ".."} for part in path.parts):
+            raise ValueError("file_name must not contain '.' or '..' path segments")
 
-        stem = path.stem
-        suffix = path.suffix
-        owner_prefix = f"{owner_id}"
+        suffix_id = self._random_key_suffix()
+        plotly_json_suffix = ".plotly.json"
+        name = path.name
+        if name.lower().endswith(plotly_json_suffix) and len(name) > len(plotly_json_suffix):
+            suffix_start = len(name) - len(plotly_json_suffix)
+            stem = name[:suffix_start]
+            suffix = name[suffix_start:]
+        else:
+            stem = path.stem or path.name
+            suffix = path.suffix
+        candidate_name = (
+            f"{stem}--{suffix_id}{suffix}" if suffix else f"{stem}--{suffix_id}"
+        )
 
-        session = aioboto3.Session()
-        async with session.client(
-            "s3",
-            endpoint_url=self.s3_endpoint,
-            region_name=self.s3_region,
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-        ) as s3:
-            for idx in range(0, 10_000):
-                candidate_name = (
-                    f"{stem}{suffix}" if idx == 0 else f"{stem} ({idx}){suffix}"
-                )
-                key = f"{owner_prefix}/{candidate_name}"
-                try:
-                    await s3.head_object(Bucket=self.s3_bucket, Key=key)
-                except ClientError as e:
-                    code = (e.response.get("Error") or {}).get("Code")
-                    if code in {"404", "NoSuchKey", "NotFound"}:
-                        return key
-                    raise RuntimeError(f"Failed to check S3 key '{key}': {e}") from e
-                except BotoCoreError as e:
-                    raise RuntimeError(f"Failed to check S3 key '{key}': {e}") from e
+        parent = path.parent
+        parent_parts = [] if str(parent) in {"", "."} else [p for p in parent.parts if p not in {"", "."}]
 
-        raise RuntimeError("Unable to build unique key for upload")
+        key_parts = [_S3_KEY_PREFIX, str(owner_id), *parent_parts, candidate_name]
+        return "/".join(key_parts)
+
+    def _random_key_suffix(self) -> str:
+        return "".join(secrets.choice(_S3_SUFFIX_ALPHABET) for _ in range(8))
 
     async def _ensure_e2b_sandbox_connected(self) -> None:
         if self._e2b_sandbox is None and self.external_id:

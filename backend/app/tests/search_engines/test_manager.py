@@ -9,16 +9,18 @@ from giga_agent.search_engines.manager import SearchEngineManager
 class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_raises_for_missing_engine(self):
         engine_id = uuid.uuid4()
+        session = object()
 
         with patch(
             "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
             AsyncMock(return_value=None),
         ):
             with self.assertRaises(ValueError):
-                await SearchEngineManager.resolve_by_id(engine_id)
+                await SearchEngineManager.resolve_by_id(engine_id, session=session)
 
     async def test_resolve_raises_for_inactive_engine(self):
         engine_id = uuid.uuid4()
+        session = object()
         record = types.SimpleNamespace(
             id=engine_id,
             owner_id=uuid.uuid4(),
@@ -33,10 +35,11 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=record),
         ):
             with self.assertRaises(ValueError):
-                await SearchEngineManager.resolve_by_id(engine_id)
+                await SearchEngineManager.resolve_by_id(engine_id, session=session)
 
     async def test_resolve_raises_when_connector_is_required_but_missing(self):
         engine_id = uuid.uuid4()
+        session = object()
         record = types.SimpleNamespace(
             id=engine_id,
             owner_id=uuid.uuid4(),
@@ -59,10 +62,11 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             return_value=_RuntimeStub,
         ):
             with self.assertRaises(ValueError):
-                await SearchEngineManager.resolve_by_id(engine_id)
+                await SearchEngineManager.resolve_by_id(engine_id, session=session)
 
     async def test_resolve_passes_settings_and_connector_kwargs_to_runtime(self):
         engine_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         record = types.SimpleNamespace(
             id=engine_id,
@@ -106,7 +110,10 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.search_engines.manager.ConnectorRegistry.get_connection_kwargs",
             return_value={"api_key": "tvly-secret"},
         ):
-            runtime = await SearchEngineManager.resolve_by_id(engine_id)
+            runtime = await SearchEngineManager.resolve_by_id(
+                engine_id,
+                session=session,
+            )
 
         self.assertIsInstance(runtime, _RuntimeStub)
         self.assertTrue(captured.get("initialized"))

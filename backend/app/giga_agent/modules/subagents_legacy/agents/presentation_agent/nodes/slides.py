@@ -8,6 +8,7 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     PresentationState,
 )
@@ -19,7 +20,10 @@ from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
     resolve_user_llm,
 )
-from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_user
+from giga_agent.modules.subagents_legacy.uploads import (
+    build_file_content_by_path_url,
+    upload_files_for_config_user,
+)
 
 slide_sem = asyncio.Semaphore(4)
 
@@ -51,8 +55,10 @@ async def _generate_slide(messages, llm):
 
 
 async def slides_node(state: PresentationState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     llm = llm.with_config(tags=["nostream"]).bind(top_p=0.2)
     slide_tasks = []
     for idx, slide in enumerate(state["slides"]):
@@ -85,12 +91,13 @@ async def slides_node(state: PresentationState, config: RunnableConfig):
     slide_resps = await asyncio.gather(*slide_tasks)
     result = presentation_html.replace("<SECTIONS></SECTIONS>", "\n".join(slide_resps))
     for key, value in state["images_uploaded"].items():
+        image_url = build_file_content_by_path_url(value["sandbox_path"])
         result_2 = result.replace(
             f"attachment:{key}",
-            f"/files{value['sandbox_path']}",
+            image_url,
         )
         if result == result_2:
-            result = result.replace(f"{key}", f"/files{value['sandbox_path']}")
+            result = result.replace(f"{key}", image_url)
         else:
             result = result_2
     upload_resp = await upload_files_for_config_user(

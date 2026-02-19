@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
@@ -17,10 +19,14 @@ import giga_agent.generators.image  # noqa: F401
 
 class ImageGeneratorManager:
     @staticmethod
-    async def resolve_by_id(generator_id: uuid.UUID) -> BaseImageGenerator:
+    async def resolve_by_id(
+        generator_id: uuid.UUID,
+        *,
+        session: AsyncSession,
+    ) -> BaseImageGenerator:
         record = await ImageGeneratorRepository.get_cached_or_db(
             generator_id,
-            use_cache=True,
+            session=session,
         )
         if record is None:
             raise ValueError(f"Генератор изображений {generator_id} не найден.")
@@ -41,7 +47,7 @@ class ImageGeneratorManager:
 
             connector = await ConnectorRepository.get_cached_or_db(
                 connector_id,
-                use_cache=True,
+                session=session,
             )
             if connector is None:
                 raise ValueError(f"Connector {connector_id} not found")

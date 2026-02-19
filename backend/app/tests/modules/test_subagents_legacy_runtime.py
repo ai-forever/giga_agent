@@ -48,6 +48,8 @@ class SubagentsLegacyRuntimeTests(unittest.IsolatedAsyncioTestCase):
             search_engine_id=uuid.uuid4(),
             image_generator_id=uuid.uuid4(),
         )
+        session = object()
+
         with patch(
             "giga_agent.modules.subagents_legacy.runtime.LLMManager.resolve_by_id",
             AsyncMock(return_value="llm"),
@@ -58,10 +60,16 @@ class SubagentsLegacyRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.modules.subagents_legacy.runtime.ImageGeneratorManager.resolve_by_id",
             AsyncMock(return_value="image"),
         ) as image_resolve:
-            self.assertEqual(await resolve_user_llm(user), "llm")
-            self.assertEqual(await resolve_user_search_engine(user), "search")
-            self.assertEqual(await resolve_user_image_generator(user), "image")
+            self.assertEqual(await resolve_user_llm(user, session=session), "llm")
+            self.assertEqual(
+                await resolve_user_search_engine(user, session=session),
+                "search",
+            )
+            self.assertEqual(
+                await resolve_user_image_generator(user, session=session),
+                "image",
+            )
 
-        llm_resolve.assert_awaited_once_with(user.llm_id)
-        search_resolve.assert_awaited_once_with(user.search_engine_id)
-        image_resolve.assert_awaited_once_with(user.image_generator_id)
+        llm_resolve.assert_awaited_once_with(user.llm_id, session=session)
+        search_resolve.assert_awaited_once_with(user.search_engine_id, session=session)
+        image_resolve.assert_awaited_once_with(user.image_generator_id, session=session)

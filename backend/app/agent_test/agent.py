@@ -2,6 +2,9 @@ from giga_agent.modules.auth import AuthModule
 from giga_agent.modules.image import ImageModule
 from giga_agent.modules.repl import ReplModule
 from giga_agent.modules.search import SearchModule
+from giga_agent.modules.github import GitHubModule
+from giga_agent.modules.vk import VKModule
+from giga_agent.modules.weather import WeatherModule
 from giga_agent.core.agent.base import BaseAgent
 
 from langchain_core.tools import tool
@@ -22,6 +25,9 @@ agent = BaseAgent(
         ReplModule(),
         ImageModule(),
         SearchModule(),
+        GitHubModule(),
+        VKModule(),
+        WeatherModule(),
         SubAgentLegacyModule(),
         ToolCallInterruptModule(),
     ],

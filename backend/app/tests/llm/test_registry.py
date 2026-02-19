@@ -25,8 +25,12 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
                 list=AsyncMock(
                     return_value=types.SimpleNamespace(
                         data=[
-                            types.SimpleNamespace(id="gpt-4o", created=1, owned_by="openai"),
-                            types.SimpleNamespace(id="gpt-4o-mini", created=2, owned_by="openai"),
+                            types.SimpleNamespace(
+                                id="gpt-4o", created=1, owned_by="openai"
+                            ),
+                            types.SimpleNamespace(
+                                id="gpt-4o-mini", created=2, owned_by="openai"
+                            ),
                         ]
                     )
                 )
@@ -90,4 +94,7 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
             base_url=None,
             credentials="token",
             temperature=0.4,
+            max_tokens=1280000,
+            profanity_check=False,
+            timeout=60,
         )

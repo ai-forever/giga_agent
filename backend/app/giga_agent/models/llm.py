@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from giga_agent.core.db import Base, JSON_VARIANT, get_session_factory
+from giga_agent.core.db import Base, JSON_VARIANT
 from giga_agent.llm.base import AvailableModel, ModelFetchError
 from giga_agent.models.connector import Connector  # noqa: F401
 
@@ -138,33 +138,24 @@ class LLMRepository:
         cls,
         llm_id: uuid.UUID,
         *,
-        session: AsyncSession | None = None,
-        use_cache: bool = True,
+        session: AsyncSession,
     ) -> LLMContext | None:
-        if use_cache:
-            cached = await cls.get_from_cache(llm_id)
-            if cached is not None:
-                return cached
+        cached = await cls.get_from_cache(llm_id)
+        if cached is not None:
+            return cached
 
-        if session is not None:
-            return await cls(session).get_by_id_context(llm_id, use_cache=False)
-
-        factory = await get_session_factory()
-        async with factory() as db:
-            return await cls(db).get_by_id_context(llm_id, use_cache=False)
+        return await cls(session).get_by_id_context(llm_id, use_cache=False)
 
     @classmethod
     async def get_cached_context_or_db(
         cls,
         llm_id: uuid.UUID,
         *,
-        session: AsyncSession | None = None,
-        use_cache: bool = True,
+        session: AsyncSession,
     ) -> LLMContext | None:
         return await cls.get_cached_or_db(
             llm_id,
             session=session,
-            use_cache=use_cache,
         )
 
     async def get_by_id(self, llm_id: uuid.UUID) -> LLM | None:

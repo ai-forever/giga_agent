@@ -14,6 +14,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     ConfigSchema,
@@ -50,8 +51,10 @@ async def agent(state: LandingState, config: RunnableConfig):
     prompt = ChatPromptTemplate.from_messages(
         [("system", AGENT_PROMPT), MessagesPlaceholder("messages")],
     ).partial(language="ru")
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     chain = prompt | llm.with_config(tags=["nostream"]).bind_tools(
         [plan, image, coder, done],
         parallel_tool_calls=False,

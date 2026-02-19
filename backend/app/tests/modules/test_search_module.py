@@ -1,6 +1,7 @@
 import types
 import unittest
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from langchain.tools import tool
@@ -41,7 +42,14 @@ class SearchModuleTests(unittest.IsolatedAsyncioTestCase):
             is_active=True,
         )
 
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
         with patch(
+            "giga_agent.modules.search.module.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
             "giga_agent.modules.search.module.SearchEngineRepository.get_cached_or_db",
             AsyncMock(return_value=record),
         ), patch(
@@ -60,7 +68,14 @@ class SearchModuleTests(unittest.IsolatedAsyncioTestCase):
         module = SearchModule()
         user = types.SimpleNamespace(id=uuid.uuid4(), search_engine_id=uuid.uuid4())
 
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
         with patch(
+            "giga_agent.modules.search.module.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
             "giga_agent.modules.search.module.SearchEngineRepository.get_cached_or_db",
             AsyncMock(return_value=None),
         ):

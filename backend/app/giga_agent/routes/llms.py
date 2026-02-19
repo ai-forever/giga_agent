@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.core.cache import cache
 from giga_agent.core.db import get_session
 from giga_agent.llm.registry import LLMRegistry
 from giga_agent.models.connector import Connector, ConnectorRepository
@@ -219,7 +220,9 @@ async def create_llm(
         settings=data.settings.model_dump(exclude_none=True),
         is_active=data.is_active,
     )
-    return LLMRepository.to_response(llm)
+    response = LLMRepository.to_response(llm)
+    await cache.delete_tags(f"llms:{current_user.id}")
+    return response
 
 
 @router.get("", response_model=list[LLMResponse])
@@ -386,7 +389,10 @@ async def patch_llm(
     if update_data:
         llm = await llm_repo.update(llm, **update_data)
 
-    return LLMRepository.to_response(llm)
+    response = LLMRepository.to_response(llm)
+    await cache.delete_tags(f"llms:{current_user.id}")
+    await cache.delete_tags(f"llm:{llm_id}")
+    return response
 
 
 @router.delete("/{llm_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -27,6 +27,7 @@ type UploadOptions = {
 type BackendFilePayload = {
   path?: string;
   sandbox_path?: string;
+  original_name?: string;
   file_type?: string;
   size?: number;
   image_id?: string;
@@ -56,6 +57,7 @@ const normalizeFileData = (payload: BackendFilePayload): FileData => {
   const path = payload.path ?? payload.sandbox_path ?? "";
   return {
     path,
+    original_name: payload.original_name,
     file_type: payload.file_type,
     size: Number(payload.size ?? 0),
     image_id: payload.image_id,
@@ -135,7 +137,8 @@ export function useFileUpload() {
     const mappedExisting: AttachmentItem[] = existingFiles.map((raw) => {
       const f = normalizeFileData(raw as BackendFilePayload);
       const isImage = f.file_type === "image";
-      const fileName = f.path.split("/").pop() || f.path;
+      const fileName =
+        f.original_name ?? (f.path.split("/").pop() || f.path);
       return {
         kind: "existing",
         data: f,

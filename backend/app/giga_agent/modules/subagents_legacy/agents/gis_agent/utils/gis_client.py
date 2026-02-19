@@ -4,6 +4,7 @@ from typing import TypedDict
 import httpx
 from markdownify import markdownify as md
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
     get_user_secret,
@@ -41,7 +42,9 @@ class Attraction(TypedDict):
 
 
 async def _require_twogis_token(config: dict) -> str:
-    user = await get_current_user_from_config(config)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
     token = get_user_secret(user, "TWOGIS_TOKEN")
     if not token:
         raise GISException("TWOGIS_TOKEN не найден в user.secrets")
@@ -188,10 +191,12 @@ async def fetch_attractions(point: Point, config: dict):
 
 
 async def location_to_description(location: Location, city: str, config: dict) -> str | None:
-    user = await get_current_user_from_config(config)
-    if user.search_engine_id is None:
-        return None
-    engine = await resolve_user_search_engine(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        if user.search_engine_id is None:
+            return None
+        engine = await resolve_user_search_engine(user, session=session)
     query = f"{location['name']} номер телефона; {city}, {location['address']}"
     result = await engine.search([query])
     if not result:

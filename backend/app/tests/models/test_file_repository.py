@@ -57,6 +57,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/home/user/bucket/report.txt",
+                original_name="report.txt",
                 file_type="text",
                 size=123,
             )
@@ -80,6 +81,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/same/path.txt",
+                original_name="path.txt",
                 file_type="text",
                 size=1,
             )
@@ -87,6 +89,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/same/path.txt",
+                original_name="path.txt",
                 file_type="text",
                 size=1,
             )
@@ -107,6 +110,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=owner1.id,
                 provider_id=provider1_owner1.id,
                 sandbox_path="/shared/path.txt",
+                original_name="path.txt",
                 file_type="text",
                 size=1,
             )
@@ -114,6 +118,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=owner1.id,
                 provider_id=provider2_owner1.id,
                 sandbox_path="/shared/path.txt",
+                original_name="path.txt",
                 file_type="text",
                 size=1,
             )
@@ -121,6 +126,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=owner2.id,
                 provider_id=provider_owner2.id,
                 sandbox_path="/shared/path.txt",
+                original_name="path.txt",
                 file_type="text",
                 size=1,
             )
@@ -139,6 +145,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/to/delete.txt",
+                original_name="to_delete.txt",
                 file_type="text",
                 size=10,
             )
@@ -159,6 +166,7 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/lookup/by/path.txt",
+                original_name="path.txt",
                 file_type="text",
                 size=17,
             )

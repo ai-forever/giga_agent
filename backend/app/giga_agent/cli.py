@@ -617,6 +617,8 @@ def dev(
     os.makedirs(".giga_agent", exist_ok=True)
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    os.environ.setdefault("GIGA_AGENT_HOST", str(host))
+    os.environ.setdefault("GIGA_AGENT_PORT", str(port))
     # Cache backend (mem:// for local, redis:// for production)
     from giga_agent.core.cache import setup_cache
 

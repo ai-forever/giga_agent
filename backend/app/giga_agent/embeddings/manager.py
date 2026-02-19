@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from langchain_core.embeddings import Embeddings
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.embeddings.registry import EmbeddingRegistry
@@ -18,10 +19,14 @@ import giga_agent.embeddings  # noqa: F401
 
 class EmbeddingManager:
     @staticmethod
-    async def resolve_by_id(embedding_id: uuid.UUID) -> Embeddings:
+    async def resolve_by_id(
+        embedding_id: uuid.UUID,
+        *,
+        session: AsyncSession,
+    ) -> Embeddings:
         embedding = await EmbeddingRepository.get_cached_or_db(
             embedding_id,
-            use_cache=True,
+            session=session,
         )
         if embedding is None:
             raise ValueError(f"Embedding with id {embedding_id} not found")
@@ -30,7 +35,7 @@ class EmbeddingManager:
 
         connector = await ConnectorRepository.get_cached_or_db(
             embedding.connector_id,
-            use_cache=True,
+            session=session,
         )
         if connector is None:
             raise ValueError(f"Connector for embedding {embedding_id} not found")

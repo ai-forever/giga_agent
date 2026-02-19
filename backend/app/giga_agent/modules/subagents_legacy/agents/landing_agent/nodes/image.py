@@ -12,6 +12,7 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     LandingState,
 )
@@ -27,8 +28,10 @@ from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_
 
 
 async def image_node(state: LandingState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     image_messages = state.get("image_messages", [])
     new_message = HumanMessage(content=state["task"])
     additional_info = (
@@ -97,7 +100,8 @@ async def image_node(state: LandingState, config: RunnableConfig):
         existing_names.append(image["name"])
         # image["name"] = str(uuid.uuid4()) + ".jpg"
         filtered_images.append(image)
-    generator = await resolve_user_image_generator(user)
+    async with factory() as session:
+        generator = await resolve_user_image_generator(user, session=session)
     await generator.init()
     tasks = [
         generator.generate_image(i["description"], i["width"], i["height"])

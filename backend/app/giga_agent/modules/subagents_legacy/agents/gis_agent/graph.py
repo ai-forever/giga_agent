@@ -10,6 +10,7 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.gis_agent.config import MapState
 from giga_agent.modules.subagents_legacy.agents.gis_agent.nodes.attractions import (
     attractions_node,
@@ -104,7 +105,9 @@ async def city_explore(city: str, runtime: ToolRuntime):
 
     """
     thread_id = str(uuid.uuid4())
-    user = await get_current_user_from_runtime(runtime)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_runtime(runtime, session=session)
     twogis_token = get_user_secret(user, "TWOGIS_TOKEN")
     if not twogis_token:
         return build_tool_message(
@@ -153,6 +156,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [hotel["point"]["lon"], hotel["point"]["lat"]],
+                "icon": "/public/hotel.svg",
                 "userData": {"text": hotel["name"]},
             },
         )
@@ -162,6 +166,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [food["point"]["lon"], food["point"]["lat"]],
+                "icon": "/public/food.svg",
                 "userData": {"text": food["name"]},
             },
         )
@@ -171,6 +176,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [attraction["point"]["lon"], attraction["point"]["lat"]],
+                "icon": "/public/bust.svg",
                 "userData": {"text": attraction["name"]},
             },
         )

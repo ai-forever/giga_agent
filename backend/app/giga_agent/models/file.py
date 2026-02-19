@@ -46,6 +46,7 @@ class File(Base):
         Uuid, ForeignKey("core_sandbox_providers.id"), nullable=False, index=True
     )
     sandbox_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(1024), nullable=False)
     file_type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -72,6 +73,7 @@ FileType = Literal[
 
 class FileBase(BaseModel):
     sandbox_path: str
+    original_name: str
     file_type: FileType
     size: int = Field(..., ge=0)
 
@@ -82,6 +84,7 @@ class FileCreate(FileBase):
 
 class FileUpdate(BaseModel):
     sandbox_path: Optional[str] = None
+    original_name: Optional[str] = None
     file_type: Optional[FileType] = None
     size: Optional[int] = Field(default=None, ge=0)
 
@@ -91,6 +94,7 @@ class FileResponse(FileBase):
     owner_id: uuid.UUID
     provider_id: uuid.UUID
     sandbox_path: str
+    original_name: str
     size: int
     file_type: FileType
     created_at: datetime
@@ -168,6 +172,7 @@ class FileRepository:
         owner_id: uuid.UUID,
         provider_id: uuid.UUID,
         sandbox_path: str,
+        original_name: str,
         file_type: FileType = "other",
         size: int = 0,
     ) -> File | None:
@@ -178,10 +183,14 @@ class FileRepository:
         """
         if size < 0:
             raise ValueError("size must be >= 0")
+        original_name = (original_name or "").strip()
+        if not original_name:
+            raise ValueError("original_name must not be empty")
         file = File(
             owner_id=owner_id,
             provider_id=provider_id,
             sandbox_path=sandbox_path,
+            original_name=original_name,
             file_type=file_type,
             size=size,
         )

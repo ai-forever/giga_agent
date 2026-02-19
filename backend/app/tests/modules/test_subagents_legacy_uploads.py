@@ -13,11 +13,13 @@ from giga_agent.modules.subagents_legacy.uploads import (
 
 def _file_payload(path: str) -> dict:
     now = datetime.now(timezone.utc)
+    original_name = (path or "").rstrip("/").split("/")[-1] or "download.bin"
     return {
         "id": uuid.uuid4(),
         "owner_id": uuid.uuid4(),
         "provider_id": uuid.uuid4(),
         "sandbox_path": path,
+        "original_name": original_name,
         "size": 12,
         "file_type": "text",
         "created_at": now,

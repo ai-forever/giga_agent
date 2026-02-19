@@ -85,7 +85,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     // @ts-ignore
     const initialFiles: FileData[] = message.additional_kwargs?.files ?? [];
     setExistingFiles(initialFiles);
-  }, [message, setExistingFiles]);
+  }, [message, setExistingFiles, threadId]);
 
   // при первом рендере и при очистке
   useEffect(() => {
@@ -134,7 +134,16 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     } as HumanMessage;
 
     const meta = thread?.getMessagesMetadata(message);
-    const parentCheckpoint = meta?.firstSeenState?.parent_checkpoint;
+    const parentCheckpoint = meta?.branch
+      ? ({
+          ...meta?.firstSeenState?.parent_checkpoint,
+          thread_id: meta.firstSeenState?.checkpoint.thread_id,
+          checkpoint_id:
+            meta.branch.split(">").length > 1
+              ? meta.branch.split(">")[0]
+              : meta.branch,
+        } as Checkpoint)
+      : meta?.firstSeenState?.parent_checkpoint;
     const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
     const contextInstructions =
       typeof userSettings.contextInstructions === "string"
@@ -144,9 +153,21 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
       ? userSettings.contextSecrets
       : [];
 
+    const editedMessage = {
+      ...(message as any),
+      type: "human",
+      content: messageText,
+      additional_kwargs: {
+        ...(message as any)?.additional_kwargs,
+        user_input: messageText,
+        files: allFiles,
+        selected: selected,
+      },
+    } as unknown as HumanMessage;
+
     thread?.submit(
       {
-        messages: [newMessage],
+        messages: [editedMessage],
         mcp_tools: mcpToolsPayload,
         collections: enabledCollections,
         secrets: contextSecrets,
@@ -155,16 +176,29 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
       {
         optimisticValues(prev: GraphState) {
           const prevMessages = prev.messages ?? [];
-          const newMessages = [...prevMessages, newMessage];
-          newMessages.forEach((el) => {
-            if (el.id === message.id) {
-              el.content = messageText;
-              // @ts-ignore
-              el.additional_kwargs.user_input = messageText;
-              // @ts-ignore
-              el.additional_kwargs.files = allFiles;
-            }
-          });
+          const targetMessageId = (message as any)?.id ?? null;
+          const idx = targetMessageId
+            ? prevMessages.findIndex((m) => (m as any)?.id === targetMessageId)
+            : -1;
+          const matched = idx >= 0;
+
+          // При редактировании мы НЕ добавляем новое сообщение в конец.
+          // Вместо этого заменяем текущее и отсекаем хвост (последующие сообщения будут пересчитаны сервером от checkpoint).
+          const newMessages = matched
+            ? [
+                ...prevMessages.slice(0, idx),
+                ({
+                  ...prevMessages[idx],
+                  content: messageText,
+                  additional_kwargs: {
+                    // @ts-ignore
+                    ...(prevMessages[idx] as any)?.additional_kwargs,
+                    user_input: messageText,
+                    files: allFiles,
+                  },
+                } as Message),
+              ]
+            : [...prevMessages, newMessage];
           onCancel();
           return { ...prev, messages: newMessages };
         },

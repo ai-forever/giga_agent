@@ -30,11 +30,13 @@ class FilesRouterTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def _file_obj(self, sandbox_path: str):
+        original_name = (sandbox_path or "").rstrip("/").split("/")[-1] or "download.bin"
         return types.SimpleNamespace(
             id=uuid.uuid4(),
             owner_id=self.user.id,
             provider_id=uuid.uuid4(),
             sandbox_path=sandbox_path,
+            original_name=original_name,
             file_type="text",
             size=5,
             created_at=datetime.now(timezone.utc),
@@ -57,6 +59,7 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         body = response.json()
         self.assertEqual(body["sandbox_path"], "/home/user/bucket/giga_agent/u/report.txt")
+        self.assertEqual(body["original_name"], "report.txt")
         self.assertEqual(body["file_type"], "text")
         self.assertEqual(body["size"], 5)
         mocked_upload.assert_awaited_once()

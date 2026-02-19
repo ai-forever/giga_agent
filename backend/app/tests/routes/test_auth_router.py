@@ -10,6 +10,14 @@ from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user, router
 
 
+class _ModuleStub:
+    def __init__(self, secrets):
+        self._secrets = secrets
+
+    def get_secrets(self):
+        return self._secrets
+
+
 class AuthRouterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
@@ -171,6 +179,119 @@ class AuthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertEqual(response.json()["detail"], "secrets must be an object when provided")
+
+    def test_patch_users_me_validates_llm_id_secret_when_present(self):
+        user_model = self._user_model()
+        llm_secret_id = uuid.uuid4()
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api._validate_llm_id",
+            AsyncMock(return_value=None),
+        ) as mocked_validate_llm, patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"secrets": {"ASSISTANT_LLM": str(llm_secret_id)}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_validate_llm.assert_awaited_once_with(self.db, self.user.id, llm_secret_id)
+
+    def test_patch_users_me_returns_422_for_invalid_uuid_in_llm_id_secret(self):
+        user_model = self._user_model()
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"secrets": {"ASSISTANT_LLM": "not-a-uuid"}},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("secrets.ASSISTANT_LLM", response.json()["detail"])
+
+    def test_patch_users_me_returns_422_for_inaccessible_llm_id_secret(self):
+        user_model = self._user_model()
+        llm_secret_id = uuid.uuid4()
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api._validate_llm_id",
+            AsyncMock(side_effect=HTTPException(status_code=422, detail="Invalid value for llm_id")),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"secrets": {"ASSISTANT_LLM": str(llm_secret_id)}},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("secrets.ASSISTANT_LLM", response.json()["detail"])
+
+    def test_patch_users_me_skips_llm_secret_validation_for_empty_value(self):
+        user_model = self._user_model()
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api._validate_llm_id",
+            AsyncMock(return_value=None),
+        ) as mocked_validate_llm, patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"secrets": {"ASSISTANT_LLM": "   "}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_validate_llm.assert_not_awaited()
 
 
 if __name__ == "__main__":

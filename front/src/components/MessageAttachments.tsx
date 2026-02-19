@@ -54,7 +54,10 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
               {u.file_type === "image" ? (
                 <ImagePreview src={getFileUrl(getPath(u))} />
               ) : (
-                <span>{getPath(u).split("/").pop() || getPath(u)}</span>
+                <span>
+                  {u.original_name ??
+                    (getPath(u).split("/").pop() || getPath(u))}
+                </span>
               )}
             </AttachmentBubble>
           ))}

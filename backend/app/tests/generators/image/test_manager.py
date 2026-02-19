@@ -9,16 +9,18 @@ from giga_agent.generators.image.manager import ImageGeneratorManager
 class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_raises_for_missing_generator(self):
         gen_id = uuid.uuid4()
+        session = object()
 
         with patch(
             "giga_agent.generators.image.manager.ImageGeneratorRepository.get_cached_or_db",
             AsyncMock(return_value=None),
         ):
             with self.assertRaisesRegex(ValueError, "не найден"):
-                await ImageGeneratorManager.resolve_by_id(gen_id)
+                await ImageGeneratorManager.resolve_by_id(gen_id, session=session)
 
     async def test_resolve_raises_for_inactive_generator(self):
         gen_id = uuid.uuid4()
+        session = object()
         record = types.SimpleNamespace(
             id=gen_id,
             is_active=False,
@@ -32,10 +34,11 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=record),
         ):
             with self.assertRaisesRegex(ValueError, "неактивен"):
-                await ImageGeneratorManager.resolve_by_id(gen_id)
+                await ImageGeneratorManager.resolve_by_id(gen_id, session=session)
 
     async def test_resolve_builds_generator_using_connector_api_object(self):
         gen_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         record = types.SimpleNamespace(
             id=gen_id,
@@ -78,7 +81,10 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.generators.image.manager.ConnectorRegistry.get_api_object",
             return_value=fake_llm,
         ) as mocked_api_object:
-            generator = await ImageGeneratorManager.resolve_by_id(gen_id)
+            generator = await ImageGeneratorManager.resolve_by_id(
+                gen_id,
+                session=session,
+            )
 
         mocked_api_object.assert_called_once_with("openai", {"api_key": "sk-test"})
         self.assertIsInstance(generator, _RuntimeStub)
@@ -89,6 +95,7 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_resolve_raises_for_unsupported_connector_type(self):
         gen_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         record = types.SimpleNamespace(
             id=gen_id,
@@ -120,4 +127,4 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=connector),
         ):
             with self.assertRaisesRegex(ValueError, "not supported"):
-                await ImageGeneratorManager.resolve_by_id(gen_id)
+                await ImageGeneratorManager.resolve_by_id(gen_id, session=session)

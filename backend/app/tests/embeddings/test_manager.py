@@ -9,16 +9,18 @@ from giga_agent.embeddings.manager import EmbeddingManager
 class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_raises_for_missing_embedding(self):
         embedding_id = uuid.uuid4()
+        session = object()
 
         with patch(
             "giga_agent.embeddings.manager.EmbeddingRepository.get_cached_or_db",
             AsyncMock(return_value=None),
         ):
             with self.assertRaisesRegex(ValueError, "not found"):
-                await EmbeddingManager.resolve_by_id(embedding_id)
+                await EmbeddingManager.resolve_by_id(embedding_id, session=session)
 
     async def test_resolve_raises_for_inactive_embedding(self):
         embedding_id = uuid.uuid4()
+        session = object()
         embedding = types.SimpleNamespace(
             id=embedding_id,
             is_active=False,
@@ -33,10 +35,11 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=embedding),
         ):
             with self.assertRaisesRegex(ValueError, "inactive"):
-                await EmbeddingManager.resolve_by_id(embedding_id)
+                await EmbeddingManager.resolve_by_id(embedding_id, session=session)
 
     async def test_resolve_builds_embeddings(self):
         embedding_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         embedding = types.SimpleNamespace(
             id=embedding_id,
@@ -89,12 +92,16 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.embeddings.manager.ConnectorRegistry.get_connection_kwargs",
             return_value={"api_key": "sk-test"},
         ):
-            resolved = await EmbeddingManager.resolve_by_id(embedding_id)
+            resolved = await EmbeddingManager.resolve_by_id(
+                embedding_id,
+                session=session,
+            )
 
         self.assertIs(resolved, built_embeddings)
 
     async def test_resolve_raises_when_connector_is_incompatible(self):
         embedding_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         embedding = types.SimpleNamespace(
             id=embedding_id,
@@ -127,4 +134,4 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             return_value=_RuntimeStub,
         ):
             with self.assertRaisesRegex(ValueError, "not compatible"):
-                await EmbeddingManager.resolve_by_id(embedding_id)
+                await EmbeddingManager.resolve_by_id(embedding_id, session=session)

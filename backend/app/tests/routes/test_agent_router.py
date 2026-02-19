@@ -38,6 +38,7 @@ class AgentRouterTests(unittest.TestCase):
                         {
                             "name": "openai_api_key",
                             "description": "OpenAI API key",
+                            "type": "text",
                         }
                     ]
                 ),
@@ -63,8 +64,16 @@ class AgentRouterTests(unittest.TestCase):
         self.assertEqual(
             response.json(),
             [
-                {"name": "openai_api_key", "description": "OpenAI API key"},
-                {"name": "tavily_api_key", "description": "Tavily API key"},
+                {
+                    "name": "openai_api_key",
+                    "description": "OpenAI API key",
+                    "type": "text",
+                },
+                {
+                    "name": "tavily_api_key",
+                    "description": "Tavily API key",
+                    "type": "pass",
+                },
             ],
         )
 
@@ -76,6 +85,7 @@ class AgentRouterTests(unittest.TestCase):
                         {
                             "name": "shared_key",
                             "description": "First description",
+                            "type": "llm_id",
                         }
                     ]
                 ),
@@ -84,6 +94,7 @@ class AgentRouterTests(unittest.TestCase):
                         {
                             "name": "shared_key",
                             "description": "Second description",
+                            "type": "text",
                         }
                     ]
                 ),
@@ -100,7 +111,7 @@ class AgentRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json(),
-            [{"name": "shared_key", "description": "First description"}],
+            [{"name": "shared_key", "description": "First description", "type": "llm_id"}],
         )
 
     def test_get_agent_secrets_empty_when_no_module_secrets(self):

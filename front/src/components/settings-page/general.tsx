@@ -37,6 +37,9 @@ const NO_IMAGE_GENERATOR_VALUE = "__none__";
 const NO_SEARCH_ENGINE_VALUE = "__none__";
 const NO_LLM_VALUE = "__none_llm__";
 const FAST_LLM_INHERIT_VALUE = "__inherit__";
+const NO_SECRET_LLM_VALUE = "__none_secret_llm__";
+
+type AgentSecretType = "pass" | "text" | "llm_id";
 
 type SecretItem = Secret & {
   id: string;
@@ -45,6 +48,7 @@ type SecretItem = Secret & {
 type AgentSecretMeta = {
   name: string;
   description?: string | null;
+  type: AgentSecretType;
 };
 
 const secretSchema = z.object({
@@ -120,13 +124,21 @@ const parseUserSecrets = (value: unknown): Record<string, string> => {
   return parsed;
 };
 
+const normalizeAgentSecretType = (value: unknown): AgentSecretType => {
+  return value === "text" || value === "llm_id" ? value : "pass";
+};
+
 const dedupeAgentSecretsMeta = (items: AgentSecretMeta[]): AgentSecretMeta[] => {
   const seen = new Set<string>();
   const deduped: AgentSecretMeta[] = [];
   for (const item of items) {
     if (!item?.name || seen.has(item.name)) continue;
     seen.add(item.name);
-    deduped.push(item);
+    deduped.push({
+      name: item.name,
+      description: item.description,
+      type: normalizeAgentSecretType(item.type),
+    });
   }
   return deduped;
 };
@@ -742,17 +754,75 @@ export const GeneralSettings: React.FC = () => {
                               </p>
                             )}
                           </div>
-                          <SecretInput
-                            id={`agent-secret-${secretMeta.name}`}
-                            placeholder="Введите значение API-ключа"
-                            value={agentSecretsValues[secretMeta.name] ?? ""}
-                            onChange={(e) =>
-                              updateAgentSecretValue(
-                                secretMeta.name,
-                                e.target.value,
-                              )
-                            }
-                          />
+                          {secretMeta.type === "llm_id" ? (
+                            <Select
+                              value={
+                                (agentSecretsValues[secretMeta.name] ?? "").trim() ||
+                                NO_SECRET_LLM_VALUE
+                              }
+                              onValueChange={(value) =>
+                                updateAgentSecretValue(
+                                  secretMeta.name,
+                                  value === NO_SECRET_LLM_VALUE ? "" : value,
+                                )
+                              }
+                            >
+                              <SelectTrigger
+                                id={`agent-secret-${secretMeta.name}`}
+                                className="w-full"
+                              >
+                                <SelectValue placeholder="Выберите LLM" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={NO_SECRET_LLM_VALUE}>
+                                  Не выбрана
+                                </SelectItem>
+                                {llmList.map((llm) => (
+                                  <SelectItem key={llm.id} value={llm.id}>
+                                    {llm.name || llm.model_id}
+                                  </SelectItem>
+                                ))}
+                                {(agentSecretsValues[secretMeta.name] ?? "").trim() &&
+                                  !llmList.some(
+                                    (llm) =>
+                                      llm.id ===
+                                      (agentSecretsValues[secretMeta.name] ?? "").trim(),
+                                  ) && (
+                                    <SelectItem
+                                      value={
+                                        (agentSecretsValues[secretMeta.name] ?? "").trim()
+                                      }
+                                    >
+                                      Недоступная LLM
+                                    </SelectItem>
+                                  )}
+                              </SelectContent>
+                            </Select>
+                          ) : secretMeta.type === "text" ? (
+                            <Input
+                              id={`agent-secret-${secretMeta.name}`}
+                              placeholder="Введите значение"
+                              value={agentSecretsValues[secretMeta.name] ?? ""}
+                              onChange={(e) =>
+                                updateAgentSecretValue(
+                                  secretMeta.name,
+                                  e.target.value,
+                                )
+                              }
+                            />
+                          ) : (
+                            <SecretInput
+                              id={`agent-secret-${secretMeta.name}`}
+                              placeholder="Введите значение API-ключа"
+                              value={agentSecretsValues[secretMeta.name] ?? ""}
+                              onChange={(e) =>
+                                updateAgentSecretValue(
+                                  secretMeta.name,
+                                  e.target.value,
+                                )
+                              }
+                            />
+                          )}
                         </div>
                       </div>
                     ))}

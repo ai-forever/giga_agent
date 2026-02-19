@@ -3,10 +3,10 @@ import logging
 import asyncio
 from dataclasses import dataclass
 from typing import TypedDict
+from pathlib import PurePosixPath
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from giga_agent.core.db import get_session_factory
 from giga_agent.models.sandbox import (
     Sandbox,
     SandboxProvider,
@@ -60,41 +60,29 @@ class SandboxManager:
         provider_id: uuid.UUID | None = None,
         settings: dict | None = None,
         *,
-        session: AsyncSession | None = None,
-        use_cache: bool = True,
+        session: AsyncSession,
     ) -> SandboxResolved:
-        if use_cache:
-            cached = await SandboxRepository.cache_get_pair(
-                owner_id=owner_id,
-                provider_id=provider_id,
-            )
-            if cached is not None:
-                if cached.sandbox.owner_id == owner_id:
-                    return SandboxResolved(
-                        provider=cached.provider,
-                        sandbox=cached.sandbox,
-                    )
-                await SandboxRepository.cache_invalidate_pair(
-                    owner_id=owner_id,
-                    provider_id=cached.provider.id,
+        cached = await SandboxRepository.cache_get_pair(
+            owner_id=owner_id,
+            provider_id=provider_id,
+        )
+        if cached is not None:
+            if cached.sandbox.owner_id == owner_id:
+                return SandboxResolved(
+                    provider=cached.provider,
+                    sandbox=cached.sandbox,
                 )
-
-        if session is not None:
-            return await cls(session).get_or_create_for_user(
+            await SandboxRepository.cache_invalidate_pair(
                 owner_id=owner_id,
-                provider_id=provider_id,
-                settings=settings,
-                use_cache=False,
+                provider_id=cached.provider.id,
             )
 
-        factory = await get_session_factory()
-        async with factory() as db:
-            return await cls(db).get_or_create_for_user(
-                owner_id=owner_id,
-                provider_id=provider_id,
-                settings=settings,
-                use_cache=False,
-            )
+        return await cls(session).get_or_create_for_user(
+            owner_id=owner_id,
+            provider_id=provider_id,
+            settings=settings,
+            use_cache=False,
+        )
 
     # ============ Runtime helpers ============
 
@@ -451,10 +439,12 @@ class SandboxManager:
             content=content,
         )
 
+        original_name = PurePosixPath(file_name).name
         file = await self._file_repo.create(
             owner_id=owner_id,
             provider_id=provider.id,
             sandbox_path=sandbox_path,
+            original_name=original_name,
             file_type=file_type,  # validated on FileResponse/Pydantic layer
             size=len(content),
         )
@@ -519,10 +509,12 @@ class SandboxManager:
                 continue
 
             sandbox_path = path_or_error
+            original_name = PurePosixPath(item["file_name"]).name
             file = await self._file_repo.create(
                 owner_id=owner_id,
                 provider_id=provider.id,
                 sandbox_path=sandbox_path,
+                original_name=original_name,
                 file_type=item["file_type"],  # validated on Pydantic layer
                 size=len(item["content"]),
             )

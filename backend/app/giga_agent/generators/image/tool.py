@@ -13,6 +13,8 @@ import uuid
 
 from langchain.tools import tool, ToolRuntime
 from langchain_core.messages import ToolMessage
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from giga_agent.core.db import get_session_factory
 from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_WIDTH, DEFAULT_HEIGHT
 from giga_agent.generators.image.manager import ImageGeneratorManager
@@ -28,6 +30,8 @@ import giga_agent.generators.image  # noqa: F401
 
 async def _resolve_generator_for_user(
     user: UserShort,
+    *,
+    session: AsyncSession,
 ) -> BaseImageGenerator:
     """
     Load ImageGenerator record by `user.image_generator_id`,
@@ -40,7 +44,7 @@ async def _resolve_generator_for_user(
             "Установите image_generator_id в настройках пользователя."
         )
 
-    return await ImageGeneratorManager.resolve_by_id(gen_id)
+    return await ImageGeneratorManager.resolve_by_id(gen_id, session=session)
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -70,11 +74,13 @@ async def gen_image(
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
-    user = await UserRepository.get_cached_or_db(owner_id)
-    if user is None:
-        raise ValueError(f"Пользователь {user_id} не найден")
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await UserRepository.get_cached_or_db(owner_id, session=session)
+        if user is None:
+            raise ValueError(f"Пользователь {user_id} не найден")
 
-    generator = await _resolve_generator_for_user(user)
+        generator = await _resolve_generator_for_user(user, session=session)
 
     image_b64 = await generator.generate_image(prompt, width, height)
 
@@ -90,7 +96,6 @@ async def gen_image(
         }
     ]
 
-    factory = await get_session_factory()
     async with factory() as session:
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(

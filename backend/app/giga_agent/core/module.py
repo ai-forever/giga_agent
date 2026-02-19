@@ -1,6 +1,7 @@
 import os
 import inspect
-from typing import TYPE_CHECKING, Optional, List, TypedDict
+from typing import TYPE_CHECKING, Optional, List, TypedDict, Literal
+from typing_extensions import NotRequired
 from typing_extensions import override
 
 from pydantic import ConfigDict, PrivateAttr
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 class SecretMetadata(TypedDict):
     name: str
     description: str | None
+    type: Literal["pass", "text", "llm_id"]
 
 
 class BaseModule(Serializable):
@@ -103,3 +105,25 @@ class BaseModule(Serializable):
         Hook executed on application startup.
         """
         pass
+
+
+def collect_module_secrets(modules: list[BaseModule]) -> list[SecretMetadata]:
+    secrets: list[SecretMetadata] = []
+    seen_names: set[str] = set()
+
+    for module in modules:
+        for secret in module.get_secrets():
+            name = secret["name"]
+            if name in seen_names:
+                continue
+
+            secrets.append(
+                {
+                    "name": name,
+                    "description": secret.get("description"),
+                    "type": secret.get("type") or "pass",
+                }
+            )
+            seen_names.add(name)
+
+    return secrets

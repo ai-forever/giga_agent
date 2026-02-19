@@ -17,7 +17,6 @@ from langchain_core.messages import ToolMessage
 from giga_agent.core.db import get_session_factory
 from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
-from giga_agent.models.sandbox import SandboxRepository
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
 logger = logging.getLogger(__name__)
@@ -176,22 +175,12 @@ async def python(
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
     cached_user = await cache.get(UserRepository.cache_key(owner_id))
-    user = (
-        UserShort.model_validate(cached_user)
-        if cached_user is not None
-        else None
-    )
-    cached_sandbox = await SandboxRepository.cache_get_pair(
-        owner_id=owner_id,
-        provider_id=None,
-    )
-
+    user = UserShort.model_validate(cached_user) if cached_user is not None else None
     factory = await get_session_factory()
     async with factory() as session:
         if user is None:
-            user = await UserRepository.get_cached_or_db(
+            user = await UserRepository(session).get_by_id(
                 owner_id,
-                session=session,
                 use_cache=False,
             )
             if user is None:
@@ -200,7 +189,6 @@ async def python(
         resolved = await SandboxManager.get_cached_or_db(
             owner_id=owner_id,
             session=session,
-            use_cache=(cached_sandbox is not None),
         )
         manager = SandboxManager(session)
         sandbox_runtime = await manager.ensure_running_for_user(
@@ -253,9 +241,7 @@ async def python(
             traceback_lines = chunk.get("traceback", [])
             # Очищаем ANSI escape-коды из traceback
             ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-            clean_tb = "\n".join(
-                ansi_escape.sub("", line) for line in traceback_lines
-            )
+            clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
             outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
         elif chunk_type == "display_data":
             data = chunk.get("data", {})
@@ -279,9 +265,7 @@ async def python(
                 "Показываю только успешно загруженные файлы."
             )
         for file in uploaded_files:
-            outputs.append(
-                _build_attachment_info(file.file_type, file.sandbox_path)
-            )
+            outputs.append(_build_attachment_info(file.file_type, file.sandbox_path))
             giga_attachments.append(
                 FileResponse.model_validate(file).model_dump(mode="json")
             )
@@ -305,4 +289,80 @@ async def python(
             "tool_attachments": giga_attachments,
             "tool_name": "python",
         },
+    )
+
+
+@tool(parse_docstring=True)
+async def shell(
+    command: str,
+    runtime: ToolRuntime,
+):
+    """Выполняет Shell-команду в Jupyter ноутбуке.
+    Используй, если нужно выполнить shell-команду в виртуальное окружение. Также обязательно используй, если нужно что-то установить из pipy.
+
+    Args:
+        command: Shell-команда
+
+    """
+    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        resolved = await SandboxManager.get_cached_or_db(
+            owner_id=owner_id,
+            session=session,
+        )
+        manager = SandboxManager(session)
+        sandbox_runtime = await manager.ensure_running_for_user(
+            owner_id=owner_id,
+            provider_id=resolved.provider.id,
+        )
+
+    command = command.strip()
+    if not command:
+        data = {"output": "Пустая команда: передайте непустую shell-команду."}
+        return ToolMessage(
+            tool_call_id=runtime.tool_call_id,
+            content=json.dumps(data, ensure_ascii=False),
+            additional_kwargs={"tool_name": "shell"},
+        )
+
+    kernel_id = runtime.state.get("kernel_id")
+    if kernel_id:
+        sandbox_runtime._kernel_id = kernel_id
+
+    shell_code = f"!{command}" if "\n" not in command else f"%%bash\n{command}"
+    outputs: list[str] = []
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+    async for chunk in sandbox_runtime.run_code(shell_code):
+        chunk_type = chunk.get("type")
+        if chunk_type in ("stdout", "stderr"):
+            text = chunk.get("text", "")
+            if text.strip():
+                clean_text = ansi_escape.sub("", text)
+                outputs.append(
+                    f"[stderr] {clean_text}" if chunk_type == "stderr" else clean_text
+                )
+        elif chunk_type == "result":
+            data = chunk.get("data", {})
+            if "text/plain" in data:
+                outputs.append(str(data["text/plain"]))
+            elif "text/html" in data:
+                outputs.append(str(data["text/html"]))
+        elif chunk_type == "error":
+            ename = chunk.get("ename", "Error")
+            evalue = chunk.get("evalue", "")
+            traceback_lines = chunk.get("traceback", [])
+            clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
+            outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
+
+    result = "\n".join(outputs).strip()
+    data = {"output": result or "Команда выполнена успешно (нет вывода)."}
+
+    return ToolMessage(
+        tool_call_id=runtime.tool_call_id,
+        content=json.dumps(data, ensure_ascii=False),
+        additional_kwargs={"tool_name": "shell"},
     )

@@ -80,6 +80,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(file.owner_id, user.id)
             self.assertEqual(file.provider_id, provider.id)
             self.assertEqual(file.sandbox_path, "/home/user/bucket/giga_agent/test/report.txt")
+            self.assertEqual(file.original_name, "report.txt")
             self.assertEqual(file.file_type, "text")
             self.assertEqual(file.size, 4)
             runtime.upload_file.assert_awaited_once_with(
@@ -99,6 +100,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/home/user/bucket/giga_agent/u/r.txt",
+                original_name="r.txt",
                 file_type="text",
                 size=3,
             )
@@ -132,6 +134,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/tmp/inside-sandbox.txt",
+                original_name="inside-sandbox.txt",
                 file_type="text",
                 size=3,
             )
@@ -172,6 +175,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=owner.id,
                 provider_id=provider.id,
                 sandbox_path="/home/user/bucket/giga_agent/u/r.txt",
+                original_name="r.txt",
                 file_type="text",
                 size=3,
             )
@@ -191,6 +195,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 owner_id=user.id,
                 provider_id=provider.id,
                 sandbox_path="/home/user/bucket/giga_agent/u/by-path.txt",
+                original_name="by-path.txt",
                 file_type="text",
                 size=8,
             )
@@ -269,6 +274,10 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                     "/home/user/bucket/giga_agent/test/third.mp4",
                     "/home/user/bucket/giga_agent/test/fourth.plotly.json",
                 ],
+            )
+            self.assertEqual(
+                [f.original_name for f in files],
+                ["first.png", "second.mp3", "third.mp4", "fourth.plotly.json"],
             )
             self.assertEqual([f.size for f in files], [3, 3, 3, 2])
             self.assertEqual(runtime.upload_file.await_count, 4)

@@ -1,6 +1,7 @@
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from langgraph_sdk import Auth
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.auth import security
 from giga_agent.models.users import UserRepository
 
@@ -43,8 +44,10 @@ async def get_current_user(authorization: str | None) -> Auth.types.MinimalUserD
             status_code=401, detail="Could not validate credentials"
         )
 
-    # Cache-first with DB fallback.
-    user = await UserRepository.get_cached_or_db(user_id)
+    factory = await get_session_factory()
+    async with factory() as session:
+        # Cache-first with DB fallback.
+        user = await UserRepository.get_cached_or_db(user_id, session=session)
 
     if user is None:
         raise Auth.exceptions.HTTPException(

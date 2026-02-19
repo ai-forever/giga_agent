@@ -7,6 +7,7 @@ from typing import List
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
+from giga_agent.core.db import get_session_factory
 from giga_agent.core.module import BaseModule
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
@@ -32,10 +33,12 @@ class ImageModule(BaseModule):
         assert user is not None
         assert user.image_generator_id is not None
 
-        record = await ImageGeneratorRepository.get_cached_or_db(
-            user.image_generator_id,
-            use_cache=True,
-        )
+        factory = await get_session_factory()
+        async with factory() as session:
+            record = await ImageGeneratorRepository.get_cached_or_db(
+                user.image_generator_id,
+                session=session,
+            )
         if record is None:
             return None
         if not record.is_active:

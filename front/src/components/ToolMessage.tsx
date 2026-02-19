@@ -218,6 +218,8 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
           {attachments.map((att: any) => {
             const attachmentPath = att["sandbox_path"] ?? att["path"];
             if (!attachmentPath) return null;
+            const attachmentName =
+              att["original_name"] ?? attachmentPath.split("/").at(-1);
             return (
               <a
                 key={attachmentPath}
@@ -229,7 +231,7 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
                   // @ts-ignore
                   ATTACHMENT_TEXTS[att["file_type"] ?? "image/png"]
                 }{" "}
-                {attachmentPath.split("/").at(-1)}
+                {attachmentName}
               </a>
             );
           })}

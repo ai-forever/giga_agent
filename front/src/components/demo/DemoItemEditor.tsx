@@ -195,7 +195,9 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
                     <ImagePreview src={"/files/" + it.data.path} />
                   ) : (
                     <span>
-                      {it.name ?? it.data?.path.replace(/^files\//, "")}
+                      {it.name ??
+                        it.data?.original_name ??
+                        it.data?.path.replace(/^files\//, "")}
                     </span>
                   )
                 ) : it.previewUrl ? (

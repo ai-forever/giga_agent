@@ -10,6 +10,7 @@ from langchain_core.runnables import (
 )
 from PIL import Image, ImageDraw, ImageFont
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.meme_agent.config import MemeState
 from giga_agent.modules.subagents_legacy.agents.meme_agent.prompts.ru import (
     IMAGE_PROMPT,
@@ -249,8 +250,10 @@ def memeify(
 
 
 async def image_node(state: MemeState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     img_ch = (
         IMAGE_PROMPT
         | llm.with_config(tags=["nostream"])
@@ -271,7 +274,8 @@ async def image_node(state: MemeState, config: RunnableConfig):
     )
     if config["configurable"].get("print_messages", False):
         resp["message"].pretty_print()
-    image_gen = await resolve_user_image_generator(user)
+    async with factory() as session:
+        image_gen = await resolve_user_image_generator(user, session=session)
     await image_gen.init()
     image_data = await image_gen.generate_image(
         resp["json"]["image"]["description"],

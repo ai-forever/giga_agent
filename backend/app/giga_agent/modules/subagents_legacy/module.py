@@ -47,9 +47,23 @@ class SubAgentLegacyModule(BaseModule):
             {
                 "name": "TWOGIS_TOKEN",
                 "description": "Токен от 2гис (с доступом к поиску и отображению карт)",
+                "type": "pass",
             },
-            {"name": "SALUTE_SPEECH", "description": "Токен SaluteSpeech"},
-            {"name": "SALUTE_SCOPE", "description": "Scope токена SaluteSpeech"},
+            {
+                "name": "SALUTE_SPEECH",
+                "description": "Токен SaluteSpeech",
+                "type": "pass",
+            },
+            {
+                "name": "SALUTE_SCOPE",
+                "description": "Scope токена SaluteSpeech",
+                "type": "text",
+            },
+            {
+                "name": "SUBAGENTS_LLM",
+                "description": "LLM для работы внутри субагентов",
+                "type": "llm_id",
+            },
         ]
 
     async def get_tools(

@@ -1,6 +1,7 @@
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableConfig
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     PresentationState,
 )
@@ -15,8 +16,10 @@ from giga_agent.modules.subagents_legacy.runtime import (
 
 
 async def plan_node(state: PresentationState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     llm = llm.with_config(tags=["nostream"]).bind(top_p=0.2)
     ch = PLAN_PROMPT | llm
     resp = await ch.ainvoke(

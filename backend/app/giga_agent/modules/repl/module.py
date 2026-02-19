@@ -17,7 +17,7 @@ from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserShort, UserRepository
 from giga_agent.sandbox.manager import SandboxManager
-from giga_agent.modules.repl.tools import python
+from giga_agent.modules.repl.tools import python, shell
 from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
 
 logger = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ class ReplModule(BaseModule):
     id: str = "repl"
 
     async def get_tools(self, user: UserShort, agent: BaseAgent) -> List[BaseTool]:
-        return [python]
+        return [python, shell]
 
     async def get_instructions(self, user: UserShort, agent: BaseAgent) -> str | None:
         return JUPYTER_REPL_INSTRUCTIONS + get_user_secrets_prompt(user)

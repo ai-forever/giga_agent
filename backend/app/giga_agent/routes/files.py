@@ -1,5 +1,6 @@
 import os
 import uuid
+from urllib.parse import quote
 from typing import Annotated
 
 from fastapi import (
@@ -191,10 +192,11 @@ def _build_file_response(
             url=result.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )
 
-    file_name = os.path.basename(file.sandbox_path.rstrip("/")) or "download.bin"
+    file_name = (file.original_name or "").strip() or os.path.basename(file.sandbox_path.rstrip("/")) or "download.bin"
+    file_name = file_name.replace('"', "")
     disposition = "inline" if result.inline else "attachment"
     headers: dict[str, str] = {
-        "Content-Disposition": f'{disposition}; filename="{file_name}"',
+        "Content-Disposition": f"{disposition}; filename=\"{file_name}\"; filename*=UTF-8''{quote(file_name)}",
     }
 
     if isinstance(result, StreamResult):

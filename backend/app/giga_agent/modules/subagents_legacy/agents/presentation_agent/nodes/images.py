@@ -9,6 +9,7 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     PresentationState,
 )
@@ -24,8 +25,10 @@ from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_
 
 
 async def image_node(state: PresentationState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     slides_for_images = []
     uuid_pattern = (
         "^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -73,7 +76,8 @@ async def image_node(state: PresentationState, config: RunnableConfig):
     images = img_resp["json"]["images"]
     if config["configurable"].get("print_messages", False):
         img_resp["message"].pretty_print()
-    generator = await resolve_user_image_generator(user)
+    async with factory() as session:
+        generator = await resolve_user_image_generator(user, session=session)
     await generator.init()
     tasks = [
         generator.generate_image(i["description"], i["width"], i["height"])

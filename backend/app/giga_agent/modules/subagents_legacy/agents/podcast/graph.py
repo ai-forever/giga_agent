@@ -10,6 +10,7 @@ from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
 from pydub import AudioSegment
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.podcast.config import (
     ConfigSchema,
@@ -48,8 +49,10 @@ from giga_agent.utils.messages import filter_tool_calls
 
 
 async def _resolve_llm(config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     return llm.with_config(tags=["nostream"])
 
 
@@ -126,6 +129,9 @@ async def audio_gen(state: PodcastState, config: RunnableConfig):
     transcript = ""
     total_characters = 0
     llm_output = state.get("dialogue")
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
 
     for line in llm_output.dialogue:
         if line.speaker == "Ведущая (Жанна)":
@@ -135,7 +141,6 @@ async def audio_gen(state: PodcastState, config: RunnableConfig):
 
         transcript += speaker_label + "\n\n"
         total_characters += len(line.text)
-        user = await get_current_user_from_config(config)
         sber_auth_token = get_user_secret(user, "SALUTE_SPEECH")
         salute_speech_scope = (
             get_user_secret(user, "SALUTE_SCOPE") or "SALUTE_SPEECH_PERS"

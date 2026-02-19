@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.search_engine import SearchEngineRepository
@@ -13,8 +15,15 @@ from giga_agent.search_engines.registry import SearchEngineRegistry
 
 class SearchEngineManager:
     @staticmethod
-    async def resolve_by_id(engine_id: uuid.UUID) -> BaseSearchEngine:
-        record = await SearchEngineRepository.get_cached_or_db(engine_id, use_cache=True)
+    async def resolve_by_id(
+        engine_id: uuid.UUID,
+        *,
+        session: AsyncSession,
+    ) -> BaseSearchEngine:
+        record = await SearchEngineRepository.get_cached_or_db(
+            engine_id,
+            session=session,
+        )
         if record is None:
             raise ValueError(f"Поисковый движок {engine_id} не найден.")
         if not record.is_active:
@@ -37,7 +46,7 @@ class SearchEngineManager:
 
             connector = await ConnectorRepository.get_cached_or_db(
                 connector_id,
-                use_cache=True,
+                session=session,
             )
             if connector is None:
                 raise ValueError(f"Connector {connector_id} не найден.")

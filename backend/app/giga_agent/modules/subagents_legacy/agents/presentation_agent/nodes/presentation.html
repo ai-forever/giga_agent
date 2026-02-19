@@ -149,12 +149,35 @@
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.2.1/plugin/math/math.min.js"></script>
 <script>
+    const urlParams = new URLSearchParams(window.location.search);
+
     function isImageInPath(path) {
         const lower = path.toLowerCase();
         const dotIdx = lower.lastIndexOf(".");
         const ext = dotIdx >= 0 ? lower.slice(dotIdx + 1) : "";
         const imageExt = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
         return imageExt.includes(ext);
+    }
+    function isPlotlyGraphInPath(path) {
+        const lower = path.toLowerCase();
+        return lower.endsWith(".plotly.json");
+    }
+    function getApiBaseUrl() {
+        const v = (urlParams.get('api_base_url') || '').trim();
+        return v;
+    }
+    function buildUrl(relativePath) {
+        const base = getApiBaseUrl();
+        if (!base) return relativePath;
+        if (!relativePath.startsWith('/')) return relativePath;
+        const trimmedBase = base.replace(/\/+$/, '');
+        if (trimmedBase.endsWith('/api') && relativePath.startsWith('/api/')) {
+            return trimmedBase + relativePath.slice(4);
+        }
+        return trimmedBase + relativePath;
+    }
+    function getFileContentUrl(path) {
+        return buildUrl(`/api/files/content/by-path?path=${encodeURIComponent(path)}`);
     }
     function createImage(el, path) {
         const uuid = crypto.randomUUID();
@@ -164,7 +187,7 @@
         $.each(attributes, function () {
             $(d).attr(this.name, this.value);
         });
-        d.src = `/files/${path}`;
+        d.src = getFileContentUrl(path);
         d.setAttribute('id', uuid);
         d.removeAttribute("data-src");
         el.parentNode.replaceChild(d, el);
@@ -175,42 +198,31 @@
         if (src.startsWith("attachment:") || src.startsWith("graph:")) {
             let graphId = src.replace(/^attachment:/, "");
              graphId = graphId.replace(/^graph:/, "");
-            if (graphId.startsWith("/home/jupyter") && isImageInPath(graphId)) {
-                createImage(el, graphId)
-            } else {
-                fetch(`/graph/store/items?namespace=attachments&key=${graphId}`).then((res) => {
-                    res.json().then((json) => {
-                        if (json.value.file_type === "image") {
-                            createImage(el, json.value.path)
-                        } else if (json.value.file_type === "plotly_graph") {
-                            fetch(`/files/${json.value.path}`).then((res) => {
-                                res.json().then((data) => {
-                                    const uuid = crypto.randomUUID();
-                                    const d = document.createElement('div');
-                                    d.innerHTML = el.innerHTML;
-                                    d.attributes = el.attributes;
-                                    const attributes = $(el).prop("attributes");
+            if (isImageInPath(graphId)) {
+                createImage(el, graphId);
+            } else if (isPlotlyGraphInPath(graphId)) {
+                fetch(getFileContentUrl(graphId)).then((res) => {
+                    res.json().then((data) => {
+                        const uuid = crypto.randomUUID();
+                        const d = document.createElement('div');
+                        d.innerHTML = el.innerHTML;
+                        d.attributes = el.attributes;
+                        const attributes = $(el).prop("attributes");
 
-                                    $.each(attributes, function () {
-                                        $(d).attr(this.name, this.value);
-                                    });
+                        $.each(attributes, function () {
+                            $(d).attr(this.name, this.value);
+                        });
 
-                                    el.parentNode.replaceChild(d, el);
-                                    el = d;
-                                    el.setAttribute('id', uuid);
-                                    Plotly.newPlot(uuid, data.data, data.layout, data.config);
-                                })
-                            });
-
-
-                        }
+                        el.parentNode.replaceChild(d, el);
+                        el = d;
+                        el.setAttribute('id', uuid);
+                        Plotly.newPlot(uuid, data.data, data.layout, data.config);
                     });
                 });
             }
         }
     });
     // Print/PDF helpers
-    const urlParams = new URLSearchParams(window.location.search);
     const isPrintPdf = urlParams.has('print-pdf') || /print-pdf/gi.test(window.location.search);
 
     // Inject Reveal's PDF print stylesheet when in print mode

@@ -12,6 +12,7 @@ from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
     get_current_user_from_runtime,
@@ -62,8 +63,10 @@ class LeanGraphState(TypedDict):
 
 
 async def _resolve_llm(config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     return llm.with_config(tags=["nostream"])
 
 
@@ -235,8 +238,10 @@ async def check_unique(
         [("system", COMPETITION_ANALYSIS_TEMPLATE)],
     ).partial(format_instructions=parser.get_format_instructions(), language="ru")
 
-    user = await get_current_user_from_config(config)
-    search_engine = await resolve_user_search_engine(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        search_engine = await resolve_user_search_engine(user, session=session)
     search_results = await search_engine.search([state["unique_value_proposition"]])
     search_results_text = "\n\n".join(
         normalize_search_result(item) for item in search_results
@@ -522,7 +527,9 @@ async def lean_canvas(
     runtime: ToolRuntime = None,
 ):
     """Создает Lean Canvas под задачу пользователя. Полезно для проработки стартапов."""
-    user = await get_current_user_from_runtime(runtime)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_runtime(runtime, session=session)
     client = get_client()
     thread = await client.threads.create()
     thread_id = thread["thread_id"]

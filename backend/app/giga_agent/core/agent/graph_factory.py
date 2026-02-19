@@ -37,6 +37,7 @@ from langchain.tools.tool_node import (
 
 import uuid
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
 from giga_agent.llm.manager import LLMManager
@@ -422,14 +423,16 @@ def create_graph(
         user_id = config["configurable"]["langgraph_auth_user"]["identity"]
         user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
-        user = await UserRepository.get_cached_or_db(user_uuid)
-        if user is None:
-            raise ValueError(f"User with id {user_id} not found")
+        factory = await get_session_factory()
+        async with factory() as session:
+            user = await UserRepository.get_cached_or_db(user_uuid, session=session)
+            if user is None:
+                raise ValueError(f"User with id {user_id} not found")
 
-        if not user.llm_id:
-            raise ValueError("User has no default LLM configured")
+            if not user.llm_id:
+                raise ValueError("User has no default LLM configured")
 
-        llm = await LLMManager.resolve_by_id(user.llm_id)
+            llm = await LLMManager.resolve_by_id(user.llm_id, session=session)
         agent_tools = await agent.get_tools(user)
         llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
         system_message = SystemMessage(content=await agent.get_prompt(user))

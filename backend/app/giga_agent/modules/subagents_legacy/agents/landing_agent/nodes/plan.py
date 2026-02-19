@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableConfig
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     LandingState,
 )
@@ -19,8 +20,10 @@ from giga_agent.utils.messages import filter_tool_messages
 
 
 async def plan_node(state: LandingState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     plan_messages = filter_tool_messages(state.get("plan_messages", []))
     new_message = HumanMessage(content=state["task"])
     additional_info = (

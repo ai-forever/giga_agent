@@ -7,6 +7,7 @@ from typing import Any, Literal
 from langchain.tools import ToolRuntime
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables.config import RunnableConfig
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.generators.image.manager import ImageGeneratorManager
@@ -15,7 +16,7 @@ from giga_agent.models.users import UserShort, UserRepository
 from giga_agent.search_engines.base import BaseSearchEngine
 from giga_agent.search_engines.manager import SearchEngineManager
 
-SecretKey = Literal["TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE"]
+SecretKey = Literal["TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM"]
 
 
 @dataclass(frozen=True)
@@ -28,9 +29,13 @@ class LegacyCapabilities:
     has_salute_scope: bool
 
 
-async def get_current_user_from_runtime(runtime: ToolRuntime) -> UserShort:
+async def get_current_user_from_runtime(
+    runtime: ToolRuntime,
+    *,
+    session: AsyncSession,
+) -> UserShort:
     owner_id = get_owner_id_from_runtime(runtime)
-    user = await UserRepository.get_cached_or_db(owner_id)
+    user = await UserRepository.get_cached_or_db(owner_id, session=session)
     if user is None:
         raise ValueError(f"Пользователь {owner_id} не найден")
     return user
@@ -50,16 +55,21 @@ def get_owner_id_from_config(config: RunnableConfig | dict) -> uuid.UUID:
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
-async def get_current_user_from_config(config: RunnableConfig | dict) -> UserShort:
+async def get_current_user_from_config(
+    config: RunnableConfig | dict,
+    *,
+    session: AsyncSession,
+) -> UserShort:
     owner_id = get_owner_id_from_config(config)
-    user = await UserRepository.get_cached_or_db(owner_id)
+    user = await UserRepository.get_cached_or_db(owner_id, session=session)
     if user is None:
         raise ValueError(f"Пользователь {owner_id} не найден")
     return user
 
 
 def get_user_secret(user: UserShort, key: SecretKey) -> str | None:
-    secrets = user.secrets if isinstance(user.secrets, dict) else {}
+    raw_secrets = getattr(user, "secrets", None)
+    secrets = raw_secrets if isinstance(raw_secrets, dict) else {}
     value = secrets.get(key)
     if value is None:
         return None
@@ -67,27 +77,57 @@ def get_user_secret(user: UserShort, key: SecretKey) -> str | None:
     return value_str or None
 
 
-async def resolve_user_llm(user: UserShort) -> BaseChatModel:
-    if user.llm_id is None:
+async def resolve_user_llm(
+    user: UserShort,
+    *,
+    session: AsyncSession,
+) -> BaseChatModel:
+    llm_id = user.llm_id
+    subagents_llm_id = get_user_secret(user, "SUBAGENTS_LLM")
+    if subagents_llm_id is not None:
+        try:
+            llm_id = uuid.UUID(subagents_llm_id)
+        except ValueError:
+            # Fallback to user's default LLM when secret value is invalid.
+            llm_id = user.llm_id
+
+    if llm_id is None:
         raise ValueError("У пользователя не выбран llm_id")
-    return await LLMManager.resolve_by_id(user.llm_id)
+    return await LLMManager.resolve_by_id(llm_id, session=session)
 
 
-async def resolve_user_search_engine(user: UserShort) -> BaseSearchEngine:
+async def resolve_user_search_engine(
+    user: UserShort,
+    *,
+    session: AsyncSession,
+) -> BaseSearchEngine:
     if user.search_engine_id is None:
         raise ValueError("У пользователя не выбран search_engine_id")
-    return await SearchEngineManager.resolve_by_id(user.search_engine_id)
+    return await SearchEngineManager.resolve_by_id(
+        user.search_engine_id,
+        session=session,
+    )
 
 
-async def resolve_user_image_generator(user: UserShort) -> BaseImageGenerator:
+async def resolve_user_image_generator(
+    user: UserShort,
+    *,
+    session: AsyncSession,
+) -> BaseImageGenerator:
     if user.image_generator_id is None:
         raise ValueError("У пользователя не выбран image_generator_id")
-    return await ImageGeneratorManager.resolve_by_id(user.image_generator_id)
+    return await ImageGeneratorManager.resolve_by_id(
+        user.image_generator_id,
+        session=session,
+    )
 
 
 def get_legacy_capabilities(user: UserShort) -> LegacyCapabilities:
     return LegacyCapabilities(
-        has_llm=user.llm_id is not None,
+        has_llm=(
+            user.llm_id is not None
+            or get_user_secret(user, "SUBAGENTS_LLM") is not None
+        ),
         has_search=user.search_engine_id is not None,
         has_image_generator=user.image_generator_id is not None,
         has_twogis_token=get_user_secret(user, "TWOGIS_TOKEN") is not None,

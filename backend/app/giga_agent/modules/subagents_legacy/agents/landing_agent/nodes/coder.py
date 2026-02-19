@@ -12,6 +12,7 @@ from langchain_core.runnables import (
     RunnablePassthrough,
 )
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
     LandingState,
 )
@@ -24,7 +25,10 @@ from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
     resolve_user_llm,
 )
-from giga_agent.modules.subagents_legacy.uploads import upload_files_for_config_user
+from giga_agent.modules.subagents_legacy.uploads import (
+    build_file_content_by_path_url,
+    upload_files_for_config_user,
+)
 
 prompt = ChatPromptTemplate.from_messages(
     [
@@ -34,8 +38,10 @@ prompt = ChatPromptTemplate.from_messages(
 ).partial(language="ru")
 
 async def coder_node(state: LandingState, config: RunnableConfig):
-    user = await get_current_user_from_config(config)
-    llm = await resolve_user_llm(user)
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await get_current_user_from_config(config, session=session)
+        llm = await resolve_user_llm(user, session=session)
     coder_chain = (
         prompt
         | llm.with_config(tags=["nostream"])
@@ -69,10 +75,16 @@ async def coder_node(state: LandingState, config: RunnableConfig):
     if config["configurable"].get("print_messages", False):
         resp["message"].pretty_print()
     html = resp["html"]
+    thread_id = config["configurable"]["thread_id"]
     for image in state["images"]:
+        image_name = image["name"]
+        image_meta = state.get("images_uploaded", {}).get(image_name, {})
+        sandbox_path = image_meta.get("sandbox_path")
+        if not sandbox_path:
+            sandbox_path = f"/runs/{thread_id}/{image_name}"
         html = html.replace(
-            image["name"],
-            f"/files/runs/{config['configurable']['thread_id']}/{image['name']}",
+            image_name,
+            build_file_content_by_path_url(sandbox_path),
         )
     html_counter = ""
     if state.get("html"):

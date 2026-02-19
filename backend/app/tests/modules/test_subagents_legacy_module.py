@@ -11,36 +11,43 @@ from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
 
 @tool
 def researcher_agent(question: str) -> str:
+    """Test tool stub."""
     return question
 
 
 @tool
 def lean_canvas(theme: str) -> str:
+    """Test tool stub."""
     return theme
 
 
 @tool
 def city_explore(city: str) -> str:
+    """Test tool stub."""
     return city
 
 
 @tool
 def podcast_generate(url: str) -> str:
+    """Test tool stub."""
     return url
 
 
 @tool
 def create_landing(task: str) -> str:
+    """Test tool stub."""
     return task
 
 
 @tool
 def generate_presentation(task: str) -> str:
+    """Test tool stub."""
     return task
 
 
 @tool
 def create_meme(task: str) -> str:
+    """Test tool stub."""
     return task
 
 

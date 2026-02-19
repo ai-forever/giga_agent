@@ -8,6 +8,7 @@ from typing import Any, Annotated
 from langchain.tools import ToolRuntime, tool
 from pydantic import Field
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository
 from giga_agent.search_engines.manager import SearchEngineManager
 
@@ -27,14 +28,19 @@ async def search(
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
-    user = await UserRepository.get_cached_or_db(owner_id)
-    if user is None:
-        raise ValueError(f"Пользователь {owner_id} не найден")
-    if user.search_engine_id is None:
-        raise ValueError(
-            "У пользователя не выбран поисковый движок. "
-            "Установите search_engine_id в настройках пользователя."
-        )
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await UserRepository.get_cached_or_db(owner_id, session=session)
+        if user is None:
+            raise ValueError(f"Пользователь {owner_id} не найден")
+        if user.search_engine_id is None:
+            raise ValueError(
+                "У пользователя не выбран поисковый движок. "
+                "Установите search_engine_id в настройках пользователя."
+            )
 
-    engine = await SearchEngineManager.resolve_by_id(user.search_engine_id)
+        engine = await SearchEngineManager.resolve_by_id(
+            user.search_engine_id,
+            session=session,
+        )
     return await engine.search(queries)

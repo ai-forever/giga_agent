@@ -66,6 +66,7 @@ from langgraph.prebuilt.tool_node import (
     AsyncToolCallWrapper,
 )
 
+from giga_agent.core.db import get_session_factory
 from giga_agent.core.agent.types import AgentState
 from giga_agent.models import UserRepository
 
@@ -373,9 +374,11 @@ class ToolNode(RunnableCallable):
         user_id = config["configurable"]["langgraph_auth_user"]["identity"]
         user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
-        user = await UserRepository.get_cached_or_db(user_uuid)
-        if user is None:
-            raise ValueError(f"User with id {user_id} not found")
+        factory = await get_session_factory()
+        async with factory() as session:
+            user = await UserRepository.get_cached_or_db(user_uuid, session=session)
+            if user is None:
+                raise ValueError(f"User with id {user_id} not found")
 
         tools = await self._agent.get_tools(user)
         tools.extend(self._tools)

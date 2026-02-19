@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from typing import Any, TypedDict
+from urllib.parse import urlencode
 
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
@@ -20,6 +22,23 @@ class LegacyUploadFileSpec(TypedDict):
     file_name: str
     content: bytes
     file_type: FileType
+
+
+def build_file_content_by_path_url(sandbox_path: str) -> str:
+    host = os.environ.get("GIGA_AGENT_HOST", "").strip().rstrip("/")
+    port = os.environ.get("GIGA_AGENT_PORT", "").strip()
+    query = urlencode({"path": sandbox_path})
+
+    if host and port:
+        base = f"{host}:{port}"
+    elif host:
+        base = host
+    else:
+        base = ""
+
+    if base:
+        return f"{base}/api/files/content/by-path?{query}"
+    return f"/api/files/content/by-path?{query}"
 
 
 def resolve_upload_prefix(runtime: ToolRuntime) -> str:

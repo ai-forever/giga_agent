@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from langchain_core.language_models import BaseChatModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.llm.registry import LLMRegistry
@@ -18,8 +19,12 @@ import giga_agent.llm  # noqa: F401
 
 class LLMManager:
     @staticmethod
-    async def resolve_by_id(llm_id: uuid.UUID) -> BaseChatModel:
-        llm = await LLMRepository.get_cached_or_db(llm_id, use_cache=True)
+    async def resolve_by_id(
+        llm_id: uuid.UUID,
+        *,
+        session: AsyncSession,
+    ) -> BaseChatModel:
+        llm = await LLMRepository.get_cached_or_db(llm_id, session=session)
         if llm is None:
             raise ValueError(f"LLM with id {llm_id} not found")
         if not llm.is_active:
@@ -27,7 +32,7 @@ class LLMManager:
 
         connector = await ConnectorRepository.get_cached_or_db(
             llm.connector_id,
-            use_cache=True,
+            session=session,
         )
         if connector is None:
             raise ValueError(f"Connector for LLM {llm_id} not found")

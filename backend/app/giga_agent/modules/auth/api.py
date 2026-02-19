@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
+from giga_agent.core.module import collect_module_secrets
 from giga_agent.models.embedding import EmbeddingRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
@@ -128,7 +129,6 @@ async def _validate_llm_id(
     llm = await LLMRepository.get_cached_or_db(
         llm_id,
         session=db,
-        use_cache=True,
     )
     if llm is None or llm.owner_id != owner_id or not llm.is_active:
         raise _invalid_reference_error("llm_id")
@@ -142,7 +142,6 @@ async def _validate_fast_llm_id(
     llm = await LLMRepository.get_cached_or_db(
         fast_llm_id,
         session=db,
-        use_cache=True,
     )
     if llm is None or llm.owner_id != owner_id or not llm.is_active:
         raise _invalid_reference_error("fast_llm_id")
@@ -156,7 +155,6 @@ async def _validate_embedding_id(
     embedding = await EmbeddingRepository.get_cached_or_db(
         embedding_id,
         session=db,
-        use_cache=True,
     )
     if embedding is None or embedding.owner_id != owner_id or not embedding.is_active:
         raise _invalid_reference_error("embedding_id")
@@ -170,7 +168,6 @@ async def _validate_image_generator_id(
     generator = await ImageGeneratorRepository.get_cached_or_db(
         image_generator_id,
         session=db,
-        use_cache=True,
     )
     if generator is None or generator.owner_id != owner_id or not generator.is_active:
         raise _invalid_reference_error("image_generator_id")
@@ -184,10 +181,58 @@ async def _validate_search_engine_id(
     engine = await SearchEngineRepository.get_cached_or_db(
         search_engine_id,
         session=db,
-        use_cache=True,
     )
     if engine is None or engine.owner_id != owner_id or not engine.is_active:
         raise _invalid_reference_error("search_engine_id")
+
+
+async def _validate_llm_secret_references(
+    *,
+    request: Request,
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    merged_secrets: dict,
+) -> None:
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return
+
+    for secret_meta in collect_module_secrets(agent.modules):
+        if secret_meta["type"] != "llm_id":
+            continue
+
+        secret_name = secret_meta["name"]
+        raw_value = merged_secrets.get(secret_name)
+        if raw_value is None:
+            continue
+
+        value = str(raw_value).strip()
+        if not value:
+            continue
+
+        try:
+            llm_id = uuid.UUID(value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid value for secrets.{secret_name}: expected UUID of an "
+                    "accessible active LLM"
+                ),
+            )
+
+        try:
+            await _validate_llm_id(db, owner_id, llm_id)
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY:
+                raise
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"Invalid value for secrets.{secret_name}: record must exist, "
+                    "belong to user, and be active"
+                ),
+            )
 
 
 # ============ Endpoints ============
@@ -246,6 +291,7 @@ async def read_users_me(
 @router.patch("/users/me", response_model=UserShort)
 async def update_user(
     body: UserUpdate,
+    request: Request,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
@@ -273,6 +319,12 @@ async def update_user(
             )
         merged_secrets = dict(user.secrets or {})
         merged_secrets.update(body.secrets)
+        await _validate_llm_secret_references(
+            request=request,
+            db=db,
+            owner_id=current_user.id,
+            merged_secrets=merged_secrets,
+        )
         user.secrets = merged_secrets
 
     if "llm_id" in body.model_fields_set:

@@ -61,19 +61,35 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
             aws_secret_access_key="sk",
         )
 
-    async def test_uniquify_s3_key_adds_counter(self):
+    async def test_uniquify_s3_key_adds_random_suffix(self):
         sandbox = self._sandbox()
         owner_id = uuid.uuid4()
-        existing = {
-            f"giga_agent/{owner_id}/report.txt",
-            f"giga_agent/{owner_id}/report (1).txt",
-        }
-        fake_client = _FakeS3Client(existing_keys=existing)
-
-        with patch("aioboto3.Session", return_value=_FakeSession(fake_client)):
+        with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
             key = await sandbox._uniquify_s3_key(owner_id=owner_id, file_name="report.txt")
 
-        self.assertEqual(key, f"giga_agent/{owner_id}/report (2).txt")
+        self.assertEqual(key, f"giga_agent/{owner_id}/report--ABCDEFGH.txt")
+
+    async def test_uniquify_s3_key_adds_suffix_before_plotly_json_extension(self):
+        sandbox = self._sandbox()
+        owner_id = uuid.uuid4()
+        with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
+            key = await sandbox._uniquify_s3_key(
+                owner_id=owner_id,
+                file_name="chart.plotly.json",
+            )
+
+        self.assertEqual(key, f"giga_agent/{owner_id}/chart--ABCDEFGH.plotly.json")
+
+    async def test_uniquify_s3_key_keeps_subdirectories(self):
+        sandbox = self._sandbox()
+        owner_id = uuid.uuid4()
+        with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
+            key = await sandbox._uniquify_s3_key(
+                owner_id=owner_id, file_name="thread-42/reports/report.txt"
+            )
+        self.assertEqual(
+            key, f"giga_agent/{owner_id}/thread-42/reports/report--ABCDEFGH.txt"
+        )
 
     async def test_upload_file_returns_mount_path(self):
         sandbox = self._sandbox()
@@ -85,7 +101,7 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 sandbox,
                 "_uniquify_s3_key",
-                AsyncMock(return_value=f"giga_agent/{owner_id}/file.txt"),
+                AsyncMock(return_value=f"giga_agent/{owner_id}/file--ABCDEFGH.txt"),
             ),
         ):
             sandbox_path = await sandbox.upload_file(
@@ -94,8 +110,8 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 content=b"abc",
             )
 
-        self.assertEqual(sandbox_path, f"/home/user/bucket/giga_agent/{owner_id}/file.txt")
-        self.assertEqual(fake_client.put_calls[0]["Key"], f"giga_agent/{owner_id}/file.txt")
+        self.assertEqual(sandbox_path, f"/bucket/giga_agent/{owner_id}/file--ABCDEFGH.txt")
+        self.assertEqual(fake_client.put_calls[0]["Key"], f"giga_agent/{owner_id}/file--ABCDEFGH.txt")
 
     async def test_read_file_returns_redirect_for_s3(self):
         sandbox = self._sandbox()

@@ -1,7 +1,8 @@
 import types
 import unittest
 import uuid
-from unittest.mock import AsyncMock, patch
+from contextlib import asynccontextmanager
+from unittest.mock import ANY, AsyncMock, patch
 
 from giga_agent.search_engines.tool import search
 
@@ -18,7 +19,14 @@ class SearchToolTests(unittest.IsolatedAsyncioTestCase):
             config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
         )
 
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
         with patch(
+            "giga_agent.search_engines.tool.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
             "giga_agent.search_engines.tool.UserRepository.get_cached_or_db",
             AsyncMock(return_value=None),
         ):
@@ -33,7 +41,14 @@ class SearchToolTests(unittest.IsolatedAsyncioTestCase):
         )
         user = types.SimpleNamespace(id=owner_id, search_engine_id=None)
 
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
         with patch(
+            "giga_agent.search_engines.tool.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
             "giga_agent.search_engines.tool.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
         ):
@@ -51,7 +66,14 @@ class SearchToolTests(unittest.IsolatedAsyncioTestCase):
             search=AsyncMock(return_value=[{"query": "q1", "result": {"ok": True}}])
         )
 
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
         with patch(
+            "giga_agent.search_engines.tool.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
             "giga_agent.search_engines.tool.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
         ), patch(
@@ -61,5 +83,5 @@ class SearchToolTests(unittest.IsolatedAsyncioTestCase):
             assert search.coroutine is not None
             result = await search.coroutine(queries=["q1"], runtime=runtime)
 
-        mocked_resolve.assert_awaited_once_with(user.search_engine_id)
+        mocked_resolve.assert_awaited_once_with(user.search_engine_id, session=ANY)
         self.assertEqual(result, [{"query": "q1", "result": {"ok": True}}])

@@ -1,6 +1,7 @@
 import types
 import unittest
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from langchain.tools import tool
@@ -65,7 +66,14 @@ class AsyncModuleHooksTests(unittest.IsolatedAsyncioTestCase):
             "configurable": {"langgraph_auth_user": {"identity": str(user.id)}},
         }
 
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
         with patch(
+            "giga_agent.core.agent.tool_node.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
             "giga_agent.core.agent.tool_node.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
         ):

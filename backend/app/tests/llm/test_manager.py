@@ -9,16 +9,18 @@ from giga_agent.llm.manager import LLMManager
 class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_raises_for_missing_llm(self):
         llm_id = uuid.uuid4()
+        session = object()
 
         with patch(
             "giga_agent.llm.manager.LLMRepository.get_cached_or_db",
             AsyncMock(return_value=None),
         ):
             with self.assertRaisesRegex(ValueError, "not found"):
-                await LLMManager.resolve_by_id(llm_id)
+                await LLMManager.resolve_by_id(llm_id, session=session)
 
     async def test_resolve_raises_for_inactive_llm(self):
         llm_id = uuid.uuid4()
+        session = object()
         llm = types.SimpleNamespace(
             id=llm_id,
             is_active=False,
@@ -33,10 +35,11 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=llm),
         ):
             with self.assertRaisesRegex(ValueError, "inactive"):
-                await LLMManager.resolve_by_id(llm_id)
+                await LLMManager.resolve_by_id(llm_id, session=session)
 
     async def test_resolve_builds_chat_model(self):
         llm_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         llm = types.SimpleNamespace(
             id=llm_id,
@@ -89,12 +92,13 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.llm.manager.ConnectorRegistry.get_connection_kwargs",
             return_value={"api_key": "sk-test"},
         ):
-            resolved = await LLMManager.resolve_by_id(llm_id)
+            resolved = await LLMManager.resolve_by_id(llm_id, session=session)
 
         self.assertIs(resolved, built_model)
 
     async def test_resolve_raises_when_connector_is_incompatible(self):
         llm_id = uuid.uuid4()
+        session = object()
         connector_id = uuid.uuid4()
         llm = types.SimpleNamespace(
             id=llm_id,
@@ -127,4 +131,4 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             return_value=_RuntimeStub,
         ):
             with self.assertRaisesRegex(ValueError, "not compatible"):
-                await LLMManager.resolve_by_id(llm_id)
+                await LLMManager.resolve_by_id(llm_id, session=session)
