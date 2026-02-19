@@ -29,7 +29,6 @@ agent = BaseAgent(
         VKModule(),
         WeatherModule(),
         SubAgentLegacyModule(),
-        ToolCallInterruptModule(),
     ],
     tools=[get_weather],
 )

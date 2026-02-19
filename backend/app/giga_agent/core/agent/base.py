@@ -15,6 +15,7 @@ from giga_agent.core.module import BaseModule
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
+from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.models.users import UserShort
 from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.core.agent.graph_factory import create_graph
@@ -34,6 +35,7 @@ NOTES_PROMPT = """
 
 ====
 """  # noqa: E501
+
 
 class BaseAgent(Serializable):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -77,6 +79,7 @@ class BaseAgent(Serializable):
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
             CoreFirstMiddleware(),
+            ToolResultMiddleware(),
             *module_middlewares,
             CoreLastMiddleware(),
         ]

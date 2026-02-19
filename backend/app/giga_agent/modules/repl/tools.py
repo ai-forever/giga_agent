@@ -153,7 +153,7 @@ def get_user_secrets_code(user: UserShort):
     return "SECRETS = {}\n" + "\n".join(code_parts)
 
 
-@tool
+@tool(extras={"repl_save": False})
 async def python(
     code: str,
     runtime: ToolRuntime,
@@ -292,7 +292,7 @@ async def python(
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras={"repl_save": False})
 async def shell(
     command: str,
     runtime: ToolRuntime,

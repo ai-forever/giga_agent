@@ -20,7 +20,6 @@ from langgraph.types import Command, Send
 from langchain_core.runnables import RunnableConfig
 
 from langchain.agents.middleware.types import (
-    AgentMiddleware,
     ModelRequest,
     ModelResponse,
     ResponseT,
@@ -42,6 +41,7 @@ from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
 from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository
+from giga_agent.utils.mcp import transform_tool
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -434,7 +434,19 @@ def create_graph(
 
             llm = await LLMManager.resolve_by_id(user.llm_id, session=session)
         agent_tools = await agent.get_tools(user)
-        llm = llm.bind_tools(tools=agent_tools + default_tools, tool_choice="auto")
+        mcp_tools = [
+            transform_tool(
+                {
+                    "name": tool["name"],
+                    "description": tool.get("description", "."),
+                    "parameters": tool.get("inputSchema", {}),
+                },
+            )
+            for tool in state.get("mcp_tools", [])
+        ]
+        llm = llm.bind_tools(
+            tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
+        )
         system_message = SystemMessage(content=await agent.get_prompt(user))
 
         request = ModelRequest(
