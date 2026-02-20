@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from typing import Annotated
 
@@ -30,17 +29,9 @@ async def get_documents(
     query: Annotated[str, "Поисковый запрос для поиска релевантных документов"],
     runtime: ToolRuntime,
     limit: Annotated[int, "Количество документов, которые возвращаются"] = 10,
-) -> dict:
-    def _json(payload: dict) -> str:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-
-    hint = (
-        "Чтобы изучить документ подробнее, прочитай исходный файл по `sandbox_path` "
-        "и возьми фрагмент между `start_index` и `end_index` (при необходимости расширь диапазон)."
-    )
-
+) -> str:
     if runtime is None:
-        return {"error": "ToolRuntime is required", "documents": [], "hint": hint}
+        return "<all-documents>\n  <error>ToolRuntime is required</error>\n</all-documents>"
 
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
@@ -48,7 +39,7 @@ async def get_documents(
     try:
         collection_id = uuid.UUID(collection_uuid)
     except ValueError:
-        return {"error": "Invalid collection UUID", "documents": [], "hint": hint}
+        return "<all-documents>\n  <error>Invalid collection UUID</error>\n</all-documents>"
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -57,13 +48,13 @@ async def get_documents(
             collection_id=collection_id,
         )
         if collection is None:
-            return _json({"error": "Collection not found", "documents": [], "hint": hint})
+            return "<all-documents>\n  <error>Collection not found</error>\n</all-documents>"
 
-        embedding_runtime = await EmbeddingManager.resolve_by_id(
+        runtime = await EmbeddingManager.resolve_by_id(
             collection.embedding_id,
             session=session,
         )
-        embeddings = embedding_runtime.embeddings
+        embeddings = runtime.embeddings
 
     qdrant_client = await asyncio.to_thread(get_qdrant_client)
     try:
@@ -86,42 +77,36 @@ async def get_documents(
             limit=limit,
         )
     except Exception as e:
-        return {"error": str(e), "documents": [], "hint": hint}
+        return f"<all-documents>\n  <error>{e!s}</error>\n</all-documents>"
     finally:
         await qdrant_client.close()
 
-    documents: list[dict] = []
+    formatted_docs = "Найденные части документов:\n"
     for p in points:
         payload = p.payload or {}
         chunk_id = str(p.id)
-        doc_id = payload.get("document_id") or payload.get("file_id")
-        name = payload.get("document_name") or payload.get("name")
+        doc_id = str(payload.get("document_id") or payload.get("file_id") or "")
+        name = str(payload.get("document_name") or payload.get("name") or "")
         start_index = payload.get("start_index")
         end_index = payload.get("end_index")
-        sandbox_path = payload.get("sandbox_path")
-        content = payload.get("page_content")
+        sandbox_path = str(payload.get("sandbox_path") or "")
+        content = str(payload.get("page_content") or "")
 
-        documents.append(
-            {
-                "chunk_id": chunk_id,
-                "document_id": str(doc_id) if doc_id else None,
-                "name": str(name) if name else None,
-                "start_index": start_index,
-                "end_index": end_index,
-                "sandbox_path": str(sandbox_path) if sandbox_path else None,
-                "content": str(content) if content else "",
-                "score": getattr(p, "score", None),
-            }
-        )
+        attrs = [
+            f'id="{chunk_id}"',
+            f'document_id="{doc_id}"' if doc_id else "",
+            f'name="{name}"' if name else "",
+            f'start_index="{start_index}"' if start_index is not None else "",
+            f'end_index="{end_index}"' if end_index is not None else "",
+            f'sandbox_path="{sandbox_path}"' if sandbox_path else "",
+        ]
+        attrs_str = " ".join(a for a in attrs if a)
+        formatted_docs += f"  <document {attrs_str}>\n    {content}\n  </document>\n"
 
-    return {
-        "collection_uuid": str(collection_id),
-        "query": query,
-        "limit": limit,
-        "documents": documents,
-        "hint": hint,
-        "next_step": "Если информации недостаточно, переформулируй запрос и вызови get_documents ещё раз.",
-    }
+    return (
+        formatted_docs
+        + "Если информации недостаточно, попробуй расширить запрос и вызвать get_documents повторно"
+    )
 
 
 def has_collections(state):

@@ -256,13 +256,13 @@ async def documents_delete(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document_id")
 
-    ok = await RagDocumentsRepository(db).delete(
+    doc = await RagDocumentsRepository(db).get_by_id(
         owner_id=current_user.id,
         collection_id=collection_id,
         document_id=doc_uuid,
     )
-    if not ok:
-        raise HTTPException(status_code=404, detail="Failed to delete document.")
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
 
     qdrant_client = await asyncio.to_thread(get_qdrant_client)
     try:
@@ -287,6 +287,20 @@ async def documents_delete(
         )
     finally:
         await qdrant_client.close()
+
+    # Best-effort delete file from sandbox storage (S3) + remove core_files metadata.
+    await SandboxManager(db).delete_file_by_path_for_user(
+        owner_id=current_user.id,
+        sandbox_path=doc.sandbox_path,
+    )
+
+    ok = await RagDocumentsRepository(db).delete(
+        owner_id=current_user.id,
+        collection_id=collection_id,
+        document_id=doc_uuid,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Failed to delete document.")
 
     return {"success": True}
 

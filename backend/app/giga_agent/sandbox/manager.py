@@ -628,7 +628,13 @@ class SandboxManager:
         owner_id: uuid.UUID,
         file_id: uuid.UUID,
     ) -> None:
-        """Удалить метаданные файла пользователя из БД."""
+        """
+        Удалить файл пользователя.
+
+        Best-effort:
+        - Пытается удалить физический объект из backing storage провайдера.
+        - Всегда удаляет метаданные из БД (если файл принадлежит пользователю).
+        """
         file = await self._file_repo.get_by_id(file_id)
         if file is None:
             raise ValueError(f"File {file_id} not found")
@@ -636,7 +642,72 @@ class SandboxManager:
             raise PermissionError(
                 f"File {file_id} does not belong to user {owner_id}"
             )
+
+        # Best-effort physical delete (may be unsupported by provider).
+        try:
+            provider = await self._provider_repo.get_by_id(file.provider_id)
+            if provider is None:
+                cached = await SandboxRepository.cache_get_pair(
+                    owner_id=owner_id,
+                    provider_id=file.provider_id,
+                )
+                if cached is None:
+                    raise ValueError(
+                        f"Provider {file.provider_id} not found for file {file_id}"
+                    )
+                provider_obj = cached.provider
+                sandbox_obj = cached.sandbox
+            else:
+                if provider.owner_id != owner_id:
+                    raise PermissionError(
+                        f"Provider {provider.id} does not belong to user {owner_id}"
+                    )
+                resolved = await self.get_or_create_for_user(
+                    owner_id=owner_id,
+                    provider_id=provider.id,
+                    use_cache=True,
+                )
+                provider_obj = resolved.provider
+                sandbox_obj = resolved.sandbox
+
+            runtime = self._build_runtime(provider_obj, sandbox_obj)
+            if runtime.requires_running_for_delete(file.sandbox_path):
+                runtime = await self.ensure_running_for_user(
+                    owner_id=owner_id,
+                    provider_id=provider_obj.id,
+                )
+
+            await runtime.delete_file(file.sandbox_path)
+        except FileNotFoundError:
+            # Already deleted in storage.
+            pass
+        except Exception as e:
+            logger.warning(
+                "Failed to delete file from storage (best-effort): %s",
+                e,
+                exc_info=True,
+            )
+
         await self._file_repo.delete(file)
+
+    async def delete_file_by_path_for_user(
+        self,
+        owner_id: uuid.UUID,
+        sandbox_path: str,
+    ) -> None:
+        """
+        Best-effort удалить файл по sandbox_path:
+
+        - Если метаданные в БД найдены → удаляет через delete_file_for_user (включая storage).
+        - Если не найдены → ничего не делает.
+        """
+        file = await self._file_repo.get_by_owner_path(
+            owner_id=owner_id,
+            sandbox_path=sandbox_path,
+        )
+        if file is None:
+            return
+        await self.delete_file_for_user(owner_id=owner_id, file_id=file.id)
 
     async def get_runtime(self, sandbox_id: uuid.UUID) -> BaseSandbox:
         """

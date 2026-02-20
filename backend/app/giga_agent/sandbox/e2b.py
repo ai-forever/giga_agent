@@ -3,6 +3,7 @@ import secrets
 import time
 import asyncio
 import uuid
+import shlex
 from collections.abc import AsyncIterator
 from pathlib import PurePosixPath
 from typing import Optional, Any
@@ -361,6 +362,32 @@ class E2BSandbox(JupyterSandbox):
         # Для внутренних путей нужен доступ к files.read в живом sandbox.
         return not self._is_s3_path(sandbox_path)
 
+    async def delete_file(self, sandbox_path: str) -> None:
+        """
+        Удаляет файл по sandbox_path.
+
+        - Для S3 paths (`/bucket/...`) удаляет объект в S3.
+        - Для внутренних путей удаляет файл внутри E2B sandbox через `rm -f`.
+        """
+        if self._is_s3_path(sandbox_path):
+            key = self._s3_key_from_sandbox_path(sandbox_path)
+            await self._delete_s3_object(key)
+            return
+
+        await self._ensure_e2b_sandbox_connected()
+        cmd = f"rm -f -- {shlex.quote(sandbox_path)}"
+        result = await self._e2b_sandbox.commands.run(cmd)
+        if getattr(result, "exit_code", 0) == 0:
+            return
+        stderr = str(getattr(result, "stderr", "") or "")
+        if "No such file or directory" in stderr:
+            raise FileNotFoundError(f"File not found: {sandbox_path}")
+        raise RuntimeError(f"Failed to delete file '{sandbox_path}': {stderr}".strip())
+
+    def requires_running_for_delete(self, sandbox_path: str) -> bool:
+        # Для S3 paths можно удалять напрямую через S3 API.
+        return not self._is_s3_path(sandbox_path)
+
     def _is_s3_path(self, path: str) -> bool:
         return path.startswith(S3_MOUNT_PREFIX)
 
@@ -420,6 +447,29 @@ class E2BSandbox(JupyterSandbox):
             raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
         except BotoCoreError as e:
             raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
+
+    async def _delete_s3_object(self, key: str) -> None:
+        """Удаляет объект из S3. Если объект не существует — считает удалённым."""
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                await s3.delete_object(Bucket=self.s3_bucket, Key=key)
+        except ClientError as e:
+            code = (e.response.get("Error") or {}).get("Code")
+            if code in {"NoSuchKey", "404"}:
+                return
+            raise RuntimeError(f"Failed to delete S3 object '{key}': {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"Failed to delete S3 object '{key}': {e}") from e
 
     async def _stream_s3_object(
         self,

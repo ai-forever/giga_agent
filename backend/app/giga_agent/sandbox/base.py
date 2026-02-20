@@ -152,6 +152,16 @@ class BaseSandbox(Serializable, ABC):
             f"{self.__class__.__name__} does not implement read_file()"
         )
 
+    async def delete_file(self, sandbox_path: str) -> None:
+        """
+        Удалить файл по sandbox_path в backing-хранилище провайдера.
+
+        Базовая реализация — заглушка. Подклассы переопределяют метод.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement delete_file()"
+        )
+
     def requires_running_for_upload(self) -> bool:
         """
         Нужен ли поднятый sandbox для upload_file.
@@ -167,5 +177,14 @@ class BaseSandbox(Serializable, ABC):
 
         По умолчанию считаем, что нужен. Провайдеры могут переопределить
         в зависимости от расположения файла.
+        """
+        return True
+
+    def requires_running_for_delete(self, sandbox_path: str) -> bool:
+        """
+        Нужен ли поднятый sandbox для delete_file конкретного пути.
+
+        По умолчанию считаем, что нужен. Провайдеры с прямым доступом к внешнему
+        хранилищу (например, S3) могут вернуть False.
         """
         return True

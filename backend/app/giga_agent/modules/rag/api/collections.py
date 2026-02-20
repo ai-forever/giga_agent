@@ -15,12 +15,16 @@ from giga_agent.modules.rag.database.qdrant import (
     resolve_qdrant_collection_for_embedding,
 )
 from giga_agent.modules.rag.database.qdrant_store import build_filter, delete_by_filter
-from giga_agent.modules.rag.database.repositories import RagCollectionsRepository
+from giga_agent.modules.rag.database.repositories import (
+    RagCollectionsRepository,
+    RagDocumentsRepository,
+)
 from giga_agent.modules.rag.schemas.collection import (
     CollectionResponse,
     CollectionCreate,
     CollectionUpdate,
 )
+from giga_agent.sandbox.manager import SandboxManager
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
@@ -132,6 +136,26 @@ async def collections_delete(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Collection '{collection_id}' not found",
         )
+
+    # Best-effort delete all files from sandbox storage (S3) + remove core_files metadata.
+    docs_repo = RagDocumentsRepository(db)
+    offset = 0
+    limit = 200
+    while True:
+        docs = await docs_repo.list_by_collection(
+            owner_id=current_user.id,
+            collection_id=collection_id,
+            limit=limit,
+            offset=offset,
+        )
+        if not docs:
+            break
+        for d in docs:
+            await SandboxManager(db).delete_file_by_path_for_user(
+                owner_id=current_user.id,
+                sandbox_path=d.sandbox_path,
+            )
+        offset += len(docs)
 
     # Remove all chunks belonging to this collection from the vector DB.
     qdrant_client = await asyncio.to_thread(get_qdrant_client)

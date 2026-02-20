@@ -284,3 +284,68 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             manager.ensure_running_for_user.assert_not_awaited()
             for call in runtime.upload_file.await_args_list:
                 self.assertEqual(call.kwargs["owner_id"], user.id)
+
+    async def test_delete_file_for_user_deletes_from_storage_best_effort_and_removes_db_record(self):
+        user = await self._create_user("m7@example.com")
+        provider = await self._create_provider(user.id)
+
+        async with self.session_factory() as session:
+            repo = FileRepository(session)
+            file = await repo.create(
+                owner_id=user.id,
+                provider_id=provider.id,
+                sandbox_path="/bucket/giga_agent/u/to-delete.txt",
+                original_name="to-delete.txt",
+                file_type="text",
+                size=1,
+            )
+            self.assertIsNotNone(file)
+
+            runtime = types.SimpleNamespace(
+                delete_file=AsyncMock(return_value=None),
+                requires_running_for_delete=lambda path: False,
+            )
+
+            manager = SandboxManager(session)
+            manager._build_runtime = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+            manager.ensure_running_for_user = AsyncMock()
+
+            await manager.delete_file_for_user(owner_id=user.id, file_id=file.id)
+
+            runtime.delete_file.assert_awaited_once_with(file.sandbox_path)
+            manager.ensure_running_for_user.assert_not_awaited()
+            self.assertIsNone(await repo.get_by_id(file.id))
+
+    async def test_delete_file_for_user_uses_running_sandbox_when_required(self):
+        user = await self._create_user("m8@example.com")
+        provider = await self._create_provider(user.id)
+
+        async with self.session_factory() as session:
+            repo = FileRepository(session)
+            file = await repo.create(
+                owner_id=user.id,
+                provider_id=provider.id,
+                sandbox_path="/tmp/internal.txt",
+                original_name="internal.txt",
+                file_type="text",
+                size=1,
+            )
+            self.assertIsNotNone(file)
+
+            cold_runtime = types.SimpleNamespace(
+                requires_running_for_delete=lambda path: True,
+            )
+            hot_runtime = types.SimpleNamespace(delete_file=AsyncMock(return_value=None))
+
+            manager = SandboxManager(session)
+            manager._build_runtime = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
+            manager.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
+
+            await manager.delete_file_for_user(owner_id=user.id, file_id=file.id)
+
+            manager.ensure_running_for_user.assert_awaited_once_with(
+                owner_id=user.id,
+                provider_id=provider.id,
+            )
+            hot_runtime.delete_file.assert_awaited_once_with(file.sandbox_path)
+            self.assertIsNone(await repo.get_by_id(file.id))

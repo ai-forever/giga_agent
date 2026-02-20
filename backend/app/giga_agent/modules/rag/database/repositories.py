@@ -84,6 +84,21 @@ class RagDocumentsRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    async def get_by_id(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> RagDocument | None:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.id == document_id)
+            .where(RagDocument.owner_id == owner_id)
+            .where(RagDocument.collection_id == collection_id)
+        )
+        return result.scalar_one_or_none()
+
     async def list_by_collection(
         self,
         *,

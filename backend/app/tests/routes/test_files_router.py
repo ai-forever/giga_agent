@@ -162,3 +162,14 @@ class FilesRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_delete_file_calls_manager(self):
+        file_id = uuid.uuid4()
+        with patch(
+            "giga_agent.routes.files.SandboxManager.delete_file_for_user",
+            AsyncMock(return_value=None),
+        ) as mocked_delete:
+            response = self.client.delete(f"/files/{file_id}")
+
+        self.assertEqual(response.status_code, 204)
+        mocked_delete.assert_awaited_once()
