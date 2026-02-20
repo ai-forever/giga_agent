@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-from langchain_core.embeddings import Embeddings
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.embeddings.base import BaseEmbeddingRuntime
 from giga_agent.embeddings.registry import EmbeddingRegistry
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.embedding import EmbeddingRepository
@@ -23,7 +23,7 @@ class EmbeddingManager:
         embedding_id: uuid.UUID,
         *,
         session: AsyncSession,
-    ) -> Embeddings:
+    ) -> BaseEmbeddingRuntime:
         embedding = await EmbeddingRepository.get_cached_or_db(
             embedding_id,
             session=session,
@@ -49,15 +49,20 @@ class EmbeddingManager:
                 f"'{connector.type}'"
             )
 
-        kwargs = ConnectorRegistry.get_connection_kwargs(
+        _ = ConnectorRegistry.get_connection_kwargs(
             connector.type,
             connector.settings or {},
         )
-        if kwargs is None:
+        if _ is None:
             raise ValueError(f"Invalid connection settings for connector {connector.id}")
 
-        return runtime_cls.build_embeddings_from_kwargs(
+        if getattr(embedding, "vector_size", None) is None:
+            raise ValueError(f"Embedding with id {embedding_id} has no vector_size configured")
+
+        validated_settings = await runtime_cls.validate_settings(embedding.settings or {})
+        return runtime_cls(
+            connector=connector,
             model_id=embedding.model_id,
-            connection_kwargs=kwargs,
-            embedding_settings=embedding.settings or {},
+            vector_size=int(embedding.vector_size),
+            **validated_settings,
         )

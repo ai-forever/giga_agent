@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Type
 
 from giga_agent.llm.base import BaseLLM
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LLMRegistry:

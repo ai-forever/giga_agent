@@ -58,6 +58,14 @@ class BaseModule(Serializable):
         """
         return None
 
+    def get_models(self) -> list[type]:
+        """
+        Возвращает список SQLAlchemy-моделей модуля.
+        Модули должны переопределять этот метод, чтобы CLI мог подгружать модели
+        перед autogenerate миграций.
+        """
+        return []
+
     async def get_tools(
         self,
         user: UserShort | None,

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import uuid
 
 from langchain.tools import tool, ToolRuntime
@@ -16,13 +15,14 @@ from langchain_core.messages import ToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
 from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_WIDTH, DEFAULT_HEIGHT
 from giga_agent.generators.image.manager import ImageGeneratorManager
 from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Ensure providers are registered.
 import giga_agent.generators.image  # noqa: F401

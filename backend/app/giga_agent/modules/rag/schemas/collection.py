@@ -1,7 +1,7 @@
 import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # =====================
 # Collection Schemas
@@ -27,22 +27,17 @@ class CollectionUpdate(BaseModel):
 
 
 class CollectionResponse(BaseModel):
-    """Schema for representing a collection from PGVector."""
+    """Schema for representing a user document collection."""
 
-    # PGVector table has uuid (id), name (str), and cmetadata (JSONB)
-    # We get these from list/get db functions
+    model_config = ConfigDict(from_attributes=True)
+
     uuid: str = Field(
-        ..., description="The unique identifier of the collection in PGVector."
+        ..., description="The unique identifier of the collection."
     )
     name: str = Field(..., description="The name of the collection.")
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Metadata associated with the collection."
     )
-
-    class Config:
-        # Allows creating model from dict like
-        # {'uuid': '...', 'name': '...', 'metadata': {...}}
-        from_attributes = True
 
 
 # =====================
@@ -69,12 +64,10 @@ class DocumentUpdate(BaseModel):
 
 
 class DocumentResponse(DocumentBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     collection_id: str
     embedding: list[float] | None = None  # Represent embedding as list of floats
     created_at: datetime.datetime
     updated_at: datetime.datetime
-
-    class Config:
-        orm_mode = True
-        from_attributes = True  # Pydantic v2 way

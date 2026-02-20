@@ -62,6 +62,7 @@ class EmbeddingRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 embedding_type="openai",
                 connector_id=connector.id,
                 model_id="text-embedding-3-small",
+                vector_size=512,
                 settings={"dimensions": 512},
                 is_active=True,
             )
@@ -72,6 +73,7 @@ class EmbeddingRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.id, embedding.id)
         self.assertEqual(ctx.type, "openai")
         self.assertEqual(ctx.model_id, "text-embedding-3-small")
+        self.assertEqual(ctx.vector_size, 512)
         self.assertEqual(ctx.settings, {"dimensions": 512})
 
         cached = await cache.get(EmbeddingRepository.cache_key(embedding.id))

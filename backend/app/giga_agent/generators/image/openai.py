@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -11,8 +10,9 @@ from pydantic import Field, PrivateAttr
 
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Поддерживаемые размеры для моделей OpenAI Images
 SUPPORTED_IMAGE_SIZES: dict[str, list[tuple[int, int]]] = {

@@ -1,5 +1,4 @@
 import uuid
-import logging
 import asyncio
 from dataclasses import dataclass
 from typing import TypedDict
@@ -20,8 +19,9 @@ from giga_agent.models.sandbox import (
 from giga_agent.models.file import File, FileRepository, FileType
 from giga_agent.sandbox.base import BaseSandbox, FileReadResult
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class UploadFileSpec(TypedDict):

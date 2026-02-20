@@ -4,7 +4,8 @@ from typing import Optional, Any
 
 from cashews import cache
 from pydantic import BaseModel, Field
-from sqlalchemy import String, DateTime, Uuid, ForeignKey, select
+from pydantic import ValidationError
+from sqlalchemy import String, DateTime, Uuid, ForeignKey, Integer, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -45,6 +46,7 @@ class Embedding(Base):
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     model_id: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    vector_size: Mapped[int] = mapped_column(Integer, nullable=False)
     settings: Mapped[dict] = mapped_column(JSON_VARIANT(), default=dict)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -58,6 +60,8 @@ class Embedding(Base):
 
 
 class EmbeddingSettings(BaseModel):
+    # Deprecated: kept only for backward compatibility with old clients.
+    # New UI should rely on dynamic JSON schema and treat settings as dict.
     dimensions: Optional[int] = None
     chunk_size: Optional[int] = None
     max_retries: Optional[int] = None
@@ -71,21 +75,12 @@ class EmbeddingBase(BaseModel):
     connector_id: uuid.UUID
     model_id: str
     name: Optional[str] = None
-    settings: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    settings: dict[str, Any] = Field(default_factory=dict)
     is_active: bool = True
 
 
 class EmbeddingCreate(EmbeddingBase):
     pass
-
-
-class EmbeddingUpdate(BaseModel):
-    type: Optional[str] = None
-    connector_id: Optional[uuid.UUID] = None
-    model_id: Optional[str] = None
-    name: Optional[str] = None
-    settings: Optional[EmbeddingSettings] = None
-    is_active: Optional[bool] = None
 
 
 class EmbeddingResponse(EmbeddingBase):
@@ -104,6 +99,7 @@ class EmbeddingContext(BaseModel):
     connector_id: uuid.UUID
     type: str
     model_id: str
+    vector_size: int
     settings: dict[str, Any] = Field(default_factory=dict)
     is_active: bool
 
@@ -129,7 +125,10 @@ class EmbeddingRepository:
         cached = await cache.get(EmbeddingRepository.cache_key(embedding_id))
         if cached is None:
             return None
-        return EmbeddingContext.model_validate(cached)
+        try:
+            return EmbeddingContext.model_validate(cached)
+        except ValidationError:
+            return None
 
     @classmethod
     async def get_cached_or_db(
@@ -183,6 +182,7 @@ class EmbeddingRepository:
             connector_id=embedding.connector_id,
             type=embedding.type,
             model_id=embedding.model_id,
+            vector_size=embedding.vector_size,
             settings=embedding.settings or {},
             is_active=embedding.is_active,
         )
@@ -223,6 +223,7 @@ class EmbeddingRepository:
         embedding_type: str,
         connector_id: uuid.UUID,
         model_id: str,
+        vector_size: int,
         name: Optional[str] = None,
         settings: Optional[dict[str, Any]] = None,
         is_active: bool = True,
@@ -233,6 +234,7 @@ class EmbeddingRepository:
             connector_id=connector_id,
             model_id=model_id,
             name=name,
+            vector_size=vector_size,
             settings=settings or {},
             is_active=is_active,
         )

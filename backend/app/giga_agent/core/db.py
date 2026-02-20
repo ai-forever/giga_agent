@@ -1,10 +1,15 @@
 import asyncio
 import os
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 from sqlalchemy import JSON
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import (
+    create_async_engine,
+    async_sessionmaker,
+    AsyncSession,
+    AsyncEngine,
+)
 
 
 class Base(DeclarativeBase):
@@ -86,20 +91,28 @@ def get_db_url() -> str:
     runtime = os.getenv("GIGA_AGENT_RUNTIME", "local")
 
     if runtime == "local":
-        return "sqlite+aiosqlite:///.giga_agent/db/local.db"
+        explicit = (os.getenv("DATABASE_URL") or "").strip()
+        if explicit:
+            return explicit
+
+        from giga_agent.core.paths import ensure_giga_agent_dir
+
+        db_path = ensure_giga_agent_dir() / "db" / "local.db"
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        return f"sqlite+aiosqlite:///{db_path}"
 
     # For docker/production, expect DATABASE_URL
     return os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/dbname")
 
 
-_engine = None
+_engine: Optional[AsyncEngine] = None
 _session_factory = None
 
 
 async def get_engine():
     global _engine
     if _engine is None:
-        url = get_db_url()
+        url = await asyncio.to_thread(get_db_url)
         _engine = await asyncio.to_thread(create_async_engine, url, echo=False)
     return _engine
 
@@ -119,3 +132,23 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     factory = await get_session_factory()
     async with factory() as session:
         yield session
+
+
+async def dispose_engine() -> None:
+    """
+    Dispose the global AsyncEngine (and reset session factory).
+
+    Needed for clean CLI shutdown on SQLite/aiosqlite where a connection worker
+    thread can keep the Python process alive.
+    """
+    global _engine, _session_factory
+    engine = _engine
+    _engine = None
+    _session_factory = None
+    if engine is None:
+        return
+    try:
+        await engine.dispose()
+    except Exception:
+        # Best-effort cleanup; callers decide whether to surface failures.
+        return

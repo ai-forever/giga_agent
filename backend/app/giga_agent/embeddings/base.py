@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import abc
-from typing import Any, Type
+from functools import cached_property
+from typing import Any, ClassVar, Type
 
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, ConfigDict, create_model
@@ -15,7 +16,9 @@ class EmbeddingModelFetchError(Exception):
     def __init__(self, embedding_type: str, detail: str):
         self.embedding_type = embedding_type
         self.detail = detail
-        super().__init__(f"Error fetching embedding models from {embedding_type}: {detail}")
+        super().__init__(
+            f"Error fetching embedding models from {embedding_type}: {detail}"
+        )
 
 
 class AvailableEmbeddingModel(BaseModel):
@@ -26,9 +29,30 @@ class AvailableEmbeddingModel(BaseModel):
 
 
 class BaseEmbeddingRuntime(BaseModel, abc.ABC):
-    """Embeddings runtime contract used by routes and repositories."""
+    """Embeddings runtime contract used by routes and RAG.
+
+    Две роли:
+    - **schema/validation**: `settings_schema()` / `validate_settings()` работают с полями
+      runtime-класса (подкласса) и исключают системные поля (`_runtime_fields`) и скрытые поля
+      (`hidden_settings_fields`).
+    - **runtime**: инстанс хранит `connector`, `model_id`, `vector_size` и лениво строит
+      langchain embeddings клиент через `embeddings`.
+    """
 
     model_config = ConfigDict(extra="forbid")
+
+    # System/runtime-managed fields (НЕ часть embedding.settings)
+    # Важно: не типизируем на ConnectorResponse, чтобы не создавать циклические импорты
+    # через `giga_agent.models.__init__`. Достаточно контракта: `.type`, `.settings`, `.id`.
+    connector: Any
+    model_id: str
+    vector_size: int
+
+    _runtime_fields: ClassVar[set[str]] = {
+        "connector",
+        "model_id",
+        "vector_size",
+    }
 
     @classmethod
     @abc.abstractmethod
@@ -36,8 +60,8 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
         raise NotImplementedError
 
     @classmethod
-    def connector_settings_fields(cls) -> set[str]:
-        """Settings fields sourced from connector kwargs, not embedding settings."""
+    def hidden_settings_fields(cls) -> set[str]:
+        """Settings fields that must NOT be exposed on the frontend."""
         return set()
 
     @classmethod
@@ -49,7 +73,7 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
     @classmethod
     def settings_schema(cls) -> Type[BaseModel]:
         fields: dict[str, tuple[Any, Any]] = {}
-        excluded = cls.connector_settings_fields()
+        excluded = cls._runtime_fields | cls.hidden_settings_fields()
 
         for name, field_info in cls.model_fields.items():
             if name in excluded:
@@ -63,6 +87,34 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
         schema = cls.settings_schema()
         return schema(**settings).model_dump(exclude_none=True)
 
+    def _settings_payload(self) -> dict[str, Any]:
+        # Для runtime (build client) нужны ВСЕ embedding settings, включая скрытые.
+        return self.model_dump(exclude=self._runtime_fields, exclude_none=True)
+
+    @cached_property
+    def embeddings(self) -> Embeddings:
+        connection_kwargs = ConnectorRegistry.get_connection_kwargs(
+            self.connector.type,
+            self.connector.settings or {},
+        )
+        if connection_kwargs is None:
+            raise ValueError(
+                f"Invalid connection settings for connector {self.connector.id}"
+            )
+
+        client = self.__class__.build_embeddings_from_kwargs(
+            model_id=self.model_id,
+            connection_kwargs=connection_kwargs,
+            embedding_settings=self._settings_payload(),
+        )
+        # Some downstream code (and tests) rely on `embeddings.vector_size` being present.
+        # Not every langchain embeddings client exposes it, so we set it best-effort.
+        try:
+            setattr(client, "vector_size", self.vector_size)
+        except Exception:
+            pass
+        return client
+
     @classmethod
     def _get_connection_kwargs(
         cls,
@@ -75,7 +127,9 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
                 f"Connector type '{connector_type}' is not supported by embeddings runtime "
                 f"'{cls.__name__}'. Supported: {cls.supported_connector_types()}"
             )
-        return ConnectorRegistry.get_connection_kwargs(connector_type, connector_settings)
+        return ConnectorRegistry.get_connection_kwargs(
+            connector_type, connector_settings
+        )
 
     @classmethod
     async def fetch_available_models(

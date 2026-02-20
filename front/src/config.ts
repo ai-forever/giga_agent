@@ -99,5 +99,8 @@ export const MEMORY_ENABLED: boolean = !["false", "0"].includes(
 );
 
 export const ragEnabled = () => {
-  return !!session.accessToken && !!LANGCONNECT_API_URL;
+  // RAG в текущей архитектуре работает через giga_agent backend (/api/rag/*)
+  // и требует обычный auth token.
+  if (typeof window === "undefined") return false;
+  return Boolean(window.localStorage.getItem("auth_token"));
 };

@@ -2,15 +2,15 @@ import secrets
 import time
 import os
 import asyncio
-import logging
 import docker
 from typing import Optional, Any
 
 from dotenv import load_dotenv
 from pydantic import Field, PrivateAttr
 from giga_agent.sandbox.jupyter import JupyterSandbox
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 load_dotenv()
 

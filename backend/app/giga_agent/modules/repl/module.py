@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-import logging
 from typing import Any, List
 
 from langchain_core.tools import BaseTool
@@ -19,8 +18,9 @@ from giga_agent.models.users import UserShort, UserRepository
 from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.modules.repl.tools import python, shell
 from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def get_user_secrets_prompt(user: UserShort):

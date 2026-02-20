@@ -2,7 +2,6 @@ import mimetypes
 import secrets
 import time
 import asyncio
-import logging
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import PurePosixPath
@@ -19,8 +18,9 @@ from giga_agent.sandbox.base import (
 )
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 JUPYTER_PORT = 8888
 S3_MOUNT_PREFIX = "/bucket/"

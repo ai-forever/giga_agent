@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Type
 
 from pydantic import BaseModel
 
 from giga_agent.connectors.base import BaseConnector
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ConnectorRegistry:

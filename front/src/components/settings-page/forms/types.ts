@@ -101,14 +101,7 @@ export interface LLMFormData {
   is_active: boolean;
 }
 
-export interface EmbeddingSettings {
-  dimensions?: number;
-  chunk_size?: number;
-  max_retries?: number;
-  request_timeout?: number;
-  timeout?: number;
-  extra?: Record<string, unknown>;
-}
+export type EmbeddingSettings = Record<string, unknown>;
 
 export interface EmbeddingResponse {
   id: string;

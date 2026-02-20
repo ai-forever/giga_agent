@@ -92,6 +92,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
             "giga_agent.routes.embeddings._validate_settings",
             AsyncMock(return_value={}),
         ), patch(
+            "giga_agent.routes.embeddings._probe_embedding_vector_size",
+            AsyncMock(return_value=1536),
+        ), patch(
             "giga_agent.routes.embeddings.EmbeddingRepository.create",
             AsyncMock(return_value=created),
         ), patch(
@@ -159,81 +162,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(response.json()[0]["id"], "EmbeddingsGigaR")
 
     def test_deactivate_current_auto_clears_current(self):
-        embedding_id = uuid.uuid4()
-        existing = self._embedding_obj(embedding_id=embedding_id, is_active=True)
-        updated = self._embedding_obj(embedding_id=embedding_id, is_active=False)
-        connector = self._connector_obj(connector_id=existing.connector_id)
-
-        with patch(
-            "giga_agent.routes.embeddings._get_embedding_with_owner_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.embeddings.EmbeddingRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.embeddings._clear_current_if_matches",
-            AsyncMock(return_value=True),
-        ) as mocked_clear_current, patch(
-            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
-            return_value=self._embedding_payload(updated),
-        ):
-            response = self.client.patch(
-                f"/embeddings/{embedding_id}",
-                json={"is_active": False},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        mocked_clear_current.assert_awaited_once()
+        self.skipTest("Редактирование эмбеддингов отключено")
 
     def test_patch_settings_uses_current_embedding_type(self):
-        embedding_id = uuid.uuid4()
-        existing = self._embedding_obj(
-            embedding_id=embedding_id,
-            embedding_type="openai",
-            settings={"dimensions": 256},
-        )
-        updated = self._embedding_obj(
-            embedding_id=embedding_id,
-            embedding_type="openai",
-            settings={"dimensions": 512},
-        )
-        connector = self._connector_obj(connector_id=existing.connector_id)
-
-        with patch(
-            "giga_agent.routes.embeddings._get_embedding_with_owner_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.embeddings._validate_settings",
-            AsyncMock(return_value={"dimensions": 512}),
-        ) as mocked_validate_settings, patch(
-            "giga_agent.routes.embeddings.EmbeddingRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
-            return_value=self._embedding_payload(updated),
-        ):
-            response = self.client.patch(
-                f"/embeddings/{embedding_id}",
-                json={"settings": {"dimensions": 512}},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        mocked_validate_settings.assert_awaited_once_with(
-            "openai",
-            {"dimensions": 512},
-        )
+        self.skipTest("Редактирование эмбеддингов отключено")
 
     def test_delete_current_auto_clears_current(self):
         embedding_id = uuid.uuid4()

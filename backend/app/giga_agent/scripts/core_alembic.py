@@ -21,7 +21,6 @@ Or via Makefile:
 """
 import os
 import sys
-import logging
 
 from alembic.config import Config, CommandLine
 
@@ -31,15 +30,16 @@ sys.path.insert(
 )
 
 from giga_agent.core.db import get_db_url
+from giga_agent.core.logging import get_logger, setup_cli_logging
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CoreAlembicCommandLine(CommandLine):
     """Alembic CommandLine subclass that injects core migration settings."""
 
     def main(self, argv=None):
-        logging.basicConfig(level=logging.INFO)
+        setup_cli_logging("INFO")
         os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
 
         # Import core models so they register with Base.metadata

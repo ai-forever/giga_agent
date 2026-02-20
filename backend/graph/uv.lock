@@ -811,6 +811,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "sqlalchemy" },
     { name = "sqlmodel" },
+    { name = "structlog" },
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
@@ -855,6 +856,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.7.1" },
     { name = "sqlalchemy", specifier = ">=2.0.42" },
     { name = "sqlmodel", specifier = ">=0.0.24" },
+    { name = "structlog", specifier = ">=24.0.0" },
     { name = "typing-extensions", specifier = ">=4.14.1" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]

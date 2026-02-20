@@ -1,11 +1,11 @@
-import logging
 from typing import Type
 
 from pydantic import BaseModel
 
 from giga_agent.search_engines.base import BaseSearchEngine
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SearchEngineRegistry:

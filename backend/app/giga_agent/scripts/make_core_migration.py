@@ -11,7 +11,6 @@ Or via Makefile:
 """
 import os
 import sys
-import logging
 import argparse
 
 from alembic.config import Config
@@ -21,8 +20,9 @@ from alembic import command
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from giga_agent.core.db import get_db_url
+from giga_agent.core.logging import get_logger, setup_cli_logging
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def get_alembic_config(version_locations: str) -> Config:
@@ -44,7 +44,7 @@ def make_core_migration(message: str = ""):
     """
     Creates a new migration for core models (giga_agent/models).
     """
-    logging.basicConfig(level=logging.INFO)
+    setup_cli_logging("INFO")
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
     
     # Import models to register them with Base.metadata

@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import abc
 import asyncio
-import logging
 from typing import Any, ClassVar, Type
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
-logger = logging.getLogger(__name__)
+from giga_agent.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Дефолтные размеры изображения
 DEFAULT_WIDTH = 1024

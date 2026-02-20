@@ -1,5 +1,6 @@
 import asyncio
 import os
+import logging
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -13,7 +14,21 @@ config = context.config
 
 # Интерпретация настроек логгирования
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # If the application/CLI already configured logging (e.g. structlog + Rich),
+    # don't let Alembic override handlers/formatters via fileConfig().
+    root = logging.getLogger()
+    already_configured = any(
+        getattr(h, "_giga_agent_cli_handler", False) for h in root.handlers
+    )
+    force_file_config = os.getenv("GIGA_AGENT_ALEMBIC_FILECONFIG", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if force_file_config or not already_configured:
+        # IMPORTANT: keep app loggers alive; Alembic's default disables them.
+        fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # ----------------------------------------------------------------------
 # ДИНАМИЧЕСКИЙ URL БД
@@ -26,7 +41,10 @@ db_url = os.getenv("DATABASE_URL", section.get("sqlalchemy.url"))
 
 # Фоллбек для локальной разработки
 if not db_url:
-    db_url = "sqlite+aiosqlite:///.giga_agent/db/local.db"
+    from giga_agent.core.paths import ensure_giga_agent_dir
+
+    db_path = ensure_giga_agent_dir() / "db" / "local.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
 
 # Создаем папку для БД, если это SQLite
 if "sqlite" in db_url:
@@ -139,10 +157,11 @@ async def run_async_migrations() -> None:
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
-
-    await connectable.dispose()
+    try:
+        async with connectable.connect() as connection:
+            await connection.run_sync(do_run_migrations)
+    finally:
+        await connectable.dispose()
 
 
 def run_migrations_online() -> None:

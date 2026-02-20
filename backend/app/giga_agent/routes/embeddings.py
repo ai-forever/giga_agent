@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Annotated, Any
 
@@ -21,7 +22,6 @@ from giga_agent.models.embedding import (
     EmbeddingModelFetchError,
     EmbeddingRepository,
     EmbeddingResponse,
-    EmbeddingUpdate,
 )
 from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user
@@ -127,6 +127,70 @@ async def _validate_settings(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
+
+
+async def _probe_embedding_vector_size(
+    *,
+    embedding_type: str,
+    model_id: str,
+    connector: Connector,
+    embedding_settings: dict[str, Any],
+) -> int:
+    runtime_cls = _resolve_embedding_runtime(
+        embedding_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+
+    connection_kwargs = ConnectorRegistry.get_connection_kwargs(
+        connector.type,
+        connector.settings or {},
+    )
+    if connection_kwargs is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Некорректные настройки коннектора для эмбеддингов",
+        )
+
+    embeddings = runtime_cls.build_embeddings_from_kwargs(
+        model_id=model_id,
+        connection_kwargs=connection_kwargs,
+        embedding_settings=embedding_settings,
+    )
+
+    try:
+        if hasattr(embeddings, "aembed_query"):
+            vector = await embeddings.aembed_query("vector size probe")
+        else:
+            vector = await asyncio.to_thread(embeddings.embed_query, "vector size probe")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Невозможно подключиться к эмбеддингам. "
+                "Проверьте коннектор и название модели."
+            ),
+        ) from e
+
+    if not isinstance(vector, list) or not vector:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Эмбеддинги вернули некорректный вектор. "
+                "Проверьте коннектор и название модели."
+            ),
+        )
+
+    vector_size = len(vector)
+    if vector_size <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Эмбеддинги вернули некорректный размер вектора. "
+                "Проверьте коннектор и название модели."
+            ),
+        )
+
+    return vector_size
 
 
 async def _get_connector_with_owner_check(
@@ -280,7 +344,14 @@ async def create_embedding(
 
     validated_settings = await _validate_settings(
         data.type,
-        data.settings.model_dump(exclude_none=True),
+        data.settings or {},
+    )
+
+    vector_size = await _probe_embedding_vector_size(
+        embedding_type=data.type,
+        model_id=data.model_id,
+        connector=connector,
+        embedding_settings=validated_settings,
     )
 
     embedding = await embedding_repo.create(
@@ -289,6 +360,7 @@ async def create_embedding(
         connector_id=data.connector_id,
         model_id=data.model_id,
         name=data.name,
+        vector_size=vector_size,
         settings=validated_settings,
         is_active=data.is_active,
     )
@@ -384,113 +456,6 @@ async def get_embedding(
         owner_id=current_user.id,
         embedding_repo=embedding_repo,
     )
-    return EmbeddingRepository.to_response(embedding)
-
-
-@router.patch("/{embedding_id}", response_model=EmbeddingResponse)
-async def patch_embedding(
-    embedding_id: uuid.UUID,
-    data: EmbeddingUpdate,
-    current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    db: Annotated[AsyncSession, Depends(get_session)],
-    embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
-    connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
-):
-    embedding = await _get_embedding_with_owner_check(
-        embedding_id=embedding_id,
-        owner_id=current_user.id,
-        embedding_repo=embedding_repo,
-    )
-
-    effective_type = (
-        data.type
-        if "type" in data.model_fields_set and data.type is not None
-        else embedding.type
-    )
-    effective_connector_id = (
-        data.connector_id
-        if "connector_id" in data.model_fields_set and data.connector_id is not None
-        else embedding.connector_id
-    )
-
-    connector = await _get_connector_with_owner_check(
-        connector_id=effective_connector_id,
-        owner_id=current_user.id,
-        connector_repo=connector_repo,
-    )
-    if not connector.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Connector must be active",
-        )
-
-    _validate_embedding_connector_compatibility(
-        embedding_type=effective_type,
-        connector_type=connector.type,
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-    )
-
-    update_data: dict[str, Any] = {}
-
-    if "type" in data.model_fields_set:
-        if data.type is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="type must not be null when provided",
-            )
-        update_data["type"] = data.type
-
-    if "connector_id" in data.model_fields_set:
-        if data.connector_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="connector_id must not be null when provided",
-            )
-        update_data["connector_id"] = data.connector_id
-
-    if "model_id" in data.model_fields_set:
-        if data.model_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="model_id must not be null when provided",
-            )
-        update_data["model_id"] = data.model_id
-
-    if "name" in data.model_fields_set:
-        update_data["name"] = data.name
-
-    if "is_active" in data.model_fields_set:
-        update_data["is_active"] = data.is_active
-
-    if "settings" in data.model_fields_set:
-        if data.settings is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="settings must be an object when provided",
-            )
-        update_data["settings"] = await _validate_settings(
-            effective_type,
-            data.settings.model_dump(exclude_none=True),
-        )
-    elif "type" in data.model_fields_set:
-        # If type changed and settings were not passed, revalidate existing settings with new runtime.
-        update_data["settings"] = await _validate_settings(
-            effective_type,
-            embedding.settings or {},
-        )
-
-    is_deactivating_current = "is_active" in data.model_fields_set and data.is_active is False
-
-    if update_data:
-        embedding = await embedding_repo.update(embedding, **update_data)
-
-    if is_deactivating_current:
-        await _clear_current_if_matches(
-            db=db,
-            owner_id=current_user.id,
-            embedding_id=embedding.id,
-        )
-
     return EmbeddingRepository.to_response(embedding)
 
 

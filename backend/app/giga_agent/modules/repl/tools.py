@@ -6,7 +6,6 @@ import base64
 import json
 import re
 import uuid
-import logging
 import binascii
 from typing import Any
 
@@ -15,11 +14,12 @@ from langchain.tools import tool, ToolRuntime
 from langchain_core.messages import ToolMessage
 
 from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
 from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _DISPLAY_MIME_CONFIG: dict[str, tuple[str, str, str]] = {
     "application/vnd.plotly.v1+json": ("plotly_graph", ".plotly.json", "json"),

@@ -25,12 +25,24 @@
 - Линт/формат:
   - `uv run ruff check .`
   - `uv run ruff format .`
+- Миграции руками не пишем — генерируем командами ниже.
 - Создание миграции core-моделей:
   - `make core-migrations m="message"`
 - Создание миграции модуля:
-  - `uv run giga_agent makemigrations backend/app/giga_agent/modules/auth --agent-path agent_test/agent.py:agent -m "message"`
+  - `uv run giga_agent makemigrations agent_test/agent.py:agent giga_agent.modules.auth -m "message"`
+  - `uv run giga_agent makemigrations agent_test/agent.py:agent` (для всех модулей, подключённых в агенте)
 - Проверка migration heads:
   - `uv run giga_agent check --agent-path agent_test/agent.py:agent`
+- Проксирование любых Alembic команд с подгрузкой модулей агента:
+  - `uv run giga_agent alembic --agent-path agent_test/agent.py:agent upgrade head`
+
+## 2.1. Политика миграций модулей
+
+- Модульные миграции генерируются как отдельные ветки Alembic: `branch_labels=<module_name>`.
+- Для модулей **не используется** `down_revision` (он всегда `None`).
+- Порядок применения обеспечивается через `depends_on`:
+  - первая миграция модуля зависит от текущего head core;
+  - последующие миграции модуля зависят от предыдущей миграции этого модуля.
 
 ## 3. Правила по модулям
 

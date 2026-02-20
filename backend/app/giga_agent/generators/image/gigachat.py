@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import logging
 
 import httpx
 from pydantic import Field, PrivateAttr
 
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
+from giga_agent.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class CensorException(Exception):

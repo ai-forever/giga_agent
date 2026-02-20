@@ -1,29 +1,53 @@
-import logging
-import traceback
+from giga_agent.core.logging import get_logger
 from typing import Annotated, Any
+import uuid
 from uuid import UUID
 
+import asyncio
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from langchain_core.documents import Document
 from pydantic import TypeAdapter, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
+from qdrant_client.http import models as qmodels
 
-from langconnect.auth import AuthenticatedUser, resolve_user
-from langconnect.database.collections import Collection
-from langconnect.models import DocumentResponse, SearchQuery, SearchResult
-from langconnect.services import process_document
+from giga_agent.core.db import get_session
+from giga_agent.models.users import UserShort
+from giga_agent.embeddings.manager import EmbeddingManager
+from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.rag.database.qdrant import (
+    get_qdrant_client,
+    resolve_qdrant_collection_for_embedding,
+)
+from giga_agent.modules.rag.database.qdrant_store import (
+    build_filter,
+    delete_by_filter,
+    search_chunks as qdrant_search_chunks,
+    upsert_chunks,
+)
+from giga_agent.modules.rag.database.repositories import (
+    RagCollectionsRepository,
+    RagDocumentsRepository,
+)
+from giga_agent.modules.rag.schemas.document import (
+    DocumentResponse,
+    SearchQuery,
+    SearchResult,
+)
+from giga_agent.modules.rag.services import process_document
+from giga_agent.sandbox.manager import SandboxManager
 
 # Create a TypeAdapter that enforces “list of dict”
 _metadata_adapter = TypeAdapter(list[dict[str, Any]])
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["documents"])
 
 
 @router.post("/collections/{collection_id}/documents", response_model=dict[str, Any])
 async def documents_create(
-    user: Annotated[AuthenticatedUser, Depends(resolve_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     collection_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_session)],
     files: list[UploadFile] = File(...),
     metadatas_json: str | None = Form(None),
 ):
@@ -49,102 +73,164 @@ async def documents_create(
                 ),
             )
 
-    docs_to_index: list[Document] = []
     processed_files_count = 0
     failed_files = []
+    added_chunk_ids: list[str] = []
 
-    # Pair files with their corresponding metadata
-    for file, metadata in zip(files, metadatas, strict=False):
-        try:
-            # Pass metadata to process_document
-            langchain_docs = await process_document(file, metadata=metadata)
-            if langchain_docs:
-                docs_to_index.extend(langchain_docs)
-                processed_files_count += 1
-            else:
-                logger.info(
-                    f"Warning: File {file.filename} resulted "
-                    f"in no processable documents."
+    collection = await RagCollectionsRepository(db).get_by_id(
+        owner_id=current_user.id,
+        collection_id=collection_id,
+    )
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
+    embeddings = runtime.embeddings
+    vector_size = int(runtime.vector_size)
+    qdrant_client = await asyncio.to_thread(get_qdrant_client)
+    try:
+        qdrant_collection = await resolve_qdrant_collection_for_embedding(
+            client=qdrant_client,
+            embedding_id=collection.embedding_id,
+            vector_size=vector_size,
+        )
+
+        # Pair files with their corresponding metadata
+        for file, metadata in zip(files, metadatas, strict=False):
+            try:
+                file_id, full_text, chunk_docs = await process_document(
+                    file, metadata=metadata
                 )
-                # Decide if this constitutes a failure
-                # failed_files.append(file.filename)
+                if not chunk_docs:
+                    logger.warning(
+                        f"Warning: File {file.filename} resulted "
+                        f"in no processable documents."
+                    )
+                    continue
 
-        except Exception as proc_exc:
-            # Log the error and the file that caused it
-            logger.info(f"Error processing file {file.filename}: {proc_exc}")
-            traceback.print_exc()
-            failed_files.append(file.filename)
-            # Decide on behavior: continue processing others or fail fast?
-            # For now, let's collect failures and report them, but continue processing.
+                file_uuid = UUID(file_id)
+                sandbox_rel_path = f"rag/{collection_id}/{file_uuid}.txt"
+                sandbox_file = await SandboxManager(db).upload_file_for_user(
+                    owner_id=current_user.id,
+                    file_name=sandbox_rel_path,
+                    content=(full_text or "").encode("utf-8"),
+                    file_type="text",
+                )
+                await RagDocumentsRepository(db).create(
+                    owner_id=current_user.id,
+                    collection_id=collection_id,
+                    document_id=file_uuid,
+                    original_name=(metadata or {}).get("name")
+                    or file.filename
+                    or "document",
+                    sandbox_path=sandbox_file.sandbox_path,
+                )
 
-    # If after processing all files, none yielded documents, raise error
-    if not docs_to_index:
+                # Embed + upsert into Qdrant
+                texts = [d.page_content for d in chunk_docs]
+                vectors = await asyncio.to_thread(embeddings.embed_documents, texts)
+                if not vectors:
+                    continue
+                if len(vectors[0]) != vector_size:
+                    raise ValueError(
+                        f"Embeddings vector size mismatch: got {len(vectors[0])}, expected {vector_size}"
+                    )
+
+                points = []
+                for idx, (doc, vector) in enumerate(
+                    zip(chunk_docs, vectors, strict=False)
+                ):
+                    chunk_id = uuid.uuid4().hex
+                    payload = dict(doc.metadata or {})
+                    payload.update(
+                        {
+                            "owner_id": str(current_user.id),
+                            "collection_id": str(collection_id),
+                            "embedding_id": str(collection.embedding_id),
+                            "document_id": str(file_uuid),
+                            "document_name": (metadata or {}).get("name")
+                            or file.filename
+                            or "document",
+                            "sandbox_path": sandbox_file.sandbox_path,
+                            "chunk_index": idx,
+                            "page_content": doc.page_content,
+                        }
+                    )
+                    points.append(
+                        qmodels.PointStruct(id=chunk_id, vector=vector, payload=payload)  # type: ignore[name-defined]
+                    )
+                    added_chunk_ids.append(chunk_id)
+
+                await upsert_chunks(
+                    client=qdrant_client,
+                    collection_name=qdrant_collection,
+                    points=points,
+                )
+
+                processed_files_count += 1
+
+            except Exception:
+                logger.exception("Error processing file", filename=file.filename)
+                failed_files.append(file.filename)
+                # Decide on behavior: continue processing others or fail fast?
+                # For now, let's collect failures and report them, but continue processing.
+    finally:
+        await qdrant_client.close()
+
+    if processed_files_count == 0:
         error_detail = "Failed to process any documents from the provided files."
         if failed_files:
             error_detail += f" Files that failed processing: {', '.join(failed_files)}."
         raise HTTPException(status_code=400, detail=error_detail)
 
-    # If some files failed but others succeeded, proceed with adding successful ones
-    # but maybe inform the user about the failures.
-    try:
-        collection = Collection(
-            collection_id=str(collection_id),
-            user_id=user.identity,
-        )
-        added_ids = await collection.upsert(docs_to_index)
-        if not added_ids:
-            # This might indicate a problem with the vector store itself
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to add document(s) to vector store after processing.",
-            )
-
-        # Construct response message
-        success_message = (
-            f"{len(added_ids)} document chunk(s) from "
+    response_data = {
+        "success": True,
+        "message": (
+            f"{len(added_chunk_ids)} document chunk(s) from "
             f"{processed_files_count} file(s) added successfully."
+        ),
+        "added_chunk_ids": added_chunk_ids,
+    }
+    if failed_files:
+        response_data["warnings"] = (
+            f"Processing failed for files: {', '.join(failed_files)}"
         )
-        response_data = {
-            "success": True,
-            "message": success_message,
-            "added_chunk_ids": added_ids,
-        }
-
-        if failed_files:
-            response_data["warnings"] = (
-                f"Processing failed for files: {', '.join(failed_files)}"
-            )
-            # Consider if partial success should change the overall status/message
-
-        return response_data
-
-    except HTTPException as http_exc:
-        # Reraise HTTPExceptions from add_documents_to_vectorstore or previous checks
-        raise http_exc
-    except Exception as add_exc:
-        # Handle exceptions during the vector store addition process
-        logger.info(f"Error adding documents to vector store: {add_exc}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to add documents to vector store: {add_exc!s}",
-        )
+    return response_data
 
 
 @router.get(
     "/collections/{collection_id}/documents", response_model=list[DocumentResponse]
 )
 async def documents_list(
-    user: Annotated[AuthenticatedUser, Depends(resolve_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     collection_id: UUID,
+    db: Annotated[AsyncSession, Depends(get_session)],
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     """Lists documents within a specific collection."""
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=user.identity,
+    docs = await RagDocumentsRepository(db).list_by_collection(
+        owner_id=current_user.id,
+        collection_id=collection_id,
+        limit=limit,
+        offset=offset,
     )
-    return await collection.list(limit=limit, offset=offset)
+    return [
+        DocumentResponse(
+            id=str(d.id),
+            collection_id=str(d.collection_id),
+            content=None,
+            metadata={
+                "file_id": str(d.id),
+                "name": d.original_name,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+                "sandbox_path": d.sandbox_path,
+            },
+            created_at=d.created_at.isoformat() if d.created_at else None,
+            updated_at=d.updated_at.isoformat() if d.updated_at else None,
+        )
+        for d in docs
+    ]
 
 
 @router.delete(
@@ -152,20 +238,55 @@ async def documents_list(
     response_model=dict[str, bool],
 )
 async def documents_delete(
-    user: Annotated[AuthenticatedUser, Depends(resolve_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     collection_id: UUID,
     document_id: str,
+    db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Deletes a specific document from a collection by its ID."""
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=user.identity,
+    collection = await RagCollectionsRepository(db).get_by_id(
+        owner_id=current_user.id,
+        collection_id=collection_id,
     )
-    # TODO(Eugene): Deletion logic does not look correct.
-    #  Should I be deleting by ID or file ID?
-    success = await collection.delete(file_id=document_id)
-    if not success:
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    try:
+        doc_uuid = UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document_id")
+
+    ok = await RagDocumentsRepository(db).delete(
+        owner_id=current_user.id,
+        collection_id=collection_id,
+        document_id=doc_uuid,
+    )
+    if not ok:
         raise HTTPException(status_code=404, detail="Failed to delete document.")
+
+    qdrant_client = await asyncio.to_thread(get_qdrant_client)
+    try:
+        runtime = await EmbeddingManager.resolve_by_id(
+            collection.embedding_id, session=db
+        )
+        vector_size = int(runtime.vector_size)
+        qdrant_collection = await resolve_qdrant_collection_for_embedding(
+            client=qdrant_client,
+            embedding_id=collection.embedding_id,
+            vector_size=vector_size,
+        )
+        qfilter = build_filter(
+            owner_id=current_user.id,
+            collection_id=collection_id,
+            document_id=doc_uuid,
+        )
+        await delete_by_filter(
+            client=qdrant_client,
+            collection_name=qdrant_collection,
+            query_filter=qfilter,
+        )
+    finally:
+        await qdrant_client.close()
 
     return {"success": True}
 
@@ -174,21 +295,57 @@ async def documents_delete(
     "/collections/{collection_id}/documents/search", response_model=list[SearchResult]
 )
 async def documents_search(
-    user: Annotated[AuthenticatedUser, Depends(resolve_user)],
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
     collection_id: UUID,
     search_query: SearchQuery,
+    db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Search for documents within a specific collection."""
     if not search_query.query:
         raise HTTPException(status_code=400, detail="Search query cannot be empty")
 
-    collection = Collection(
-        collection_id=str(collection_id),
-        user_id=user.identity,
+    collection = await RagCollectionsRepository(db).get_by_id(
+        owner_id=current_user.id,
+        collection_id=collection_id,
+    )
+    if collection is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
+    embeddings = runtime.embeddings
+    query_vector = (
+        await embeddings.aembed_query(search_query.query)
+        if hasattr(embeddings, "aembed_query")
+        else await asyncio.to_thread(embeddings.embed_query, search_query.query)
     )
 
-    results = await collection.search(
-        search_query.query,
-        limit=search_query.limit or 10,
-    )
+    qdrant_client = await asyncio.to_thread(get_qdrant_client)
+    try:
+        qdrant_collection = await resolve_qdrant_collection_for_embedding(
+            client=qdrant_client,
+            embedding_id=collection.embedding_id,
+            vector_size=len(query_vector),
+        )
+        qfilter = build_filter(owner_id=current_user.id, collection_id=collection_id)
+        points = await qdrant_search_chunks(
+            client=qdrant_client,
+            collection_name=qdrant_collection,
+            query_vector=query_vector,
+            query_filter=qfilter,
+            limit=search_query.limit or 10,
+        )
+    finally:
+        await qdrant_client.close()
+
+    results: list[SearchResult] = []
+    for p in points:
+        payload = p.payload or {}
+        results.append(
+            SearchResult(
+                id=str(p.id),
+                page_content=str(payload.get("page_content") or ""),
+                metadata=payload,
+                score=float(p.score),
+            )
+        )
     return results

@@ -1,9 +1,9 @@
-from langconnect.models.collection import (
+from giga_agent.modules.rag.schemas.collection import (
     CollectionCreate,
     CollectionResponse,
     CollectionUpdate,
 )
-from langconnect.models.document import (
+from giga_agent.modules.rag.schemas.document import (
     DocumentCreate,
     DocumentResponse,
     DocumentUpdate,
