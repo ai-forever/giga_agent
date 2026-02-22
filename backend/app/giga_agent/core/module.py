@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
     from giga_agent.core.agent.middleware import AgentMiddleware
     from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.agent.types import AgentState
 
 
 class SecretMetadata(TypedDict):
@@ -85,6 +86,19 @@ class BaseModule(Serializable):
         """
         Возвращает строку с инструкциями (system prompt), которые модуль
         добавляет к системному промпту агента. Возвращает None если инструкций нет.
+        """
+        return None
+
+    async def extend_task(
+        self,
+        user: UserShort | None,
+        task: str,
+        state: "AgentState",
+        agent: "BaseAgent",
+    ) -> str | None:
+        """
+        Возвращает расширение пользовательской задачи, которое будет добавлено
+        в подготовленный user prompt перед запуском модели.
         """
         return None
 

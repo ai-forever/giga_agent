@@ -23,11 +23,11 @@ from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
 
 def _get_max_tool_size() -> int:
-    raw = os.getenv("GIGA_AGENT_TOOL_MAX_SIZE", "40000")
+    raw = os.getenv("GIGA_AGENT_TOOL_MAX_SIZE", "25000")
     try:
         return int(raw)
     except (TypeError, ValueError):
-        return 40000
+        return 25000
 
 
 def _resolve_thread_id(config: RunnableConfig | dict[str, Any]) -> str:
@@ -88,7 +88,9 @@ async def _upload_files_for_owner(
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(owner_id=owner_id, files=files)
 
-    return [FileResponse.model_validate(item).model_dump(mode="json") for item in uploaded]
+    return [
+        FileResponse.model_validate(item).model_dump(mode="json") for item in uploaded
+    ]
 
 
 async def _save_tool_result(
@@ -174,7 +176,9 @@ async def process_tool_result(
     message: str = "",
 ) -> ToolMessage:
     normalized_result = _normalize_result_payload(result)
-    result_path = await _save_tool_result(normalized_result, action=action, config=config)
+    result_path = await _save_tool_result(
+        normalized_result, action=action, config=config
+    )
     saved_result_message = (
         "Полный результат вызова инструмента сохранен в файле JSON по пути "
         f"'{result_path}'. "
@@ -183,7 +187,9 @@ async def process_tool_result(
     )
 
     serialized = _safe_json_dumps(normalized_result)
-    compress = _should_compress(tool=tool, result_size=len(serialized), max_size=_get_max_tool_size())
+    compress = _should_compress(
+        tool=tool, result_size=len(serialized), max_size=_get_max_tool_size()
+    )
 
     payload: dict[str, Any]
     if compress:
@@ -336,9 +342,15 @@ class ToolResultMiddleware(AgentMiddleware):
             return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]
-        frontend_actions = [action for action in actions if action.get("name") in mcp_tool_names]
+        frontend_actions = [
+            action for action in actions if action.get("name") in mcp_tool_names
+        ]
 
-        value = interrupt({"type": "tool_call", "tools": frontend_actions}) if frontend_actions else interrupt({"type": "approve"})
+        value = (
+            interrupt({"type": "tool_call", "tools": frontend_actions})
+            if frontend_actions
+            else interrupt({"type": "approve"})
+        )
 
         if value.get("type") == "comment":
             tool_message = (

@@ -117,7 +117,7 @@ def apply_migrations(agent: BaseAgent) -> None:
         logger.info("No migrations found.")
         return
 
-    version_locations = " ".join(migration_paths)
+    version_locations = os.pathsep.join(migration_paths)
 
     db_url = get_db_url()
     alembic_cfg = _get_alembic_config(version_locations)

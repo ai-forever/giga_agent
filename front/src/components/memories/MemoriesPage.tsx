@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
 import { toast } from "sonner";
 import { X } from "lucide-react";
+import { apiClient, ApiError } from "@/lib/api-client";
 import {
   Table,
   TableBody,
@@ -33,6 +33,8 @@ type MemoryItem = {
   [key: string]: any;
 };
 
+const MEMORIES_URL = "/api/mem_zero_memory/memories";
+
 const normalizeMemories = (data: any): MemoryItem[] => {
   if (Array.isArray(data)) return data as MemoryItem[];
   if (data && Array.isArray(data.results)) return data.results as MemoryItem[];
@@ -59,10 +61,17 @@ const MemoriesPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const resp = await axios.get("/api/memories");
-      setItems(normalizeMemories(resp.data));
-    } catch (e: any) {
-      setError(e?.message ?? "Не удалось получить данные");
+      const resp = await apiClient.get<any>(MEMORIES_URL, { showError: false });
+      setItems(normalizeMemories(resp));
+    } catch (e) {
+      if (e instanceof ApiError && e.isConflict()) {
+        setItems([]);
+        setError(
+          "Долгосрочная память отключена: подключите модель Embeddings в настройках пользователя.",
+        );
+        return;
+      }
+      setError(e instanceof Error ? e.message : "Не удалось получить данные");
     } finally {
       setLoading(false);
     }
@@ -70,10 +79,17 @@ const MemoriesPage: React.FC = () => {
 
   const deleteAll = async () => {
     try {
-      await axios.delete("/api/memories");
+      await apiClient.delete(MEMORIES_URL, { showError: false });
       toast.success("Все записи успешно удалены");
       void load();
     } catch (e) {
+      if (e instanceof ApiError && e.isConflict()) {
+        toast.error("Память отключена", {
+          richColors: true,
+          description: "Подключите модель Embeddings в настройках пользователя.",
+        });
+        return;
+      }
       toast.error("Не удалось удалить записи", {
         richColors: true,
         description: "Не удалось удалить все записи. Попробуйте ещё раз.",
@@ -83,10 +99,17 @@ const MemoriesPage: React.FC = () => {
 
   const deleteOne = async (id: string) => {
     try {
-      await axios.delete(`/api/memories/${id}`);
+      await apiClient.delete(`${MEMORIES_URL}/${id}`, { showError: false });
       toast.success("Запись успешно удалена");
       void load();
     } catch (e) {
+      if (e instanceof ApiError && e.isConflict()) {
+        toast.error("Память отключена", {
+          richColors: true,
+          description: "Подключите модель Embeddings в настройках пользователя.",
+        });
+        return;
+      }
       toast.error("Не удалось удалить запись", {
         richColors: true,
         description: "Не удалось удалить запись. Попробуйте ещё раз.",

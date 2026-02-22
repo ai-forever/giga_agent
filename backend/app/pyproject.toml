@@ -55,6 +55,7 @@ dependencies = [
     "langchain-text-splitters>=1.1.1",
     "langchain-postgres>=0.0.17",
     "langchain-qdrant>=1.1.0",
+    "mem0ai>=0.1.115",
 ]
 
 [project.scripts]
@@ -66,7 +67,11 @@ packages = ["giga_agent"]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.15.2",
 ]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
+filterwarnings = [
+    "ignore:.*'audioop' is deprecated and slated for removal in Python 3\\.13.*:DeprecationWarning",
+]

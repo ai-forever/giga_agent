@@ -1,4 +1,3 @@
-import asyncio
 from typing import Annotated
 from uuid import UUID
 
@@ -10,9 +9,12 @@ from giga_agent.models import UserShort
 from giga_agent.core.db import get_session
 from giga_agent.embeddings.manager import EmbeddingManager
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.modules.rag.database.qdrant import (
+from giga_agent.modules.rag.database.collection_names import (
+    rag_qdrant_collection_name_for_embedding,
+)
+from giga_agent.vectorstores.qdrant import (
     get_qdrant_client,
-    resolve_qdrant_collection_for_embedding,
+    resolve_qdrant_collection,
 )
 from giga_agent.modules.rag.database.qdrant_store import build_filter, delete_by_filter
 from giga_agent.modules.rag.database.repositories import (
@@ -53,15 +55,12 @@ async def collections_create(
     )
     vector_size = int(runtime.vector_size)
 
-    client = await asyncio.to_thread(get_qdrant_client)
-    try:
-        await resolve_qdrant_collection_for_embedding(
-            client=client,
-            embedding_id=current_user.embedding_id,
-            vector_size=vector_size,
-        )
-    finally:
-        await client.close()
+    client = get_qdrant_client()
+    await resolve_qdrant_collection(
+        client=client,
+        collection_name=rag_qdrant_collection_name_for_embedding(current_user.embedding_id),
+        vector_size=vector_size,
+    )
 
     repo = RagCollectionsRepository(db)
     try:
@@ -158,23 +157,20 @@ async def collections_delete(
         offset += len(docs)
 
     # Remove all chunks belonging to this collection from the vector DB.
-    qdrant_client = await asyncio.to_thread(get_qdrant_client)
-    try:
-        runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
-        vector_size = int(runtime.vector_size)
-        qdrant_collection = await resolve_qdrant_collection_for_embedding(
-            client=qdrant_client,
-            embedding_id=collection.embedding_id,
-            vector_size=vector_size,
-        )
-        qfilter = build_filter(owner_id=current_user.id, collection_id=collection_id)
-        await delete_by_filter(
-            client=qdrant_client,
-            collection_name=qdrant_collection,
-            query_filter=qfilter,
-        )
-    finally:
-        await qdrant_client.close()
+    qdrant_client = get_qdrant_client()
+    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
+    vector_size = int(runtime.vector_size)
+    qdrant_collection = await resolve_qdrant_collection(
+        client=qdrant_client,
+        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+        vector_size=vector_size,
+    )
+    qfilter = build_filter(owner_id=current_user.id, collection_id=collection_id)
+    await delete_by_filter(
+        client=qdrant_client,
+        collection_name=qdrant_collection,
+        query_filter=qfilter,
+    )
 
     await repo.delete(owner_id=current_user.id, collection_id=collection_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

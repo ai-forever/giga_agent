@@ -49,7 +49,7 @@ def check(
         logger.info("No migrations found.")
         return
 
-    version_locations = " ".join(migration_paths)
+    version_locations = os.pathsep.join(migration_paths)
     alembic_cfg = _get_alembic_config(version_locations)
 
     script = ScriptDirectory.from_config(alembic_cfg)
@@ -73,7 +73,7 @@ def check(
                 continue
 
             module_label = os.path.basename(os.path.dirname(path))
-            combined_locations = f"{core_migrations} {path}"
+            combined_locations = os.pathsep.join([core_migrations, path])
             single_cfg = _get_alembic_config(combined_locations)
             single_script = ScriptDirectory.from_config(single_cfg)
 

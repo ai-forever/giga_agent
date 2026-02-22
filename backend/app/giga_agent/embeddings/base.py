@@ -93,27 +93,11 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
 
     @cached_property
     def embeddings(self) -> Embeddings:
-        connection_kwargs = ConnectorRegistry.get_connection_kwargs(
-            self.connector.type,
-            self.connector.settings or {},
-        )
-        if connection_kwargs is None:
-            raise ValueError(
-                f"Invalid connection settings for connector {self.connector.id}"
-            )
+        return self._embeddings()
 
-        client = self.__class__.build_embeddings_from_kwargs(
-            model_id=self.model_id,
-            connection_kwargs=connection_kwargs,
-            embedding_settings=self._settings_payload(),
-        )
-        # Some downstream code (and tests) rely on `embeddings.vector_size` being present.
-        # Not every langchain embeddings client exposes it, so we set it best-effort.
-        try:
-            setattr(client, "vector_size", self.vector_size)
-        except Exception:
-            pass
-        return client
+    @abc.abstractmethod
+    def _embeddings(self) -> Embeddings:
+        raise NotImplementedError
 
     @classmethod
     def _get_connection_kwargs(
@@ -140,38 +124,3 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
     ) -> list[AvailableEmbeddingModel]:
         _ = connector_type, connector_settings
         return []
-
-    @classmethod
-    def build_embeddings(
-        cls,
-        *,
-        model_id: str,
-        connector_type: str,
-        connector_settings: dict[str, Any],
-        embedding_settings: dict[str, Any] | None = None,
-    ) -> Embeddings:
-        kwargs = cls._get_connection_kwargs(
-            connector_type=connector_type,
-            connector_settings=connector_settings,
-        )
-        if kwargs is None:
-            raise ValueError(
-                f"Invalid connector settings for connector type '{connector_type}'"
-            )
-
-        return cls.build_embeddings_from_kwargs(
-            model_id=model_id,
-            connection_kwargs=kwargs,
-            embedding_settings=embedding_settings,
-        )
-
-    @classmethod
-    @abc.abstractmethod
-    def build_embeddings_from_kwargs(
-        cls,
-        *,
-        model_id: str,
-        connection_kwargs: dict[str, Any],
-        embedding_settings: dict[str, Any] | None = None,
-    ) -> Embeddings:
-        raise NotImplementedError

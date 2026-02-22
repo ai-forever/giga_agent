@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast, Awaitable, Literal, Coroutine, Callable
 
+from giga_agent.core.agent.few_shots import FEW_SHOTS
 from langchain_core.messages import (
     AIMessage,
     SystemMessage,
@@ -54,6 +57,48 @@ if TYPE_CHECKING:
     from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.utils import merge_state
 from giga_agent.core.agent.types import AgentState, Context
+
+
+def _generate_user_info(state: AgentState) -> str:
+    # TODO: Вынести язык пользователя в явные пользовательские настройки
+    language = "ru"
+    language_prompt = ""
+    if not language.startswith("ru"):
+        language_prompt = f"\nВыбранный язык пользователя: {language}\n"
+    instructions = state.get("instructions", "")
+    return (
+        f"<user_info>\n"
+        f"Текущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}"
+        f"{language_prompt}{instructions}</user_info>"
+    )
+
+
+def _build_file_prompt(last_message: AnyMessage) -> str:
+    files = getattr(last_message, "additional_kwargs", {}).get("files", [])
+    file_prompt_items = []
+    for file in files:
+        item = f"""Файл загружен по пути: '{file["path"]}'"""
+        if "image_path" in file:
+            item += (
+                "\nФайл является изображением его можно отобразить с помощью: "
+                f"'![алт-текст](attachment:{file['image_path']})'."
+            )
+        file_prompt_items.append(item)
+
+    if not file_prompt_items:
+        return ""
+    return "<files_data>" + "\n----\n".join(file_prompt_items) + "</files_data>"
+
+
+def _build_selected_prompt(last_message: AnyMessage) -> str:
+    selected = getattr(last_message, "additional_kwargs", {}).get("selected", {})
+    if not selected:
+        return ""
+
+    selected_items = [
+        f"![{value}](attachment:{key})" for key, value in selected.items()
+    ]
+    return "Пользователь указал на следующие вложения: \n" + "\n".join(selected_items)
 
 
 def _chain_async_tool_call_wrappers(
@@ -432,7 +477,37 @@ def create_graph(
             if not user.llm_id:
                 raise ValueError("User has no default LLM configured")
 
-            llm = await LLMManager.resolve_by_id(user.llm_id, session=session)
+            llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
+            llm = llm_runtime.llm
+
+        if state["messages"] and state["messages"][-1].type == "human":
+            last_message = state["messages"][-1]
+            user_input = last_message.content
+            file_prompt = _build_file_prompt(last_message)
+            selected_prompt = _build_selected_prompt(last_message)
+            extended_task = await agent.extend_task(
+                user=user,
+                task=user_input,
+                state=state,
+            )
+
+            final_parts = [
+                f"<task>{user_input}</task>",
+                _generate_user_info(state),
+            ]
+            if file_prompt:
+                final_parts.append(file_prompt)
+            if selected_prompt:
+                final_parts.append(selected_prompt)
+            if extended_task:
+                final_parts.append(extended_task)
+            final_parts.append(
+                "Активно планируй и следуй своему плану! "
+                "Действуй по простым шагам!"
+                "Следующий шаг: "
+            )
+            last_message.content = "\n".join(final_parts)
+
         agent_tools = await agent.get_tools(user)
         mcp_tools = [
             transform_tool(

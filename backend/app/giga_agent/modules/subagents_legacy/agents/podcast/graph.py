@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+import warnings
 
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
@@ -8,6 +9,12 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph_sdk import get_client
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*'audioop' is deprecated and slated for removal in Python 3\.13.*",
+    category=DeprecationWarning,
+)
 from pydub import AudioSegment
 
 from giga_agent.core.db import get_session_factory

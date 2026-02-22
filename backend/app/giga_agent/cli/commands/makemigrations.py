@@ -100,7 +100,7 @@ def makemigrations(
         if os.path.exists(p):
             migration_paths.append(p)
 
-    version_locations = " ".join(migration_paths)
+    version_locations = os.pathsep.join(migration_paths)
 
     alembic_cfg = _get_alembic_config(version_locations)
 
@@ -167,7 +167,7 @@ def makemigrations(
 
         if target_migration_dir not in migration_paths:
             migration_paths.append(target_migration_dir)
-            alembic_cfg.set_main_option("version_locations", " ".join(migration_paths))
+            alembic_cfg.set_main_option("version_locations", os.pathsep.join(migration_paths))
 
         if normalized_input_import is None:
             message_for_module = f"autogen {module_name}"

@@ -1,5 +1,6 @@
 from giga_agent.modules.auth import AuthModule
 from giga_agent.modules.image import ImageModule
+from giga_agent.modules.mem_zero_memory.module import MemZeroModule
 from giga_agent.modules.repl import ReplModule
 from giga_agent.modules.search import SearchModule
 from giga_agent.modules.github import GitHubModule
@@ -18,6 +19,7 @@ agent = BaseAgent(
         ImageModule(),
         SearchModule(),
         RagModule(),
+        MemZeroModule(),
         GitHubModule(),
         VKModule(),
         WeatherModule(),

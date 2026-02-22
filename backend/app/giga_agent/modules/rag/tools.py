@@ -9,9 +9,12 @@ from langchain.tools import ToolRuntime, tool
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.embeddings.manager import EmbeddingManager
-from giga_agent.modules.rag.database.qdrant import (
+from giga_agent.modules.rag.database.collection_names import (
+    rag_qdrant_collection_name_for_embedding,
+)
+from giga_agent.vectorstores.qdrant import (
     get_qdrant_client,
-    resolve_qdrant_collection_for_embedding,
+    resolve_qdrant_collection,
 )
 from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
 from giga_agent.modules.rag.database.repositories import RagCollectionsRepository
@@ -65,7 +68,7 @@ async def get_documents(
         )
         embeddings = embedding_runtime.embeddings
 
-    qdrant_client = await asyncio.to_thread(get_qdrant_client)
+    qdrant_client = get_qdrant_client()
     try:
         qfilter = build_filter(owner_id=owner_id, collection_id=collection_id)
         query_vector = (
@@ -73,9 +76,9 @@ async def get_documents(
             if hasattr(embeddings, "aembed_query")
             else await asyncio.to_thread(embeddings.embed_query, query)
         )
-        qdrant_collection = await resolve_qdrant_collection_for_embedding(
+        qdrant_collection = await resolve_qdrant_collection(
             client=qdrant_client,
-            embedding_id=collection.embedding_id,
+            collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
             vector_size=len(query_vector),
         )
         points = await search_chunks(
@@ -87,8 +90,6 @@ async def get_documents(
         )
     except Exception as e:
         return {"error": str(e), "documents": [], "hint": hint}
-    finally:
-        await qdrant_client.close()
 
     documents: list[dict] = []
     for p in points:

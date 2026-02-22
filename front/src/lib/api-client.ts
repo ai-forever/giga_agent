@@ -218,6 +218,13 @@ export class ApiError extends Error {
   }
 
   /**
+   * Проверка на конфликт (например, 409)
+   */
+  isConflict(): boolean {
+    return this.status === 409;
+  }
+
+  /**
    * Проверка на серверную ошибку
    */
   isServerError(): boolean {

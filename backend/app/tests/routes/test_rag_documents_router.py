@@ -66,7 +66,7 @@ class RagDocumentsRouterTests(unittest.TestCase):
             "giga_agent.modules.rag.api.documents.get_qdrant_client",
             return_value=qdrant_client,
         ), patch(
-            "giga_agent.modules.rag.api.documents.resolve_qdrant_collection_for_embedding",
+            "giga_agent.modules.rag.api.documents.resolve_qdrant_collection",
             AsyncMock(return_value="rag_chunks__test"),
         ), patch(
             "giga_agent.modules.rag.api.documents.build_filter",

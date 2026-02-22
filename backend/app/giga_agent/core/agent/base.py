@@ -1,9 +1,5 @@
 from typing import Any, List, Set, Optional
-
-from giga_agent.core.agent.core_middleware import (
-    CoreFirstMiddleware,
-    CoreLastMiddleware,
-)
+from contextlib import asynccontextmanager
 from typing_extensions import override
 
 from fastapi import FastAPI
@@ -62,7 +58,15 @@ class BaseAgent(Serializable):
 
         setup_cache()
 
-        self._app = FastAPI()
+        # Ensure cached resources are closed on shutdown (dev server reload included).
+        from giga_agent.vectorstores.qdrant import shutdown_qdrant_client
+
+        @asynccontextmanager
+        async def _lifespan(_app: FastAPI):
+            yield
+            await shutdown_qdrant_client()
+
+        self._app = FastAPI(lifespan=_lifespan)
         self._app.state.agent = self
 
         # Подключаем core routes
@@ -78,10 +82,8 @@ class BaseAgent(Serializable):
         # Собираем middleware из модулей
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
-            CoreFirstMiddleware(),
             ToolResultMiddleware(),
             *module_middlewares,
-            CoreLastMiddleware(),
         ]
 
         self._graph = create_graph(self, middleware=all_middleware)
@@ -142,3 +144,21 @@ class BaseAgent(Serializable):
         for module in self.modules:
             all_tools.extend(await module.get_tools(user=user, agent=self))
         return all_tools
+
+    async def extend_task(
+        self,
+        user: UserShort | None,
+        task: str,
+        state: AgentState,
+    ) -> str:
+        extended_parts = []
+        for module in self.modules:
+            extended_task = await module.extend_task(
+                user=user,
+                task=task,
+                state=state,
+                agent=self,
+            )
+            if extended_task:
+                extended_parts.append(extended_task)
+        return "\n".join(extended_parts)
