@@ -75,19 +75,12 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["openai"]
 
-            @classmethod
-            def build_embeddings_from_kwargs(
-                cls,
-                *,
-                model_id: str,
-                connection_kwargs: dict,
-                embedding_settings: dict | None = None,
-            ):
-                if model_id != "text-embedding-3-small":
+            def _embeddings(self):
+                if self.model_id != "text-embedding-3-small":
                     raise AssertionError("unexpected model_id")
-                if connection_kwargs != {"api_key": "sk-test"}:
+                if self.connector.settings != {"api_key": "sk-test"}:
                     raise AssertionError("unexpected kwargs")
-                if embedding_settings != {"dimensions": 512}:
+                if self._settings_payload() != {"dimensions": 512}:
                     raise AssertionError("unexpected settings")
                 return built_embeddings
 
@@ -102,9 +95,6 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             return_value=_RuntimeStub,
         ), patch(
             "giga_agent.embeddings.manager.ConnectorRegistry.get_connection_kwargs",
-            return_value={"api_key": "sk-test"},
-        ), patch(
-            "giga_agent.embeddings.base.ConnectorRegistry.get_connection_kwargs",
             return_value={"api_key": "sk-test"},
         ):
             resolved = await EmbeddingManager.resolve_by_id(

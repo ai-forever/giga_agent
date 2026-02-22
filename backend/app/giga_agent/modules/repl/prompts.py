@@ -19,7 +19,7 @@ JUPYTER_REPL_INSTRUCTIONS = """\
 
 4. **Обрабатывай ошибки.** Оборачивай потенциально опасный код в try/except, чтобы получить информативное сообщение об ошибке вместо падения.
 
-5. **Для визуализации используй matplotlib/seaborn.** Графики автоматически сохраняются и возвращаются. Используй `plt.show()` для завершения вывода графика.
+5. **Для визуализации используй plotly (предпочтительно plotly.express).** Графики автоматически отображаются и возвращаются. Используй `fig.show()` для вывода графика.
 
 6. **Для работы с данными используй pandas.** Для табличных данных `df.head()`, `df.describe()`, `df.info()` дают хороший обзор.
 
@@ -41,11 +41,9 @@ print(df.head())
 
 Визуализация:
 ```python
-import matplotlib.pyplot as plt
-plt.figure(figsize=(10, 6))
-plt.plot(df["x"], df["y"])
-plt.title("My Plot")
-plt.show()
+import plotly.express as px
+fig = px.line(df, x="x", y="y", title="My Plot")
+fig.show()
 ```
 
 Вычисления:

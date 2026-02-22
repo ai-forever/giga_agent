@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-from langchain_core.language_models import BaseChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.llm.registry import LLMRegistry
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.llm import LLMRepository
@@ -23,7 +23,7 @@ class LLMManager:
         llm_id: uuid.UUID,
         *,
         session: AsyncSession,
-    ) -> BaseChatModel:
+    ) -> BaseLLMRuntime:
         llm = await LLMRepository.get_cached_or_db(llm_id, session=session)
         if llm is None:
             raise ValueError(f"LLM with id {llm_id} not found")
@@ -52,8 +52,9 @@ class LLMManager:
         if kwargs is None:
             raise ValueError(f"Invalid connection settings for connector {connector.id}")
 
-        return runtime_cls.build_chat_model_from_kwargs(
+        validated_settings = await runtime_cls.validate_settings(llm.settings or {})
+        return runtime_cls(
+            connector=connector,
             model_id=llm.model_id,
-            connection_kwargs=kwargs,
-            llm_settings=llm.settings or {},
+            **validated_settings,
         )

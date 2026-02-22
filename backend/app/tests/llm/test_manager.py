@@ -37,7 +37,7 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, "inactive"):
                 await LLMManager.resolve_by_id(llm_id, session=session)
 
-    async def test_resolve_builds_chat_model(self):
+    async def test_resolve_returns_runtime(self):
         llm_id = uuid.uuid4()
         session = object()
         connector_id = uuid.uuid4()
@@ -56,28 +56,17 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             settings={"api_key": "sk-test"},
         )
 
-        built_model = object()
-
         class _RuntimeStub:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
             @classmethod
             def is_connector_supported(cls, connector_type: str) -> bool:
                 return connector_type == "openai"
 
             @classmethod
-            def build_chat_model_from_kwargs(
-                cls,
-                *,
-                model_id: str,
-                connection_kwargs: dict,
-                llm_settings: dict | None = None,
-            ):
-                if model_id != "gpt-4o-mini":
-                    raise AssertionError("unexpected model_id")
-                if connection_kwargs != {"api_key": "sk-test"}:
-                    raise AssertionError("unexpected kwargs")
-                if llm_settings != {"temperature": 0.2}:
-                    raise AssertionError("unexpected settings")
-                return built_model
+            async def validate_settings(cls, settings: dict) -> dict:
+                return settings
 
         with patch(
             "giga_agent.llm.manager.LLMRepository.get_cached_or_db",
@@ -94,7 +83,10 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
         ):
             resolved = await LLMManager.resolve_by_id(llm_id, session=session)
 
-        self.assertIs(resolved, built_model)
+        self.assertIsInstance(resolved, _RuntimeStub)
+        self.assertEqual(resolved.kwargs["connector"], connector)
+        self.assertEqual(resolved.kwargs["model_id"], "gpt-4o-mini")
+        self.assertEqual(resolved.kwargs["temperature"], 0.2)
 
     async def test_resolve_raises_when_connector_is_incompatible(self):
         llm_id = uuid.uuid4()

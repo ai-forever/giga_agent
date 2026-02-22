@@ -7,12 +7,13 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
 
-from giga_agent.llm.base import AvailableModel, BaseLLM, ModelFetchError
+from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.llm.base import AvailableModel, BaseLLMRuntime, ModelFetchError
 from giga_agent.llm.registry import LLMRegistry
 
 
 @LLMRegistry.register("openai")
-class OpenAILLM(BaseLLM):
+class OpenAIRuntime(BaseLLMRuntime):
     @classmethod
     def supported_connector_types(cls) -> list[str]:
         return ["openai"]
@@ -48,19 +49,24 @@ class OpenAILLM(BaseLLM):
         except Exception as e:
             raise ModelFetchError("openai", str(e)) from e
 
-    @classmethod
-    def build_chat_model_from_kwargs(
-        cls,
-        *,
-        model_id: str,
-        connection_kwargs: dict[str, Any],
-        llm_settings: dict[str, Any] | None = None,
-    ) -> ChatOpenAI:
-        settings = llm_settings or {}
+    def _llm(self) -> ChatOpenAI:
+        connection_kwargs = ConnectorRegistry.get_connection_kwargs(
+            self.connector.type,
+            self.connector.settings or {},
+        )
+        if connection_kwargs is None:
+            raise ValueError(
+                f"Invalid connection settings for connector {self.connector.id}"
+            )
+        settings = self._settings_payload()
         model_kwargs = {
             "temperature": settings.get("temperature"),
             "max_tokens": settings.get("max_tokens"),
             "top_p": settings.get("top_p"),
         }
         clean_model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
-        return ChatOpenAI(model=model_id, **connection_kwargs, **clean_model_kwargs)
+        return ChatOpenAI(
+            model=self.model_id,
+            **connection_kwargs,
+            **clean_model_kwargs,
+        )

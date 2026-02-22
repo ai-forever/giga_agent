@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from typing import Type
 
-from giga_agent.llm.base import BaseLLM
+from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 class LLMRegistry:
-    _registry: dict[str, Type[BaseLLM]] = {}
+    _registry: dict[str, Type[BaseLLMRuntime]] = {}
 
     @classmethod
     def register(cls, llm_type: str):
-        def decorator(llm_cls: Type[BaseLLM]) -> Type[BaseLLM]:
+        def decorator(llm_cls: Type[BaseLLMRuntime]) -> Type[BaseLLMRuntime]:
             key = (llm_type or "").lower()
             if key in cls._registry:
                 logger.warning(
@@ -30,7 +30,7 @@ class LLMRegistry:
         return decorator
 
     @classmethod
-    def get(cls, llm_type: str) -> Type[BaseLLM]:
+    def get(cls, llm_type: str) -> Type[BaseLLMRuntime]:
         key = (llm_type or "").lower()
         if key not in cls._registry:
             raise ValueError(

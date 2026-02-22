@@ -210,6 +210,30 @@ async def create_llm(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
+    runtime_cls = _resolve_llm_runtime(
+        data.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    raw_settings = data.settings.model_dump(exclude_none=True)
+    try:
+        validated_settings = await runtime_cls.validate_settings(raw_settings)
+        runtime = runtime_cls(
+            connector=connector,
+            model_id=data.model_id,
+            **validated_settings,
+        )
+        await runtime.check_connection()
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=e.errors(),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"LLM connection check failed: {e}",
+        )
+
     llm = await llm_repo.create(
         owner_id=current_user.id,
         llm_type=data.type,
@@ -217,7 +241,7 @@ async def create_llm(
         model_id=data.model_id,
         name=data.name,
         parallel_calls=data.parallel_calls,
-        settings=data.settings.model_dump(exclude_none=True),
+        settings=validated_settings,
         is_active=data.is_active,
     )
     response = LLMRepository.to_response(llm)

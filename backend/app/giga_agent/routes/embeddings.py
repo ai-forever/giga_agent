@@ -151,11 +151,13 @@ async def _probe_embedding_vector_size(
             detail="Некорректные настройки коннектора для эмбеддингов",
         )
 
-    embeddings = runtime_cls.build_embeddings_from_kwargs(
+    runtime = runtime_cls(
+        connector=connector,
         model_id=model_id,
-        connection_kwargs=connection_kwargs,
-        embedding_settings=embedding_settings,
+        vector_size=1,
+        **embedding_settings,
     )
+    embeddings = runtime.embeddings
 
     try:
         if hasattr(embeddings, "aembed_query"):

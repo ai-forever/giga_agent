@@ -33,15 +33,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["openai"]
 
-            @classmethod
-            def build_embeddings_from_kwargs(
-                cls,
-                *,
-                model_id: str,
-                connection_kwargs: dict[str, object],
-                embedding_settings: dict[str, object] | None = None,
-            ):
-                _ = model_id, connection_kwargs, embedding_settings
+            def _embeddings(self):
                 return object()
 
         models = await _RuntimeStub.fetch_available_models(
@@ -50,19 +42,24 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(models, [])
 
-    def test_openai_build_embeddings_from_kwargs(self):
+    def test_openai_embeddings_instance_builder(self):
+        connector = types.SimpleNamespace(
+            id="connector-id",
+            type="openai",
+            settings={"api_key": "sk-test", "base_url": "https://api.openai.com/v1"},
+        )
         with patch(
             "giga_agent.embeddings.openai.OpenAIEmbeddings",
             return_value=object(),
         ) as mocked:
-            OpenAIEmbeddingRuntime.build_embeddings_from_kwargs(
+            runtime = OpenAIEmbeddingRuntime(
+                connector=connector,
                 model_id="text-embedding-3-small",
-                connection_kwargs={
-                    "api_key": "sk-test",
-                    "base_url": "https://api.openai.com/v1",
-                },
-                embedding_settings={"dimensions": 512, "chunk_size": 256},
+                vector_size=512,
+                dimensions=512,
+                chunk_size=256,
             )
+            _ = runtime.embeddings
 
         mocked.assert_called_once_with(
             model="text-embedding-3-small",
@@ -95,21 +92,28 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item.id for item in models], ["EmbeddingsGigaR", "GigaChat"])
 
-    def test_gigachat_build_embeddings_from_kwargs(self):
+    def test_gigachat_embeddings_instance_builder(self):
+        connector = types.SimpleNamespace(
+            id="connector-id",
+            type="gigachat",
+            settings={
+                "gigachat_api_type": "prod",
+                "gigachat_credentials": "token",
+                "verify_ssl_certs": False,
+                "gigachat_scope": "GIGACHAT_API_PERS",
+            },
+        )
         with patch(
             "giga_agent.embeddings.gigachat.GigaChatEmbeddings",
             return_value=object(),
         ) as mocked:
-            GigaChatEmbeddingRuntime.build_embeddings_from_kwargs(
+            runtime = GigaChatEmbeddingRuntime(
+                connector=connector,
                 model_id="EmbeddingsGigaR",
-                connection_kwargs={
-                    "base_url": None,
-                    "credentials": "token",
-                    "scope": "GIGACHAT_API_PERS",
-                    "verify_ssl_certs": False,
-                },
-                embedding_settings={"timeout": 40.0},
+                vector_size=1024,
+                timeout=40.0,
             )
+            _ = runtime.embeddings
 
         mocked.assert_called_once_with(
             model="EmbeddingsGigaR",
