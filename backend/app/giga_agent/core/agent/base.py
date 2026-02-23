@@ -1,6 +1,5 @@
-from typing import Any, Dict, List, Set, Optional
+from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
-from typing_extensions import override
 
 from fastapi import FastAPI
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
@@ -8,12 +7,10 @@ from uuid import UUID
 
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.module import BaseModule
-from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
 from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.models.users import UserShort
-from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context

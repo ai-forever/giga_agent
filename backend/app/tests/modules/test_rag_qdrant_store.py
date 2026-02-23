@@ -5,7 +5,7 @@ import uuid
 from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.http import models as qmodels
 
-from giga_agent.vectorstores.qdrant import ensure_qdrant_collection, qdrant_aclose
+from giga_agent.vectorstores.qdrant import ensure_qdrant_collection, _qdrant_aclose
 from giga_agent.modules.rag.database.qdrant_store import (
     build_filter,
     delete_by_filter,
@@ -79,5 +79,4 @@ class RagQdrantStoreTests(unittest.TestCase):
                 )
                 self.assertEqual(len(results2), 0)
             finally:
-                await qdrant_aclose(client)
-
+                await _qdrant_aclose(client)

@@ -34,7 +34,9 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="ok"))
         )
         _BaseRuntimeStub._llm_stub = llm_stub
-        runtime = _BaseRuntimeStub(connector=types.SimpleNamespace(), model_id="test-model")
+        runtime = _BaseRuntimeStub(
+            connector=types.SimpleNamespace(), model_id="test-model"
+        )
 
         result = await runtime.analyze_image(
             prompt="what is on this image",
@@ -48,9 +50,9 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[0].content[0]["type"], "text")
         self.assertEqual(messages[0].content[1]["type"], "image_url")
         self.assertTrue(
-            messages[0].content[1]["image_url"]["url"].startswith(
-                "data:image/jpeg;base64,"
-            )
+            messages[0]
+            .content[1]["image_url"]["url"]
+            .startswith("data:image/jpeg;base64,")
         )
 
     def test_openai_runtime_uses_base_implementation(self):
@@ -72,12 +74,10 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, "analysis")
         llm_stub.aupload_file.assert_awaited_once()
         upload_args, upload_kwargs = llm_stub.aupload_file.await_args
-        self.assertEqual(upload_kwargs["purpose"], "assistant")
+        self.assertEqual(upload_kwargs["purpose"], "general")
         self.assertIsInstance(upload_args[0], tuple)
 
         llm_stub.ainvoke.assert_awaited_once()
         messages = llm_stub.ainvoke.await_args.args[0]
-        image_part = messages[0].content[1]
-        self.assertEqual(image_part["type"], "image_url")
-        self.assertEqual(image_part["image_url"]["giga_id"], "file-123")
-        self.assertNotIn("url", image_part["image_url"])
+        attachments = messages[0].additional_kwargs["attachments"]
+        self.assertEqual(attachments[0], "file-123")

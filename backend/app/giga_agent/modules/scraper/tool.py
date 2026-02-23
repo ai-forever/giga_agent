@@ -58,7 +58,6 @@ PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
-
 def _get_jina_base_url() -> str:
     base = (
         os.getenv("GIGA_AGENT_SCRAPER_JINA_BASE_URL") or "https://r.jina.ai/"
@@ -126,9 +125,10 @@ async def _resolve_fast_llm(runtime: ToolRuntime):
         llm_context = await LLMRepository.get_cached_or_db(llm_id, session=session)
         llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
     parallel_calls = max(1, int(llm_context.parallel_calls)) if llm_context else 1
-    return llm_runtime.llm.bind(top_p=0.3).with_config(
-        tags=["nostream"]
-    ), parallel_calls
+    return (
+        llm_runtime.llm.bind(top_p=0.3).with_config(tags=["nostream"]),
+        parallel_calls,
+    )
 
 
 async def _summarize_page(messages, response, llm, summarize_sem: asyncio.Semaphore):
@@ -225,10 +225,13 @@ async def get_urls(
     """Скачивает список URLs и отдаёт краткую выжимку по каждой ссылке с учётом задачи пользователя.
 
     Реализация использует Jina Reader для извлечения текста/markdown со страниц.
+    Если в ответе есть изображения, прикладывай их к ответу
     """
     llm, llm_parallel_calls = await _resolve_fast_llm(runtime)
     summarize_sem = asyncio.Semaphore(llm_parallel_calls)
-    total_concurrency = int((os.getenv("GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY") or "8").strip() or "8")
+    total_concurrency = int(
+        (os.getenv("GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY") or "8").strip() or "8"
+    )
 
     fetch_sem = asyncio.Semaphore(max(1, int(total_concurrency)))
     timeout = httpx.Timeout(30.0, connect=10.0)
