@@ -7,8 +7,6 @@ from typing import ClassVar, Type
 from pydantic import BaseModel, create_model
 from typing_extensions import override
 
-from langchain_core.load.serializable import Serializable
-
 
 LARGE_FILE_THRESHOLD = 20 * 1024 * 1024  # 20 MB
 
@@ -42,7 +40,7 @@ class StreamResult:
 FileReadResult = RedirectResult | ContentResult | StreamResult
 
 
-class BaseSandbox(Serializable, ABC):
+class BaseSandbox(BaseModel, ABC):
     """Абстрактный базовый класс для виртуальных окружений."""
 
     # Поля, управляемые системой (менеджером/БД), а НЕ пользовательскими settings.

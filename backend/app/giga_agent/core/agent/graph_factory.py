@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import mimetypes
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast, Awaitable, Literal, Coroutine, Callable
 
@@ -77,11 +78,21 @@ def _build_file_prompt(last_message: AnyMessage) -> str:
     files = getattr(last_message, "additional_kwargs", {}).get("files", [])
     file_prompt_items = []
     for file in files:
-        item = f"""Файл загружен по пути: '{file["path"]}'"""
-        if "image_path" in file:
+        path = file.get("path") or file.get("sandbox_path")
+        path_str = path if isinstance(path, str) else str(path)
+
+        file_type = str(file.get("file_type", "")).strip().lower()
+        guessed_mime, _ = mimetypes.guess_type(path_str)
+        is_image = file_type == "image" or (
+            isinstance(guessed_mime, str) and guessed_mime.startswith("image/")
+        )
+
+        item = f"""Файл загружен в виртуальное окружение по пути: '{path_str}'"""
+        if is_image:
+            image_path = file.get("image_path") or path_str
             item += (
                 "\nФайл является изображением его можно отобразить с помощью: "
-                f"'![алт-текст](attachment:{file['image_path']})'."
+                f"'![алт-текст](attachment:{image_path})'."
             )
         file_prompt_items.append(item)
 

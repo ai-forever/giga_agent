@@ -1,69 +1,147 @@
-from langchain_core.tools import tool
+"""Инструмент анализа изображения через выбранный пользователем LLM runtime."""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+import uuid
+
+import httpx
+from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
+from PIL import Image, ImageOps
+
+from giga_agent.core.db import get_session_factory
+from giga_agent.llm.manager import LLMManager
+from giga_agent.models.users import UserRepository
+from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
+from giga_agent.sandbox.manager import SandboxManager
 
 
-@tool
-async def ask_about_image(image_path: str, question: str):
-    """Анализирует изображение. Используй если нужно узнать информацию по изображению
-    Используй этот инструмент итеративно, если в ответе недостаточно информации, сделай уточняющий запрос!
+def _normalize_mime_type(value: str | None) -> str | None:
+    if not value:
+        return None
+    return value.split(";", 1)[0].strip().lower() or None
+
+
+async def _download_redirect_bytes(*, url: str) -> tuple[bytes, str | None]:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        mime_type = _normalize_mime_type(response.headers.get("content-type"))
+        return response.content, mime_type
+
+
+def _image_bytes_to_jpeg_bytes(*, image_bytes: bytes) -> bytes:
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        image = ImageOps.exif_transpose(image)
+
+        # For animated images (e.g. GIF/WebP), analyze only the first frame.
+        if getattr(image, "is_animated", False):
+            try:
+                image.seek(0)
+            except Exception:
+                pass
+
+        if image.mode in {"RGBA", "LA"} or (
+            image.mode == "P" and "transparency" in (image.info or {})
+        ):
+            rgba = image.convert("RGBA")
+            background = Image.new("RGB", rgba.size, (255, 255, 255))
+            background.paste(rgba, mask=rgba.split()[-1])
+            rgb = background
+        else:
+            rgb = image.convert("RGB")
+
+        out = io.BytesIO()
+        rgb.save(out, format="JPEG", quality=95, optimize=True)
+        return out.getvalue()
+
+
+async def _read_file_bytes(
+    *,
+    owner_id: uuid.UUID,
+    image_path: str,
+) -> tuple[bytes, str]:
+    factory = await get_session_factory()
+    async with factory() as session:
+        _, result = await SandboxManager(session).read_file_by_path_for_user(
+            owner_id=owner_id,
+            sandbox_path=image_path,
+        )
+
+    if isinstance(result, RedirectResult):
+        data, mime_type = await _download_redirect_bytes(url=result.url)
+        return data, mime_type or "application/octet-stream"
+
+    if isinstance(result, ContentResult):
+        return result.data, result.media_type or "image/png"
+
+    if isinstance(result, StreamResult):
+        chunks: list[bytes] = []
+        async for chunk in result.stream:
+            chunks.append(chunk)
+        return b"".join(chunks), result.media_type or "image/png"
+
+    raise ValueError("Неподдерживаемый формат результата чтения файла.")
+
+
+@tool(parse_docstring=True)
+async def analyze_image(
+    image_path: str,
+    prompt: str,
+    runtime: ToolRuntime,
+) -> ToolMessage:
+    """Analyze an image from sandbox path with current user's LLM.
 
     Args:
-        image_path: Путь до изображения (в директориях /runs/, /files/)
-        question: Запрос для анализа изображения. Детально пропиши все, что ты хочешь узнать от изображения. Это полноценный промпт к V-LLM, поэтому используй все мощности нейросетей!
-
+        image_path: Полный путь вложения в sandbox (`attachment:<path>` без префикса).
+        prompt: Что нужно определить по изображению.
     """
-    llm = load_llm().with_config(tags=["nostream"])
-
-    image_path = image_path.removeprefix("attachment:")
-    if not image_path.startswith("/runs/") and not image_path.startswith("/files/"):
-        return "image_id должен хранить путь до него"
-    client = get_client(url=settings.internal.langgraph_api_url)
-    try:
-        data = (await client.store.get_item(("attachments",), key=image_path))["value"]
-    except HTTPStatusError as e:
-        if e.response.status_code == 404:
-            return f"Изображение c ID {image_path} не найдено"
-        raise e
-    if not data.get("image_id") and not data.get("image_path"):
-        return "Вложение не возможно проанализировать с помощью анализа изображений!"
-    if is_llm_image_inline():
-        return (
-            (
-                await llm.ainvoke(
-                    [
-                        HumanMessage(
-                            content=question,
-                            additional_kwargs={"attachments": [data.get("image_id")]},
-                        ),
-                    ],
-                )
-            ).content
-            + "\nИспользуй этот инструмент итеративно, если в ответе недостаточно информации, сделай уточняющий запрос!"
-        )
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{settings.internal.front_base_url}{data['image_path']}",
-        )
-        img_content = base64.b64encode(resp.content).decode()
-    return (
-        (
-            await llm.ainvoke(
-                [
-                    HumanMessage(
-                        content=[
-                            {
-                                "type": "text",
-                                "text": question,
-                            },
-                            {
-                                "type": "image",
-                                "source_type": "base64",
-                                "data": img_content,
-                                "mime_type": "image/png",
-                            },
-                        ],
-                    ),
-                ],
-            )
-        ).content
-        + "\nИспользуй этот инструмент итеративно, если в ответе недостаточно информации, сделай уточняющий запрос!"
+    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    image_bytes, mime_type = await _read_file_bytes(
+        owner_id=owner_id,
+        image_path=image_path,
     )
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        user = await UserRepository.get_cached_or_db(owner_id, session=session)
+        if user is None:
+            raise ValueError(f"Пользователь {owner_id} не найден")
+        if user.llm_id is None:
+            raise ValueError("У пользователя не выбран llm_id")
+
+        llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
+
+    if not llm_runtime.can_analyze_image():
+        raise ValueError("Текущий LLM не поддерживает analyze_image")
+
+    jpeg_bytes = await asyncio.to_thread(
+        _image_bytes_to_jpeg_bytes, image_bytes=image_bytes
+    )
+    analysis_text = await llm_runtime.analyze_image(
+        prompt=prompt,
+        image_bytes=jpeg_bytes,
+        mime_type="image/jpg",
+    )
+
+    output = f"Изображение '{image_path}' проанализировано."
+    return ToolMessage(
+        tool_call_id=runtime.tool_call_id,
+        content=json.dumps(
+            {
+                "output": output,
+                "analysis": analysis_text,
+                "image_path": image_path,
+                "model": llm_runtime.model_id,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+
+# Backwards compatibility for older prompts/usages.
+ask_about_image = analyze_image

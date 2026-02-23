@@ -139,6 +139,36 @@ class UserShort(UserBase):
 
     id: uuid.UUID
 
+    def __hash__(self):
+        def _freeze(value):
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, uuid.UUID):
+                return str(value)
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, dict):
+                return tuple(sorted((k, _freeze(v)) for k, v in value.items()))
+            if isinstance(value, (list, tuple, set, frozenset)):
+                return tuple(_freeze(v) for v in value)
+            return str(value)
+
+        return hash(
+            (
+                str(self.id),
+                self.email,
+                self.is_active,
+                self.is_superuser,
+                _freeze(self.settings),
+                _freeze(self.secrets),
+                _freeze(self.image_generator_id),
+                _freeze(self.search_engine_id),
+                _freeze(self.embedding_id),
+                _freeze(self.llm_id),
+                _freeze(self.fast_llm_id),
+            )
+        )
+
     class Config:
         from_attributes = True
 

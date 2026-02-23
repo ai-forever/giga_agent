@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import base64
-import json
-import re
-import uuid
 import binascii
+import inspect
+import json
+import keyword
+import re
+import traceback
+import uuid
 from typing import Any
+import types
 
 from cashews import cache
+from giga_agent.core.agent.tool_node import AgentToolNode
+from giga_agent.modules.repl.args_monkey_patch import _parse_input
 from langchain.tools import tool, ToolRuntime
+from langchain_core.tools import BaseTool
 from langchain_core.messages import ToolMessage
+from pydantic import ValidationError, BaseModel, Field
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -33,6 +41,8 @@ _DISPLAY_MIME_CONFIG: dict[str, tuple[str, str, str]] = {
     "video/mp4": ("video", ".mp4", "base64"),
     "video/webm": ("video", ".webm", "base64"),
 }
+
+_REPL_TOOL_INPUT_PREFIX = "__GIGA_REPL_TOOL_CALL__:"
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -153,10 +163,254 @@ def get_user_secrets_code(user: UserShort):
     return "SECRETS = {}\n" + "\n".join(code_parts)
 
 
-@tool(extras={"repl_save": False})
+def _is_tool_public_for_repl(tool_: BaseTool) -> bool:
+    extras = getattr(tool_, "extras", None) or {}
+    return not bool(extras.get("repl_skip"))
+
+
+def _tool_accepts_parameter(tool_or_callable: Any, param_name: str) -> bool:
+    candidate = tool_or_callable
+    if isinstance(tool_or_callable, BaseTool):
+        candidate = (
+            getattr(tool_or_callable, "coroutine", None)
+            or getattr(tool_or_callable, "func", None)
+            or tool_or_callable
+        )
+    try:
+        signature = inspect.signature(candidate)
+    except (TypeError, ValueError):
+        return False
+    return param_name in signature.parameters
+
+
+def _is_valid_python_identifier(name: str) -> bool:
+    return bool(name and name.isidentifier() and not keyword.iskeyword(name))
+
+
+def _extract_repl_tools_map() -> dict[str, Any]:
+    repl_tools_map: dict[str, Any] = {}
+    extras = getattr(python, "extras", None) or {}
+    repl_tools = extras.get("repl_tools", [])
+    if not isinstance(repl_tools, list):
+        return repl_tools_map
+    for repl_tool in repl_tools:
+        tool_name = getattr(repl_tool, "__name__", None)
+        if isinstance(tool_name, str) and tool_name:
+            repl_tools_map[tool_name] = repl_tool
+    return repl_tools_map
+
+
+def _extract_tool_node_tools_map(
+    tool_node: AgentToolNode | None,
+) -> dict[str, BaseTool]:
+    if tool_node is None:
+        return {}
+
+    node_runtime = getattr(tool_node, "tool_node", None)
+    tools_by_name = getattr(node_runtime, "tools_by_name", None)
+    if not isinstance(tools_by_name, dict):
+        return {}
+
+    tool_node_tools: dict[str, BaseTool] = {}
+    for tool_name, tool_ in tools_by_name.items():
+        if not isinstance(tool_name, str) or not isinstance(tool_, BaseTool):
+            continue
+        if tool_name == "python":
+            continue
+        if not _is_tool_public_for_repl(tool_):
+            continue
+        tool_node_tools[tool_name] = tool_
+    return tool_node_tools
+
+
+def _build_repl_prelude(tool_names: list[str]) -> str:
+    if not tool_names:
+        return ""
+
+    prelude_lines = [
+        "import json as _giga_repl_json",
+        f"_GIGA_REPL_INPUT_PREFIX = {_REPL_TOOL_INPUT_PREFIX!r}",
+        "",
+        "def _giga_repl_call(_tool_name, **kwargs):",
+        "    payload = {",
+        "        'type': 'tool_call',",
+        "        'tool_name': _tool_name,",
+        "        'kwargs': kwargs,",
+        "    }",
+        "    raw_response = input(",
+        "        _GIGA_REPL_INPUT_PREFIX + _giga_repl_json.dumps(payload, ensure_ascii=False)",
+        "    )",
+        "    response = _giga_repl_json.loads(raw_response)",
+        "    if not response.get('ok'):",
+        "        error = response.get('error', {})",
+        "        error_type = error.get('type', 'ToolError')",
+        "        error_message = error.get('message', 'Tool execution failed')",
+        "        details = error.get('details', '')",
+        "        full_message = f'{error_type}: {error_message}'",
+        "        if details:",
+        "            full_message = f'{full_message}\\n{details}'",
+        "        raise RuntimeError(full_message)",
+        "    return response.get('data')",
+        "",
+        "def _giga_repl_tool(_tool_name):",
+        "    def _decorator(_func):",
+        "        def _wrapper(*args, **kwargs):",
+        "            if args:",
+        "                raise TypeError(",
+        "                    f\"Tool '{_tool_name}' accepts keyword arguments only\"",
+        "                )",
+        "            return _giga_repl_call(_tool_name, **kwargs)",
+        "        return _wrapper",
+        "    return _decorator",
+        "",
+    ]
+
+    for tool_name in tool_names:
+        if not _is_valid_python_identifier(tool_name):
+            continue
+        prelude_lines.extend(
+            [
+                f"@_giga_repl_tool({tool_name!r})",
+                f"def {tool_name}(**kwargs):",
+                "    pass",
+                "",
+            ]
+        )
+
+    return "\n".join(prelude_lines).rstrip() + "\n\n"
+
+
+def _inject_repl_prelude(
+    code: str,
+    repl_tools_map: dict[str, Any],
+    tool_node_tools_map: dict[str, BaseTool],
+) -> str:
+    tool_names = list(repl_tools_map.keys())
+    for tool_name in tool_node_tools_map.keys():
+        if tool_name not in repl_tools_map:
+            tool_names.append(tool_name)
+    prelude = _build_repl_prelude(tool_names)
+    return prelude + code if prelude else code
+
+
+def _parse_special_input(prompt: str) -> dict[str, Any] | None:
+    if not isinstance(prompt, str):
+        return None
+    if not prompt.startswith(_REPL_TOOL_INPUT_PREFIX):
+        return None
+    raw_payload = prompt[len(_REPL_TOOL_INPUT_PREFIX) :]
+    try:
+        payload = json.loads(raw_payload)
+    except (TypeError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _normalize_repl_tool_result(result: Any) -> Any:
+    if isinstance(result, ToolMessage):
+        content = result.content
+        if isinstance(content, str):
+            try:
+                return json.loads(content)
+            except (TypeError, ValueError):
+                return content
+        return content
+    return result
+
+
+def _build_error_envelope(exc: Exception) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {
+            "type": exc.__class__.__name__,
+            "message": str(exc),
+            "details": traceback.format_exc(),
+        },
+    }
+
+
+async def _invoke_repl_tool_callable(
+    tool_callable: Any,
+    kwargs: dict[str, Any],
+    runtime: ToolRuntime,
+) -> Any:
+    call_kwargs = dict(kwargs)
+    if _tool_accepts_parameter(tool_callable, "tool_runtime"):
+        call_kwargs.setdefault("tool_runtime", runtime)
+    result = tool_callable(**call_kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+async def _invoke_tool_node_tool(
+    tool_: BaseTool,
+    kwargs: dict[str, Any],
+    runtime: ToolRuntime,
+) -> Any:
+    call_kwargs = dict(kwargs)
+    if _tool_accepts_parameter(tool_, "runtime"):
+        call_kwargs.setdefault("runtime", runtime)
+    try:
+        return await tool_.ainvoke(call_kwargs, config=runtime.config)
+    except ValidationError:
+        raw_callable = getattr(tool_, "coroutine", None) or getattr(tool_, "func", None)
+        if raw_callable is None:
+            raise
+        result = raw_callable(**call_kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+
+async def _handle_special_input_request(
+    prompt: str,
+    runtime: ToolRuntime,
+    repl_tools_map: dict[str, Any],
+    tool_node_tools_map: dict[str, BaseTool],
+) -> str:
+    payload = _parse_special_input(prompt)
+    if payload is None:
+        return ""
+
+    try:
+        if payload.get("type") != "tool_call":
+            raise ValueError("Unsupported input payload type")
+
+        tool_name = payload.get("tool_name")
+        if not isinstance(tool_name, str) or not tool_name:
+            raise ValueError("Tool name is missing in input payload")
+
+        raw_kwargs = payload.get("kwargs", {})
+        if not isinstance(raw_kwargs, dict):
+            raise ValueError("Tool kwargs must be a JSON object")
+
+        if tool_name in repl_tools_map:
+            raw_result = await _invoke_repl_tool_callable(
+                repl_tools_map[tool_name], raw_kwargs, runtime
+            )
+        elif tool_name in tool_node_tools_map:
+            raw_result = await _invoke_tool_node_tool(
+                tool_node_tools_map[tool_name], raw_kwargs, runtime
+            )
+        else:
+            raise ValueError(f"Tool '{tool_name}' is not available in REPL environment")
+
+        payload_result = {"ok": True, "data": _normalize_repl_tool_result(raw_result)}
+        return json.dumps(payload_result, ensure_ascii=False, default=str)
+    except Exception as exc:  # noqa: BLE001
+        return json.dumps(_build_error_envelope(exc), ensure_ascii=False, default=str)
+
+
+class PythonArgsSchema(BaseModel):
+    code: str = Field(description="Python код для выполнения в Jupyter kernel.")
+
+
+@tool(extras={"repl_save": False, "args_hack": True}, args_schema=PythonArgsSchema)
 async def python(
     code: str,
     runtime: ToolRuntime,
+    tool_node: AgentToolNode,
 ) -> ToolMessage:
     """Выполняет Python код в Jupyter sandbox пользователя и возвращает результат.
 
@@ -206,6 +460,11 @@ async def python(
     uploads: list[UploadFileSpec] = []
     giga_attachments: list[dict[str, Any]] = []
     upload_prefix = _resolve_upload_prefix(runtime)
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+    repl_tools_map = _extract_repl_tools_map()
+    tool_node_tools_map = _extract_tool_node_tools_map(tool_node)
+    prepared_code = _inject_repl_prelude(code, repl_tools_map, tool_node_tools_map)
 
     # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)
     kernel_id = runtime.state.get("kernel_id")
@@ -216,8 +475,28 @@ async def python(
         async for _ in sandbox_runtime.run_code(secrets_code):
             pass
 
-    async for chunk in sandbox_runtime.run_code(code):
+    code_iter = sandbox_runtime.run_code(prepared_code)
+    pending_input_reply: str | None = None
+    while True:
+        try:
+            if pending_input_reply is None:
+                chunk = await anext(code_iter)
+            else:
+                chunk = await code_iter.asend(pending_input_reply)
+                pending_input_reply = None
+        except StopAsyncIteration:
+            break
+
         chunk_type = chunk.get("type")
+
+        if chunk_type == "input_request":
+            pending_input_reply = await _handle_special_input_request(
+                prompt=str(chunk.get("prompt", "")),
+                runtime=runtime,
+                repl_tools_map=repl_tools_map,
+                tool_node_tools_map=tool_node_tools_map,
+            )
+            continue
 
         if chunk_type in ("stdout", "stderr"):
             text = chunk.get("text", "")
@@ -290,6 +569,10 @@ async def python(
             "tool_name": "python",
         },
     )
+
+
+# Делаем грязный хак для нормальной работы python
+python._parse_input = types.MethodType(_parse_input, python)
 
 
 @tool(parse_docstring=True, extras={"repl_save": False})

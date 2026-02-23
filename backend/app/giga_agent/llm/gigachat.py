@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import mimetypes
+import uuid
 from typing import Any
 
 from langchain_gigachat import GigaChat
+from langchain_core.messages import HumanMessage
 
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.llm.base import AvailableModel, BaseLLMRuntime, ModelFetchError
@@ -67,3 +70,30 @@ class GigaChatRuntime(BaseLLMRuntime):
             **connection_kwargs,
             **clean_model_kwargs,
         )
+
+    def can_analyze_image(self) -> bool:
+        return True
+
+    async def analyze_image(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str = "image/jpg",
+    ) -> str:
+        extension = mimetypes.guess_extension(mime_type) or ".jpg"
+        uploaded = await self.llm.aupload_file(
+            (f"{uuid.uuid4().hex}{extension}", image_bytes),
+            purpose="general",
+        )
+        response = await self.llm.ainvoke(
+            [
+                HumanMessage(
+                    content=[
+                        {"type": "text", "text": prompt},
+                    ],
+                    additional_kwargs={"attachments": [uploaded.id_]},
+                )
+            ]
+        )
+        return response.text

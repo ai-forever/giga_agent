@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import abc
+import base64
 from functools import cached_property
 from typing import Any, ClassVar, Type
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, ConfigDict, create_model
 
 from giga_agent.connectors.registry import ConnectorRegistry
@@ -86,6 +88,30 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
     async def check_connection(self) -> None:
         await self.llm.ainvoke("ping")
 
+    def can_analyze_image(self) -> bool:
+        return True
+
+    async def analyze_image(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str = "image/jpg",
+    ) -> str:
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        image_url = f"data:{mime_type};base64,{image_b64}"
+        response = await self.llm.ainvoke(
+            [
+                HumanMessage(
+                    content=[
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ]
+                )
+            ]
+        )
+        return response.text
+
     @classmethod
     def _get_connection_kwargs(
         cls,
@@ -98,7 +124,9 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
                 f"Connector type '{connector_type}' is not supported by LLM '{cls.__name__}'. "
                 f"Supported: {cls.supported_connector_types()}"
             )
-        return ConnectorRegistry.get_connection_kwargs(connector_type, connector_settings)
+        return ConnectorRegistry.get_connection_kwargs(
+            connector_type, connector_settings
+        )
 
     @classmethod
     @abc.abstractmethod

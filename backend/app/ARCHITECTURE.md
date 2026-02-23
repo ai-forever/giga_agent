@@ -38,7 +38,7 @@ class MyModel(Base):
 
 Система состоит из core и модулей.
 
-- Встроенные модули находятся в `giga_agent.modules.*` (сейчас: `auth`, `repl`, `image`, `search`).
+- Встроенные модули находятся в `giga_agent.modules.*` (сейчас: `auth`, `repl`, `image`, `analyze_images`, `search`).
 - Пользовательские модули могут быть внешними пакетами.
 
 ### Контракт модуля
@@ -69,14 +69,28 @@ Core-уровень хранит runtime-конфигурации в отдел�
 
 ```python
 from giga_agent.core.agent.base import BaseAgent
+from giga_agent.modules.analyze_images import AnalyzeImagesModule
 from giga_agent.modules.auth import AuthModule
 from giga_agent.modules.image import ImageModule
 from giga_agent.modules.repl import ReplModule
 from giga_agent.modules.search import SearchModule
 
-agent = BaseAgent(modules=[AuthModule(), ReplModule(), ImageModule(), SearchModule()])
+agent = BaseAgent(
+    modules=[
+        AuthModule(),
+        ReplModule(),
+        ImageModule(),
+        AnalyzeImagesModule(),
+        SearchModule(),
+    ]
+)
 app, graph = agent.app, agent.graph
 ```
+
+### Capability-based tools
+
+Модуль `analyze_images` включает tool `analyze_image` только если активный для пользователя
+LLM runtime поддерживает `can_analyze_image()`.
 
 ## 3. Управление миграциями
 

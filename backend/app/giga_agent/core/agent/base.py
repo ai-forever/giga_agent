@@ -1,10 +1,10 @@
-from typing import Any, List, Set, Optional
+from typing import Any, Dict, List, Set, Optional
 from contextlib import asynccontextmanager
 from typing_extensions import override
 
 from fastapi import FastAPI
-from pydantic import Field, PrivateAttr, ConfigDict
-from langchain_core.load.serializable import Serializable
+from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
+from uuid import UUID
 
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.module import BaseModule
@@ -33,22 +33,42 @@ NOTES_PROMPT = """
 """  # noqa: E501
 
 
-class BaseAgent(Serializable):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class BaseAgent(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
-    modules: List[BaseModule] = Field(default_factory=list)
-    llm: Optional[BaseChatModel] = None
-    sandbox: Optional[BaseSandbox] = None
-    tools: Optional[List[BaseTool]] = None
+    modules: tuple[BaseModule, ...] = Field(default_factory=tuple)
+    tools: List[BaseTool] = Field(default_factory=list)
 
     _app: FastAPI = PrivateAttr()
     _graph: CompiledStateGraph[AgentState, Context] = PrivateAttr()
     _module_ids: Set[str] = PrivateAttr(default_factory=set)
+    _tools_cache: Dict[tuple[UUID | None, int], List[BaseTool]] = PrivateAttr(
+        default_factory=dict
+    )
 
-    @classmethod
-    @override
-    def is_lc_serializable(cls) -> bool:
-        return True
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name != "modules":
+            return super().__setattr__(name, value)
+
+        old_modules = getattr(self, "modules", None)
+        super().__setattr__(name, value)
+
+        module_ids = [m.id for m in self.modules]
+        unique_ids = set(module_ids)
+        if len(module_ids) != len(unique_ids):
+            if old_modules is not None:
+                super().__setattr__("modules", old_modules)
+            for mid in module_ids:
+                if module_ids.count(mid) > 1:
+                    raise ValueError(
+                        f"Agent cannot have multiple modules with the same id: '{mid}'"
+                    )
+            raise ValueError("Agent cannot have multiple modules with the same id")
+
+        if hasattr(self, "_module_ids"):
+            self._module_ids = unique_ids
+        if hasattr(self, "_tools_cache"):
+            self._tools_cache.clear()
 
     def model_post_init(self, __context: Any) -> None:
         super().model_post_init(__context)
@@ -74,7 +94,7 @@ class BaseAgent(Serializable):
 
         # Re-initialize modules through add_module to ensure validation and route registration
         initial_modules = self.modules
-        self.modules = []
+        self.modules = ()
 
         for module in initial_modules:
             self.add_module(module)
@@ -95,8 +115,7 @@ class BaseAgent(Serializable):
                 f"Agent cannot have multiple modules with the same id: '{module.id}'"
             )
 
-        self.modules.append(module)
-        self._module_ids.add(module.id)
+        self.modules = (*self.modules, module)
 
         # Re-setup routes or just add the new one if possible
         if hasattr(self, "_app") and module.get_api_router():
@@ -140,9 +159,22 @@ class BaseAgent(Serializable):
         )
 
     async def get_tools(self, user: UserShort) -> List[BaseTool]:
-        all_tools = list(self.tools or [])
+        user_id = getattr(user, "id", None)
+        try:
+            user_fingerprint = hash(user)
+        except TypeError:
+            user_fingerprint = id(user)
+
+        cache_key = (user_id, user_fingerprint)
+        cached = self._tools_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        all_tools = list(self.tools)
         for module in self.modules:
             all_tools.extend(await module.get_tools(user=user, agent=self))
+
+        self._tools_cache[cache_key] = all_tools
         return all_tools
 
     async def extend_task(

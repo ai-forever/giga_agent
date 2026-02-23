@@ -19,6 +19,8 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
+    Awaitable,
+    Coroutine,
 )
 
 from langchain_core.messages import (
@@ -37,6 +39,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.tools import tool as create_tool
 from langchain_core.tools.base import (
     get_all_basemodel_annotations,
+    create_schema_from_function,
 )
 from langgraph._internal._runnable import RunnableCallable
 from langgraph.errors import GraphBubbleUp
@@ -231,6 +234,8 @@ def _filter_validation_errors(
             injected_arg_names.add(injected_args.store)
         if injected_args.runtime:
             injected_arg_names.add(injected_args.runtime)
+        if injected_args.agent_tool_node:
+            injected_arg_names.add(injected_args.agent_tool_node)
 
     filtered_errors: list[ErrorDetails] = []
     for error in validation_error.errors():
@@ -255,6 +260,11 @@ def _filter_validation_errors(
 
 
 @dataclass
+class AgentTools:
+    langchain_tools_map: dict[str, BaseTool]
+
+
+@dataclass
 class _InjectedArgs:
     """Internal structure for tracking injected arguments for a tool.
 
@@ -276,6 +286,8 @@ class _InjectedArgs:
             or None if no store injection is needed.
         runtime: Name of the tool parameter where the runtime should be injected,
             or None if no runtime injection is needed.
+        agent_tool_node: Name of the tool parameter where the agent tools should be
+            injected, or None if no agent tools are needed.
 
     Example:
         For a tool with signature:
@@ -286,6 +298,7 @@ class _InjectedArgs:
             full_state: Annotated[dict, InjectedState()],
             store: Annotated[BaseStore, InjectedStore()],
             runtime: ToolRuntime,
+            tool_node: AgentToolNode
         ) -> str:
             ...
         ```
@@ -299,6 +312,7 @@ class _InjectedArgs:
             },
             store="store",               # Inject into "store" parameter
             runtime="runtime",           # Inject into "runtime" parameter
+            agent_tool_node="tool_node", # Inject into "tool_node" parameter
         )
         ```
     """
@@ -306,6 +320,12 @@ class _InjectedArgs:
     state: dict[str, str | None]
     store: str | None
     runtime: str | None
+    agent_tool_node: str | None
+
+
+@dataclass
+class AgentToolNode:
+    tool_node: ToolNode
 
 
 @dataclass
@@ -786,6 +806,12 @@ class ToolNode(RunnableCallable):
         if injected.runtime:
             injected_args[injected.runtime] = tool_runtime
 
+        # Inject AgentToolNode
+        if injected.agent_tool_node:
+            injected_args[injected.agent_tool_node] = AgentToolNode(
+                tool_node=self,
+            )
+
         tool_call_copy["args"] = {**tool_call_copy["args"], **injected_args}
         return tool_call_copy
 
@@ -864,7 +890,7 @@ class ToolNode(RunnableCallable):
 
 def _is_injection(
     type_arg: Any,
-    injection_type: type[InjectedState | InjectedStore | ToolRuntime],
+    injection_type: type[InjectedState | InjectedStore | ToolRuntime | AgentToolNode],
 ) -> bool:
     """Check if a type argument represents an injection annotation.
 
@@ -890,7 +916,8 @@ def _is_injection(
 
 
 def _get_injection_from_type(
-    type_: Any, injection_type: type[InjectedState | InjectedStore | ToolRuntime]
+    type_: Any,
+    injection_type: type[InjectedState | InjectedStore | ToolRuntime | AgentToolNode],
 ) -> Any | None:
     """Extract injection instance from a type annotation.
 
@@ -932,7 +959,10 @@ def _get_all_injected_args(tool: BaseTool) -> _InjectedArgs:
         _InjectedArgs structure containing all detected injections.
     """
     # Get annotations from both schema and function signature
-    full_schema = tool.get_input_schema()
+    if tool.extras is not None and tool.extras.get("args_hack"):
+        full_schema = create_schema_from_function(tool.name, tool._run)
+    else:
+        full_schema = tool.get_input_schema()
     schema_annotations = get_all_basemodel_annotations(full_schema)
 
     func = getattr(tool, "func", None) or getattr(tool, "coroutine", None)
@@ -946,6 +976,7 @@ def _get_all_injected_args(tool: BaseTool) -> _InjectedArgs:
     state_args: dict[str, str | None] = {}
     store_arg: str | None = None
     runtime_arg: str | None = None
+    agent_tool_node_arg: str | None = None
 
     for name, type_ in all_annotations.items():
         # Check for runtime (special case: parameter named "runtime")
@@ -967,8 +998,13 @@ def _get_all_injected_args(tool: BaseTool) -> _InjectedArgs:
         if _get_injection_from_type(type_, ToolRuntime):
             runtime_arg = name
 
+        # Check for AgentToolNode
+        if _get_injection_from_type(type_, AgentToolNode):
+            agent_tool_node_arg = name
+
     return _InjectedArgs(
         state=state_args,
         store=store_arg,
         runtime=runtime_arg,
+        agent_tool_node=agent_tool_node_arg,
     )
