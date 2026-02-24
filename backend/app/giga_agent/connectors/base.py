@@ -30,14 +30,12 @@ class BaseConnector(BaseModel, abc.ABC):
         schema = cls.settings_schema()
         return schema(**settings).model_dump(exclude_none=True)
 
-    @classmethod
     @abc.abstractmethod
-    def get_connection_kwargs(cls, settings: dict[str, Any]) -> dict[str, Any] | None:
-        """Build normalized kwargs for downstream clients from connector settings."""
+    def get_connection_kwargs(self) -> dict[str, Any] | None:
+        """Build normalized kwargs for downstream clients from self settings."""
         raise NotImplementedError
 
-    @classmethod
     @abc.abstractmethod
-    def get_api_object(cls, settings: dict[str, Any]) -> Any:
-        """Build provider API object from connector settings."""
+    def get_api_object(self) -> Any:
+        """Build provider API object from self settings."""
         raise NotImplementedError

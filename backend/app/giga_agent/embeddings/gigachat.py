@@ -7,7 +7,7 @@ from typing import Any
 from langchain_gigachat import GigaChat, GigaChatEmbeddings
 from pydantic import Field
 
-from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.connectors.base import BaseConnector
 from giga_agent.embeddings.base import (
     AvailableEmbeddingModel,
     BaseEmbeddingRuntime,
@@ -28,13 +28,9 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
     async def fetch_available_models(
         cls,
         *,
-        connector_type: str,
-        connector_settings: dict[str, Any],
+        connector: BaseConnector,
     ) -> list[AvailableEmbeddingModel]:
-        kwargs = cls._get_connection_kwargs(
-            connector_type=connector_type,
-            connector_settings=connector_settings,
-        )
+        kwargs = connector.get_connection_kwargs()
         if kwargs is None:
             return []
 
@@ -54,14 +50,9 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
             raise EmbeddingModelFetchError("gigachat", str(e)) from e
 
     def _embeddings(self) -> GigaChatEmbeddings:
-        connection_kwargs = ConnectorRegistry.get_connection_kwargs(
-            self.connector.type,
-            self.connector.settings or {},
-        )
+        connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
-            raise ValueError(
-                f"Invalid connection settings for connector {self.connector.id}"
-            )
+            raise ValueError("Invalid connection settings for GigaChat embedding runtime")
         settings = self._settings_payload()
         client_kwargs: dict[str, Any] = {
             "model": self.model_id,

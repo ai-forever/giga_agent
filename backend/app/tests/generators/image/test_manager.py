@@ -53,7 +53,7 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             type="openai",
             settings={"api_key": "sk-test"},
         )
-        fake_llm = object()
+        fake_connector_runtime = object()
 
         captured: dict = {}
 
@@ -78,20 +78,20 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.generators.image.manager.ConnectorRepository.get_cached_or_db",
             AsyncMock(return_value=connector),
         ), patch(
-            "giga_agent.generators.image.manager.ConnectorRegistry.get_api_object",
-            return_value=fake_llm,
-        ) as mocked_api_object:
+            "giga_agent.generators.image.manager.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=fake_connector_runtime),
+        ) as mocked_get_runtime:
             generator = await ImageGeneratorManager.resolve_by_id(
                 gen_id,
                 session=session,
             )
 
-        mocked_api_object.assert_called_once_with("openai", {"api_key": "sk-test"})
+        mocked_get_runtime.assert_awaited_once_with("openai", {"api_key": "sk-test"})
         self.assertIsInstance(generator, _RuntimeStub)
         self.assertTrue(captured.get("initialized"))
         self.assertEqual(captured["kwargs"]["model"], "gpt-image-1")
         self.assertEqual(captured["kwargs"]["timeout"], 30.0)
-        self.assertIs(captured["kwargs"]["llm"], fake_llm)
+        self.assertIs(captured["kwargs"]["connector"], fake_connector_runtime)
 
     async def test_resolve_raises_for_unsupported_connector_type(self):
         gen_id = uuid.uuid4()

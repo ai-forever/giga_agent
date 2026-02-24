@@ -37,12 +37,14 @@ class GigaChatImageGen(BaseImageGenerator):
     _client: httpx.AsyncClient | None = PrivateAttr(default=None)
 
     async def init(self) -> None:
-        gigachat_client = self._resolve_gigachat_client_from_llm()
+        connector = self.require_supported_connector()
+        api_object = connector.get_api_object()
+        gigachat_client = self._resolve_gigachat_client(api_object)
 
         if gigachat_client is None:
             raise ValueError(
                 "GigaChat client is not configured. "
-                "Provide a compatible llm client from a GigaChat provider."
+                "Provide a compatible gigachat connector."
             )
 
         token_data = await gigachat_client.aget_token()
@@ -50,7 +52,7 @@ class GigaChatImageGen(BaseImageGenerator):
 
         base_url = getattr(getattr(gigachat_client, "_client", None), "base_url", None)
         if base_url is None:
-            raise ValueError("Could not resolve GigaChat base_url from llm client")
+            raise ValueError("Could not resolve GigaChat base_url from connector client")
 
         self._client = httpx.AsyncClient(
             verify=False,
@@ -63,11 +65,11 @@ class GigaChatImageGen(BaseImageGenerator):
     def supported_connector_types(cls) -> list[str]:
         return ["gigachat"]
 
-    def _resolve_gigachat_client_from_llm(self):
-        if self.llm is None:
+    def _resolve_gigachat_client(self, api_object: object):
+        if api_object is None:
             return None
 
-        client = getattr(self.llm, "_client", None)
+        client = getattr(api_object, "_client", None)
         if client is None:
             return None
         if not hasattr(client, "aget_token"):

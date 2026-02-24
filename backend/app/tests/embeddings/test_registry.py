@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import giga_agent.connectors  # noqa: F401
 import giga_agent.embeddings  # noqa: F401
+from giga_agent.connectors.gigachat import GigaChatConnector
+from giga_agent.connectors.openai import OpenAIConnector
 from giga_agent.embeddings.base import BaseEmbeddingRuntime
 from giga_agent.embeddings.gigachat import GigaChatEmbeddingRuntime
 from giga_agent.embeddings.openai import OpenAIEmbeddingRuntime
@@ -22,8 +24,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_openai_fetch_available_models_returns_empty_by_default(self):
         models = await OpenAIEmbeddingRuntime.fetch_available_models(
-            connector_type="openai",
-            connector_settings={"api_key": "sk-test"},
+            connector=OpenAIConnector(api_key="sk-test"),
         )
         self.assertEqual(models, [])
 
@@ -37,16 +38,14 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
                 return object()
 
         models = await _RuntimeStub.fetch_available_models(
-            connector_type="openai",
-            connector_settings={"api_key": "sk-test"},
+            connector=OpenAIConnector(api_key="sk-test"),
         )
         self.assertEqual(models, [])
 
     def test_openai_embeddings_instance_builder(self):
-        connector = types.SimpleNamespace(
-            id="connector-id",
-            type="openai",
-            settings={"api_key": "sk-test", "base_url": "https://api.openai.com/v1"},
+        connector = OpenAIConnector(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
         )
         with patch(
             "giga_agent.embeddings.openai.OpenAIEmbeddings",
@@ -83,25 +82,19 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("giga_agent.embeddings.gigachat.GigaChat", return_value=mock_llm):
             models = await GigaChatEmbeddingRuntime.fetch_available_models(
-                connector_type="gigachat",
-                connector_settings={
-                    "gigachat_api_type": "prod",
-                    "gigachat_credentials": "token",
-                },
+                connector=GigaChatConnector(
+                    gigachat_api_type="prod",
+                    gigachat_credentials="token",
+                ),
             )
 
         self.assertEqual([item.id for item in models], ["EmbeddingsGigaR", "GigaChat"])
 
     def test_gigachat_embeddings_instance_builder(self):
-        connector = types.SimpleNamespace(
-            id="connector-id",
-            type="gigachat",
-            settings={
-                "gigachat_api_type": "prod",
-                "gigachat_credentials": "token",
-                "verify_ssl_certs": False,
-                "gigachat_scope": "GIGACHAT_API_PERS",
-            },
+        connector = GigaChatConnector(
+            gigachat_api_type="prod",
+            gigachat_credentials="token",
+            gigachat_scope="GIGACHAT_API_PERS",
         )
         with patch(
             "giga_agent.embeddings.gigachat.GigaChatEmbeddings",

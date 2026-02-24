@@ -36,7 +36,7 @@ class ImageGeneratorManager:
         runtime_cls = ImageGeneratorRegistry.get(record.type)
         supported_types = [item.lower() for item in runtime_cls.supported_connector_types()]
 
-        llm = None
+        connector_runtime = None
         if supported_types:
             connector_id = record.connector_id
             if connector_id is None:
@@ -61,7 +61,7 @@ class ImageGeneratorManager:
                     f"image generator '{record.type}'. Supported types: {supported_types}"
                 )
 
-            llm = ConnectorRegistry.get_api_object(
+            connector_runtime = await ConnectorRegistry.get_runtime(
                 connector_type,
                 connector.settings or {},
             )
@@ -72,7 +72,7 @@ class ImageGeneratorManager:
 
         generator = runtime_cls(
             **(record.settings or {}),
-            llm=llm,
+            connector=connector_runtime,
         )
         await generator.init()
         return generator

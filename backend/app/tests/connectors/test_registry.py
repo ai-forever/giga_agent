@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import giga_agent.connectors  # noqa: F401
+from giga_agent.connectors.openai import OpenAIConnector
 from giga_agent.connectors.registry import ConnectorRegistry
 
 
@@ -42,3 +43,12 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(settings, {})
             kwargs = ConnectorRegistry.get_connection_kwargs("tavily", settings)
             self.assertEqual(kwargs, {"api_key": "tvly-env"})
+
+    async def test_get_runtime_returns_connector_instance(self):
+        runtime = await ConnectorRegistry.get_runtime(
+            "openai",
+            {"api_key": "  sk-test  ", "base_url": "https://api.openai.com/v1/ "},
+        )
+        self.assertIsInstance(runtime, OpenAIConnector)
+        self.assertEqual(runtime.api_key, "sk-test")
+        self.assertEqual(runtime.base_url, "https://api.openai.com/v1")

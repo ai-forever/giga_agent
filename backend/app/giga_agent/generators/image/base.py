@@ -6,10 +6,11 @@ import abc
 import asyncio
 from typing import Any, ClassVar, Type
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
+from giga_agent.connectors.base import BaseConnector
+from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,12 +32,12 @@ class BaseImageGenerator(BaseModel, abc.ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     parallel_calls: int = Field(default=1, ge=1)
-    llm: BaseChatModel | None = None
+    connector: BaseConnector | None = None
 
     # Поля, управляемые системой (не хранятся в settings JSON).
     _runtime_fields: ClassVar[set[str]] = {
         "parallel_calls",
-        "llm",
+        "connector",
     }
     _semaphore: asyncio.Semaphore = PrivateAttr()
     _initialized: bool = PrivateAttr(default=False)
@@ -92,6 +93,39 @@ class BaseImageGenerator(BaseModel, abc.ABC):
         from giga_agent.generators.image.tool import gen_image
 
         return [gen_image]
+
+    def require_supported_connector(self) -> BaseConnector:
+        """
+        Проверить и вернуть connector для генератора.
+
+        Базовая проверка:
+        - если генератор требует connector, он должен быть передан;
+        - runtime connector должен соответствовать одному из supported_connector_types().
+        """
+        supported_types = [item.lower() for item in self.supported_connector_types()]
+
+        if not supported_types:
+            raise ValueError(
+                f"Image generator '{self.__class__.__name__}' does not support connectors."
+            )
+
+        if self.connector is None:
+            raise ValueError(
+                f"Image generator '{self.__class__.__name__}' requires connector. "
+                f"Supported connector types: {supported_types}"
+            )
+
+        allowed_classes: tuple[type[BaseConnector], ...] = tuple(
+            ConnectorRegistry.get(connector_type) for connector_type in supported_types
+        )
+        if not isinstance(self.connector, allowed_classes):
+            raise ValueError(
+                f"Connector runtime '{self.connector.__class__.__name__}' is not supported by "
+                f"image generator '{self.__class__.__name__}'. Supported connector types: "
+                f"{supported_types}"
+            )
+
+        return self.connector
 
     # ============ Settings validation ============
 

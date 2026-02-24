@@ -13,7 +13,7 @@ class ImageSettingsSchemaTests(unittest.TestCase):
         self.assertIn("timeout", schema.model_fields)
         self.assertIn("max_retries", schema.model_fields)
 
-        self.assertNotIn("llm", schema.model_fields)
+        self.assertNotIn("connector", schema.model_fields)
         self.assertNotIn("parallel_calls", schema.model_fields)
 
     def test_gigachat_settings_schema_excludes_runtime_fields(self):
@@ -23,7 +23,7 @@ class ImageSettingsSchemaTests(unittest.TestCase):
         self.assertIn("timeout", schema.model_fields)
         self.assertIn("max_retries", schema.model_fields)
 
-        self.assertNotIn("llm", schema.model_fields)
+        self.assertNotIn("connector", schema.model_fields)
         self.assertNotIn("parallel_calls", schema.model_fields)
 
     def test_fusion_brain_schema_keeps_required_keys(self):
@@ -31,7 +31,7 @@ class ImageSettingsSchemaTests(unittest.TestCase):
 
         self.assertIn("api_key", schema.model_fields)
         self.assertIn("secret_key", schema.model_fields)
-        self.assertNotIn("llm", schema.model_fields)
+        self.assertNotIn("connector", schema.model_fields)
         self.assertNotIn("parallel_calls", schema.model_fields)
 
     def test_supported_connector_types(self):

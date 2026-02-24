@@ -53,11 +53,13 @@ class OpenAIImageGen(BaseImageGenerator):
     _client: AsyncOpenAI | None = PrivateAttr(default=None)
 
     async def init(self) -> None:
-        self._client = self._resolve_openai_client_from_llm()
+        connector = self.require_supported_connector()
+        api_object = connector.get_api_object()
+        self._client = self._resolve_openai_client(api_object)
         if self._client is None:
             raise ValueError(
                 "OpenAI client is not configured. "
-                "Provide a compatible llm client from an OpenAI provider."
+                "Provide a compatible openai connector."
             )
 
         await super().init()
@@ -66,16 +68,16 @@ class OpenAIImageGen(BaseImageGenerator):
     def supported_connector_types(cls) -> list[str]:
         return ["openai"]
 
-    def _resolve_openai_client_from_llm(self) -> AsyncOpenAI | None:
-        if self.llm is None:
+    def _resolve_openai_client(self, api_object: object) -> AsyncOpenAI | None:
+        if api_object is None:
             return None
 
         # Поддержка прямого доступа к _client и root_async_client.
-        direct_client = getattr(self.llm, "_client", None)
+        direct_client = getattr(api_object, "_client", None)
         if isinstance(direct_client, AsyncOpenAI):
             return direct_client
 
-        root_async_client = getattr(self.llm, "root_async_client", None)
+        root_async_client = getattr(api_object, "root_async_client", None)
         if isinstance(root_async_client, AsyncOpenAI):
             return root_async_client
 

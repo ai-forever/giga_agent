@@ -69,7 +69,8 @@ class ConnectorRegistry:
         settings: dict[str, Any],
     ) -> dict[str, Any] | None:
         runtime_cls = cls.get(connector_type)
-        return runtime_cls.get_connection_kwargs(settings)
+        runtime = runtime_cls(**(settings or {}))
+        return runtime.get_connection_kwargs()
 
     @classmethod
     def get_api_object(
@@ -78,4 +79,15 @@ class ConnectorRegistry:
         settings: dict[str, Any],
     ) -> Any:
         runtime_cls = cls.get(connector_type)
-        return runtime_cls.get_api_object(settings)
+        runtime = runtime_cls(**(settings or {}))
+        return runtime.get_api_object()
+
+    @classmethod
+    async def get_runtime(
+        cls,
+        connector_type: str,
+        settings: dict[str, Any],
+    ) -> BaseConnector:
+        runtime_cls = cls.get(connector_type)
+        validated = await runtime_cls.validate_settings(settings)
+        return runtime_cls(**validated)
