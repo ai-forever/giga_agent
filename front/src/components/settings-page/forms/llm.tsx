@@ -72,8 +72,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const [llmTypesLoaded, setLlmTypesLoaded] = useState(false);
   const [connectorsLoaded, setConnectorsLoaded] = useState(false);
 
-  const prevConnectorRef = useRef<string | null>(null);
-  const modelsFetchedRef = useRef<Set<string>>(new Set());
+  const prevModelsKeyRef = useRef<string | null>(null);
+  const modelsBySelectionRef = useRef<Record<string, AvailableModel[]>>({});
 
   const selectedTypeMeta = useMemo(
     () => llmTypes.find((item) => item.type === selectedLLMType),
@@ -127,17 +127,35 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     }
   }, []);
 
-  const fetchModelsForConnector = useCallback(async (connectorId: string) => {
+  const modelCacheKey = useCallback(
+    (llmType: string, connectorId: string) => `${llmType}:${connectorId}`,
+    [],
+  );
+
+  const fetchModelsForConnector = useCallback(async (connectorId: string, llmType: string) => {
+    const cacheKey = modelCacheKey(llmType, connectorId);
     setLoadingModels(true);
     try {
-      const data = await apiClient.get<AvailableModel[]>(`/api/llms/models/${connectorId}`);
-      setAvailableModels(data);
+      const data = await apiClient.get<AvailableModel[]>(
+        `/api/llms/models/${connectorId}?llm_type=${encodeURIComponent(llmType)}`,
+      );
+      const models = Array.isArray(data) ? data : [];
+      modelsBySelectionRef.current[cacheKey] = models;
+      if (prevModelsKeyRef.current === cacheKey) {
+        setAvailableModels(models);
+      }
     } catch {
       // handled globally
+      modelsBySelectionRef.current[cacheKey] = [];
+      if (prevModelsKeyRef.current === cacheKey) {
+        setAvailableModels([]);
+      }
     } finally {
-      setLoadingModels(false);
+      if (prevModelsKeyRef.current === cacheKey) {
+        setLoadingModels(false);
+      }
     }
-  }, []);
+  }, [modelCacheKey]);
 
   useEffect(() => {
     fetchLLMTypes();
@@ -147,6 +165,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   useEffect(() => {
     if (!selectedConnectorId) {
       setAvailableModels([]);
+      setLoadingModels(false);
       return;
     }
 
@@ -165,21 +184,32 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       return;
     }
 
-    if (
-      prevConnectorRef.current !== selectedConnectorId &&
-      !modelsFetchedRef.current.has(selectedConnectorId)
-    ) {
-      fetchModelsForConnector(selectedConnectorId);
-      modelsFetchedRef.current.add(selectedConnectorId);
-      setModelId((prev) => (prev && llm?.connector_id === selectedConnectorId ? prev : ""));
+    const cacheKey = modelCacheKey(selectedLLMType, selectedConnectorId);
+    if (prevModelsKeyRef.current !== cacheKey) {
+      if (cacheKey in modelsBySelectionRef.current) {
+        setAvailableModels(modelsBySelectionRef.current[cacheKey]);
+      } else {
+        setAvailableModels([]);
+        fetchModelsForConnector(selectedConnectorId, selectedLLMType);
+      }
+      setModelId((prev) =>
+        prev &&
+        llm?.connector_id === selectedConnectorId &&
+        llm?.type === selectedLLMType
+          ? prev
+          : "",
+      );
     }
 
-    prevConnectorRef.current = selectedConnectorId;
+    prevModelsKeyRef.current = cacheKey;
   }, [
+    selectedLLMType,
     selectedConnectorId,
     filteredConnectors,
+    modelCacheKey,
     fetchModelsForConnector,
     llm?.connector_id,
+    llm?.type,
     llmTypesLoaded,
     connectorsLoaded,
   ]);
@@ -189,6 +219,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     setSelectedLLMType(type);
     setSelectedConnectorId("");
     setAvailableModels([]);
+    modelsBySelectionRef.current = {};
+    prevModelsKeyRef.current = null;
+    setLoadingModels(false);
     setModelId("");
   };
 

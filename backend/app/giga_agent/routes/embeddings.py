@@ -39,6 +39,7 @@ class EmbeddingTypeMeta(BaseModel):
 
 
 class FetchModelsRequest(BaseModel):
+    embedding_type: str
     connector_type: str
     settings: dict[str, Any] = Field(default_factory=dict)
 
@@ -67,18 +68,18 @@ def _resolve_embedding_runtime(embedding_type: str, *, status_code: int) -> type
     return EmbeddingRegistry.get(embedding_type)
 
 
-def _resolve_embedding_runtime_for_connector(
-    connector_type: str,
+def _resolve_embedding_runtime_by_type(
+    embedding_type: str,
     *,
     status_code: int,
 ) -> type:
-    key = (connector_type or "").lower()
+    key = (embedding_type or "").lower()
     if not EmbeddingRegistry.is_registered(key):
         raise HTTPException(
             status_code=status_code,
             detail=(
-                f"Connector type '{connector_type}' is not supported for embeddings model discovery. "
-                f"Available embeddings types: {EmbeddingRegistry.available_types()}"
+                f"Unknown embedding type: '{embedding_type}'. "
+                f"Available: {EmbeddingRegistry.available_types()}"
             ),
         )
     return EmbeddingRegistry.get(key)
@@ -384,6 +385,7 @@ async def get_available_models_by_connector(
     connector_id: uuid.UUID,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
+    embedding_type: str = Query(..., description="Embedding runtime type"),
 ):
     connector = await _get_connector_with_owner_check(
         connector_id=connector_id,
@@ -396,8 +398,13 @@ async def get_available_models_by_connector(
             detail="Connector must be active",
         )
 
-    runtime_cls = _resolve_embedding_runtime_for_connector(
-        connector.type,
+    _validate_embedding_connector_compatibility(
+        embedding_type=embedding_type,
+        connector_type=connector.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    runtime_cls = _resolve_embedding_runtime_by_type(
+        embedding_type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
@@ -427,8 +434,13 @@ async def fetch_available_models(
         data.settings,
     )
 
-    runtime_cls = _resolve_embedding_runtime_for_connector(
-        data.connector_type,
+    _validate_embedding_connector_compatibility(
+        embedding_type=data.embedding_type,
+        connector_type=data.connector_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    runtime_cls = _resolve_embedding_runtime_by_type(
+        data.embedding_type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 

@@ -227,8 +227,8 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   const [embeddingTypesLoaded, setEmbeddingTypesLoaded] = useState(false);
   const [connectorsLoaded, setConnectorsLoaded] = useState(false);
 
-  const prevConnectorRef = useRef<string | null>(null);
-  const modelsByConnectorRef = useRef<Record<string, AvailableEmbeddingModel[]>>({});
+  const prevModelsKeyRef = useRef<string | null>(null);
+  const modelsBySelectionRef = useRef<Record<string, AvailableEmbeddingModel[]>>({});
 
   const selectedTypeMeta = useMemo(
     () => embeddingTypes.find((item) => item.type === selectedEmbeddingType),
@@ -282,27 +282,35 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     }
   }, []);
 
-  const fetchModelsForConnector = useCallback(async (connectorId: string) => {
+  const modelCacheKey = useCallback(
+    (embeddingType: string, connectorId: string) => `${embeddingType}:${connectorId}`,
+    [],
+  );
+
+  const fetchModelsForConnector = useCallback(async (connectorId: string, embeddingType: string) => {
+    const cacheKey = modelCacheKey(embeddingType, connectorId);
     setLoadingModels(true);
     try {
       const data = await apiClient.get<AvailableEmbeddingModel[]>(
-        `/api/embeddings/models/${connectorId}`,
+        `/api/embeddings/models/${connectorId}?embedding_type=${encodeURIComponent(embeddingType)}`,
       );
       const models = Array.isArray(data) ? data : [];
-      modelsByConnectorRef.current[connectorId] = models;
-      if (prevConnectorRef.current === connectorId) {
+      modelsBySelectionRef.current[cacheKey] = models;
+      if (prevModelsKeyRef.current === cacheKey) {
         setAvailableModels(models);
       }
     } catch {
       // handled globally
-      modelsByConnectorRef.current[connectorId] = [];
-      if (prevConnectorRef.current === connectorId) {
+      modelsBySelectionRef.current[cacheKey] = [];
+      if (prevModelsKeyRef.current === cacheKey) {
         setAvailableModels([]);
       }
     } finally {
-      setLoadingModels(false);
+      if (prevModelsKeyRef.current === cacheKey) {
+        setLoadingModels(false);
+      }
     }
-  }, []);
+  }, [modelCacheKey]);
 
   useEffect(() => {
     fetchEmbeddingTypes();
@@ -349,6 +357,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   useEffect(() => {
     if (!selectedConnectorId) {
       setAvailableModels([]);
+      setLoadingModels(false);
       return;
     }
 
@@ -367,24 +376,32 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       return;
     }
 
-    if (prevConnectorRef.current !== selectedConnectorId) {
-      if (selectedConnectorId in modelsByConnectorRef.current) {
-        setAvailableModels(modelsByConnectorRef.current[selectedConnectorId]);
+    const cacheKey = modelCacheKey(selectedEmbeddingType, selectedConnectorId);
+    if (prevModelsKeyRef.current !== cacheKey) {
+      if (cacheKey in modelsBySelectionRef.current) {
+        setAvailableModels(modelsBySelectionRef.current[cacheKey]);
       } else {
         setAvailableModels([]);
-        fetchModelsForConnector(selectedConnectorId);
+        fetchModelsForConnector(selectedConnectorId, selectedEmbeddingType);
       }
       setModelId((prev) =>
-        prev && embedding?.connector_id === selectedConnectorId ? prev : "",
+        prev &&
+        embedding?.connector_id === selectedConnectorId &&
+        embedding?.type === selectedEmbeddingType
+          ? prev
+          : "",
       );
     }
 
-    prevConnectorRef.current = selectedConnectorId;
+    prevModelsKeyRef.current = cacheKey;
   }, [
+    selectedEmbeddingType,
     selectedConnectorId,
     filteredConnectors,
+    modelCacheKey,
     fetchModelsForConnector,
     embedding?.connector_id,
+    embedding?.type,
     embeddingTypesLoaded,
     connectorsLoaded,
   ]);
@@ -394,7 +411,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     setSelectedEmbeddingType(type);
     setSelectedConnectorId("");
     setAvailableModels([]);
-    modelsByConnectorRef.current = {};
+    modelsBySelectionRef.current = {};
+    prevModelsKeyRef.current = null;
+    setLoadingModels(false);
     setModelId("");
     setSettingsValues({});
   };

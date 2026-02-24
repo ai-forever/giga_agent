@@ -128,10 +128,16 @@ class EmbeddingsRouterTests(unittest.TestCase):
             "giga_agent.routes.embeddings._get_connector_with_owner_check",
             AsyncMock(return_value=connector),
         ), patch(
-            "giga_agent.routes.embeddings._resolve_embedding_runtime_for_connector",
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._resolve_embedding_runtime_by_type",
             return_value=runtime_cls,
         ):
-            response = self.client.get(f"/embeddings/models/{connector.id}")
+            response = self.client.get(
+                f"/embeddings/models/{connector.id}",
+                params={"embedding_type": "openai"},
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["id"], "text-embedding-3-small")
@@ -147,12 +153,16 @@ class EmbeddingsRouterTests(unittest.TestCase):
             "giga_agent.routes.embeddings._validate_connector_settings",
             AsyncMock(return_value={"gigachat_credentials": "token"}),
         ), patch(
-            "giga_agent.routes.embeddings._resolve_embedding_runtime_for_connector",
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._resolve_embedding_runtime_by_type",
             return_value=runtime_cls,
         ):
             response = self.client.post(
                 "/embeddings/models/",
                 json={
+                    "embedding_type": "gigachat",
                     "connector_type": "gigachat",
                     "settings": {"gigachat_credentials": "token"},
                 },
@@ -160,6 +170,36 @@ class EmbeddingsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["id"], "EmbeddingsGigaR")
+
+    def test_get_models_returns_422_for_unknown_embedding_type(self):
+        connector = self._connector_obj()
+
+        with patch(
+            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            AsyncMock(return_value=connector),
+        ):
+            response = self.client.get(
+                f"/embeddings/models/{connector.id}",
+                params={"embedding_type": "unknown-runtime"},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Unknown embedding type", response.json()["detail"])
+
+    def test_get_models_returns_422_for_incompatible_embedding_and_connector(self):
+        connector = self._connector_obj(connector_type="openai")
+
+        with patch(
+            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            AsyncMock(return_value=connector),
+        ):
+            response = self.client.get(
+                f"/embeddings/models/{connector.id}",
+                params={"embedding_type": "gigachat"},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("not compatible", response.json()["detail"])
 
     def test_deactivate_current_auto_clears_current(self):
         self.skipTest("Редактирование эмбеддингов отключено")
