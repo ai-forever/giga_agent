@@ -34,16 +34,10 @@ class SearchEngineManager:
         supported_connector_types = {
             item.lower() for item in runtime_cls.supported_connector_types()
         }
-        connector_kwargs: dict = {}
+        connector_runtime = None
 
-        if supported_connector_types:
-            connector_id = record.connector_id
-            if connector_id is None:
-                raise ValueError(
-                    f"Поисковый движок {engine_id} требует connector. "
-                    f"Supported connector types: {sorted(supported_connector_types)}"
-                )
-
+        connector_id = record.connector_id
+        if connector_id is not None:
             connector = await ConnectorRepository.get_cached_or_db(
                 connector_id,
                 session=session,
@@ -54,19 +48,21 @@ class SearchEngineManager:
                 raise ValueError(f"Connector {connector_id} неактивен.")
 
             connector_type = (connector.type or "").lower()
+            if not supported_connector_types:
+                raise ValueError(
+                    f"Search engine '{record.type}' does not support connectors."
+                )
             if connector_type not in supported_connector_types:
                 raise ValueError(
                     f"Connector type '{connector_type}' не поддерживается search engine '{record.type}'. "
                     f"Supported: {sorted(supported_connector_types)}"
                 )
 
-            connector_kwargs = ConnectorRegistry.get_connection_kwargs(
+            connector_runtime = await ConnectorRegistry.get_runtime(
                 connector.type,
                 connector.settings or {},
             )
-            if connector_kwargs is None:
-                raise ValueError(f"Некорректные настройки connector {connector_id}.")
 
-        engine = runtime_cls(**(record.settings or {}), **connector_kwargs)
+        engine = runtime_cls(**(record.settings or {}), connector=connector_runtime)
         await engine.init()
         return engine

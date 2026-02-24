@@ -40,12 +40,11 @@ class OpenAIConnector(BaseConnector):
 
         return validated
 
-    @classmethod
-    def get_connection_kwargs(cls, settings: dict[str, Any]) -> dict[str, Any] | None:
-        api_key = str(settings.get("api_key", "") or "").strip() or (
+    def get_connection_kwargs(self) -> dict[str, Any] | None:
+        api_key = str(self.api_key or "").strip() or (
             os.getenv("OPENAI_API_KEY") or ""
         ).strip()
-        base_url = str(settings.get("base_url", "") or "").strip().rstrip("/")
+        base_url = str(self.base_url or "").strip().rstrip("/")
 
         if not api_key:
             return None
@@ -55,9 +54,8 @@ class OpenAIConnector(BaseConnector):
             "base_url": base_url or OPENAI_DEFAULT_BASE_URL,
         }
 
-    @classmethod
-    def get_api_object(cls, settings: dict[str, Any]) -> Any:
-        kwargs = cls.get_connection_kwargs(settings)
+    def get_api_object(self) -> Any:
+        kwargs = self.get_connection_kwargs()
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'openai'")
         return ChatOpenAI(model="gpt-4o-mini", **kwargs)

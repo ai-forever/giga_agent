@@ -148,7 +148,7 @@ def _build_attachment_info(file_type: str, path: str) -> str:
 
 
 def get_user_secrets_code(user: UserShort):
-    user_secrets = user.settings["contextSecrets"]
+    user_secrets = dict(user.settings or {}).get("contextSecrets")
     if not user_secrets:
         return None
     code_parts = []

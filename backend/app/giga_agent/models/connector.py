@@ -50,7 +50,6 @@ class ConnectorCreate(ConnectorBase):
 
 
 class ConnectorUpdate(BaseModel):
-    type: Optional[str] = None
     name: Optional[str] = None
     settings: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None

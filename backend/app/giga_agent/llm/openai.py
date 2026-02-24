@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
 
-from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.connectors.base import BaseConnector
 from giga_agent.llm.base import AvailableModel, BaseLLMRuntime, ModelFetchError
 from giga_agent.llm.registry import LLMRegistry
 
@@ -22,13 +20,9 @@ class OpenAIRuntime(BaseLLMRuntime):
     async def fetch_available_models(
         cls,
         *,
-        connector_type: str,
-        connector_settings: dict[str, Any],
+        connector: BaseConnector,
     ) -> list[AvailableModel]:
-        kwargs = cls._get_connection_kwargs(
-            connector_type=connector_type,
-            connector_settings=connector_settings,
-        )
+        kwargs = connector.get_connection_kwargs()
         if not kwargs:
             return []
 
@@ -50,13 +44,10 @@ class OpenAIRuntime(BaseLLMRuntime):
             raise ModelFetchError("openai", str(e)) from e
 
     def _llm(self) -> ChatOpenAI:
-        connection_kwargs = ConnectorRegistry.get_connection_kwargs(
-            self.connector.type,
-            self.connector.settings or {},
-        )
+        connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
             raise ValueError(
-                f"Invalid connection settings for connector {self.connector.id}"
+                f"Invalid connection settings for connector {self.connector.__class__.__name__}"
             )
         settings = self._settings_payload()
         model_kwargs = {

@@ -35,7 +35,7 @@ def _is_valid_python_identifier(name: str) -> bool:
 
 
 def get_user_secrets_prompt(user: UserShort):
-    user_secrets = user.settings["contextSecrets"]
+    user_secrets = (user.settings or {}).get("contextSecrets")
     if not user_secrets:
         return ""
     secret_parts = []

@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
+from giga_agent.connectors.openai import OpenAIConnector
 from giga_agent.embeddings.manager import EmbeddingManager
 from giga_agent.embeddings.base import BaseEmbeddingRuntime
 from giga_agent.models.connector import ConnectorResponse
@@ -78,7 +79,10 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             def _embeddings(self):
                 if self.model_id != "text-embedding-3-small":
                     raise AssertionError("unexpected model_id")
-                if self.connector.settings != {"api_key": "sk-test"}:
+                if self.connector.get_connection_kwargs() != {
+                    "api_key": "sk-test",
+                    "base_url": "https://api.openai.com/v1",
+                }:
                     raise AssertionError("unexpected kwargs")
                 if self._settings_payload() != {"dimensions": 512}:
                     raise AssertionError("unexpected settings")
@@ -94,8 +98,8 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.embeddings.manager.EmbeddingRegistry.get",
             return_value=_RuntimeStub,
         ), patch(
-            "giga_agent.embeddings.manager.ConnectorRegistry.get_connection_kwargs",
-            return_value={"api_key": "sk-test"},
+            "giga_agent.embeddings.manager.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=OpenAIConnector(api_key="sk-test")),
         ):
             resolved = await EmbeddingManager.resolve_by_id(
                 embedding_id,
@@ -103,7 +107,7 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertIsInstance(resolved, _RuntimeStub)
             self.assertEqual(resolved.vector_size, 512)
-            self.assertEqual(resolved.connector.id, connector_id)
+            self.assertIsInstance(resolved.connector, OpenAIConnector)
 
             client = resolved.embeddings
             self.assertIs(client, built_embeddings)

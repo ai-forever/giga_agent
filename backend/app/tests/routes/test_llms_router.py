@@ -80,6 +80,7 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_create_llm_success(self):
         connector = self._connector_obj()
+        connector_runtime = types.SimpleNamespace()
         created = self._llm_obj(connector_id=connector.id)
         mocked_check = AsyncMock(return_value=None)
 
@@ -103,6 +104,9 @@ class LLMsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.llms._resolve_llm_runtime",
             return_value=_RuntimeStub,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
         ), patch(
             "giga_agent.routes.llms.LLMRepository.create",
             AsyncMock(return_value=created),
@@ -131,6 +135,7 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_create_llm_returns_422_when_connection_check_fails(self):
         connector = self._connector_obj()
+        connector_runtime = types.SimpleNamespace()
 
         class _RuntimeStub:
             def __init__(self, **kwargs):
@@ -153,6 +158,9 @@ class LLMsRouterTests(unittest.TestCase):
             "giga_agent.routes.llms._resolve_llm_runtime",
             return_value=_RuntimeStub,
         ), patch(
+            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
+        ), patch(
             "giga_agent.routes.llms.LLMRepository.create",
             AsyncMock(),
         ) as mocked_create:
@@ -173,6 +181,7 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_models_route_not_shadowed_by_llm_id_route(self):
         connector = self._connector_obj()
+        connector_runtime = types.SimpleNamespace()
         runtime_cls = types.SimpleNamespace(
             fetch_available_models=AsyncMock(
                 return_value=[{"id": "gpt-4o-mini", "name": "gpt-4o-mini"}]
@@ -188,6 +197,9 @@ class LLMsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.llms._resolve_llm_runtime_by_type",
             return_value=runtime_cls,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",
@@ -198,6 +210,7 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertEqual(response.json()[0]["id"], "gpt-4o-mini")
 
     def test_fetch_models_for_unsaved_connector(self):
+        connector_runtime = types.SimpleNamespace()
         runtime_cls = types.SimpleNamespace(
             fetch_available_models=AsyncMock(
                 return_value=[{"id": "gpt-4o", "name": "gpt-4o"}]
@@ -212,6 +225,9 @@ class LLMsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.llms._resolve_llm_runtime_by_type",
             return_value=runtime_cls,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
         ):
             response = self.client.post(
                 "/llms/models/",

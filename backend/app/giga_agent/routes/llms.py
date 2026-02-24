@@ -217,9 +217,13 @@ async def create_llm(
     )
     raw_settings = data.settings.model_dump(exclude_none=True)
     try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            connector.type,
+            connector.settings or {},
+        )
         validated_settings = await runtime_cls.validate_settings(raw_settings)
         runtime = runtime_cls(
-            connector=connector,
+            connector=connector_runtime,
             model_id=data.model_id,
             **validated_settings,
         )
@@ -289,9 +293,12 @@ async def get_available_models_by_connector(
     )
 
     try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            connector.type,
+            connector.settings or {},
+        )
         return await runtime_cls.fetch_available_models(
-            connector_type=connector.type,
-            connector_settings=connector.settings or {},
+            connector=connector_runtime,
         )
     except ModelFetchError as e:
         raise HTTPException(
@@ -322,9 +329,12 @@ async def fetch_available_models(
     )
 
     try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            data.connector_type,
+            normalized_settings,
+        )
         return await runtime_cls.fetch_available_models(
-            connector_type=data.connector_type,
-            connector_settings=normalized_settings,
+            connector=connector_runtime,
         )
     except ModelFetchError as e:
         raise HTTPException(

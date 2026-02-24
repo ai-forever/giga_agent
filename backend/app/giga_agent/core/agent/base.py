@@ -150,7 +150,7 @@ class BaseAgent(BaseModel):
             instructions = await module.get_instructions(user=user, agent=self)
             if instructions:
                 modules_prompts.append(instructions)
-        instructions = user.settings.get("contextInstructions")
+        instructions = dict(user.settings or {}).get("contextInstructions")
         instructions_prompt = ""
         if instructions:
             instructions_prompt = NOTES_PROMPT.format(instructions)

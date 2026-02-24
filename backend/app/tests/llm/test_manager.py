@@ -55,6 +55,7 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             type="openai",
             settings={"api_key": "sk-test"},
         )
+        connector_runtime = types.SimpleNamespace()
 
         class _RuntimeStub:
             def __init__(self, **kwargs):
@@ -78,13 +79,13 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.llm.manager.LLMRegistry.get",
             return_value=_RuntimeStub,
         ), patch(
-            "giga_agent.llm.manager.ConnectorRegistry.get_connection_kwargs",
-            return_value={"api_key": "sk-test"},
+            "giga_agent.llm.manager.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
         ):
             resolved = await LLMManager.resolve_by_id(llm_id, session=session)
 
         self.assertIsInstance(resolved, _RuntimeStub)
-        self.assertEqual(resolved.kwargs["connector"], connector)
+        self.assertEqual(resolved.kwargs["connector"], connector_runtime)
         self.assertEqual(resolved.kwargs["model_id"], "gpt-4o-mini")
         self.assertEqual(resolved.kwargs["temperature"], 0.2)
 

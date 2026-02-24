@@ -31,7 +31,7 @@ class GigaChatImageGen(BaseImageGenerator):
 
     model: str = Field(default="kandinsky-4.1", description="Image model")
     timeout: float = Field(default=60.0, gt=0, description="Request timeout")
-    max_retries: int = Field(default=3, ge=1, description="Retry attempts")
+    max_retries: int = Field(default=3, ge=1, le=6, description="Retry attempts")
 
     _token: str | None = PrivateAttr(default=None)
     _client: httpx.AsyncClient | None = PrivateAttr(default=None)
@@ -52,7 +52,9 @@ class GigaChatImageGen(BaseImageGenerator):
 
         base_url = getattr(getattr(gigachat_client, "_client", None), "base_url", None)
         if base_url is None:
-            raise ValueError("Could not resolve GigaChat base_url from connector client")
+            raise ValueError(
+                "Could not resolve GigaChat base_url from connector client"
+            )
 
         self._client = httpx.AsyncClient(
             verify=False,

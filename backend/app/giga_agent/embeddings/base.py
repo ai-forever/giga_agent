@@ -9,7 +9,7 @@ from typing import Any, ClassVar, Type
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, ConfigDict, create_model
 
-from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.connectors.base import BaseConnector
 
 
 class EmbeddingModelFetchError(Exception):
@@ -42,9 +42,7 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
     model_config = ConfigDict(extra="forbid")
 
     # System/runtime-managed fields (НЕ часть embedding.settings)
-    # Важно: не типизируем на ConnectorResponse, чтобы не создавать циклические импорты
-    # через `giga_agent.models.__init__`. Достаточно контракта: `.type`, `.settings`, `.id`.
-    connector: Any
+    connector: BaseConnector
     model_id: str
     vector_size: int
 
@@ -100,27 +98,10 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
         raise NotImplementedError
 
     @classmethod
-    def _get_connection_kwargs(
-        cls,
-        *,
-        connector_type: str,
-        connector_settings: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        if not cls.is_connector_supported(connector_type):
-            raise ValueError(
-                f"Connector type '{connector_type}' is not supported by embeddings runtime "
-                f"'{cls.__name__}'. Supported: {cls.supported_connector_types()}"
-            )
-        return ConnectorRegistry.get_connection_kwargs(
-            connector_type, connector_settings
-        )
-
-    @classmethod
     async def fetch_available_models(
         cls,
         *,
-        connector_type: str,
-        connector_settings: dict[str, Any],
+        connector: BaseConnector,
     ) -> list[AvailableEmbeddingModel]:
-        _ = connector_type, connector_settings
+        _ = connector
         return []

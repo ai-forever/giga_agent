@@ -34,18 +34,16 @@ class TavilyConnector(BaseConnector):
             "Tavily api_key is required when TAVILY_API_KEY environment variable is not set."
         )
 
-    @classmethod
-    def get_connection_kwargs(cls, settings: dict[str, Any]) -> dict[str, Any] | None:
-        api_key = str(settings.get("api_key", "") or "").strip() or (
+    def get_connection_kwargs(self) -> dict[str, Any] | None:
+        api_key = str(self.api_key or "").strip() or (
             os.getenv("TAVILY_API_KEY") or ""
         ).strip()
         if not api_key:
             return None
         return {"api_key": api_key}
 
-    @classmethod
-    def get_api_object(cls, settings: dict[str, Any]) -> Any:
-        kwargs = cls.get_connection_kwargs(settings)
+    def get_api_object(self) -> Any:
+        kwargs = self.get_connection_kwargs()
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'tavily'")
         return kwargs

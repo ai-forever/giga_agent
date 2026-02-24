@@ -236,7 +236,6 @@ class RagDocumentsRepository:
             owner_id=owner_id,
             collection_id=collection_id,
             original_name=original_name,
-            original_name_2=original_name,
             sandbox_path=sandbox_path,
         )
         self.db.add(doc)

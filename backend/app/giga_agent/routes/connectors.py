@@ -295,8 +295,12 @@ async def patch_connector(
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
-    image_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
-    search_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    image_repo: Annotated[
+        ImageGeneratorRepository, Depends(get_image_generator_repository)
+    ],
+    search_repo: Annotated[
+        SearchEngineRepository, Depends(get_search_engine_repository)
+    ],
 ):
     connector = await _get_connector_with_owner_check(
         connector_id=connector_id,
@@ -306,16 +310,6 @@ async def patch_connector(
 
     update_data: dict[str, Any] = {}
     effective_type = connector.type
-
-    if "type" in data.model_fields_set:
-        if data.type is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="type must not be null when provided",
-            )
-        _resolve_runtime_cls(data.type, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
-        effective_type = data.type
-        update_data["type"] = data.type
 
     if "name" in data.model_fields_set:
         update_data["name"] = data.name
@@ -329,10 +323,14 @@ async def patch_connector(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="settings must be an object when provided",
             )
-        update_data["settings"] = await _validate_settings(effective_type, data.settings)
+        update_data["settings"] = await _validate_settings(
+            effective_type, data.settings
+        )
     elif "type" in data.model_fields_set:
         # If type changed and settings were not passed, revalidate existing settings with new runtime.
-        update_data["settings"] = await _validate_settings(effective_type, connector.settings or {})
+        update_data["settings"] = await _validate_settings(
+            effective_type, connector.settings or {}
+        )
 
     if "type" in data.model_fields_set and effective_type != connector.type:
         await _validate_type_change_compatibility(

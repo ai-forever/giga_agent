@@ -11,7 +11,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, ConfigDict, create_model
 
-from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.connectors.base import BaseConnector
 
 
 class ModelFetchError(Exception):
@@ -33,7 +33,7 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
 
     model_config = ConfigDict(extra="allow")
 
-    connector: Any
+    connector: BaseConnector
     model_id: str
 
     _runtime_fields: ClassVar[set[str]] = {
@@ -113,27 +113,10 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         return response.text
 
     @classmethod
-    def _get_connection_kwargs(
-        cls,
-        *,
-        connector_type: str,
-        connector_settings: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        if not cls.is_connector_supported(connector_type):
-            raise ValueError(
-                f"Connector type '{connector_type}' is not supported by LLM '{cls.__name__}'. "
-                f"Supported: {cls.supported_connector_types()}"
-            )
-        return ConnectorRegistry.get_connection_kwargs(
-            connector_type, connector_settings
-        )
-
-    @classmethod
     @abc.abstractmethod
     async def fetch_available_models(
         cls,
         *,
-        connector_type: str,
-        connector_settings: dict[str, Any],
+        connector: BaseConnector,
     ) -> list[AvailableModel]:
         raise NotImplementedError

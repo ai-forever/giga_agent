@@ -45,16 +45,14 @@ class LLMManager:
                 f"LLM type '{llm.type}' is not compatible with connector type '{connector.type}'"
             )
 
-        kwargs = ConnectorRegistry.get_connection_kwargs(
+        connector_runtime = await ConnectorRegistry.get_runtime(
             connector.type,
             connector.settings or {},
         )
-        if kwargs is None:
-            raise ValueError(f"Invalid connection settings for connector {connector.id}")
 
         validated_settings = await runtime_cls.validate_settings(llm.settings or {})
         return runtime_cls(
-            connector=connector,
+            connector=connector_runtime,
             model_id=llm.model_id,
             **validated_settings,
         )

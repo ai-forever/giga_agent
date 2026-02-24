@@ -37,7 +37,7 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await SearchEngineManager.resolve_by_id(engine_id, session=session)
 
-    async def test_resolve_raises_when_connector_is_required_but_missing(self):
+    async def test_resolve_allows_missing_connector_and_passes_none(self):
         engine_id = uuid.uuid4()
         session = object()
         record = types.SimpleNamespace(
@@ -54,6 +54,12 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["tavily"]
 
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            async def init(self):
+                return None
+
         with patch(
             "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
             AsyncMock(return_value=record),
@@ -61,10 +67,12 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.search_engines.manager.SearchEngineRegistry.get",
             return_value=_RuntimeStub,
         ):
-            with self.assertRaises(ValueError):
-                await SearchEngineManager.resolve_by_id(engine_id, session=session)
+            runtime = await SearchEngineManager.resolve_by_id(engine_id, session=session)
 
-    async def test_resolve_passes_settings_and_connector_kwargs_to_runtime(self):
+        self.assertIsNone(runtime.kwargs["connector"])
+        self.assertEqual(runtime.kwargs["search_depth"], "basic")
+
+    async def test_resolve_passes_settings_and_connector_runtime_to_engine(self):
         engine_id = uuid.uuid4()
         session = object()
         connector_id = uuid.uuid4()
@@ -107,8 +115,8 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.search_engines.manager.ConnectorRepository.get_cached_or_db",
             AsyncMock(return_value=connector),
         ), patch(
-            "giga_agent.search_engines.manager.ConnectorRegistry.get_connection_kwargs",
-            return_value={"api_key": "tvly-secret"},
+            "giga_agent.search_engines.manager.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value="connector-runtime"),
         ):
             runtime = await SearchEngineManager.resolve_by_id(
                 engine_id,
@@ -119,8 +127,46 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(captured.get("initialized"))
         self.assertEqual(
             captured["kwargs"],
-            {"search_depth": "advanced", "api_key": "tvly-secret"},
+            {"search_depth": "advanced", "connector": "connector-runtime"},
         )
+
+    async def test_resolve_raises_for_unsupported_connector_type(self):
+        engine_id = uuid.uuid4()
+        session = object()
+        connector_id = uuid.uuid4()
+        record = types.SimpleNamespace(
+            id=engine_id,
+            owner_id=uuid.uuid4(),
+            is_active=True,
+            type="tavily",
+            settings={"search_depth": "advanced"},
+            connector_id=connector_id,
+        )
+        connector = types.SimpleNamespace(
+            id=connector_id,
+            owner_id=uuid.uuid4(),
+            is_active=True,
+            type="openai",
+            settings={"api_key": "sk-test"},
+        )
+
+        class _RuntimeStub:
+            @classmethod
+            def supported_connector_types(cls) -> list[str]:
+                return ["tavily"]
+
+        with patch(
+            "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
+            AsyncMock(return_value=record),
+        ), patch(
+            "giga_agent.search_engines.manager.SearchEngineRegistry.get",
+            return_value=_RuntimeStub,
+        ), patch(
+            "giga_agent.search_engines.manager.ConnectorRepository.get_cached_or_db",
+            AsyncMock(return_value=connector),
+        ):
+            with self.assertRaises(ValueError):
+                await SearchEngineManager.resolve_by_id(engine_id, session=session)
 
     def test_resolve_for_user_removed(self):
         self.assertFalse(hasattr(SearchEngineManager, "resolve_for_user"))

@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 
 import giga_agent.connectors  # noqa: F401
 import giga_agent.llm  # noqa: F401
+from giga_agent.connectors.openai import OpenAIConnector
+from giga_agent.connectors.gigachat import GigaChatConnector
 from giga_agent.llm.gigachat import GigaChatRuntime
 from giga_agent.llm.openai import OpenAIRuntime
 from giga_agent.llm.registry import LLMRegistry
@@ -37,9 +39,9 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         with patch("giga_agent.llm.openai.AsyncOpenAI", return_value=mock_client):
+            connector = OpenAIConnector(api_key="sk-test")
             models = await OpenAIRuntime.fetch_available_models(
-                connector_type="openai",
-                connector_settings={"api_key": "sk-test"},
+                connector=connector,
             )
 
         self.assertEqual([item.id for item in models], ["gpt-4o", "gpt-4o-mini"])
@@ -54,12 +56,12 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm):
+            connector = GigaChatConnector(
+                gigachat_api_type="prod",
+                gigachat_credentials="token",
+            )
             models = await GigaChatRuntime.fetch_available_models(
-                connector_type="gigachat",
-                connector_settings={
-                    "gigachat_api_type": "prod",
-                    "gigachat_credentials": "token",
-                },
+                connector=connector,
             )
 
         self.assertEqual(len(models), 1)

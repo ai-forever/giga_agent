@@ -49,19 +49,22 @@ class EmbeddingManager:
                 f"'{connector.type}'"
             )
 
-        _ = ConnectorRegistry.get_connection_kwargs(
-            connector.type,
-            connector.settings or {},
-        )
-        if _ is None:
-            raise ValueError(f"Invalid connection settings for connector {connector.id}")
+        try:
+            connector_runtime = await ConnectorRegistry.get_runtime(
+                connector.type,
+                connector.settings or {},
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Invalid connection settings for connector {connector.id}"
+            ) from e
 
         if getattr(embedding, "vector_size", None) is None:
             raise ValueError(f"Embedding with id {embedding_id} has no vector_size configured")
 
         validated_settings = await runtime_cls.validate_settings(embedding.settings or {})
         return runtime_cls(
-            connector=connector,
+            connector=connector_runtime,
             model_id=embedding.model_id,
             vector_size=int(embedding.vector_size),
             **validated_settings,

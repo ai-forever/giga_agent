@@ -57,33 +57,31 @@ class GigaChatConnector(BaseConnector):
 
         return validated
 
-    @classmethod
-    def get_connection_kwargs(cls, settings: dict[str, Any]) -> dict[str, Any] | None:
-        api_type = str(settings.get("gigachat_api_type", "prod") or "prod").strip().lower()
+    def get_connection_kwargs(self) -> dict[str, Any] | None:
+        api_type = str(self.gigachat_api_type or "prod").strip().lower()
 
         if api_type in {"prod", "preview"}:
             return {
                 "base_url": None if api_type == "prod" else PREVIEW_URL,
-                "credentials": settings.get("gigachat_credentials") or None,
-                "scope": settings.get("gigachat_scope") or "GIGACHAT_API_PERS",
+                "credentials": self.gigachat_credentials or None,
+                "scope": self.gigachat_scope or "GIGACHAT_API_PERS",
                 "verify_ssl_certs": False,
             }
 
         if api_type == "dev":
-            base_url = str(settings.get("base_url", "") or "").strip().rstrip("/")
+            base_url = str(self.base_url or "").strip().rstrip("/")
             if not base_url:
                 return None
             return {
                 "base_url": base_url,
-                "user": settings.get("gigachat_username"),
-                "password": settings.get("gigachat_password"),
+                "user": self.gigachat_username,
+                "password": self.gigachat_password,
             }
 
         return None
 
-    @classmethod
-    def get_api_object(cls, settings: dict[str, Any]) -> Any:
-        kwargs = cls.get_connection_kwargs(settings)
+    def get_api_object(self) -> Any:
+        kwargs = self.get_connection_kwargs()
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'gigachat'")
         return GigaChat(model="GigaChat", **kwargs)

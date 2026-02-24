@@ -142,18 +142,19 @@ async def _probe_embedding_vector_size(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
-    connection_kwargs = ConnectorRegistry.get_connection_kwargs(
-        connector.type,
-        connector.settings or {},
-    )
-    if connection_kwargs is None:
+    try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            connector.type,
+            connector.settings or {},
+        )
+    except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Некорректные настройки коннектора для эмбеддингов",
-        )
+        ) from e
 
     runtime = runtime_cls(
-        connector=connector,
+        connector=connector_runtime,
         model_id=model_id,
         vector_size=1,
         **embedding_settings,
@@ -409,9 +410,19 @@ async def get_available_models_by_connector(
     )
 
     try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            connector.type,
+            connector.settings or {},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Некорректные настройки коннектора для эмбеддингов",
+        ) from e
+
+    try:
         return await runtime_cls.fetch_available_models(
-            connector_type=connector.type,
-            connector_settings=connector.settings or {},
+            connector=connector_runtime,
         )
     except EmbeddingModelFetchError as e:
         raise HTTPException(
@@ -445,9 +456,19 @@ async def fetch_available_models(
     )
 
     try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            data.connector_type,
+            normalized_settings,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Некорректные настройки коннектора для эмбеддингов",
+        ) from e
+
+    try:
         return await runtime_cls.fetch_available_models(
-            connector_type=data.connector_type,
-            connector_settings=normalized_settings,
+            connector=connector_runtime,
         )
     except EmbeddingModelFetchError as e:
         raise HTTPException(

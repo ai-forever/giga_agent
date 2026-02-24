@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.routes.search_engines import router
+from giga_agent.routes.search_engines import _validate_connector_link, router
 
 
 class SearchGeneratorsRouterTests(unittest.TestCase):
@@ -68,7 +68,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         }
 
     def test_create_success(self):
-        created = self._engine_obj(connector_id=uuid.uuid4())
+        created = self._engine_obj(connector_id=None)
 
         with patch(
             "giga_agent.routes.search_engines._resolve_runtime_cls",
@@ -78,7 +78,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             AsyncMock(return_value={"search_depth": "basic"}),
         ), patch(
             "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=created.connector_id),
+            AsyncMock(return_value=None),
         ), patch(
             "giga_agent.routes.search_engines.SearchEngineRepository.create",
             AsyncMock(return_value=created),
@@ -92,7 +92,6 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
                     "type": "tavily",
                     "name": "Tavily",
                     "settings": {"search_depth": "basic"},
-                    "connector_id": str(created.connector_id),
                     "is_active": True,
                 },
             )
@@ -117,7 +116,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
                 {
                     "type": "tavily",
                     "supported_connector_types": ["tavily"],
-                    "requires_connector": True,
+                    "requires_connector": False,
                 }
             ],
         )
@@ -253,3 +252,43 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             response = self.client.get(f"/search-engines/{engine_id}")
 
         self.assertEqual(response.status_code, 404)
+
+
+class SearchEnginesConnectorValidationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_validate_connector_link_allows_missing_connector_for_supported_type(self):
+        connector_repo = types.SimpleNamespace(get_by_id=AsyncMock())
+        owner_id = uuid.uuid4()
+
+        result = await _validate_connector_link(
+            owner_id=owner_id,
+            connector_id=None,
+            supported_connector_types=["tavily"],
+            connector_repo=connector_repo,
+        )
+
+        self.assertIsNone(result)
+        connector_repo.get_by_id.assert_not_called()
+
+    async def test_validate_connector_link_rejects_unsupported_connector_type(self):
+        owner_id = uuid.uuid4()
+        connector_id = uuid.uuid4()
+        connector_repo = types.SimpleNamespace(
+            get_by_id=AsyncMock(
+                return_value=types.SimpleNamespace(
+                    id=connector_id,
+                    owner_id=owner_id,
+                    is_active=True,
+                    type="openai",
+                )
+            )
+        )
+
+        with self.assertRaises(HTTPException) as ctx:
+            await _validate_connector_link(
+                owner_id=owner_id,
+                connector_id=connector_id,
+                supported_connector_types=["tavily"],
+                connector_repo=connector_repo,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 422)

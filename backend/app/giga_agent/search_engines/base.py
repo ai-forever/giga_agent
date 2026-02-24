@@ -9,6 +9,9 @@ from typing import Any, ClassVar, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
+from giga_agent.connectors.base import BaseConnector
+from giga_agent.connectors.registry import ConnectorRegistry
+
 
 class BaseSearchEngine(BaseModel, abc.ABC):
     """Abstract base runtime for search engines."""
@@ -16,9 +19,11 @@ class BaseSearchEngine(BaseModel, abc.ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     parallel_calls: int = Field(default=1, ge=1)
+    connector: BaseConnector | None = None
 
     _runtime_fields: ClassVar[set[str]] = {
         "parallel_calls",
+        "connector",
     }
     _semaphore: asyncio.Semaphore = PrivateAttr()
     _initialized: bool = PrivateAttr(default=False)
@@ -48,10 +53,32 @@ class BaseSearchEngine(BaseModel, abc.ABC):
         """Connector types accepted by this search runtime. Empty means no connector."""
         return []
 
-    @classmethod
-    def connector_settings_fields(cls) -> set[str]:
-        """Runtime fields that are sourced from connector settings, not engine settings."""
-        return set()
+    def require_supported_connector(self) -> BaseConnector:
+        """Validate and return connector runtime for this search engine."""
+        supported_types = [item.lower() for item in self.supported_connector_types()]
+
+        if not supported_types:
+            raise ValueError(
+                f"Search engine '{self.__class__.__name__}' does not support connectors."
+            )
+
+        if self.connector is None:
+            raise ValueError(
+                f"Search engine '{self.__class__.__name__}' requires connector. "
+                f"Supported connector types: {supported_types}"
+            )
+
+        allowed_classes: tuple[type[BaseConnector], ...] = tuple(
+            ConnectorRegistry.get(connector_type) for connector_type in supported_types
+        )
+        if not isinstance(self.connector, allowed_classes):
+            raise ValueError(
+                f"Connector runtime '{self.connector.__class__.__name__}' is not "
+                f"supported by search engine '{self.__class__.__name__}'. "
+                f"Supported connector types: {supported_types}"
+            )
+
+        return self.connector
 
     @classmethod
     def get_tools(cls) -> list[BaseTool]:
@@ -62,9 +89,8 @@ class BaseSearchEngine(BaseModel, abc.ABC):
     @classmethod
     def settings_schema(cls) -> Type[BaseModel]:
         fields: dict[str, tuple[Any, Any]] = {}
-        excluded = cls._runtime_fields | cls.connector_settings_fields()
         for name, field_info in cls.model_fields.items():
-            if name in excluded:
+            if name in cls._runtime_fields:
                 continue
             fields[name] = (field_info.annotation, field_info)
 

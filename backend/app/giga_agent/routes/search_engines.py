@@ -40,7 +40,7 @@ class SearchEnginePatchRequest(BaseModel):
 class SearchEngineTypeMeta(BaseModel):
     type: str
     supported_connector_types: list[str]
-    requires_connector: bool
+    requires_connector: bool = False
 
 
 async def get_search_engine_repository(
@@ -107,13 +107,7 @@ async def _validate_connector_link(
         return None
 
     if connector_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "connector_id is required for this search engine type. "
-                f"Supported connector types: {normalized_supported}"
-            ),
-        )
+        return None
 
     connector = await connector_repo.get_by_id(connector_id)
     if connector is None:
@@ -216,7 +210,7 @@ async def get_engine_types_meta(
             supported_connector_types=[
                 t.lower() for t in SearchEngineRegistry.get(engine_type).supported_connector_types()
             ],
-            requires_connector=len(SearchEngineRegistry.get(engine_type).supported_connector_types()) > 0,
+            requires_connector=False,
         )
         for engine_type in SearchEngineRegistry.available_types()
     ]

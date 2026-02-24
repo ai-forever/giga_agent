@@ -2,9 +2,18 @@ import types
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from giga_agent.connectors.base import BaseConnector
 from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.llm.gigachat import GigaChatRuntime
 from giga_agent.llm.openai import OpenAIRuntime
+
+
+class _ConnectorStub(BaseConnector):
+    def get_connection_kwargs(self):
+        return {}
+
+    def get_api_object(self):
+        return object()
 
 
 class _BaseRuntimeStub(BaseLLMRuntime):
@@ -18,10 +27,9 @@ class _BaseRuntimeStub(BaseLLMRuntime):
     async def fetch_available_models(
         cls,
         *,
-        connector_type: str,
-        connector_settings: dict,
+        connector: BaseConnector,
     ) -> list:
-        _ = connector_type, connector_settings
+        _ = connector
         return []
 
     def _llm(self):
@@ -35,7 +43,7 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         _BaseRuntimeStub._llm_stub = llm_stub
         runtime = _BaseRuntimeStub(
-            connector=types.SimpleNamespace(), model_id="test-model"
+            connector=_ConnectorStub(), model_id="test-model"
         )
 
         result = await runtime.analyze_image(
@@ -63,7 +71,7 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
             aupload_file=AsyncMock(return_value=types.SimpleNamespace(id_="file-123")),
             ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="analysis")),
         )
-        runtime = GigaChatRuntime(connector=types.SimpleNamespace(), model_id="giga")
+        runtime = GigaChatRuntime(connector=_ConnectorStub(), model_id="giga")
         with patch.object(GigaChatRuntime, "_llm", return_value=llm_stub):
             result = await runtime.analyze_image(
                 prompt="describe image",
