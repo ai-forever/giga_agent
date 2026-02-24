@@ -11,6 +11,10 @@
         /* Custom styles */
         @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
 
+        html, body {
+            height: 100%;
+        }
+
         body {
             font-family: 'Roboto', sans-serif;
         }
@@ -151,6 +155,87 @@
 <script>
     const urlParams = new URLSearchParams(window.location.search);
 
+    // Track async assets so printing waits for them
+    const __printAssets = {
+        images: [],
+        plots: [],
+    };
+
+    function withTimeout(promise, ms) {
+        return new Promise((resolve) => {
+            const t = setTimeout(() => resolve(null), ms);
+            Promise.resolve(promise)
+                .then((v) => {
+                    clearTimeout(t);
+                    resolve(v);
+                })
+                .catch(() => {
+                    clearTimeout(t);
+                    resolve(null);
+                });
+        });
+    }
+
+    function waitForImage(imgEl) {
+        if (!imgEl) return Promise.resolve(null);
+        // If decode exists, it generally waits for the image to be ready to paint
+        if (typeof imgEl.decode === 'function') {
+            return imgEl.decode().catch(() => null);
+        }
+        if (imgEl.complete) return Promise.resolve(null);
+        return new Promise((resolve) => {
+            imgEl.addEventListener('load', () => resolve(null), { once: true });
+            imgEl.addEventListener('error', () => resolve(null), { once: true });
+        });
+    }
+
+    function __getRevealHeight() {
+        try {
+            const el = document.querySelector('.reveal');
+            if (!el) return 0;
+            const r = el.getBoundingClientRect();
+            return r && r.height ? r.height : 0;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    async function __waitForNonZeroLayout(maxFrames) {
+        const frames = typeof maxFrames === 'number' ? maxFrames : 90;
+        for (let i = 0; i < frames; i++) {
+            if (__getRevealHeight() > 0) return;
+            await new Promise((r) => requestAnimationFrame(() => r(null)));
+        }
+    }
+
+    async function prepareForPrint() {
+        // Wait for fonts (e.g., Roboto) to avoid reflow during print preview
+        if (document.fonts && document.fonts.ready) {
+            await withTimeout(document.fonts.ready, 4000);
+        }
+
+        // Wait for images currently in the DOM
+        const domImages = Array.from(document.images || []);
+        const domImagePromises = domImages.map((img) => waitForImage(img));
+
+        await Promise.allSettled([
+            ...__printAssets.images.map((p) => withTimeout(p, 8000)),
+            ...domImagePromises.map((p) => withTimeout(p, 8000)),
+            ...__printAssets.plots.map((p) => withTimeout(p, 12000)),
+        ]);
+
+        // Ensure Reveal recalculates slide sizes after dynamic content is ready
+        if (typeof Reveal !== 'undefined' && Reveal && typeof Reveal.layout === 'function') {
+            try {
+                Reveal.layout();
+                await new Promise((r) => requestAnimationFrame(() => r(null)));
+                Reveal.layout();
+            } catch (e) {
+                // noop
+            }
+        }
+    }
+
     function isImageInPath(path) {
         const lower = path.toLowerCase();
         const dotIdx = lower.lastIndexOf(".");
@@ -177,7 +262,7 @@
         return trimmedBase + relativePath;
     }
     function getFileContentUrl(path) {
-        return buildUrl(`/api/files/content/by-path?path=${encodeURIComponent(path)}`);
+        return buildUrl(`<|API_URL|>?path=${encodeURIComponent(path)}`);
     }
     function createImage(el, path) {
         const uuid = crypto.randomUUID();
@@ -190,19 +275,23 @@
         d.src = getFileContentUrl(path);
         d.setAttribute('id', uuid);
         d.removeAttribute("data-src");
+        __printAssets.images.push(waitForImage(d));
         el.parentNode.replaceChild(d, el);
     }
-    // Replace placeholders for graphs/images
-    jQuery('.graph').each((index, el) => {
-        const src = el.getAttribute('src') ? el.getAttribute('src') : el.getAttribute('data-src');
+    // Replace placeholders for graphs/images.
+    // Some slides may not set `class="graph"`, so we also match by src/data-src prefix.
+    jQuery('.slides .graph, .slides [src^="attachment:"], .slides [data-src^="attachment:"], .slides [src^="graph:"], .slides [data-src^="graph:"]').each((index, el) => {
+        const rawSrc = el.getAttribute('src') ? el.getAttribute('src') : el.getAttribute('data-src');
+        if (!rawSrc) return;
+        const src = String(rawSrc);
         if (src.startsWith("attachment:") || src.startsWith("graph:")) {
             let graphId = src.replace(/^attachment:/, "");
              graphId = graphId.replace(/^graph:/, "");
             if (isImageInPath(graphId)) {
                 createImage(el, graphId);
             } else if (isPlotlyGraphInPath(graphId)) {
-                fetch(getFileContentUrl(graphId)).then((res) => {
-                    res.json().then((data) => {
+                const plotTask = fetch(getFileContentUrl(graphId)).then((res) => {
+                    return res.json().then((data) => {
                         const uuid = crypto.randomUUID();
                         const d = document.createElement('div');
                         d.innerHTML = el.innerHTML;
@@ -216,9 +305,10 @@
                         el.parentNode.replaceChild(d, el);
                         el = d;
                         el.setAttribute('id', uuid);
-                        Plotly.newPlot(uuid, data.data, data.layout, data.config);
+                        return Plotly.newPlot(uuid, data.data, data.layout, data.config);
                     });
                 });
+                __printAssets.plots.push(plotTask);
             }
         }
     });
@@ -261,6 +351,11 @@
             countdown: false,
             transition: 'slide',
             backgroundTransition: 'fade',
+            // Printing/PDF is very sensitive to lazy assets.
+            // Force eager loading so slides render fully before the print dialog opens.
+            lazyLoad: false,
+            preloadIframes: true,
+            pdfSeparateFragments: false,
             dependencies: [],
             plugins: [RevealMath.KaTeX]
         });
@@ -301,7 +396,14 @@
             });
 
             Reveal.on('ready', () => {
-                setTimeout(() => { if (shouldAuto) window.print(); }, 500);
+                (async () => {
+                    // Give Reveal a moment to apply PDF styles, then wait for async assets
+                    await withTimeout(new Promise((r) => setTimeout(r, 150)), 300);
+                    await prepareForPrint();
+                    // Wait until Reveal has a measurable layout before calling print
+                    await __waitForNonZeroLayout(90);
+                    if (shouldAuto) window.print();
+                })();
             });
         }
     }, 200);

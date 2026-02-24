@@ -24,10 +24,9 @@ class LegacyUploadFileSpec(TypedDict):
     file_type: FileType
 
 
-def build_file_content_by_path_url(sandbox_path: str) -> str:
+def build_file_content_by_path_api() -> str:
     host = os.environ.get("GIGA_AGENT_HOST", "").strip().rstrip("/")
     port = os.environ.get("GIGA_AGENT_PORT", "").strip()
-    query = urlencode({"path": sandbox_path})
 
     if host and port:
         base = f"{host}:{port}"
@@ -37,8 +36,13 @@ def build_file_content_by_path_url(sandbox_path: str) -> str:
         base = ""
 
     if base:
-        return f"{base}/files/content/by-path?{query}"
-    return f"/files/content/by-path?{query}"
+        return f"{base}/files/content/by-path"
+    return f"/files/content/by-path"
+
+
+def build_file_content_by_path_url(sandbox_path: str) -> str:
+    query = urlencode({"path": sandbox_path})
+    return f"{build_file_content_by_path_api()}?{query}"
 
 
 def resolve_upload_prefix(runtime: ToolRuntime) -> str:

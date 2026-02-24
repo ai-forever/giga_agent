@@ -50,7 +50,9 @@ class E2BSandbox(JupyterSandbox):
 
     # --- Settings (приходят из provider_settings) ---
     api_key: str = Field(..., description="E2B API key")
-    template: str = Field(default="jupyter-server", description="E2B sandbox template")
+    template: str = Field(
+        default="murtazkorpaz/jupyter-server", description="E2B sandbox template"
+    )
     idle_timeout: int = Field(
         default=300, description="Sandbox timeout in seconds (from provider)"
     )
@@ -332,7 +334,10 @@ class E2BSandbox(JupyterSandbox):
             size = await self._get_s3_object_size(key)
             if size >= LARGE_FILE_THRESHOLD:
                 return await self._stream_s3_object(
-                    key, media_type=media_type, inline=inline, content_length=size,
+                    key,
+                    media_type=media_type,
+                    inline=inline,
+                    content_length=size,
                 )
             if inline:
                 data = await self._download_s3_object(key)
@@ -566,7 +571,9 @@ class E2BSandbox(JupyterSandbox):
         suffix_id = self._random_key_suffix()
         plotly_json_suffix = ".plotly.json"
         name = path.name
-        if name.lower().endswith(plotly_json_suffix) and len(name) > len(plotly_json_suffix):
+        if name.lower().endswith(plotly_json_suffix) and len(name) > len(
+            plotly_json_suffix
+        ):
             suffix_start = len(name) - len(plotly_json_suffix)
             stem = name[:suffix_start]
             suffix = name[suffix_start:]
@@ -578,7 +585,11 @@ class E2BSandbox(JupyterSandbox):
         )
 
         parent = path.parent
-        parent_parts = [] if str(parent) in {"", "."} else [p for p in parent.parts if p not in {"", "."}]
+        parent_parts = (
+            []
+            if str(parent) in {"", "."}
+            else [p for p in parent.parts if p not in {"", "."}]
+        )
 
         key_parts = [_S3_KEY_PREFIX, str(owner_id), *parent_parts, candidate_name]
         return "/".join(key_parts)

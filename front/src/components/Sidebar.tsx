@@ -22,13 +22,6 @@ import { Switch } from "@/components/ui/switch";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -164,13 +157,13 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
           </div>
         )}
 
-        <div
+        {/* <div
           className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"
           onClick={handleDemo}
         >
           <SettingsIcon size={24} className="mr-2" />
           Настройки демо
-        </div>
+        </div> */}
         <div
           className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"
           onClick={handleSettings}
@@ -211,10 +204,10 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
                 side="top"
                 className="w-[200px]"
               >
-                <DropdownMenuItem onSelect={handleProfile}>
+                {/* <DropdownMenuItem onSelect={handleProfile}>
                   <User className="mr-2 h-4 w-4" />
                   Профиль
-                </DropdownMenuItem>
+                </DropdownMenuItem> */}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4 text-destructive" />

@@ -23,6 +23,7 @@ from giga_agent.modules.subagents_legacy.runtime import (
 from giga_agent.modules.subagents_legacy.uploads import (
     build_file_content_by_path_url,
     upload_files_for_config_user,
+    build_file_content_by_path_api,
 )
 
 slide_sem = asyncio.Semaphore(4)
@@ -90,6 +91,7 @@ async def slides_node(state: PresentationState, config: RunnableConfig):
         )
     slide_resps = await asyncio.gather(*slide_tasks)
     result = presentation_html.replace("<SECTIONS></SECTIONS>", "\n".join(slide_resps))
+    result = result.replace("<|API_URL|>", build_file_content_by_path_api())
     for key, value in state["images_uploaded"].items():
         image_url = build_file_content_by_path_url(value["sandbox_path"])
         result_2 = result.replace(
