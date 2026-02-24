@@ -1,12 +1,115 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    Uuid,
+    delete,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
-from giga_agent.modules.rag.models import RagCollection, RagDocument
+from giga_agent.core.db import Base, JSON_VARIANT
+
+
+class RagCollection(Base):
+    __tablename__ = "core_rag_collections"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_core_rag_collections_owner_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, index=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_users.id",
+            name="fk_core_rag_collections_owner_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    embedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_embeddings.id",
+            name="fk_core_rag_collections_embedding_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON_VARIANT(), default=dict
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
+    )
+
+    documents: Mapped[list["RagDocument"]] = relationship(
+        "RagDocument",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class RagDocument(Base):
+    __tablename__ = "core_rag_documents"
+
+    # id is also used as `file_id` in chunk metadata and API.
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, index=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_users.id",
+            name="fk_core_rag_documents_owner_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_rag_collections.id",
+            name="fk_core_rag_documents_collection_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    original_name: Mapped[str] = mapped_column(String(1024), nullable=False)
+    sandbox_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
+    )
+
+    collection: Mapped["RagCollection"] = relationship(
+        "RagCollection",
+        back_populates="documents",
+    )
 
 
 class RagCollectionsRepository:
@@ -58,7 +161,9 @@ class RagCollectionsRepository:
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> RagCollection | None:
-        collection = await self.get_by_id(owner_id=owner_id, collection_id=collection_id)
+        collection = await self.get_by_id(
+            owner_id=owner_id, collection_id=collection_id
+        )
         if collection is None:
             return None
         if name is not None:
@@ -69,10 +174,10 @@ class RagCollectionsRepository:
         await self.db.refresh(collection)
         return collection
 
-    async def delete(
-        self, *, owner_id: uuid.UUID, collection_id: uuid.UUID
-    ) -> bool:
-        collection = await self.get_by_id(owner_id=owner_id, collection_id=collection_id)
+    async def delete(self, *, owner_id: uuid.UUID, collection_id: uuid.UUID) -> bool:
+        collection = await self.get_by_id(
+            owner_id=owner_id, collection_id=collection_id
+        )
         if collection is None:
             return False
         await self.db.delete(collection)
@@ -131,6 +236,7 @@ class RagDocumentsRepository:
             owner_id=owner_id,
             collection_id=collection_id,
             original_name=original_name,
+            original_name_2=original_name,
             sandbox_path=sandbox_path,
         )
         self.db.add(doc)
@@ -155,3 +261,10 @@ class RagDocumentsRepository:
         await self.db.commit()
         return bool(res.rowcount)
 
+
+__all__ = [
+    "RagCollection",
+    "RagDocument",
+    "RagCollectionsRepository",
+    "RagDocumentsRepository",
+]

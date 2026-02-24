@@ -19,7 +19,8 @@
 ## 2. Команды разработки
 
 - Запуск dev-сервера:
-  - `uv run giga_agent dev agent_test/agent.py:graph:app`
+  - `uv run giga_agent dev`
+  - `uv run giga_agent dev giga_agent.agents.run:graph:app`
 - Тесты:
   - `uv run pytest`
 - Линт/формат:
@@ -28,21 +29,24 @@
 - Миграции руками не пишем — генерируем командами ниже.
 - Создание миграции core-моделей:
   - `make core-migrations m="message"`
+  - `uv run giga_agent makemigrations giga_agent.agents.run:agent --core -m "message"` (dev-only; увидишь warning)
 - Создание миграции модуля:
-  - `uv run giga_agent makemigrations agent_test/agent.py:agent giga_agent.modules.auth -m "message"`
-  - `uv run giga_agent makemigrations agent_test/agent.py:agent` (для всех модулей, подключённых в агенте)
+  - `uv run giga_agent makemigrations giga_agent.agents.run:agent giga_agent.modules.auth -m "message"`
+  - `uv run giga_agent makemigrations` (для всех модулей, подключённых в агенте)
 - Проверка migration heads:
-  - `uv run giga_agent check --agent-path agent_test/agent.py:agent`
+  - `uv run giga_agent check`
+  - `uv run giga_agent check --agent-path giga_agent.agents.run:agent`
 - Проксирование любых Alembic команд с подгрузкой модулей агента:
-  - `uv run giga_agent alembic --agent-path agent_test/agent.py:agent upgrade head`
+  - `uv run giga_agent alembic upgrade head`
+  - `uv run giga_agent alembic --agent-path giga_agent.agents.run:agent upgrade head`
 
 ## 2.1. Политика миграций модулей
 
 - Модульные миграции генерируются как отдельные ветки Alembic: `branch_labels=<module_name>`.
-- Для модулей **не используется** `down_revision` (он всегда `None`).
-- Порядок применения обеспечивается через `depends_on`:
-  - первая миграция модуля зависит от текущего head core;
-  - последующие миграции модуля зависят от предыдущей миграции этого модуля.
+- `branch_labels` задаётся **только** в первой миграции ветки модуля.
+- Порядок применения обеспечивается так:
+ - первая миграция модуля: `down_revision=None`, `depends_on=<core_head>`, `branch_labels=<module_name>`;
+ - последующие миграции модуля: `down_revision=<предыдущая миграция модуля>` (head = `<module>@head`), `depends_on=<core_head>`, без повторного `branch_labels`.
 
 ## 3. Правила по модулям
 
@@ -66,4 +70,4 @@
 
 - `/Users/mikelarg/PycharmProjects/giga_agent/backend/app/AGENTS.md`
 - `/Users/mikelarg/PycharmProjects/giga_agent/backend/app/ARCHITECTURE.md`
-- `/Users/mikelarg/PycharmProjects/giga_agent/backend/app/Makefile` и `/Users/mikelarg/PycharmProjects/giga_agent/backend/app/agent_test/agent.py` (если меняются команды/entrypoints)
+- `/Users/mikelarg/PycharmProjects/giga_agent/backend/app/Makefile` и `/Users/mikelarg/PycharmProjects/giga_agent/backend/app/giga_agent/agents/run.py` (если меняются команды/entrypoints)

@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import timedelta
 from typing import Annotated
@@ -285,6 +286,7 @@ async def logout(response: Response):
 async def read_users_me(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
+    time.sleep(1)
     return current_user
 
 

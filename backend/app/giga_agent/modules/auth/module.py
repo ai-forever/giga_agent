@@ -44,6 +44,6 @@ class AuthModule(BaseModule):
                 UserCreatedEvent(user_id=admin.id, email=admin.email)
             )
 
-            logger.info(f"Admin user created: {admin_email}")
+            logger.info(f"Admin user created: {admin_email}:{admin_password}")
         else:
             logger.info("Users exist. Skipping admin creation.")

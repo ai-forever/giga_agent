@@ -22,14 +22,15 @@ logger = get_logger(__name__)
 def alembic(
     ctx: typer.Context,
     agent_path: Annotated[
-        str, typer.Option(help="Path to agent instance, e.g. agent.py:agent")
-    ] = "agent.py:agent",
+        str,
+        typer.Option(help="Path to agent instance, e.g. giga_agent.agents.run:agent"),
+    ] = "giga_agent.agents.run:agent",
 ) -> None:
     """
     Proxies Alembic commands after loading agent modules (so models exist).
 
     Example:
-        uv run giga_agent alembic --agent-path agent_test/agent.py:agent upgrade heads
+        uv run giga_agent alembic --agent-path giga_agent.agents.run:agent upgrade heads
     """
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
     setup_cli_logging("INFO")
@@ -48,18 +49,20 @@ def alembic(
         typer.secho("Failed to load agent. Traceback:", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
-    # Ensure models are imported for autogenerate scenarios.
+    # Primary model loading path for autogenerate scenarios.
     try:
         import giga_agent.models  # noqa: F401
     except Exception:
         pass
 
+    # Keep module-level hooks as best-effort only.
     for mod in agent.modules:
         try:
             mod.get_models()
         except Exception as e:
             logger.warning(
-                f"Could not import models for module '{getattr(mod, 'id', '?')}': {e}"
+                f"Could not load models via get_models() for module "
+                f"'{getattr(mod, 'id', '?')}': {e}"
             )
 
     migration_paths: list[str] = []
@@ -113,4 +116,3 @@ def alembic(
         logger.exception("Alembic command failed")
         typer.secho(f"Alembic command failed: {e}", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1)
-

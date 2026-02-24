@@ -136,7 +136,7 @@ def apply_migrations(agent: BaseAgent) -> None:
         raise typer.Exit(code=1)
 
 
-def check_db_is_up_to_date(alembic_cfg: Config) -> None:
+def check_db_is_up_to_date(alembic_cfg: Config, *, allow_unknown_db_heads: bool = False) -> None:
     """
     Checks if the database schema is up-to-date with the codebase migrations.
     """
@@ -153,16 +153,66 @@ def check_db_is_up_to_date(alembic_cfg: Config) -> None:
         logger.warning(f"Could not connect to DB for revision check: {e}")
         return
 
-    context = MigrationContext.configure(conn)
-    current_heads = list(context.get_current_heads() or ())
+    try:
+        # Keep MigrationContext in sync with env.py (multi-head setup).
+        # version_table_pk affects table *creation*, but passing it here also ensures
+        # consistent behavior if Alembic internals rely on the flag.
+        context = MigrationContext.configure(conn, opts={"version_table_pk": False})
+        current_heads = list(context.get_current_heads() or ())
 
-    script = ScriptDirectory.from_config(alembic_cfg)
-    script_heads = list(script.get_heads() or ())
+        script = ScriptDirectory.from_config(alembic_cfg)
+        script_heads = list(script.get_heads() or ())
+    finally:
+        try:
+            conn.close()
+        finally:
+            engine.dispose()
 
-    if set(current_heads) != set(script_heads):
+    # In modular setups, module heads often declare `depends_on=<core_head>`.
+    # Alembic may treat such dependency heads as "effective" without storing them
+    # as separate rows in the version table. Therefore, comparing raw heads from
+    # the DB version table to ScriptDirectory heads is too strict.
+    #
+    # Instead, consider the DB up-to-date if all script heads are contained in the
+    # set of revisions implied by the current DB heads (including dependencies).
+    effective_db_revs: set[str] = set()
+    if current_heads:
+        known_current_heads: list[str] = []
+        unknown: list[str] = []
+
+        for head in current_heads:
+            try:
+                r = script.get_revision(head)
+            except Exception:
+                r = None
+            if r is None:
+                unknown.append(head)
+            else:
+                known_current_heads.append(head)
+
+        if unknown:
+            if allow_unknown_db_heads:
+                logger.info(
+                    "Ignoring DB heads not present in current script "
+                    f"(likely other module branches): {sorted(unknown)}"
+                )
+            else:
+                logger.error("Database contains unknown Alembic revisions!")
+                logger.error(f"Unknown revisions in DB: {sorted(unknown)}")
+                logger.error(f"Known script heads: {sorted(script_heads)}")
+                sys.exit(1)
+
+        # Walk down-revisions (including dependencies) from each known current head.
+        for head in known_current_heads:
+            for r in script.revision_map.iterate_revisions(head, None, inclusive=True):
+                effective_db_revs.add(r.revision)
+
+    missing_heads = set(script_heads) - effective_db_revs
+    if missing_heads:
         logger.error("Database is not up-to-date!")
         logger.error(f"Current DB heads: {current_heads}")
         logger.error(f"Codebase heads: {script_heads}")
+        logger.error(f"Missing code heads in effective DB state: {sorted(missing_heads)}")
         logger.error(
             "Please apply migrations before creating a new one (e.g. run 'uv run giga_agent dev ...')."
         )

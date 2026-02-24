@@ -88,6 +88,13 @@ from giga_agent.models.embedding import (
     EmbeddingRepository,
 )
 
+from giga_agent.models.rag import (
+    RagCollection,
+    RagDocument,
+    RagCollectionsRepository,
+    RagDocumentsRepository,
+)
+
 __all__ = [
     # Users
     "User",
@@ -163,4 +170,9 @@ __all__ = [
     "AvailableEmbeddingModel",
     "EmbeddingModelFetchError",
     "EmbeddingRepository",
+    # RAG
+    "RagCollection",
+    "RagDocument",
+    "RagCollectionsRepository",
+    "RagDocumentsRepository",
 ]

@@ -60,17 +60,32 @@ class CLISubgraphsTests(unittest.TestCase):
             "giga_agent.cli.asyncio.run"
         ), patch("giga_agent.core.cache.setup_cache"):
             dev(
-                graph_and_app_path="agent.py:graph:app",
+                graph_and_app_path="giga_agent.agents.run:graph:app",
                 no_reload=True,
             )
 
         self.assertEqual(
             captured["graphs"],
             {
-                "giga_agent": "agent.py:graph",
+                "giga_agent": "giga_agent.agents.run:graph",
                 "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
             },
         )
+
+    def test_dev_uses_default_graph_and_app_path(self):
+        graph = self._make_agent_graph(modules=[])
+
+        with patch.dict(
+            sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
+        ), patch(
+            "giga_agent.cli.load_graph_and_app_from_string",
+            return_value=(graph, FastAPI()),
+        ) as load_graph_and_app, patch("giga_agent.cli.apply_migrations"), patch(
+            "giga_agent.cli.asyncio.run"
+        ), patch("giga_agent.core.cache.setup_cache"):
+            dev(no_reload=True)
+
+        load_graph_and_app.assert_called_once_with("giga_agent.agents.run:graph:app")
 
     def test_dev_fails_on_duplicate_subgraph_key(self):
         def _run_server(*args, **kwargs):
@@ -91,7 +106,7 @@ class CLISubgraphsTests(unittest.TestCase):
         ), patch("giga_agent.core.cache.setup_cache"):
             with self.assertRaises(CLIException) as exc:
                 dev(
-                    graph_and_app_path="agent.py:graph:app",
+                    graph_and_app_path="giga_agent.agents.run:graph:app",
                     no_reload=True,
                 )
 

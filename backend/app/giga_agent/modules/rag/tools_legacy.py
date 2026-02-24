@@ -16,7 +16,7 @@ from giga_agent.vectorstores.qdrant import (
     resolve_qdrant_collection,
 )
 from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
-from giga_agent.modules.rag.database.repositories import RagCollectionsRepository
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.core.agent.types import Collection
 
 

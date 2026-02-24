@@ -1,7 +1,6 @@
 import os
 import inspect
 from typing import TYPE_CHECKING, Optional, List, TypedDict, Literal
-from typing_extensions import NotRequired
 from typing_extensions import override
 
 from pydantic import ConfigDict, PrivateAttr

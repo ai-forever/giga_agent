@@ -43,6 +43,9 @@ class BaseAgent(BaseModel):
         default_factory=dict
     )
 
+    def get_modules(self) -> list[BaseModule]:
+        return []
+
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "modules":
             return super().__setattr__(name, value)
@@ -90,7 +93,8 @@ class BaseAgent(BaseModel):
         self._app.include_router(api_router)
 
         # Re-initialize modules through add_module to ensure validation and route registration
-        initial_modules = self.modules
+        default_modules = tuple(self.get_modules())
+        initial_modules = (*default_modules, *self.modules)
         self.modules = ()
 
         for module in initial_modules:

@@ -52,4 +52,4 @@ test-cov:
 
 # Run development server with test agent
 dev:
-	uv run giga_agent dev agent_test/agent.py:graph:app
+	uv run giga_agent dev

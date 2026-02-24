@@ -109,13 +109,13 @@ Alembic работает в режиме multiple version locations.
 - **`branch_labels`**: `<module_name>` (например, `rag`)
 - **`depends_on`**:
   - для первой миграции модуля — текущий head core
-  - для последующих — head предыдущей миграции этого модуля (зависимость от core идёт транзитивно)
+  - для последующих — текущий head core (модульная история продолжается через `down_revision=<предыдущая миграция модуля>`)
 
 Дополнительно:
 
 - `giga_agent check` проверяет конфликтующие heads;
 - `giga_agent makemigrations <agent_path> [module_import_path] ...` создаёт миграции для конкретного модуля (если указан `module_import_path`) или для всех модулей, подключённых в агенте, с фильтром по табличному префиксу;
-- для core-моделей используется `make core-migrations`.
+- для core-моделей используется `make core-migrations` (или `giga_agent makemigrations --core`, но это dev-only путь).
 
 ## 4. Запуск и lifecycle
 

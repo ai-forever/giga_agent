@@ -17,7 +17,7 @@ from giga_agent.vectorstores.qdrant import (
     resolve_qdrant_collection,
 )
 from giga_agent.modules.rag.database.qdrant_store import build_filter, delete_by_filter
-from giga_agent.modules.rag.database.repositories import (
+from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )

@@ -26,7 +26,7 @@ from giga_agent.modules.rag.database.qdrant_store import (
     search_chunks as qdrant_search_chunks,
     upsert_chunks,
 )
-from giga_agent.modules.rag.database.repositories import (
+from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )

@@ -16,8 +16,9 @@ logger = get_logger(__name__)
 
 def check(
     agent_path: Annotated[
-        str, typer.Option(help="Path to agent instance, e.g. agent.py:agent")
-    ] = "agent.py:agent",
+        str,
+        typer.Option(help="Path to agent instance, e.g. giga_agent.agents.run:agent"),
+    ] = "giga_agent.agents.run:agent",
 ) -> None:
     """
     Validates migration history for all modules.
@@ -103,4 +104,3 @@ def check(
         sys.exit(1)
 
     logger.info("All modules have linear migration history.")
-

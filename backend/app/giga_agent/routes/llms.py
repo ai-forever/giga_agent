@@ -39,6 +39,7 @@ class LLMTypeMeta(BaseModel):
 
 
 class FetchModelsRequest(BaseModel):
+    llm_type: str = Field(..., description="LLM runtime type")
     connector_type: str = Field(..., description="Connector type")
     settings: dict[str, Any] = Field(default_factory=dict)
 
@@ -107,14 +108,14 @@ def _resolve_llm_runtime(llm_type: str, *, status_code: int) -> type:
     return LLMRegistry.get(llm_type)
 
 
-def _resolve_llm_runtime_for_connector(connector_type: str, *, status_code: int) -> type:
-    key = (connector_type or "").lower()
+def _resolve_llm_runtime_by_type(llm_type: str, *, status_code: int) -> type:
+    key = (llm_type or "").lower()
     if not LLMRegistry.is_registered(key):
         raise HTTPException(
             status_code=status_code,
             detail=(
-                f"Connector type '{connector_type}' is not supported for LLM model discovery. "
-                f"Available llm types: {LLMRegistry.available_types()}"
+                f"Unknown llm type: '{llm_type}'. "
+                f"Available: {LLMRegistry.available_types()}"
             ),
         )
     return LLMRegistry.get(key)
@@ -264,6 +265,7 @@ async def get_available_models_by_connector(
     connector_id: uuid.UUID,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
+    llm_type: str = Query(..., description="LLM runtime type"),
 ):
     connector = await _get_connector_with_owner_check(
         connector_id=connector_id,
@@ -276,8 +278,13 @@ async def get_available_models_by_connector(
             detail="Connector must be active",
         )
 
-    runtime_cls = _resolve_llm_runtime_for_connector(
-        connector.type,
+    _validate_llm_connector_compatibility(
+        llm_type=llm_type,
+        connector_type=connector.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    runtime_cls = _resolve_llm_runtime_by_type(
+        llm_type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
@@ -304,8 +311,13 @@ async def fetch_available_models(
         data.settings,
     )
 
-    runtime_cls = _resolve_llm_runtime_for_connector(
-        data.connector_type,
+    _validate_llm_connector_compatibility(
+        llm_type=data.llm_type,
+        connector_type=data.connector_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    runtime_cls = _resolve_llm_runtime_by_type(
+        data.llm_type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 

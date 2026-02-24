@@ -6,14 +6,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from giga_agent.core.db import Base
 from giga_agent.models.connector import Connector
 from giga_agent.models.embedding import Embedding
-from giga_agent.models.users import User
-from giga_agent.modules.rag.database.repositories import (
+from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )
+from giga_agent.models.users import User
 
 # Ensure module tables are registered in Base.metadata
-import giga_agent.modules.rag.models  # noqa: F401
+import giga_agent.models.rag  # noqa: F401
 
 
 class RagRepositoriesTests(unittest.IsolatedAsyncioTestCase):
@@ -113,4 +113,3 @@ class RagRepositoriesTests(unittest.IsolatedAsyncioTestCase):
                 document_id=doc_id,
             )
             self.assertTrue(ok)
-

@@ -125,6 +125,9 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         # Включаем batch mode для SQLite
         render_as_batch=url.startswith("sqlite"),
+        # Для multi-head (core + модули) Alembic должен хранить несколько строк
+        # в version_table, поэтому PK на version_num отключаем.
+        version_table_pk=False,
         include_object=include_object,
     )
 
@@ -142,6 +145,9 @@ def do_run_migrations(connection: Connection) -> None:
         target_metadata=target_metadata,
         # КРИТИЧНО ДЛЯ SQLITE: Включаем render_as_batch
         render_as_batch=is_sqlite,
+        # Для multi-head (core + модули) Alembic должен хранить несколько строк
+        # в version_table, поэтому PK на version_num отключаем.
+        version_table_pk=False,
         include_object=include_object,
     )
 

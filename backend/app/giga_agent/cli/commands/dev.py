@@ -158,8 +158,14 @@ def _run_langgraph_server_in_subprocess(
 
 def dev(
     graph_and_app_path: Annotated[
-        str, typer.Argument(help="Path to graph and app, e.g. agent.py:graph:app")
-    ],
+        str,
+        typer.Argument(
+            help=(
+                "Path to graph and app, "
+                "e.g. giga_agent.agents.run:graph:app"
+            )
+        ),
+    ] = "giga_agent.agents.run:graph:app",
     log_level: Annotated[
         LogLevel, typer.Option(help="Logging level", case_sensitive=False)
     ] = LogLevel.INFO,
@@ -246,7 +252,10 @@ def dev(
     path_part, graph_var, app_var = _parse_import_string(
         graph_and_app_path,
         expected_parts=3,
-        format_hint="'filepath:graph_var:app_var' (e.g., agent.py:graph:app)",
+        format_hint=(
+            "'filepath:graph_var:app_var' "
+            "(e.g., giga_agent.agents.run:graph:app)"
+        ),
     )
 
     graphs = _collect_run_server_graphs(
@@ -304,4 +313,3 @@ def dev(
         pass
 
     raise typer.Exit(code=rc)
-

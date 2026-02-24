@@ -9,19 +9,14 @@ from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.module import BaseModule
 from giga_agent.core.agent.types import Collection as StateCollection
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.rag.api import router as rag_api_router
-from giga_agent.modules.rag.database.repositories import RagCollectionsRepository
 from giga_agent.modules.rag.tools import get_documents, get_rag_info
 
 
 class RagModule(BaseModule):
     id: str = "rag"
-
-    def get_models(self) -> list[type]:
-        from giga_agent.modules.rag.models import RagCollection, RagDocument
-
-        return [RagCollection, RagDocument]
 
     def get_api_router(self) -> APIRouter:
         return rag_api_router
@@ -48,4 +43,3 @@ class RagModule(BaseModule):
             for r in rows
         ]
         return get_rag_info(collections)
-

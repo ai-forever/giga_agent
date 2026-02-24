@@ -15,6 +15,7 @@ import sys
 import uvicorn
 
 from giga_agent.core.logging import get_logger, setup_cli_logging
+from giga_agent.utils.blockbuster import _enable_blockbuster
 
 logger = get_logger(__name__)
 
@@ -79,7 +80,10 @@ def main() -> int:
         if not isinstance(graphs, dict):
             raise TypeError("graphs must be a JSON object")
     except Exception as e:
-        print(f"Invalid graphs JSON in GIGA_AGENT_LANGGRAPH_DEV_GRAPHS_JSON: {e}", file=sys.stderr)
+        print(
+            f"Invalid graphs JSON in GIGA_AGENT_LANGGRAPH_DEV_GRAPHS_JSON: {e}",
+            file=sys.stderr,
+        )
         return 2
 
     setup_cli_logging(log_level)
@@ -100,4 +104,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -57,8 +57,8 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
     """
     CLI-oriented logging config:
     - structlog everywhere (our code)
-    - Rich-formatted, colorful console output (when available)
-    - pretty, multiline tracebacks on .exception(...) / exc_info
+    - colorful console output (single-line records; no hard wrapping)
+    - multiline tracebacks on .exception(...) / exc_info
     - suppress noisy external loggers by default
 
     Env toggles:
@@ -96,48 +96,19 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
             renderer,
         ]
     else:
-        try:
-            from rich.console import Console
-            from rich.logging import RichHandler
-        except Exception:
-            # Fallback: plain stdlib logging + structlog console renderer.
-            stdlib_logging.basicConfig(level=str(level).upper(), stream=sys.stdout)
-            for h in stdlib_logging.getLogger().handlers:
-                _ensure_cli_filters(h)
-            structlog.configure(
-                processors=[
-                    structlog.stdlib.filter_by_level,
-                    structlog.stdlib.add_logger_name,
-                    structlog.stdlib.add_log_level,
-                    structlog.processors.TimeStamper(fmt="iso"),
-                    structlog.processors.UnicodeDecoder(),
-                    structlog.processors.StackInfoRenderer(),
-                    structlog.processors.format_exc_info,
-                    structlog.dev.ConsoleRenderer(colors=False),
-                ],
-                logger_factory=structlog.stdlib.LoggerFactory(),
-                wrapper_class=structlog.stdlib.BoundLogger,
-                cache_logger_on_first_use=True,
-            )
-            return
-
-        handler = RichHandler(
-            console=Console(file=sys.stdout, stderr=False),
-            rich_tracebacks=True,
-            markup=True,
-            show_time=True,
-            show_level=True,
-            show_path=False,
-            log_time_format="%H:%M:%S",
-        )
+        handler = stdlib_logging.StreamHandler(sys.stdout)
         handler._giga_agent_cli_handler = True  # type: ignore[attr-defined]
         handler._giga_agent_cli_format = "pretty"  # type: ignore[attr-defined]
         _ensure_cli_filters(handler)
-        handler.setFormatter(stdlib_logging.Formatter("%(message)s"))
+        handler.setFormatter(
+            stdlib_logging.Formatter(
+                fmt="%(asctime)s %(levelname)-8s %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
         # Important: render to a single human-readable line BEFORE stdlib logging,
         # so uvicorn/dictConfig can't force dict/JSON formatting for our records.
-        # RichHandler is responsible for coloring; keep structlog renderer plain.
-        renderer = structlog.dev.ConsoleRenderer(colors=False, sort_keys=True)
+        renderer = structlog.dev.ConsoleRenderer(colors=True, sort_keys=True)
         processors = [
             structlog.stdlib.filter_by_level,
             structlog.processors.UnicodeDecoder(),
