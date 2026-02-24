@@ -269,6 +269,7 @@ interface SearchEngineFormProps {
   settingsValues: Record<string, unknown>;
   selectedConnectorId: string;
   filteredConnectors: ConnectorResponse[];
+  supportsConnectors: boolean;
   requiresConnector: boolean;
   isActive: boolean;
   loadingTypes: boolean;
@@ -294,6 +295,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   settingsValues,
   selectedConnectorId,
   filteredConnectors,
+  supportsConnectors,
   requiresConnector,
   isActive,
   loadingTypes,
@@ -379,14 +381,17 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
         </div>
       )}
 
-      {selectedType && requiresConnector && (
+      {selectedType && supportsConnectors && (
         <div className="space-y-1.5">
           <Label htmlFor="search-engine-connector">
-            Коннектор <span className="text-destructive">*</span>
+            Коннектор{" "}
+            {requiresConnector && <span className="text-destructive">*</span>}
           </Label>
           <Select
             value={selectedConnectorId}
-            onValueChange={onConnectorChange}
+            onValueChange={(value) =>
+              onConnectorChange(value === "__none__" ? "" : value)
+            }
             disabled={loadingConnectors || saving || filteredConnectors.length === 0}
           >
             <SelectTrigger id="search-engine-connector" className="w-full">
@@ -400,6 +405,9 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
               )}
             </SelectTrigger>
             <SelectContent>
+              {!requiresConnector && (
+                <SelectItem value="__none__">Без коннектора</SelectItem>
+              )}
               {filteredConnectors.map((connector) => (
                 <SelectItem key={connector.id} value={connector.id}>
                   {connector.name || connector.type}
@@ -416,7 +424,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
         </div>
       )}
 
-      {selectedType && !requiresConnector && (
+      {selectedType && !supportsConnectors && (
         <p className="text-sm text-muted-foreground">
           Для выбранного типа движка коннектор не требуется.
         </p>
@@ -567,6 +575,7 @@ export const SearchEnginesSettings: React.FC = () => {
     () => (selectedTypeMeta?.supported_connector_types || []).map((type) => type.toLowerCase()),
     [selectedTypeMeta],
   );
+  const supportsConnectors = supportedConnectorTypes.length > 0;
 
   const filteredConnectors = useMemo(
     () =>
@@ -661,8 +670,8 @@ export const SearchEnginesSettings: React.FC = () => {
           settings: compactObject(settingsValues),
           is_active: isActive,
         };
-        if (requiresConnector) {
-          payload.connector_id = selectedConnectorId;
+        if (supportsConnectors) {
+          payload.connector_id = selectedConnectorId || null;
         }
 
         await apiClient.patch<SearchEngineResponse>(
@@ -680,7 +689,7 @@ export const SearchEnginesSettings: React.FC = () => {
         if (trimmedName) {
           payload.name = trimmedName;
         }
-        if (requiresConnector) {
+        if (supportsConnectors && selectedConnectorId) {
           payload.connector_id = selectedConnectorId;
         }
 
@@ -748,6 +757,7 @@ export const SearchEnginesSettings: React.FC = () => {
             settingsValues={settingsValues}
             selectedConnectorId={selectedConnectorId}
             filteredConnectors={filteredConnectors}
+            supportsConnectors={supportsConnectors}
             requiresConnector={requiresConnector}
             isActive={isActive}
             loadingTypes={loadingTypes}
@@ -804,6 +814,7 @@ export const SearchEnginesSettings: React.FC = () => {
                   settingsValues={settingsValues}
                   selectedConnectorId={selectedConnectorId}
                   filteredConnectors={filteredConnectors}
+                  supportsConnectors={supportsConnectors}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
                   loadingTypes={loadingTypes}

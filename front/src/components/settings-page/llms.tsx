@@ -57,6 +57,7 @@ export const LLMSettings: React.FC = () => {
   const [loadingLLMs, setLoadingLLMs] = useState(false);
   const [editingLLM, setEditingLLM] = useState<LLMResponse | undefined>();
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const fetchLLMs = useCallback(async () => {
     setLoadingLLMs(true);
@@ -84,11 +85,14 @@ export const LLMSettings: React.FC = () => {
     if (!confirm("Вы уверены, что хотите удалить эту модель?")) return;
 
     try {
+      setSaving(true);
       await apiClient.delete(`/api/llms/${llmId}`);
       toast.success("Модель удалена");
       fetchLLMs();
     } catch {
       // handled globally
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -106,7 +110,9 @@ export const LLMSettings: React.FC = () => {
   };
 
   const handleSaveLLM = async (data: LLMFormSubmitData, isNewLLM: boolean) => {
+    if (saving) return;
     try {
+      setSaving(true);
       const payload: Record<string, unknown> = {
         type: data.llm_type,
         connector_id: data.connector_id,
@@ -131,6 +137,8 @@ export const LLMSettings: React.FC = () => {
       fetchLLMs();
     } catch {
       // handled globally
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -146,7 +154,7 @@ export const LLMSettings: React.FC = () => {
           </p>
         </div>
         {!isCreatingNew && (
-          <Button onClick={handleCreateNew} size="sm" variant="default2">
+          <Button onClick={handleCreateNew} size="sm" variant="default2" disabled={saving}>
             <Plus className="size-4 mr-2" />
             Добавить
           </Button>
@@ -157,13 +165,19 @@ export const LLMSettings: React.FC = () => {
         <div className="border border-border rounded-lg p-4 bg-muted/30">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новая модель</h3>
-            <Button variant="ghost" size="icon" onClick={handleCancelCreate}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCancelCreate}
+              disabled={saving}
+            >
               <X className="size-4" />
             </Button>
           </div>
           <LLMForm
             onSave={(data) => handleSaveLLM(data, true)}
             onCancel={handleCancelCreate}
+            saving={saving}
           />
         </div>
       )}
@@ -179,7 +193,12 @@ export const LLMSettings: React.FC = () => {
                 <h3 className="font-medium">
                   Редактирование: {llm.name || llm.model_id}
                 </h3>
-                <Button variant="ghost" size="icon" onClick={handleCancelEdit}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCancelEdit}
+                  disabled={saving}
+                >
                   <X className="size-4" />
                 </Button>
               </div>
@@ -187,6 +206,7 @@ export const LLMSettings: React.FC = () => {
                 llm={editingLLM}
                 onSave={(data) => handleSaveLLM(data, false)}
                 onCancel={handleCancelEdit}
+                saving={saving}
               />
             </div>
           ) : (
@@ -195,7 +215,7 @@ export const LLMSettings: React.FC = () => {
               llm={llm}
               onEdit={handleEditLLM}
               onDelete={handleDeleteLLM}
-              disabled={isEditing}
+              disabled={isEditing || saving}
             />
           ),
         )}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { FileData } from "../interfaces.ts";
 import { apiClient } from "../lib/api-client.ts";
+import { buildContentByPathUrl } from "../components/attachments/file-utils.ts";
 
 export interface UploadedFile {
   file: File;
@@ -33,9 +34,6 @@ type BackendFilePayload = {
   image_id?: string;
   image_path?: string;
 };
-
-const buildReadByPathUrl = (path: string): string =>
-  `/api/files/content/by-path?path=${encodeURIComponent(path)}`;
 
 const detectFileType = (file: File): string => {
   const mime = (file.type || "").toLowerCase();
@@ -103,8 +101,7 @@ export function useFileUpload() {
 
       apiClient
         .post<BackendFilePayload>("/api/files/upload", formData, {
-          attachAuth: false,
-          credentials: "same-origin",
+          attachAuth: true,
         })
         .then((res) => {
           const normalized = normalizeFileData(res);
@@ -137,13 +134,12 @@ export function useFileUpload() {
     const mappedExisting: AttachmentItem[] = existingFiles.map((raw) => {
       const f = normalizeFileData(raw as BackendFilePayload);
       const isImage = f.file_type === "image";
-      const fileName =
-        f.original_name ?? (f.path.split("/").pop() || f.path);
+      const fileName = f.original_name ?? (f.path.split("/").pop() || f.path);
       return {
         kind: "existing",
         data: f,
         progress: 100,
-        previewUrl: isImage ? buildReadByPathUrl(f.path) : undefined,
+        previewUrl: isImage ? buildContentByPathUrl(f.path) : undefined,
         name: !isImage ? fileName : undefined,
       };
     });

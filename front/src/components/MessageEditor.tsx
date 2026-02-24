@@ -25,6 +25,7 @@ import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useParams } from "react-router-dom";
+import { buildContentByPathUrl } from "./attachments/file-utils.ts";
 
 interface MessageEditorProps {
   message: Message;
@@ -73,10 +74,6 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
   const getFilePath = useCallback((file: FileData): string => {
     const withSandbox = file as FileData & { sandbox_path?: string };
     return withSandbox.path || withSandbox.sandbox_path || "";
-  }, []);
-
-  const buildFileUrl = useCallback((path: string): string => {
-    return `/api/files/content/by-path?path=${encodeURIComponent(path)}`;
   }, []);
 
   useEffect(() => {
@@ -284,7 +281,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
                 if (it.kind === "existing") {
                   const f = it.data!;
                   const path = getFilePath(f);
-                  const url = buildFileUrl(path);
+                  const url = buildContentByPathUrl(path);
                   if (f.file_type === "image") setEnlargedImage(url);
                   else openLink(url);
                 } else if (it.previewUrl) {
@@ -294,7 +291,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
             >
               {it.kind === "existing" ? (
                 it.data?.file_type === "image" ? (
-                  <ImagePreview src={buildFileUrl(getFilePath(it.data))} />
+                  <ImagePreview src={buildContentByPathUrl(getFilePath(it.data))} />
                 ) : (
                   <span>{it.name ?? (it.data ? getFilePath(it.data) : "")}</span>
                 )

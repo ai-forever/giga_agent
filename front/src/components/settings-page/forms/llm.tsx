@@ -29,6 +29,7 @@ interface LLMFormProps {
   llm?: LLMResponse;
   onSave: (data: LLMFormSubmitData) => void;
   onCancel: () => void;
+  saving?: boolean;
 }
 
 export interface LLMFormSubmitData {
@@ -44,6 +45,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   llm,
   onSave,
   onCancel,
+  saving = false,
 }) => {
   const [llmTypes, setLlmTypes] = useState<LLMTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
@@ -272,6 +274,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   };
 
   const isSaveDisabled =
+    saving ||
     !selectedLLMType ||
     !selectedConnectorId ||
     !modelId ||
@@ -289,7 +292,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
           <Select
             value={selectedLLMType}
             onValueChange={handleLLMTypeChange}
-            disabled={loadingLLMTypes}
+            disabled={loadingLLMTypes || saving}
           >
             <SelectTrigger id="llm-type" className="w-full">
               {loadingLLMTypes ? (
@@ -317,7 +320,12 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         <Select
           value={selectedConnectorId}
           onValueChange={setSelectedConnectorId}
-          disabled={loadingConnectors || !selectedLLMType || filteredConnectors.length === 0}
+          disabled={
+            saving ||
+            loadingConnectors ||
+            !selectedLLMType ||
+            filteredConnectors.length === 0
+          }
         >
           <SelectTrigger id="connector-select" className="w-full">
             {loadingConnectors ? (
@@ -347,7 +355,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       <div className="space-y-2">
         <Label htmlFor="model-id">Название модели</Label>
         {availableModels.length > 0 ? (
-          <Select value={modelId} onValueChange={setModelId}>
+          <Select value={modelId} onValueChange={setModelId} disabled={saving || loadingModels}>
             <SelectTrigger id="model-id" className="w-full">
               <SelectValue placeholder="Выберите модель" />
             </SelectTrigger>
@@ -365,6 +373,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
             placeholder="gpt-4o, gpt-4o-mini, ..."
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
+            disabled={saving}
           />
         )}
         {loadingModels && (
@@ -379,6 +388,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
           placeholder="Мой GPT-4"
           value={llmName}
           onChange={(e) => setLlmName(e.target.value)}
+          disabled={saving}
         />
       </div>
 
@@ -406,6 +416,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
                   min={0}
                   max={1}
                   step={0.01}
+                  disabled={saving}
                 />
               </div>
               <Input
@@ -417,6 +428,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
                 value={tempInput}
                 onChange={handleTemperatureInputChange}
                 onBlur={handleTemperatureInputBlur}
+                disabled={saving}
               />
             </div>
           </div>
@@ -425,9 +437,18 @@ export const LLMForm: React.FC<LLMFormProps> = ({
 
       <div className="flex gap-2 pt-4">
         <Button onClick={handleSubmit} disabled={isSaveDisabled}>
-          {llm ? "Сохранить" : "Создать"}
+          {saving ? (
+            <>
+              <Loader2 className="size-4 animate-spin mr-2" />
+              Сохранение...
+            </>
+          ) : llm ? (
+            "Сохранить"
+          ) : (
+            "Создать"
+          )}
         </Button>
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={onCancel} disabled={saving}>
           Отмена
         </Button>
       </div>

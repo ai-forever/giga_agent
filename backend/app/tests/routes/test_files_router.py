@@ -101,6 +101,29 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 307)
         self.assertEqual(response.headers["location"], "https://signed.example.local/object")
 
+    def test_read_s3_file_returns_json_redirect_instruction(self):
+        file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        result = RedirectResult(url="https://signed.example.local/object")
+
+        with patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
+            AsyncMock(return_value=(file_obj, result)),
+        ):
+            response = self.client.get(
+                f"/files/{file_obj.id}/content",
+                params={"redirect_result": "json"},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("content-type", "").split(";")[0],
+            "application/vnd.giga-agent.redirect+json",
+        )
+        body = response.json()
+        self.assertEqual(body["kind"], "redirect")
+        self.assertEqual(body["url"], "https://signed.example.local/object")
+
     def test_read_local_file_returns_stream(self):
         file_obj = self._file_obj("/tmp/local.bin")
         result = ContentResult(data=b"payload")
@@ -150,6 +173,31 @@ class FilesRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 307)
         self.assertEqual(response.headers["location"], "https://signed.example.local/by-path")
+
+    def test_read_by_path_returns_json_redirect_instruction(self):
+        file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        result = RedirectResult(url="https://signed.example.local/by-path")
+        with patch(
+            "giga_agent.routes.files.SandboxManager.read_file_by_path_for_user",
+            AsyncMock(return_value=(file_obj, result)),
+        ):
+            response = self.client.get(
+                "/files/content/by-path",
+                params={
+                    "path": "/home/user/bucket/giga_agent/u/report.txt",
+                    "redirect_result": "json",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("content-type", "").split(";")[0],
+            "application/vnd.giga-agent.redirect+json",
+        )
+        body = response.json()
+        self.assertEqual(body["kind"], "redirect")
+        self.assertEqual(body["url"], "https://signed.example.local/by-path")
 
     def test_read_by_path_missing_returns_404(self):
         with patch(

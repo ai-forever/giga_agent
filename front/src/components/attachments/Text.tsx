@@ -3,7 +3,7 @@ import { ChevronUp } from "lucide-react";
 import TextMarkdown from "./TextMarkdown.tsx";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client.ts";
-import { buildContentByPathUrl } from "./file-utils.ts";
+import { buildContentByPathPreviewUrl, buildContentByPathUrl } from "./file-utils.ts";
 
 interface TextProps {
   id: string;
@@ -27,11 +27,14 @@ const Text: React.FC<TextProps> = ({ id, path }) => {
     let cancelled = false;
     const loadText = async () => {
       try {
-        const raw = await apiClient.getText(buildContentByPathUrl(path), {
-          attachAuth: false,
-          credentials: "same-origin",
-          showError: false,
-        });
+        const raw = await apiClient.getTextWithRedirectInstruction(
+          buildContentByPathPreviewUrl(path),
+          {
+            attachAuth: true,
+            credentials: "omit",
+            showError: false,
+          },
+        );
         if (!cancelled) {
           setText(raw);
           setError(false);

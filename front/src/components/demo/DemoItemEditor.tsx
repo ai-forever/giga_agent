@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { buildContentByPathUrl } from "@/components/attachments/file-utils.ts";
 
 interface DemoItemEditorProps {
   item: DemoItem;
@@ -182,9 +183,10 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
                 onClick={() => {
                   if (it.kind === "existing") {
                     const f = it.data!;
+                    const fileUrl = buildContentByPathUrl(f.path);
                     if (f.file_type === "image")
-                      setEnlargedImage("/files/" + f.path);
-                    else openLink("/files/" + f.path);
+                      setEnlargedImage(fileUrl);
+                    else openLink(fileUrl);
                   } else if (it.previewUrl) {
                     setEnlargedImage(it.previewUrl);
                   }
@@ -192,7 +194,7 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
               >
                 {it.kind === "existing" ? (
                   it.data?.file_type === "image" ? (
-                    <ImagePreview src={"/files/" + it.data.path} />
+                    <ImagePreview src={buildContentByPathUrl(it.data.path)} />
                   ) : (
                     <span>
                       {it.name ??

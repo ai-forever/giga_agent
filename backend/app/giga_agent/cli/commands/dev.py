@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from typing import Annotated
+from urllib.parse import quote
 
 import typer
 
@@ -88,7 +89,7 @@ def _run_langgraph_server_in_subprocess(
     reload: bool,
     graphs: dict[str, str],
     auth_path: str,
-    http_app: str,
+    http_config: dict[str, object],
     log_level: str,
 ) -> int:
     env = os.environ.copy()
@@ -97,7 +98,8 @@ def _run_langgraph_server_in_subprocess(
     env["GIGA_AGENT_LANGGRAPH_DEV_RELOAD"] = "1" if reload else "0"
     env["GIGA_AGENT_LANGGRAPH_DEV_GRAPHS_JSON"] = json.dumps(graphs)
     env["GIGA_AGENT_LANGGRAPH_DEV_AUTH_PATH"] = auth_path
-    env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_APP"] = http_app
+    env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_APP"] = str(http_config.get("app", ""))
+    env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_CONFIG_JSON"] = json.dumps(http_config)
     env["GIGA_AGENT_LANGGRAPH_DEV_LOG_LEVEL"] = log_level
 
     cmd = [sys.executable, "-m", "giga_agent.scripts.langgraph_dev_server"]
@@ -160,18 +162,18 @@ def dev(
     graph_and_app_path: Annotated[
         str,
         typer.Argument(
-            help=(
-                "Path to graph and app, "
-                "e.g. giga_agent.agents.run:graph:app"
-            )
+            help=("Path to graph and app, " "e.g. giga_agent.agents.run:graph:app")
         ),
     ] = "giga_agent.agents.run:graph:app",
     log_level: Annotated[
         LogLevel, typer.Option(help="Logging level", case_sensitive=False)
     ] = LogLevel.INFO,
-    host: Annotated[str, typer.Option(help="Host to bind to")] = "127.0.0.1",
+    host: Annotated[str, typer.Option(help="Host to bind to")] = "localhost",
     port: Annotated[int, typer.Option(help="Port to bind to")] = 9090,
     no_reload: Annotated[bool, typer.Option(help="Disable auto-reload")] = False,
+    frontend_url: Annotated[
+        str, typer.Option(help="Frontend URL for /base hint")
+    ] = "http://localhost:3000",
 ) -> None:
     """
     Development mode: apply migrations, run module startup hooks, then start server.
@@ -216,7 +218,7 @@ def dev(
     ensure_giga_agent_dir()
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
-    os.environ.setdefault("GIGA_AGENT_HOST", str(host))
+    os.environ.setdefault("GIGA_AGENT_HOST", f"http://{str(host)}")
     os.environ.setdefault("GIGA_AGENT_PORT", str(port))
 
     from giga_agent.core.cache import setup_cache
@@ -253,8 +255,7 @@ def dev(
         graph_and_app_path,
         expected_parts=3,
         format_hint=(
-            "'filepath:graph_var:app_var' "
-            "(e.g., giga_agent.agents.run:graph:app)"
+            "'filepath:graph_var:app_var' " "(e.g., giga_agent.agents.run:graph:app)"
         ),
     )
 
@@ -266,6 +267,21 @@ def dev(
 
     auth_path = "giga_agent.modules.auth.langgraph_auth:auth"
     http_app = f"{path_part}:{app_var}"
+    cors_config = {
+        "allow_origins": [],
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+        "allow_credentials": True,
+        "allow_origin_regex": ".*",
+        "expose_headers": [],
+        "max_age": 600,
+    }
+    http_config: dict[str, object] = {"app": http_app, "cors": cors_config}
+
+    frontend_base_url = frontend_url.rstrip("/") or "http://localhost:3000"
+    api_host_for_hint = "127.0.0.1" if host == "0.0.0.0" else host
+    api_server_url = f"http://{api_host_for_hint}:{port}"
+    logger.info(f"Open: {frontend_base_url}/base?url={quote(api_server_url, safe='')}")
 
     if no_reload:
         # In-process execution is enough without reload and keeps unit tests simple.
@@ -282,7 +298,7 @@ def dev(
             False,
             graphs,
             auth={"path": auth_path},
-            http={"app": http_app},
+            http=http_config,
             **kwargs,
         )
         return
@@ -293,7 +309,7 @@ def dev(
         reload=True,
         graphs=graphs,
         auth_path=auth_path,
-        http_app=http_app,
+        http_config=http_config,
         log_level=log_level.value.upper(),
     )
 

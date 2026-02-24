@@ -4,6 +4,7 @@
  */
 
 export type ApiErrorHandler = (error: ApiError) => void;
+export const API_BASE_URL_KEY = "API_BASE_URL";
 
 export interface RequestOptions extends Omit<RequestInit, "method" | "body"> {
   /**
@@ -22,6 +23,60 @@ export interface RequestOptions extends Omit<RequestInit, "method" | "body"> {
    * @default true
    */
   attachAuth?: boolean;
+}
+
+type RedirectInstruction = {
+  kind: "redirect";
+  url: string;
+};
+
+const REDIRECT_INSTRUCTION_MEDIA_TYPE =
+  "application/vnd.giga-agent.redirect+json";
+
+const ABSOLUTE_HTTP_URL_REGEX = /^https?:\/\//i;
+const API_PREFIX_REGEX = /^\/api(?=\/|\?|#|$)/;
+
+function isRedirectInstruction(value: unknown): value is RedirectInstruction {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return record.kind === "redirect" && typeof record.url === "string";
+}
+
+function normalizeBaseUrl(baseUrl: string): string | null {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin}${normalizedPath}`;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveApiUrl(url: string): string {
+  if (ABSOLUTE_HTTP_URL_REGEX.test(url)) {
+    return url;
+  }
+
+  const storedBaseUrl = localStorage.getItem(API_BASE_URL_KEY);
+  const baseUrl = storedBaseUrl ? normalizeBaseUrl(storedBaseUrl) : null;
+  if (!baseUrl) {
+    return url;
+  }
+
+  if (!API_PREFIX_REGEX.test(url)) {
+    return url;
+  }
+
+  const withoutApiPrefix = url.replace(API_PREFIX_REGEX, "") || "/";
+  return new URL(withoutApiPrefix, `${baseUrl}/`).toString();
 }
 
 class ApiClient {
@@ -79,7 +134,7 @@ class ApiClient {
       headers["Content-Type"] = "application/json";
     }
 
-    const response = await fetch(url, {
+    const response = await fetch(resolveApiUrl(url), {
       ...fetchOptions,
       credentials: fetchOptions.credentials ?? "include",
       method,
@@ -145,6 +200,104 @@ class ApiClient {
       ...options,
       responseType: "text",
     });
+  }
+
+  /**
+   * GET запрос, возвращающий текст. Если API вместо 307 отдаёт JSON-инструкцию
+   * `{kind:"redirect", url:"..."}`, выполняет второй запрос на указанный URL
+   * без auth и cookies (`credentials:"omit"`).
+   */
+  async getTextWithRedirectInstruction(
+    url: string,
+    options: RequestOptions = {},
+  ): Promise<string> {
+    const { showError = true, attachAuth = true, ...fetchOptions } = options;
+
+    const headers: Record<string, string> = {
+      ...((fetchOptions.headers as Record<string, string>) || {}),
+    };
+
+    if (attachAuth && this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(resolveApiUrl(url), {
+      ...fetchOptions,
+      credentials: fetchOptions.credentials ?? "omit",
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) {
+      let errorMessage = `Ошибка ${response.status}`;
+      let errorData: unknown = undefined;
+
+      try {
+        errorData = await response.json();
+        if (typeof errorData === "object" && errorData !== null) {
+          const err = errorData as Record<string, unknown>;
+          errorMessage =
+            (err.detail as string) ||
+            (err.message as string) ||
+            errorMessage;
+        }
+      } catch {
+        errorMessage = response.statusText || errorMessage;
+      }
+
+      const error = new ApiError(errorMessage, response.status, errorData);
+
+      if (response.status === 401) {
+        this.onUnauthorized();
+        throw error;
+      }
+
+      if (showError) {
+        this.onError(error);
+      }
+
+      throw error;
+    }
+
+    const raw = await response.text();
+    const contentType = (
+      response.headers.get("content-type") || ""
+    )
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+
+    if (contentType === REDIRECT_INSTRUCTION_MEDIA_TYPE) {
+      let parsed: unknown = null;
+      try {
+        parsed = raw ? (JSON.parse(raw) as unknown) : null;
+      } catch {
+        return raw;
+      }
+
+      if (isRedirectInstruction(parsed)) {
+        const externalResponse = await fetch(parsed.url, {
+          method: "GET",
+          credentials: "omit",
+          signal: fetchOptions.signal,
+        });
+
+        if (!externalResponse.ok) {
+          const error = new ApiError(
+            `Ошибка ${externalResponse.status}`,
+            externalResponse.status,
+          );
+          if (showError) {
+            this.onError(error);
+          }
+          throw error;
+        }
+
+        return await externalResponse.text();
+      }
+    }
+
+    return raw;
   }
 
   /**

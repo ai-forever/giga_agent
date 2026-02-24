@@ -1,6 +1,7 @@
 import sys
 import types
 import unittest
+from urllib.parse import quote
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -71,6 +72,21 @@ class CLISubgraphsTests(unittest.TestCase):
                 "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
             },
         )
+        self.assertEqual(
+            captured["http"],
+            {
+                "app": "giga_agent.agents.run:app",
+                "cors": {
+                    "allow_origins": [],
+                    "allow_methods": ["*"],
+                    "allow_headers": ["*"],
+                    "allow_credentials": True,
+                    "allow_origin_regex": ".*",
+                    "expose_headers": [],
+                    "max_age": 600,
+                },
+            },
+        )
 
     def test_dev_uses_default_graph_and_app_path(self):
         graph = self._make_agent_graph(modules=[])
@@ -111,3 +127,31 @@ class CLISubgraphsTests(unittest.TestCase):
                 )
 
         self.assertIn("Duplicate subgraph key 'landing'", str(exc.exception))
+
+    def test_dev_logs_frontend_base_hint_url(self):
+        graph = self._make_agent_graph(modules=[])
+
+        with patch.dict(
+            sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
+        ), patch(
+            "giga_agent.cli.load_graph_and_app_from_string",
+            return_value=(graph, FastAPI()),
+        ), patch("giga_agent.cli.apply_migrations"), patch(
+            "giga_agent.cli.asyncio.run"
+        ), patch("giga_agent.core.cache.setup_cache"), patch(
+            "giga_agent.cli.commands.dev.logger"
+        ) as logger_mock:
+            dev(
+                graph_and_app_path="giga_agent.agents.run:graph:app",
+                host="0.0.0.0",
+                port=9090,
+                frontend_url="http://localhost:5173/",
+                no_reload=True,
+            )
+
+        expected_hint = (
+            f"Open: http://localhost:5173/base?url="
+            f"{quote('http://127.0.0.1:9090', safe='')}"
+        )
+        logged_messages = [str(call.args[0]) for call in logger_mock.info.call_args_list]
+        self.assertIn(expected_hint, logged_messages)

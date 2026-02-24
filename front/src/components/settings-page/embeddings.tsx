@@ -57,6 +57,7 @@ export const EmbeddingsSettings: React.FC = () => {
   const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
   const [editingEmbedding, setEditingEmbedding] = useState<EmbeddingResponse | undefined>();
   const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const fetchEmbeddings = useCallback(async () => {
     setLoadingEmbeddings(true);
@@ -84,11 +85,14 @@ export const EmbeddingsSettings: React.FC = () => {
     if (!confirm("Вы уверены, что хотите удалить эту embedding модель?")) return;
 
     try {
+      setSaving(true);
       await apiClient.delete(`/api/embeddings/${embeddingId}`);
       toast.success("Embedding модель удалена");
       fetchEmbeddings();
     } catch {
       // handled globally
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -109,7 +113,9 @@ export const EmbeddingsSettings: React.FC = () => {
     data: EmbeddingFormSubmitData,
     isNewEmbedding: boolean,
   ) => {
+    if (saving) return;
     try {
+      setSaving(true);
       const payload: Record<string, unknown> = {
         type: data.embedding_type,
         connector_id: data.connector_id,
@@ -134,6 +140,8 @@ export const EmbeddingsSettings: React.FC = () => {
       fetchEmbeddings();
     } catch {
       // handled globally
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -149,7 +157,7 @@ export const EmbeddingsSettings: React.FC = () => {
           </p>
         </div>
         {!isCreatingNew && (
-          <Button onClick={handleCreateNew} size="sm" variant="default2">
+          <Button onClick={handleCreateNew} size="sm" variant="default2" disabled={saving}>
             <Plus className="size-4 mr-2" />
             Добавить
           </Button>
@@ -160,7 +168,12 @@ export const EmbeddingsSettings: React.FC = () => {
         <div className="border border-border rounded-lg p-4 bg-muted/30">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новая embedding модель</h3>
-            <Button variant="ghost" size="icon" onClick={handleCancelCreate}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCancelCreate}
+              disabled={saving}
+            >
               <X className="size-4" />
             </Button>
           </div>
@@ -182,7 +195,12 @@ export const EmbeddingsSettings: React.FC = () => {
                 <h3 className="font-medium">
                   Редактирование: {embedding.name || embedding.model_id}
                 </h3>
-                <Button variant="ghost" size="icon" onClick={handleCancelEdit}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCancelEdit}
+                  disabled={saving}
+                >
                   <X className="size-4" />
                 </Button>
               </div>
@@ -198,7 +216,7 @@ export const EmbeddingsSettings: React.FC = () => {
               embedding={embedding}
               onEdit={handleEditEmbedding}
               onDelete={handleDeleteEmbedding}
-              disabled={isEditing}
+              disabled={isEditing || saving}
             />
           ),
         )}

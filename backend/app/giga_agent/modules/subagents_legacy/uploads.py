@@ -37,8 +37,8 @@ def build_file_content_by_path_url(sandbox_path: str) -> str:
         base = ""
 
     if base:
-        return f"{base}/api/files/content/by-path?{query}"
-    return f"/api/files/content/by-path?{query}"
+        return f"{base}/files/content/by-path?{query}"
+    return f"/files/content/by-path?{query}"
 
 
 def resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -98,10 +98,7 @@ def build_tool_message(
     payload: dict[str, Any],
     attachments: list[FileResponse] | None = None,
 ) -> ToolMessage:
-    tool_attachments = [
-        item.model_dump(mode="json")
-        for item in (attachments or [])
-    ]
+    tool_attachments = [item.model_dump(mode="json") for item in (attachments or [])]
     return ToolMessage(
         tool_call_id=runtime.tool_call_id,
         content=json.dumps(payload, ensure_ascii=False),

@@ -1,7 +1,7 @@
 import os
 import uuid
 from urllib.parse import quote
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -13,7 +13,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.modules.auth.api import get_current_active_user
@@ -28,6 +28,8 @@ from giga_agent.sandbox.base import (
 from giga_agent.sandbox.manager import SandboxManager
 
 router = APIRouter(prefix="/files", tags=["files"])
+
+REDIRECT_INSTRUCTION_MEDIA_TYPE = "application/vnd.giga-agent.redirect+json"
 
 
 async def get_file_repository(
@@ -136,6 +138,10 @@ async def read_file_content(
     file_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
+    redirect_result: Literal["redirect", "json"] = Query(
+        default="redirect",
+        description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
+    ),
 ):
     manager = SandboxManager(db)
     try:
@@ -154,7 +160,7 @@ async def read_file_content(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         ) from e
 
-    return _build_file_response(file, result)
+    return _build_file_response(file, result, redirect_result=redirect_result)
 
 
 @router.get("/content/by-path")
@@ -162,6 +168,10 @@ async def read_file_content_by_path(
     current_user: Annotated[User, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
     path: str = Query(..., description="Полный sandbox_path файла"),
+    redirect_result: Literal["redirect", "json"] = Query(
+        default="redirect",
+        description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
+    ),
 ):
     manager = SandboxManager(db)
     try:
@@ -180,14 +190,24 @@ async def read_file_content_by_path(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         ) from e
 
-    return _build_file_response(file, result)
+    return _build_file_response(file, result, redirect_result=redirect_result)
 
 
 def _build_file_response(
     file: FileModel,
     result: FileReadResult,
-) -> RedirectResponse | StreamingResponse:
+    *,
+    redirect_result: Literal["redirect", "json"] = "redirect",
+) -> RedirectResponse | StreamingResponse | JSONResponse:
     if isinstance(result, RedirectResult):
+        if redirect_result == "json":
+            return JSONResponse(
+                {
+                    "kind": "redirect",
+                    "url": result.url,
+                },
+                media_type=REDIRECT_INSTRUCTION_MEDIA_TYPE,
+            )
         return RedirectResponse(
             url=result.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )

@@ -1,7 +1,14 @@
 import React, { useRef, useState, useEffect } from "react";
 import Chat from "./components/Chat";
 import { SettingsProvider } from "./components/Settings.tsx";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
+import {
+  BrowserRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import Sidebar from "./components/Sidebar.tsx";
 import DemoSettings from "./components/demo/DemoSettings.tsx";
 import { DemoItemsProvider, useDemoItems } from "./hooks/DemoItemsProvider.tsx";
@@ -20,6 +27,44 @@ import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
+import { API_BASE_URL_KEY } from "@/lib/api-client";
+
+const normalizeHttpBaseUrl = (input: string): string | null => {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+
+    const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin}${normalizedPath}`;
+  } catch {
+    return null;
+  }
+};
+
+const BaseUrlRoute: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const rawUrl = searchParams.get("url");
+    if (rawUrl) {
+      const normalizedUrl = normalizeHttpBaseUrl(rawUrl);
+      if (normalizedUrl) {
+        localStorage.setItem(API_BASE_URL_KEY, normalizedUrl);
+      }
+    }
+    navigate("/", { replace: true });
+  }, [navigate, searchParams]);
+
+  return null;
+};
 
 const InnerApp: React.FC = () => {
   const location = useLocation();
@@ -102,8 +147,8 @@ const InnerApp: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-      <BrowserRouter>
-        <AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
         <ThemeProvider>
           <ApiProvider>
             <DemoItemsProvider>
@@ -113,6 +158,7 @@ const App: React.FC = () => {
                   <UserInfoProvider>
                     <Routes>
                       <Route path="/login" element={<LoginPage />} />
+                      <Route path="/base" element={<BaseUrlRoute />} />
                       <Route
                         path="/*"
                         element={
@@ -129,9 +175,9 @@ const App: React.FC = () => {
               </SettingsProvider>
             </DemoItemsProvider>
           </ApiProvider>
-          </ThemeProvider>
-        </AuthProvider>
-      </BrowserRouter>
+        </ThemeProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 };
 

@@ -6,7 +6,7 @@ import { Check } from "lucide-react";
 // @ts-ignore
 import Plot from "react-plotly.js";
 import { apiClient } from "@/lib/api-client.ts";
-import { buildContentByPathUrl } from "./file-utils.ts";
+import { buildContentByPathPreviewUrl, buildContentByPathUrl } from "./file-utils.ts";
 
 const Placeholder = styled.div`
   width: 100%;
@@ -67,11 +67,14 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
     let cancelled = false;
     const loadFigure = async () => {
       try {
-        const raw = await apiClient.getText(buildContentByPathUrl(path), {
-          attachAuth: false,
-          credentials: "same-origin",
-          showError: false,
-        });
+        const raw = await apiClient.getTextWithRedirectInstruction(
+          buildContentByPathPreviewUrl(path),
+          {
+            attachAuth: true,
+            credentials: "omit",
+            showError: false,
+          },
+        );
         const parsed = JSON.parse(raw);
         if (!cancelled) {
           setFig(parsed);

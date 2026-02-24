@@ -182,7 +182,7 @@ const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
 
 interface EmbeddingFormProps {
   embedding?: EmbeddingResponse;
-  onSave: (data: EmbeddingFormSubmitData) => void;
+  onSave: (data: EmbeddingFormSubmitData) => void | Promise<void>;
   onCancel: () => void;
 }
 
@@ -200,6 +200,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   onSave,
   onCancel,
 }) => {
+  const [submitting, setSubmitting] = useState(false);
   const [embeddingTypes, setEmbeddingTypes] = useState<EmbeddingTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
 
@@ -418,8 +419,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     setSettingsValues({});
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedEmbeddingType || !selectedConnectorId || !modelId) return;
+    if (submitting) return;
     const embeddingSettings: EmbeddingSettings = compactObject(settingsValues);
 
     const data: EmbeddingFormSubmitData = {
@@ -431,10 +433,16 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       is_active: isActive,
     };
 
-    onSave(data);
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onSave(data));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const isSaveDisabled =
+    submitting ||
     !selectedEmbeddingType ||
     !selectedConnectorId ||
     !modelId ||
@@ -453,7 +461,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           <Select
             value={selectedEmbeddingType}
             onValueChange={handleEmbeddingTypeChange}
-            disabled={loadingEmbeddingTypes}
+            disabled={loadingEmbeddingTypes || submitting}
           >
             <SelectTrigger id="embedding-type" className="w-full">
               {loadingEmbeddingTypes ? (
@@ -482,7 +490,10 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           value={selectedConnectorId}
           onValueChange={setSelectedConnectorId}
           disabled={
-            loadingConnectors || !selectedEmbeddingType || filteredConnectors.length === 0
+            submitting ||
+            loadingConnectors ||
+            !selectedEmbeddingType ||
+            filteredConnectors.length === 0
           }
         >
           <SelectTrigger id="embedding-connector-select" className="w-full">
@@ -514,7 +525,11 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       <div className="space-y-2">
         <Label htmlFor="embedding-model-id">Название модели</Label>
         {availableModels.length > 0 ? (
-          <Select value={modelId} onValueChange={setModelId}>
+          <Select
+            value={modelId}
+            onValueChange={setModelId}
+            disabled={submitting || loadingModels}
+          >
             <SelectTrigger id="embedding-model-id" className="w-full">
               <SelectValue placeholder="Выберите модель" />
             </SelectTrigger>
@@ -532,6 +547,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
             placeholder="text-embedding-3-small, EmbeddingsGigaR, ..."
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
+            disabled={submitting}
           />
         )}
         {loadingModels && (
@@ -546,6 +562,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           placeholder="Основной embedding"
           value={embeddingName}
           onChange={(e) => setEmbeddingName(e.target.value)}
+          disabled={submitting}
         />
       </div>
 
@@ -557,6 +574,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           id="embedding-is-active"
           checked={isActive}
           onCheckedChange={setIsActive}
+          disabled={submitting}
         />
       </div>
 
@@ -581,9 +599,18 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
 
       <div className="flex gap-2 pt-4">
         <Button onClick={handleSubmit} disabled={isSaveDisabled}>
-          {embedding ? "Сохранить" : "Создать"}
+          {submitting ? (
+            <>
+              <Loader2 className="size-4 animate-spin mr-2" />
+              Сохранение...
+            </>
+          ) : embedding ? (
+            "Сохранить"
+          ) : (
+            "Создать"
+          )}
         </Button>
-        <Button variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={onCancel} disabled={submitting}>
           Отмена
         </Button>
       </div>

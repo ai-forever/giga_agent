@@ -74,6 +74,7 @@ def main() -> int:
     graphs_json = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_GRAPHS_JSON") or "{}"
     auth_path = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_AUTH_PATH") or ""
     http_app = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_HTTP_APP") or ""
+    http_config_json = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_HTTP_CONFIG_JSON")
 
     try:
         graphs = json.loads(graphs_json)
@@ -86,6 +87,20 @@ def main() -> int:
         )
         return 2
 
+    http_config: dict[str, object] = {"app": http_app}
+    if http_config_json:
+        try:
+            parsed_http_config = json.loads(http_config_json)
+            if not isinstance(parsed_http_config, dict):
+                raise TypeError("http config must be a JSON object")
+            http_config = parsed_http_config
+        except Exception as e:
+            print(
+                f"Invalid http config JSON in GIGA_AGENT_LANGGRAPH_DEV_HTTP_CONFIG_JSON: {e}",
+                file=sys.stderr,
+            )
+            return 2
+
     setup_cli_logging(log_level)
     _patch_uvicorn_log_suppression(desired_level=log_level)
 
@@ -95,7 +110,7 @@ def main() -> int:
         reload_enabled,
         graphs,
         auth={"path": auth_path},
-        http={"app": http_app},
+        http=http_config,
         allow_blocking=True,
     )
 

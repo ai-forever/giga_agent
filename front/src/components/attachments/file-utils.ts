@@ -1,3 +1,5 @@
+import { resolveApiUrl } from "@/lib/api-client";
+
 export type AttachmentFileType =
   | "plotly_graph"
   | "image"
@@ -23,7 +25,12 @@ export const resolveAttachmentPath = (value: PathLike): string => {
 };
 
 export const buildContentByPathUrl = (path: string): string =>
-  `/api/files/content/by-path?path=${encodeURIComponent(path)}`;
+  resolveApiUrl(`/api/files/content/by-path?path=${encodeURIComponent(path)}`);
+
+export const buildContentByPathPreviewUrl = (path: string): string =>
+  resolveApiUrl(
+    `/api/files/content/by-path?path=${encodeURIComponent(path)}&redirect_result=json`,
+  );
 
 export const inferAttachmentTypeFromPath = (
   path: string,

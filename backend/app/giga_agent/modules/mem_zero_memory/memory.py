@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
+from pathlib import Path
 
 from mem0 import AsyncMemory
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +44,14 @@ def _qdrant_ensure_cache_enabled() -> bool:
 def _mem0_collection_name_for_embedding(embedding_id: uuid.UUID) -> str:
     # Keep names simple ASCII for compatibility.
     return f"mem0__{embedding_id.hex}"
+
+
+def _default_mem0_storage_path() -> Path:
+    from giga_agent.core.paths import ensure_giga_agent_dir
+
+    d = ensure_giga_agent_dir() / "mem0"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "history.db"
 
 
 async def get_memory_for_user(*, user: UserShort, session: AsyncSession) -> AsyncMemory:
@@ -110,6 +119,7 @@ async def get_memory_for_user(*, user: UserShort, session: AsyncSession) -> Asyn
                 "embedding_model_dims": vector_size,
             },
         },
+        "history_db_path": str(_default_mem0_storage_path()),
     }
 
     return await AsyncMemory.from_config(config)

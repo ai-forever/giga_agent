@@ -8,6 +8,7 @@ import {
 } from "./Attachments.tsx";
 import { FileData } from "../interfaces.ts";
 import OverlayPortal from "./OverlayPortal.tsx";
+import { buildContentByPathUrl } from "./attachments/file-utils.ts";
 
 interface MessageProps {
   message: Message;
@@ -23,9 +24,6 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
     if (raw) return raw;
     return (file as FileData & { sandbox_path?: string }).sandbox_path ?? "";
   };
-
-  const getFileUrl = (path: string): string =>
-    `/api/files/content/by-path?path=${encodeURIComponent(path)}`;
 
   const openLink = (url: string) => {
     // @ts-ignore
@@ -43,7 +41,7 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
               key={idx}
               onClick={() => {
                 const path = getPath(u);
-                const url = getFileUrl(path);
+                const url = buildContentByPathUrl(path);
                 if (u.file_type === "image") {
                   setEnlargedImage(url);
                 } else {
@@ -52,7 +50,7 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
               }}
             >
               {u.file_type === "image" ? (
-                <ImagePreview src={getFileUrl(getPath(u))} />
+                <ImagePreview src={buildContentByPathUrl(getPath(u))} />
               ) : (
                 <span>
                   {u.original_name ??
