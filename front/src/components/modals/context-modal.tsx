@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Trash2, Plus } from "lucide-react";
 import { z } from "zod";
 import { Secret } from "@/interfaces.ts";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { apiClient } from "@/lib/api-client";
 
@@ -147,7 +147,7 @@ const ContextModal: React.FC<ContextModalProps> = ({
     };
     setSaving(true);
     try {
-      await apiClient.patch(`${API_PREFIX}/auth/users/me`, {
+      await apiClient.patch(`${API_AGENT_PREFIX}/auth/users/me`, {
         settings: {
           contextInstructions: payload.instructions,
           contextSecrets: payload.secrets,

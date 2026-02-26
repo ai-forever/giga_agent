@@ -107,7 +107,7 @@ def makemigrations(
         selected_modules = []
     elif module_path is not None:
         normalized_input_import = _normalize_module_import_path(module_path)
-        for mod in agent.modules:
+        for mod in agent.all_modules:
             if _get_agent_module_import(mod) == normalized_input_import:
                 selected_modules = [mod]
                 break
@@ -117,13 +117,13 @@ def makemigrations(
                 f"Module '{module_path}' not found among loaded agent modules."
             )
             logger.info("Available modules (import -> id -> path):")
-            for mod in agent.modules:
+            for mod in agent.all_modules:
                 logger.info(
                     f" - {_get_agent_module_import(mod)} -> {getattr(mod, 'id', '?')} -> {mod.module_path}"
                 )
             raise typer.Exit(code=1)
     else:
-        selected_modules = list(agent.modules)
+        selected_modules = list(agent.all_modules)
 
     migration_paths: list[str] = []
 
@@ -135,7 +135,7 @@ def makemigrations(
     if os.path.exists(core_migrations):
         migration_paths.append(core_migrations)
 
-    for mod in agent.modules:
+    for mod in agent.all_modules:
         if getattr(mod, "migration_path", None):
             migration_paths.append(mod.migration_path)
 
@@ -204,7 +204,9 @@ def makemigrations(
 
         created = False
 
-        def _process_revision_directives(context, revision, directives) -> None:  # noqa: ANN001
+        def _process_revision_directives(
+            context, revision, directives
+        ) -> None:  # noqa: ANN001
             nonlocal created
             if not directives:
                 return
@@ -300,9 +302,11 @@ def makemigrations(
                     [
                         p
                         for p in [
-                            core_migrations
-                            if os.path.exists(core_migrations)
-                            else None,
+                            (
+                                core_migrations
+                                if os.path.exists(core_migrations)
+                                else None
+                            ),
                             target_migration_dir,
                         ]
                         if p
@@ -393,7 +397,9 @@ def makemigrations(
 
             created = False
 
-            def _process_revision_directives(context, revision, directives) -> None:  # noqa: ANN001
+            def _process_revision_directives(
+                context, revision, directives
+            ) -> None:  # noqa: ANN001
                 nonlocal created
                 if not directives:
                     return

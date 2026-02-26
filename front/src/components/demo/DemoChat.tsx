@@ -14,6 +14,7 @@ import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { API_PREFIX } from "@/config.ts";
 
 interface DemoChatProps {
   onContinue: () => void;
@@ -67,7 +68,7 @@ const DemoChat = ({
   );
 
   const thread = useStream<GraphState>({
-    apiUrl: `${window.location.protocol}//${window.location.host}/api`,
+    apiUrl: `${window.location.protocol}//${window.location.host}/${API_PREFIX}`,
     assistantId: "chat",
     messagesKey: "messages",
     fetchStateHistory: true,

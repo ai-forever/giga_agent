@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import type {
   ImageGeneratorResponse,
@@ -493,7 +493,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<ImageGeneratorTypeMeta[]>(
-        `${API_PREFIX}/generators/image/types/meta`,
+        `${API_AGENT_PREFIX}/generators/image/types/meta`,
       );
       setGeneratorTypes(data);
     } catch {
@@ -507,7 +507,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        `${API_PREFIX}/connectors?only_active=true`,
+        `${API_AGENT_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -521,7 +521,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setLoadingGenerators(true);
     try {
       const data = await apiClient.get<ImageGeneratorResponse[]>(
-        `${API_PREFIX}/generators/image`,
+        `${API_AGENT_PREFIX}/generators/image`,
       );
       setGenerators(data);
     } catch {
@@ -551,7 +551,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `${API_PREFIX}/generators/image/types/${selectedType}/settings-schema`,
+          `${API_AGENT_PREFIX}/generators/image/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -655,7 +655,9 @@ export const ImageGeneratorsSettings: React.FC = () => {
       return;
 
     try {
-      await apiClient.delete(`${API_PREFIX}/generators/image/${generatorId}`);
+      await apiClient.delete(
+        `${API_AGENT_PREFIX}/generators/image/${generatorId}`,
+      );
       toast.success("Image generator удален");
       if (editingGeneratorId === generatorId) {
         handleCancelEdit();
@@ -691,7 +693,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
         }
 
         await apiClient.patch<ImageGeneratorResponse>(
-          `${API_PREFIX}/generators/image/${editingGeneratorId}`,
+          `${API_AGENT_PREFIX}/generators/image/${editingGeneratorId}`,
           payload,
         );
         toast.success("Image generator обновлен");
@@ -712,7 +714,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
         }
 
         await apiClient.post<ImageGeneratorResponse>(
-          `${API_PREFIX}/generators/image`,
+          `${API_AGENT_PREFIX}/generators/image`,
           payload,
         );
         toast.success("Image generator создан");

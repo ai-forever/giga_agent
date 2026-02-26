@@ -3,7 +3,7 @@ import { Document } from "@langchain/core/documents";
 import { Collection, CollectionCreate } from "@/types/collection";
 import { toast } from "sonner";
 import { useSettings } from "@/components/Settings";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient, ApiError } from "@/lib/api-client";
 
 export const DEFAULT_COLLECTION_NAME = "default_collection";
@@ -141,7 +141,9 @@ export function useRag(): UseRagReturn {
   );
 
   const getCollections = useCallback(async (): Promise<Collection[]> => {
-    const data = await apiClient.get<Collection[]>(`${API_PREFIX}/rag/collections`);
+    const data = await apiClient.get<Collection[]>(
+      `${API_AGENT_PREFIX}/rag/collections`,
+    );
     return Array.isArray(data) ? data : [];
   }, []);
 
@@ -167,7 +169,7 @@ export function useRag(): UseRagReturn {
 
       try {
         const created = await apiClient.post<Collection>(
-          `${API_PREFIX}/rag/collections`,
+          `${API_AGENT_PREFIX}/rag/collections`,
           newCollection,
           { showError: false },
         );
@@ -236,7 +238,7 @@ export function useRag(): UseRagReturn {
       };
 
       const updated = await apiClient.patch<Collection>(
-        `${API_PREFIX}/rag/collections/${collectionId}`,
+        `${API_AGENT_PREFIX}/rag/collections/${collectionId}`,
         updateData,
       );
 
@@ -262,7 +264,9 @@ export function useRag(): UseRagReturn {
       );
       if (!collectionToDelete) return;
 
-      await apiClient.delete(`${API_PREFIX}/rag/collections/${collectionId}`);
+      await apiClient.delete(
+        `${API_AGENT_PREFIX}/rag/collections/${collectionId}`,
+      );
 
       setCollections((prevCollections) =>
         prevCollections.filter(
@@ -290,7 +294,7 @@ export function useRag(): UseRagReturn {
       const qs = searchParams.toString();
 
       const data = await apiClient.get<RagDocumentResponse[]>(
-        `${API_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents${qs ? `?${qs}` : ""}`,
+        `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents${qs ? `?${qs}` : ""}`,
       );
       const rows = Array.isArray(data) ? data : [];
       return rows.map(mapApiDocumentToLangchain);
@@ -358,7 +362,7 @@ export function useRag(): UseRagReturn {
       }
 
       await apiClient.delete(
-        `${API_PREFIX}/rag/collections/${selectedCollection.uuid}/documents/${encodeURIComponent(id)}`,
+        `${API_AGENT_PREFIX}/rag/collections/${selectedCollection.uuid}/documents/${encodeURIComponent(id)}`,
       );
 
       setDocuments((prevDocs) =>
@@ -389,7 +393,7 @@ export function useRag(): UseRagReturn {
       formData.append("metadatas_json", JSON.stringify(metadatas));
 
       await apiClient.post(
-        `${API_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`,
+        `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`,
         formData,
       );
 
@@ -419,7 +423,7 @@ export function useRag(): UseRagReturn {
       formData.append("metadatas_json", JSON.stringify([metadata]));
 
       await apiClient.post(
-        `${API_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`,
+        `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`,
         formData,
       );
 

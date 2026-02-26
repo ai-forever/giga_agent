@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
 from uuid import UUID
 
@@ -30,6 +32,8 @@ NOTES_PROMPT = """
 ====
 """  # noqa: E501
 
+logger = get_logger(__name__)
+
 
 class BaseAgent(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
@@ -43,6 +47,7 @@ class BaseAgent(BaseModel):
     _tools_cache: Dict[tuple[UUID | None, int], List[BaseTool]] = PrivateAttr(
         default_factory=dict
     )
+    _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
 
     def get_modules(self) -> list[BaseModule]:
         return []
@@ -84,6 +89,7 @@ class BaseAgent(BaseModel):
 
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
+            await self.run_startup_hooks()
             yield
             await shutdown_qdrant_client()
 
@@ -96,9 +102,9 @@ class BaseAgent(BaseModel):
 
         # Re-initialize modules through add_module to ensure validation and route registration
         default_modules = tuple(self.get_modules())
-        initial_modules = (*default_modules, *self.modules)
+        self._agent_modules = (*default_modules, *self.modules)
 
-        for module in initial_modules:
+        for module in self._agent_modules:
             if module.id in self._module_ids:
                 raise ValueError(
                     f"Agent cannot have multiple modules with the same id: '{module.id}'"
@@ -119,12 +125,6 @@ class BaseAgent(BaseModel):
         self._graph = create_graph(self, middleware=all_middleware)
         setattr(self.graph, "giga_agent", self)
 
-    def _setup_routes(self):
-        for module in self.modules:
-            router = module.get_api_router()
-            if router:
-                self._app.include_router(router)
-
     @property
     def app(self) -> FastAPI:
         return self._app
@@ -133,9 +133,13 @@ class BaseAgent(BaseModel):
     def graph(self):
         return self._graph
 
+    @property
+    def all_modules(self):
+        return self._agent_modules
+
     def _get_module_middlewares(self):
         middlewares = []
-        for module in self.modules:
+        for module in self._agent_modules:
             mw = module.get_middleware()
             if mw is not None:
                 middlewares.append(mw)
@@ -143,7 +147,7 @@ class BaseAgent(BaseModel):
 
     async def get_prompt(self, user: UserShort) -> str:
         modules_prompts = []
-        for module in self.modules:
+        for module in self._agent_modules:
             instructions = await module.get_instructions(user=user, agent=self)
             if instructions:
                 modules_prompts.append(instructions)
@@ -169,11 +173,24 @@ class BaseAgent(BaseModel):
             return cached
 
         all_tools = list(self.tools)
-        for module in self.modules:
+        for module in self._agent_modules:
             all_tools.extend(await module.get_tools(user=user, agent=self))
 
         self._tools_cache[cache_key] = all_tools
         return all_tools
+
+    async def run_startup_hooks(self):
+        logger.info("Running startup hooks...")
+        session_factory = await get_session_factory()
+        async with session_factory() as session:
+            for module in self._agent_modules:
+                try:
+                    await module.on_startup(session)
+                except Exception as e:
+                    logger.error(
+                        f"Error in startup hook for {module.__class__.__name__}: {e}"
+                    )
+                    pass
 
     async def extend_task(
         self,
@@ -182,7 +199,7 @@ class BaseAgent(BaseModel):
         state: AgentState,
     ) -> str:
         extended_parts = []
-        for module in self.modules:
+        for module in self._agent_modules:
             extended_task = await module.extend_task(
                 user=user,
                 task=task,

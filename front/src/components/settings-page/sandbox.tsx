@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 // ============ Types ============
@@ -251,7 +251,7 @@ export const SandboxSettings: React.FC = () => {
     setLoadingProvider(true);
     try {
       const data = await apiClient.get<SandboxProviderResponse[]>(
-        `${API_PREFIX}/sandboxes/providers`,
+        `${API_AGENT_PREFIX}/sandboxes/providers`,
       );
       setProvider(data.length > 0 ? data[0] : null);
     } catch {
@@ -265,7 +265,7 @@ export const SandboxSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<string[]>(
-        `${API_PREFIX}/sandboxes/providers/types`,
+        `${API_AGENT_PREFIX}/sandboxes/providers/types`,
       );
       setProviderTypes(data);
     } catch {
@@ -279,7 +279,7 @@ export const SandboxSettings: React.FC = () => {
     setLoadingSchema(true);
     try {
       const data = await apiClient.get<JsonSchema>(
-        `${API_PREFIX}/sandboxes/providers/types/${type}/settings-schema`,
+        `${API_AGENT_PREFIX}/sandboxes/providers/types/${type}/settings-schema`,
       );
       setSettingsSchema(data);
     } catch {
@@ -343,7 +343,7 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await apiClient.post(`${API_PREFIX}/sandboxes/providers`, {
+      await apiClient.post(`${API_AGENT_PREFIX}/sandboxes/providers`, {
         type: selectedType,
         name: providerName || null,
         settings: settingsValues,
@@ -366,12 +366,15 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await apiClient.patch(`${API_PREFIX}/sandboxes/providers/${provider.id}`, {
-        name: providerName || null,
-        settings: settingsValues,
-        idle_timeout: idleTimeout,
-        is_active: isActive,
-      });
+      await apiClient.patch(
+        `${API_AGENT_PREFIX}/sandboxes/providers/${provider.id}`,
+        {
+          name: providerName || null,
+          settings: settingsValues,
+          idle_timeout: idleTimeout,
+          is_active: isActive,
+        },
+      );
       toast.success("Sandbox провайдер обновлён");
       setIsEditing(false);
       resetForm();
@@ -389,7 +392,9 @@ export const SandboxSettings: React.FC = () => {
       return;
 
     try {
-      await apiClient.delete(`${API_PREFIX}/sandboxes/providers/${provider.id}`);
+      await apiClient.delete(
+        `${API_AGENT_PREFIX}/sandboxes/providers/${provider.id}`,
+      );
       toast.success("Sandbox провайдер удалён");
       setProvider(null);
       setIsEditing(false);

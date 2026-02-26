@@ -39,11 +39,6 @@ export default defineConfig(({ mode }) => {
       runningEnv === "local"
         ? {
             proxy: {
-              "/graph": {
-                target: "http://localhost:9090/graph",
-                changeOrigin: true,
-                rewrite: (path) => path.replace(/^\/graph/, ""),
-              },
               "/api": {
                 target: "http://localhost:9090/api",
                 changeOrigin: true,

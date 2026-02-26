@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient, ApiError } from "@/lib/api-client";
 import {
   Table,
@@ -34,7 +34,7 @@ type MemoryItem = {
   [key: string]: any;
 };
 
-const MEMORIES_URL = `${API_PREFIX}/mem_zero_memory/memories`;
+const MEMORIES_URL = `${API_AGENT_PREFIX}/mem_zero_memory/memories`;
 
 const normalizeMemories = (data: any): MemoryItem[] => {
   if (Array.isArray(data)) return data as MemoryItem[];

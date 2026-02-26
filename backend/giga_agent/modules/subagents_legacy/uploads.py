@@ -6,6 +6,7 @@ import uuid
 from typing import Any, TypedDict
 from urllib.parse import urlencode
 
+from giga_agent.conf import GIGA_PREFIX_API
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 
@@ -36,8 +37,8 @@ def build_file_content_by_path_api() -> str:
         base = ""
 
     if base:
-        return f"{base}/files/content/by-path"
-    return f"/files/content/by-path"
+        return f"{base}/api{GIGA_PREFIX_API}/files/content/by-path"
+    return f"/api{GIGA_PREFIX_API}/files/content/by-path"
 
 
 def build_file_content_by_path_url(sandbox_path: str) -> str:

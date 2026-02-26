@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from typing import Annotated
+import asyncio
 
 import typer
 
@@ -28,7 +29,7 @@ async def run_startup_hooks(agent) -> None:
     logger.info("Running startup hooks...")
     session_factory = await get_session_factory()
     async with session_factory() as session:
-        for module in agent.modules:
+        for module in agent.all_modules:
             try:
                 await module.on_startup(session)
             except Exception as e:
@@ -46,7 +47,7 @@ def _collect_run_server_graphs(
 
     graphs: dict[str, str] = {base_graph_name: base_graph_target}
 
-    for module in agent.modules:
+    for module in agent.all_modules:
         module_subgraphs = module.get_subgraphs()
         for key, value in module_subgraphs.items():
             if key in graphs:
@@ -241,20 +242,6 @@ def dev(
     logger.info(f"Loaded agent with {len(agent.modules)} modules.")
 
     cli.apply_migrations(agent)
-
-    startup_coro = run_startup_hooks(agent)
-    try:
-        cli.asyncio.run(startup_coro)
-    except Exception:
-        logger.exception("Startup hooks failed")
-    finally:
-        # If tests/mock patched asyncio.run and didn't await the coroutine,
-        # close it to avoid RuntimeWarning: "coroutine was never awaited".
-        try:
-            if getattr(startup_coro, "cr_frame", None) is not None:
-                startup_coro.close()
-        except Exception:
-            pass
 
     from ..utils.imports import _parse_import_string
 

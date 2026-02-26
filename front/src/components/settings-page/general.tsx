@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
 import { AnimatePresence, motion } from "framer-motion";
@@ -216,7 +216,9 @@ export const GeneralSettings: React.FC = () => {
   const fetchLLMs = useCallback(async () => {
     setLoadingLLMs(true);
     try {
-      const data = await apiClient.get<LLMResponse[]>(`${API_PREFIX}/llms`);
+      const data = await apiClient.get<LLMResponse[]>(
+        `${API_AGENT_PREFIX}/llms`,
+      );
       setLlmList(data);
     } catch {
       // Ошибка уже обработана глобально
@@ -229,7 +231,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingEmbeddings(true);
     try {
       const embeddings = await apiClient.get<EmbeddingResponse[]>(
-        `${API_PREFIX}/embeddings?only_active=true`,
+        `${API_AGENT_PREFIX}/embeddings?only_active=true`,
       );
       setEmbeddingList(embeddings);
     } catch {
@@ -243,7 +245,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingImageGenerators(true);
     try {
       const generators = await apiClient.get<ImageGeneratorResponse[]>(
-        `${API_PREFIX}/generators/image?only_active=true`,
+        `${API_AGENT_PREFIX}/generators/image?only_active=true`,
       );
       setImageGeneratorList(generators);
     } catch {
@@ -257,7 +259,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingSearchEngines(true);
     try {
       const engines = await apiClient.get<SearchEngineResponse[]>(
-        `${API_PREFIX}/search-engines?only_active=true`,
+        `${API_AGENT_PREFIX}/search-engines?only_active=true`,
       );
       setSearchEngineList(engines);
     } catch {
@@ -270,8 +272,9 @@ export const GeneralSettings: React.FC = () => {
   const fetchAgentSecrets = useCallback(async () => {
     setLoadingAgentSecrets(true);
     try {
-      const secretsMeta =
-        await apiClient.get<AgentSecretMeta[]>(`${API_PREFIX}/agent/secrets`);
+      const secretsMeta = await apiClient.get<AgentSecretMeta[]>(
+        `${API_AGENT_PREFIX}/agent/secrets`,
+      );
       setAgentSecretMeta(dedupeAgentSecretsMeta(secretsMeta));
     } catch {
       setAgentSecretMeta([]);
@@ -481,7 +484,7 @@ export const GeneralSettings: React.FC = () => {
       }
 
       if (Object.keys(patchBody).length > 0) {
-        await apiClient.patch(`${API_PREFIX}/auth/users/me`, patchBody);
+        await apiClient.patch(`${API_AGENT_PREFIX}/auth/users/me`, patchBody);
       }
 
       await refreshUser();

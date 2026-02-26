@@ -26,7 +26,7 @@ import type {
   JsonSchema,
   JsonSchemaProperty,
 } from "./types";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
@@ -278,7 +278,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     setLoadingEmbeddingTypes(true);
     try {
       const data = await apiClient.get<EmbeddingTypeMeta[]>(
-        `${API_PREFIX}/embeddings/types/meta`,
+        `${API_AGENT_PREFIX}/embeddings/types/meta`,
       );
       setEmbeddingTypes(data);
       if (!embedding?.type && data.length > 0) {
@@ -296,7 +296,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        `${API_PREFIX}/connectors?only_active=true`,
+        `${API_AGENT_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -319,7 +319,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       setLoadingModels(true);
       try {
         const data = await apiClient.get<AvailableEmbeddingModel[]>(
-          `${API_PREFIX}/embeddings/models/${connectorId}?embedding_type=${encodeURIComponent(embeddingType)}`,
+          `${API_AGENT_PREFIX}/embeddings/models/${connectorId}?embedding_type=${encodeURIComponent(embeddingType)}`,
         );
         const models = Array.isArray(data) ? data : [];
         modelsBySelectionRef.current[cacheKey] = models;
@@ -360,7 +360,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `${API_PREFIX}/embeddings/types/${selectedEmbeddingType}/settings-schema`,
+          `${API_AGENT_PREFIX}/embeddings/types/${selectedEmbeddingType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);

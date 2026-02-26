@@ -1,4 +1,4 @@
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { resolveApiUrl } from "@/lib/api-client";
 
 export type AttachmentFileType =
@@ -26,11 +26,13 @@ export const resolveAttachmentPath = (value: PathLike): string => {
 };
 
 export const buildContentByPathUrl = (path: string): string =>
-  resolveApiUrl(`${API_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}`);
+  resolveApiUrl(
+    `${API_AGENT_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}`,
+  );
 
 export const buildContentByPathPreviewUrl = (path: string): string =>
   resolveApiUrl(
-    `${API_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}&redirect_result=json`,
+    `${API_AGENT_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}&redirect_result=json`,
   );
 
 export const inferAttachmentTypeFromPath = (

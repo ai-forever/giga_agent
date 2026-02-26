@@ -19,7 +19,9 @@ logger = get_logger(__name__)
 
 
 def _get_core_models_migration_path() -> str:
-    package_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    package_dir = os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
     return os.path.join(package_dir, "models", "migrations")
 
 
@@ -80,7 +82,9 @@ def _get_alembic_config(version_locations: str) -> Config:
     """
     alembic_ini_path = os.path.join(os.getcwd(), "alembic.ini")
     if not os.path.exists(alembic_ini_path):
-        package_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        package_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         internal_ini_path = os.path.join(package_dir, "alembic.ini")
         if os.path.exists(internal_ini_path):
             logger.info(f"Using internal alembic.ini from {internal_ini_path}")
@@ -106,7 +110,7 @@ def apply_migrations(agent: BaseAgent) -> None:
         logger.info(f"Found core models migrations: {core_migrations}")
         migration_paths.append(core_migrations)
 
-    for mod in agent.modules:
+    for mod in agent.all_modules:
         if getattr(mod, "migration_path", None):
             logger.info(
                 f"Found migrations for {mod.__class__.__name__}: {mod.migration_path}"
@@ -136,7 +140,9 @@ def apply_migrations(agent: BaseAgent) -> None:
         raise typer.Exit(code=1)
 
 
-def check_db_is_up_to_date(alembic_cfg: Config, *, allow_unknown_db_heads: bool = False) -> None:
+def check_db_is_up_to_date(
+    alembic_cfg: Config, *, allow_unknown_db_heads: bool = False
+) -> None:
     """
     Checks if the database schema is up-to-date with the codebase migrations.
     """
@@ -212,7 +218,9 @@ def check_db_is_up_to_date(alembic_cfg: Config, *, allow_unknown_db_heads: bool 
         logger.error("Database is not up-to-date!")
         logger.error(f"Current DB heads: {current_heads}")
         logger.error(f"Codebase heads: {script_heads}")
-        logger.error(f"Missing code heads in effective DB state: {sorted(missing_heads)}")
+        logger.error(
+            f"Missing code heads in effective DB state: {sorted(missing_heads)}"
+        )
         logger.error(
             "Please apply migrations before creating a new one (e.g. run 'uv run giga_agent dev ...')."
         )
@@ -232,4 +240,3 @@ __all__ = [
     "check_db_is_up_to_date",
     "wait_for_db",
 ]
-

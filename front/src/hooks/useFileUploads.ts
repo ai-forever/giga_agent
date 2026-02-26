@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { FileData } from "../interfaces.ts";
 import { apiClient } from "../lib/api-client.ts";
 import { buildContentByPathUrl } from "../components/attachments/file-utils.ts";
-import { API_PREFIX } from "../config.ts";
+import { API_AGENT_PREFIX } from "../config.ts";
 
 export interface UploadedFile {
   file: File;
@@ -101,9 +101,13 @@ export function useFileUpload() {
       });
 
       apiClient
-        .post<BackendFilePayload>(`${API_PREFIX}/files/upload`, formData, {
-          attachAuth: true,
-        })
+        .post<BackendFilePayload>(
+          `${API_AGENT_PREFIX}/files/upload`,
+          formData,
+          {
+            attachAuth: true,
+          },
+        )
         .then((res) => {
           const normalized = normalizeFileData(res);
           setUploads((prev) => {

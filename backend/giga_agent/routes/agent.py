@@ -30,4 +30,4 @@ async def get_agent_secrets(
     agent: Annotated["BaseAgent", Depends(get_agent)],
 ) -> list[SecretMetadata]:
     _ = current_user
-    return collect_module_secrets(agent.modules)
+    return collect_module_secrets(agent.all_modules)

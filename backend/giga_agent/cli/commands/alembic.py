@@ -56,7 +56,7 @@ def alembic(
         pass
 
     # Keep module-level hooks as best-effort only.
-    for mod in agent.modules:
+    for mod in agent.all_modules:
         try:
             mod.get_models()
         except Exception as e:
@@ -71,7 +71,7 @@ def alembic(
     if os.path.exists(core_migrations):
         migration_paths.append(core_migrations)
 
-    for mod in agent.modules:
+    for mod in agent.all_modules:
         if getattr(mod, "migration_path", None):
             migration_paths.append(mod.migration_path)
 

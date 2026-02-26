@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmbeddingForm, EmbeddingFormSubmitData } from "./forms/embedding";
 import type { EmbeddingResponse } from "./forms/types";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 interface EmbeddingItemProps {
@@ -69,7 +69,9 @@ export const EmbeddingsSettings: React.FC = () => {
   const fetchEmbeddings = useCallback(async () => {
     setLoadingEmbeddings(true);
     try {
-      const data = await apiClient.get<EmbeddingResponse[]>(`${API_PREFIX}/embeddings`);
+      const data = await apiClient.get<EmbeddingResponse[]>(
+        `${API_AGENT_PREFIX}/embeddings`,
+      );
       setEmbeddingList(data);
     } catch {
       // handled globally
@@ -94,7 +96,7 @@ export const EmbeddingsSettings: React.FC = () => {
 
     try {
       setSaving(true);
-      await apiClient.delete(`${API_PREFIX}/embeddings/${embeddingId}`);
+      await apiClient.delete(`${API_AGENT_PREFIX}/embeddings/${embeddingId}`);
       toast.success("Embedding модель удалена");
       fetchEmbeddings();
     } catch {
@@ -137,13 +139,13 @@ export const EmbeddingsSettings: React.FC = () => {
 
       if (!isNewEmbedding && editingEmbedding) {
         await apiClient.patch(
-          `${API_PREFIX}/embeddings/${editingEmbedding.id}`,
+          `${API_AGENT_PREFIX}/embeddings/${editingEmbedding.id}`,
           payload,
         );
         toast.success("Embedding модель обновлена");
         handleCancelEdit();
       } else {
-        await apiClient.post(`${API_PREFIX}/embeddings`, payload);
+        await apiClient.post(`${API_AGENT_PREFIX}/embeddings`, payload);
         toast.success("Embedding модель создана");
         handleCancelCreate();
       }

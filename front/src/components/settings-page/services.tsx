@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ConnectorForm } from "./forms/provider";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import type {
   ConnectorResponse,
@@ -439,7 +439,9 @@ export const ServicesSettings: React.FC = () => {
   const fetchConnectors = useCallback(async () => {
     setLoadingConnectors(true);
     try {
-      const data = await apiClient.get<ConnectorResponse[]>(`${API_PREFIX}/connectors`);
+      const data = await apiClient.get<ConnectorResponse[]>(
+        `${API_AGENT_PREFIX}/connectors`,
+      );
       setConnectors(data);
     } catch {
       // handled globally
@@ -452,7 +454,7 @@ export const ServicesSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<ConnectorTypeMeta[]>(
-        `${API_PREFIX}/connectors/types/meta`,
+        `${API_AGENT_PREFIX}/connectors/types/meta`,
       );
       setConnectorTypes(data);
     } catch {
@@ -486,7 +488,7 @@ export const ServicesSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `${API_PREFIX}/connectors/types/${selectedType}/settings-schema`,
+          `${API_AGENT_PREFIX}/connectors/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -550,7 +552,7 @@ export const ServicesSettings: React.FC = () => {
     if (!confirm("Вы уверены, что хотите удалить этот сервис?")) return;
 
     try {
-      await apiClient.delete(`${API_PREFIX}/connectors/${connectorId}`);
+      await apiClient.delete(`${API_AGENT_PREFIX}/connectors/${connectorId}`);
       toast.success("Сервис удален");
       if (editingConnectorId === connectorId) {
         handleCancelEdit();
@@ -576,7 +578,7 @@ export const ServicesSettings: React.FC = () => {
         };
 
         await apiClient.patch<ConnectorResponse>(
-          `${API_PREFIX}/connectors/${editingConnectorId}`,
+          `${API_AGENT_PREFIX}/connectors/${editingConnectorId}`,
           payload,
         );
         toast.success("Сервис обновлен");
@@ -592,7 +594,10 @@ export const ServicesSettings: React.FC = () => {
           payload.name = trimmedName;
         }
 
-        await apiClient.post<ConnectorResponse>(`${API_PREFIX}/connectors`, payload);
+        await apiClient.post<ConnectorResponse>(
+          `${API_AGENT_PREFIX}/connectors`,
+          payload,
+        );
         toast.success("Сервис создан");
         handleCancelCreate();
       }

@@ -8,7 +8,7 @@ import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX, API_PREFIX } from "@/config.ts";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;

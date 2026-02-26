@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import type {
   ConnectorResponse,
@@ -496,7 +496,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<SearchEngineTypeMeta[]>(
-        `${API_PREFIX}/search-engines/types/meta`,
+        `${API_AGENT_PREFIX}/search-engines/types/meta`,
       );
       setEngineTypes(data);
     } catch {
@@ -510,7 +510,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        `${API_PREFIX}/connectors?only_active=true`,
+        `${API_AGENT_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -524,7 +524,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setLoadingEngines(true);
     try {
       const data = await apiClient.get<SearchEngineResponse[]>(
-        `${API_PREFIX}/search-engines`,
+        `${API_AGENT_PREFIX}/search-engines`,
       );
       setEngines(data);
     } catch {
@@ -554,7 +554,7 @@ export const SearchEnginesSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `${API_PREFIX}/search-engines/types/${selectedType}/settings-schema`,
+          `${API_AGENT_PREFIX}/search-engines/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -658,7 +658,7 @@ export const SearchEnginesSettings: React.FC = () => {
     if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
 
     try {
-      await apiClient.delete(`${API_PREFIX}/search-engines/${engineId}`);
+      await apiClient.delete(`${API_AGENT_PREFIX}/search-engines/${engineId}`);
       toast.success("Search engine удален");
       if (editingEngineId === engineId) {
         handleCancelEdit();
@@ -693,7 +693,7 @@ export const SearchEnginesSettings: React.FC = () => {
         }
 
         await apiClient.patch<SearchEngineResponse>(
-          `${API_PREFIX}/search-engines/${editingEngineId}`,
+          `${API_AGENT_PREFIX}/search-engines/${editingEngineId}`,
           payload,
         );
         toast.success("Search engine обновлен");
@@ -712,7 +712,7 @@ export const SearchEnginesSettings: React.FC = () => {
         }
 
         await apiClient.post<SearchEngineResponse>(
-          `${API_PREFIX}/search-engines`,
+          `${API_AGENT_PREFIX}/search-engines`,
           payload,
         );
         toast.success("Search engine создан");

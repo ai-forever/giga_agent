@@ -29,7 +29,7 @@ import type {
   LLMResponse,
   LLMTypeMeta,
 } from "./types";
-import { API_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 interface LLMFormProps {
@@ -110,7 +110,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const fetchLLMTypes = useCallback(async () => {
     setLoadingLLMTypes(true);
     try {
-      const data = await apiClient.get<LLMTypeMeta[]>(`${API_PREFIX}/llms/types/meta`);
+      const data = await apiClient.get<LLMTypeMeta[]>(
+        `${API_AGENT_PREFIX}/llms/types/meta`,
+      );
       setLlmTypes(data);
       if (!llm?.type && data.length > 0) {
         setSelectedLLMType((prev) => prev || data[0].type);
@@ -127,7 +129,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        `${API_PREFIX}/connectors?only_active=true`,
+        `${API_AGENT_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -149,7 +151,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       setLoadingModels(true);
       try {
         const data = await apiClient.get<AvailableModel[]>(
-          `${API_PREFIX}/llms/models/${connectorId}?llm_type=${encodeURIComponent(llmType)}`,
+          `${API_AGENT_PREFIX}/llms/models/${connectorId}?llm_type=${encodeURIComponent(llmType)}`,
         );
         const models = Array.isArray(data) ? data : [];
         modelsBySelectionRef.current[cacheKey] = models;
