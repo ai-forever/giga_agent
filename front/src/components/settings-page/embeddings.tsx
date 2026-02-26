@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmbeddingForm, EmbeddingFormSubmitData } from "./forms/embedding";
 import type { EmbeddingResponse } from "./forms/types";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 interface EmbeddingItemProps {
@@ -23,8 +24,12 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
   return (
     <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col">
-        <span className="font-medium">{embedding.name || embedding.model_id}</span>
-        <span className="text-sm text-muted-foreground">{embedding.model_id}</span>
+        <span className="font-medium">
+          {embedding.name || embedding.model_id}
+        </span>
+        <span className="text-sm text-muted-foreground">
+          {embedding.model_id}
+        </span>
       </div>
       <div className="flex items-center gap-2">
         <Badge variant="outline">{embedding.type}</Badge>
@@ -55,14 +60,16 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
 export const EmbeddingsSettings: React.FC = () => {
   const [embeddingList, setEmbeddingList] = useState<EmbeddingResponse[]>([]);
   const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
-  const [editingEmbedding, setEditingEmbedding] = useState<EmbeddingResponse | undefined>();
+  const [editingEmbedding, setEditingEmbedding] = useState<
+    EmbeddingResponse | undefined
+  >();
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fetchEmbeddings = useCallback(async () => {
     setLoadingEmbeddings(true);
     try {
-      const data = await apiClient.get<EmbeddingResponse[]>("/api/embeddings");
+      const data = await apiClient.get<EmbeddingResponse[]>(`${API_PREFIX}/embeddings`);
       setEmbeddingList(data);
     } catch {
       // handled globally
@@ -82,11 +89,12 @@ export const EmbeddingsSettings: React.FC = () => {
 
   const handleDeleteEmbedding = async (embeddingId: string) => {
     // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить эту embedding модель?")) return;
+    if (!confirm("Вы уверены, что хотите удалить эту embedding модель?"))
+      return;
 
     try {
       setSaving(true);
-      await apiClient.delete(`/api/embeddings/${embeddingId}`);
+      await apiClient.delete(`${API_PREFIX}/embeddings/${embeddingId}`);
       toast.success("Embedding модель удалена");
       fetchEmbeddings();
     } catch {
@@ -128,11 +136,14 @@ export const EmbeddingsSettings: React.FC = () => {
       }
 
       if (!isNewEmbedding && editingEmbedding) {
-        await apiClient.patch(`/api/embeddings/${editingEmbedding.id}`, payload);
+        await apiClient.patch(
+          `${API_PREFIX}/embeddings/${editingEmbedding.id}`,
+          payload,
+        );
         toast.success("Embedding модель обновлена");
         handleCancelEdit();
       } else {
-        await apiClient.post("/api/embeddings", payload);
+        await apiClient.post(`${API_PREFIX}/embeddings`, payload);
         toast.success("Embedding модель создана");
         handleCancelCreate();
       }
@@ -157,7 +168,12 @@ export const EmbeddingsSettings: React.FC = () => {
           </p>
         </div>
         {!isCreatingNew && (
-          <Button onClick={handleCreateNew} size="sm" variant="default2" disabled={saving}>
+          <Button
+            onClick={handleCreateNew}
+            size="sm"
+            variant="default2"
+            disabled={saving}
+          >
             <Plus className="size-4 mr-2" />
             Добавить
           </Button>

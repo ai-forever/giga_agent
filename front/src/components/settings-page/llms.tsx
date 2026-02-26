@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LLMForm, LLMFormSubmitData } from "./forms/llm";
 import type { LLMResponse } from "./forms/types";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 interface LLMItemProps {
@@ -62,7 +63,7 @@ export const LLMSettings: React.FC = () => {
   const fetchLLMs = useCallback(async () => {
     setLoadingLLMs(true);
     try {
-      const data = await apiClient.get<LLMResponse[]>("/api/llms");
+      const data = await apiClient.get<LLMResponse[]>(`${API_PREFIX}/llms`);
       setLlmList(data);
     } catch {
       // handled globally
@@ -86,7 +87,7 @@ export const LLMSettings: React.FC = () => {
 
     try {
       setSaving(true);
-      await apiClient.delete(`/api/llms/${llmId}`);
+      await apiClient.delete(`${API_PREFIX}/llms/${llmId}`);
       toast.success("Модель удалена");
       fetchLLMs();
     } catch {
@@ -125,11 +126,11 @@ export const LLMSettings: React.FC = () => {
       }
 
       if (!isNewLLM && editingLLM) {
-        await apiClient.patch(`/api/llms/${editingLLM.id}`, payload);
+        await apiClient.patch(`${API_PREFIX}/llms/${editingLLM.id}`, payload);
         toast.success("Модель обновлена");
         handleCancelEdit();
       } else {
-        await apiClient.post("/api/llms", payload);
+        await apiClient.post(`${API_PREFIX}/llms`, payload);
         toast.success("Модель создана");
         handleCancelCreate();
       }
@@ -154,7 +155,12 @@ export const LLMSettings: React.FC = () => {
           </p>
         </div>
         {!isCreatingNew && (
-          <Button onClick={handleCreateNew} size="sm" variant="default2" disabled={saving}>
+          <Button
+            onClick={handleCreateNew}
+            size="sm"
+            variant="default2"
+            disabled={saving}
+          >
             <Plus className="size-4 mr-2" />
             Добавить
           </Button>

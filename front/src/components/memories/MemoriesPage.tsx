@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient, ApiError } from "@/lib/api-client";
 import {
   Table,
@@ -33,7 +34,7 @@ type MemoryItem = {
   [key: string]: any;
 };
 
-const MEMORIES_URL = "/api/mem_zero_memory/memories";
+const MEMORIES_URL = `${API_PREFIX}/mem_zero_memory/memories`;
 
 const normalizeMemories = (data: any): MemoryItem[] => {
   if (Array.isArray(data)) return data as MemoryItem[];
@@ -86,7 +87,8 @@ const MemoriesPage: React.FC = () => {
       if (e instanceof ApiError && e.isConflict()) {
         toast.error("Память отключена", {
           richColors: true,
-          description: "Подключите модель Embeddings в настройках пользователя.",
+          description:
+            "Подключите модель Embeddings в настройках пользователя.",
         });
         return;
       }
@@ -106,7 +108,8 @@ const MemoriesPage: React.FC = () => {
       if (e instanceof ApiError && e.isConflict()) {
         toast.error("Память отключена", {
           richColors: true,
-          description: "Подключите модель Embeddings в настройках пользователя.",
+          description:
+            "Подключите модель Embeddings в настройках пользователя.",
         });
         return;
       }

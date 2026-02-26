@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -20,11 +26,14 @@ import type {
   JsonSchema,
   JsonSchemaProperty,
 } from "./types";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
 
-function compactObject(values: Record<string, unknown>): Record<string, unknown> {
+function compactObject(
+  values: Record<string, unknown>,
+): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined),
   );
@@ -32,16 +41,16 @@ function compactObject(values: Record<string, unknown>): Record<string, unknown>
 
 function fieldLabel(name: string, property: JsonSchemaProperty): string {
   if (property.title) return property.title;
-  return name
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function isFieldRequired(name: string, schema: JsonSchema): boolean {
   return schema.required?.includes(name) ?? false;
 }
 
-function resolvePropertyType(property: JsonSchemaProperty): SupportedPropertyType {
+function resolvePropertyType(
+  property: JsonSchemaProperty,
+): SupportedPropertyType {
   const directType = property.type;
   if (
     directType === "string" ||
@@ -131,7 +140,9 @@ const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
                 type="number"
                 step={propertyType === "integer" ? 1 : "any"}
                 value={value}
-                placeholder={property.default !== undefined ? String(property.default) : ""}
+                placeholder={
+                  property.default !== undefined ? String(property.default) : ""
+                }
                 onChange={(e) => {
                   const nextValue = e.target.value;
                   if (nextValue === "") {
@@ -142,12 +153,17 @@ const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
                     propertyType === "integer"
                       ? parseInt(nextValue, 10)
                       : parseFloat(nextValue);
-                  setFieldValue(name, Number.isNaN(parsed) ? undefined : parsed);
+                  setFieldValue(
+                    name,
+                    Number.isNaN(parsed) ? undefined : parsed,
+                  );
                 }}
                 disabled={disabled}
               />
               {property.description && (
-                <p className="text-xs text-muted-foreground">{property.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {property.description}
+                </p>
               )}
             </div>
           );
@@ -171,7 +187,9 @@ const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
               disabled={disabled}
             />
             {property.description && (
-              <p className="text-xs text-muted-foreground">{property.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {property.description}
+              </p>
             )}
           </div>
         );
@@ -211,7 +229,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     embedding?.connector_id || "",
   );
 
-  const [availableModels, setAvailableModels] = useState<AvailableEmbeddingModel[]>([]);
+  const [availableModels, setAvailableModels] = useState<
+    AvailableEmbeddingModel[]
+  >([]);
   const [modelId, setModelId] = useState(embedding?.model_id || "");
   const [embeddingName, setEmbeddingName] = useState(embedding?.name || "");
   const [isActive, setIsActive] = useState(embedding?.is_active ?? true);
@@ -229,7 +249,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   const [connectorsLoaded, setConnectorsLoaded] = useState(false);
 
   const prevModelsKeyRef = useRef<string | null>(null);
-  const modelsBySelectionRef = useRef<Record<string, AvailableEmbeddingModel[]>>({});
+  const modelsBySelectionRef = useRef<
+    Record<string, AvailableEmbeddingModel[]>
+  >({});
 
   const selectedTypeMeta = useMemo(
     () => embeddingTypes.find((item) => item.type === selectedEmbeddingType),
@@ -255,7 +277,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   const fetchEmbeddingTypes = useCallback(async () => {
     setLoadingEmbeddingTypes(true);
     try {
-      const data = await apiClient.get<EmbeddingTypeMeta[]>("/api/embeddings/types/meta");
+      const data = await apiClient.get<EmbeddingTypeMeta[]>(
+        `${API_PREFIX}/embeddings/types/meta`,
+      );
       setEmbeddingTypes(data);
       if (!embedding?.type && data.length > 0) {
         setSelectedEmbeddingType((prev) => prev || data[0].type);
@@ -272,7 +296,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        "/api/connectors?only_active=true",
+        `${API_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -284,34 +308,38 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   }, []);
 
   const modelCacheKey = useCallback(
-    (embeddingType: string, connectorId: string) => `${embeddingType}:${connectorId}`,
+    (embeddingType: string, connectorId: string) =>
+      `${embeddingType}:${connectorId}`,
     [],
   );
 
-  const fetchModelsForConnector = useCallback(async (connectorId: string, embeddingType: string) => {
-    const cacheKey = modelCacheKey(embeddingType, connectorId);
-    setLoadingModels(true);
-    try {
-      const data = await apiClient.get<AvailableEmbeddingModel[]>(
-        `/api/embeddings/models/${connectorId}?embedding_type=${encodeURIComponent(embeddingType)}`,
-      );
-      const models = Array.isArray(data) ? data : [];
-      modelsBySelectionRef.current[cacheKey] = models;
-      if (prevModelsKeyRef.current === cacheKey) {
-        setAvailableModels(models);
+  const fetchModelsForConnector = useCallback(
+    async (connectorId: string, embeddingType: string) => {
+      const cacheKey = modelCacheKey(embeddingType, connectorId);
+      setLoadingModels(true);
+      try {
+        const data = await apiClient.get<AvailableEmbeddingModel[]>(
+          `${API_PREFIX}/embeddings/models/${connectorId}?embedding_type=${encodeURIComponent(embeddingType)}`,
+        );
+        const models = Array.isArray(data) ? data : [];
+        modelsBySelectionRef.current[cacheKey] = models;
+        if (prevModelsKeyRef.current === cacheKey) {
+          setAvailableModels(models);
+        }
+      } catch {
+        // handled globally
+        modelsBySelectionRef.current[cacheKey] = [];
+        if (prevModelsKeyRef.current === cacheKey) {
+          setAvailableModels([]);
+        }
+      } finally {
+        if (prevModelsKeyRef.current === cacheKey) {
+          setLoadingModels(false);
+        }
       }
-    } catch {
-      // handled globally
-      modelsBySelectionRef.current[cacheKey] = [];
-      if (prevModelsKeyRef.current === cacheKey) {
-        setAvailableModels([]);
-      }
-    } finally {
-      if (prevModelsKeyRef.current === cacheKey) {
-        setLoadingModels(false);
-      }
-    }
-  }, [modelCacheKey]);
+    },
+    [modelCacheKey],
+  );
 
   useEffect(() => {
     fetchEmbeddingTypes();
@@ -332,7 +360,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `/api/embeddings/types/${selectedEmbeddingType}/settings-schema`,
+          `${API_PREFIX}/embeddings/types/${selectedEmbeddingType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -514,12 +542,14 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
             ))}
           </SelectContent>
         </Select>
-        {selectedEmbeddingType && filteredConnectors.length === 0 && !loadingConnectors && (
-          <p className="text-sm text-amber-600">
-            Нет активных коннекторов для типа{" "}
-            <span className="font-medium">{selectedEmbeddingType}</span>.
-          </p>
-        )}
+        {selectedEmbeddingType &&
+          filteredConnectors.length === 0 &&
+          !loadingConnectors && (
+            <p className="text-sm text-amber-600">
+              Нет активных коннекторов для типа{" "}
+              <span className="font-medium">{selectedEmbeddingType}</span>.
+            </p>
+          )}
       </div>
 
       <div className="space-y-2">
@@ -556,7 +586,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="embedding-name">Отображаемое название (опционально)</Label>
+        <Label htmlFor="embedding-name">
+          Отображаемое название (опционально)
+        </Label>
         <Input
           id="embedding-name"
           placeholder="Основной embedding"

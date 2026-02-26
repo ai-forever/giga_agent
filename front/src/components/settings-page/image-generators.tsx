@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import type {
   ImageGeneratorResponse,
@@ -49,9 +50,7 @@ function isSecretField(name: string): boolean {
 
 function fieldLabel(name: string, property: JsonSchemaProperty): string {
   if (property.title) return property.title;
-  return name
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function isFieldRequired(name: string, schema: JsonSchema): boolean {
@@ -86,7 +85,9 @@ function resolvePropertyType(
   return "string";
 }
 
-function compactObject(values: Record<string, unknown>): Record<string, unknown> {
+function compactObject(
+  values: Record<string, unknown>,
+): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined),
   );
@@ -169,7 +170,10 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
                     propertyType === "integer"
                       ? parseInt(nextValue, 10)
                       : parseFloat(nextValue);
-                  setFieldValue(name, Number.isNaN(parsed) ? undefined : parsed);
+                  setFieldValue(
+                    name,
+                    Number.isNaN(parsed) ? undefined : parsed,
+                  );
                 }}
                 disabled={disabled}
               />
@@ -202,7 +206,9 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
               disabled={disabled}
             />
             {property.description && (
-              <p className="text-xs text-muted-foreground">{property.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {property.description}
+              </p>
             )}
           </div>
         );
@@ -388,7 +394,9 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
           <Select
             value={selectedConnectorId}
             onValueChange={onConnectorChange}
-            disabled={loadingConnectors || saving || filteredConnectors.length === 0}
+            disabled={
+              loadingConnectors || saving || filteredConnectors.length === 0
+            }
           >
             <SelectTrigger id="image-generator-connector" className="w-full">
               {loadingConnectors ? (
@@ -455,17 +463,23 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
 };
 
 export const ImageGeneratorsSettings: React.FC = () => {
-  const [generatorTypes, setGeneratorTypes] = useState<ImageGeneratorTypeMeta[]>([]);
+  const [generatorTypes, setGeneratorTypes] = useState<
+    ImageGeneratorTypeMeta[]
+  >([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [generators, setGenerators] = useState<ImageGeneratorResponse[]>([]);
 
   const [isCreatingNew, setIsCreatingNew] = useState(false);
-  const [editingGeneratorId, setEditingGeneratorId] = useState<string | null>(null);
+  const [editingGeneratorId, setEditingGeneratorId] = useState<string | null>(
+    null,
+  );
 
   const [selectedType, setSelectedType] = useState("");
   const [generatorName, setGeneratorName] = useState("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
-  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
+  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
+    {},
+  );
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
 
@@ -479,7 +493,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<ImageGeneratorTypeMeta[]>(
-        "/api/generators/image/types/meta",
+        `${API_PREFIX}/generators/image/types/meta`,
       );
       setGeneratorTypes(data);
     } catch {
@@ -493,7 +507,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        "/api/connectors?only_active=true",
+        `${API_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -507,7 +521,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setLoadingGenerators(true);
     try {
       const data = await apiClient.get<ImageGeneratorResponse[]>(
-        "/api/generators/image",
+        `${API_PREFIX}/generators/image`,
       );
       setGenerators(data);
     } catch {
@@ -537,7 +551,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `/api/generators/image/types/${selectedType}/settings-schema`,
+          `${API_PREFIX}/generators/image/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -637,10 +651,11 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   const handleDelete = async (generatorId: string) => {
     // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот image generator?")) return;
+    if (!confirm("Вы уверены, что хотите удалить этот image generator?"))
+      return;
 
     try {
-      await apiClient.delete(`/api/generators/image/${generatorId}`);
+      await apiClient.delete(`${API_PREFIX}/generators/image/${generatorId}`);
       toast.success("Image generator удален");
       if (editingGeneratorId === generatorId) {
         handleCancelEdit();
@@ -653,7 +668,10 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!selectedType) return;
-    if (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0)) {
+    if (
+      requiresConnector &&
+      (!selectedConnectorId || filteredConnectors.length === 0)
+    ) {
       return;
     }
 
@@ -673,7 +691,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
         }
 
         await apiClient.patch<ImageGeneratorResponse>(
-          `/api/generators/image/${editingGeneratorId}`,
+          `${API_PREFIX}/generators/image/${editingGeneratorId}`,
           payload,
         );
         toast.success("Image generator обновлен");
@@ -693,7 +711,10 @@ export const ImageGeneratorsSettings: React.FC = () => {
           payload.connector_id = selectedConnectorId;
         }
 
-        await apiClient.post<ImageGeneratorResponse>("/api/generators/image", payload);
+        await apiClient.post<ImageGeneratorResponse>(
+          `${API_PREFIX}/generators/image`,
+          payload,
+        );
         toast.success("Image generator создан");
         handleCancelCreate();
       }
@@ -711,7 +732,8 @@ export const ImageGeneratorsSettings: React.FC = () => {
     saving ||
     loadingSchema ||
     !selectedType ||
-    (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0));
+    (requiresConnector &&
+      (!selectedConnectorId || filteredConnectors.length === 0));
 
   return (
     <div className="space-y-6">

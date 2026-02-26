@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
 import { AnimatePresence, motion } from "framer-motion";
@@ -128,7 +129,9 @@ const normalizeAgentSecretType = (value: unknown): AgentSecretType => {
   return value === "text" || value === "llm_id" ? value : "pass";
 };
 
-const dedupeAgentSecretsMeta = (items: AgentSecretMeta[]): AgentSecretMeta[] => {
+const dedupeAgentSecretsMeta = (
+  items: AgentSecretMeta[],
+): AgentSecretMeta[] => {
   const seen = new Set<string>();
   const deduped: AgentSecretMeta[] = [];
   for (const item of items) {
@@ -213,7 +216,7 @@ export const GeneralSettings: React.FC = () => {
   const fetchLLMs = useCallback(async () => {
     setLoadingLLMs(true);
     try {
-      const data = await apiClient.get<LLMResponse[]>("/api/llms");
+      const data = await apiClient.get<LLMResponse[]>(`${API_PREFIX}/llms`);
       setLlmList(data);
     } catch {
       // Ошибка уже обработана глобально
@@ -226,7 +229,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingEmbeddings(true);
     try {
       const embeddings = await apiClient.get<EmbeddingResponse[]>(
-        "/api/embeddings?only_active=true",
+        `${API_PREFIX}/embeddings?only_active=true`,
       );
       setEmbeddingList(embeddings);
     } catch {
@@ -240,7 +243,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingImageGenerators(true);
     try {
       const generators = await apiClient.get<ImageGeneratorResponse[]>(
-        "/api/generators/image?only_active=true",
+        `${API_PREFIX}/generators/image?only_active=true`,
       );
       setImageGeneratorList(generators);
     } catch {
@@ -254,7 +257,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingSearchEngines(true);
     try {
       const engines = await apiClient.get<SearchEngineResponse[]>(
-        "/api/search-engines?only_active=true",
+        `${API_PREFIX}/search-engines?only_active=true`,
       );
       setSearchEngineList(engines);
     } catch {
@@ -268,7 +271,7 @@ export const GeneralSettings: React.FC = () => {
     setLoadingAgentSecrets(true);
     try {
       const secretsMeta =
-        await apiClient.get<AgentSecretMeta[]>("/api/agent/secrets");
+        await apiClient.get<AgentSecretMeta[]>(`${API_PREFIX}/agent/secrets`);
       setAgentSecretMeta(dedupeAgentSecretsMeta(secretsMeta));
     } catch {
       setAgentSecretMeta([]);
@@ -478,7 +481,7 @@ export const GeneralSettings: React.FC = () => {
       }
 
       if (Object.keys(patchBody).length > 0) {
-        await apiClient.patch("/api/auth/users/me", patchBody);
+        await apiClient.patch(`${API_PREFIX}/auth/users/me`, patchBody);
       }
 
       await refreshUser();
@@ -757,8 +760,9 @@ export const GeneralSettings: React.FC = () => {
                           {secretMeta.type === "llm_id" ? (
                             <Select
                               value={
-                                (agentSecretsValues[secretMeta.name] ?? "").trim() ||
-                                NO_SECRET_LLM_VALUE
+                                (
+                                  agentSecretsValues[secretMeta.name] ?? ""
+                                ).trim() || NO_SECRET_LLM_VALUE
                               }
                               onValueChange={(value) =>
                                 updateAgentSecretValue(
@@ -782,16 +786,22 @@ export const GeneralSettings: React.FC = () => {
                                     {llm.name || llm.model_id}
                                   </SelectItem>
                                 ))}
-                                {(agentSecretsValues[secretMeta.name] ?? "").trim() &&
+                                {(
+                                  agentSecretsValues[secretMeta.name] ?? ""
+                                ).trim() &&
                                   !llmList.some(
                                     (llm) =>
                                       llm.id ===
-                                      (agentSecretsValues[secretMeta.name] ?? "").trim(),
+                                      (
+                                        agentSecretsValues[secretMeta.name] ??
+                                        ""
+                                      ).trim(),
                                   ) && (
                                     <SelectItem
-                                      value={
-                                        (agentSecretsValues[secretMeta.name] ?? "").trim()
-                                      }
+                                      value={(
+                                        agentSecretsValues[secretMeta.name] ??
+                                        ""
+                                      ).trim()}
                                     >
                                       Недоступная LLM
                                     </SelectItem>

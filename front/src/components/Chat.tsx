@@ -8,6 +8,7 @@ import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { API_PREFIX } from "@/config.ts";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -19,7 +20,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
   const thread = useStream<GraphState>({
-    apiUrl: `${window.location.protocol}//${window.location.host}/api`,
+    apiUrl: `${window.location.protocol}//${window.location.host}${API_PREFIX}/`,
     assistantId: "giga_agent",
     messagesKey: "messages",
     reconnectOnMount: true,

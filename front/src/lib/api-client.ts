@@ -61,22 +61,7 @@ function normalizeBaseUrl(baseUrl: string): string | null {
 }
 
 export function resolveApiUrl(url: string): string {
-  if (ABSOLUTE_HTTP_URL_REGEX.test(url)) {
-    return url;
-  }
-
-  const storedBaseUrl = localStorage.getItem(API_BASE_URL_KEY);
-  const baseUrl = storedBaseUrl ? normalizeBaseUrl(storedBaseUrl) : null;
-  if (!baseUrl) {
-    return url;
-  }
-
-  if (!API_PREFIX_REGEX.test(url)) {
-    return url;
-  }
-
-  const withoutApiPrefix = url.replace(API_PREFIX_REGEX, "") || "/";
-  return new URL(withoutApiPrefix, `${baseUrl}/`).toString();
+  return url;
 }
 
 class ApiClient {
@@ -112,7 +97,7 @@ class ApiClient {
     method: string,
     url: string,
     data?: unknown,
-    options: RequestOptions = {}
+    options: RequestOptions = {},
   ): Promise<T> {
     const {
       showError = true,
@@ -156,9 +141,7 @@ class ApiClient {
         if (typeof errorData === "object" && errorData !== null) {
           const err = errorData as Record<string, unknown>;
           errorMessage =
-            (err.detail as string) ||
-            (err.message as string) ||
-            errorMessage;
+            (err.detail as string) || (err.message as string) || errorMessage;
         }
       } catch {
         errorMessage = response.statusText || errorMessage;
@@ -237,9 +220,7 @@ class ApiClient {
         if (typeof errorData === "object" && errorData !== null) {
           const err = errorData as Record<string, unknown>;
           errorMessage =
-            (err.detail as string) ||
-            (err.message as string) ||
-            errorMessage;
+            (err.detail as string) || (err.message as string) || errorMessage;
         }
       } catch {
         errorMessage = response.statusText || errorMessage;
@@ -260,9 +241,7 @@ class ApiClient {
     }
 
     const raw = await response.text();
-    const contentType = (
-      response.headers.get("content-type") || ""
-    )
+    const contentType = (response.headers.get("content-type") || "")
       .split(";")[0]
       .trim()
       .toLowerCase();
@@ -336,7 +315,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly data?: unknown
+    public readonly data?: unknown,
   ) {
     super(message);
     this.name = "ApiError";

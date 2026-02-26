@@ -6,6 +6,7 @@ import React, {
   useEffect,
   PropsWithChildren,
 } from "react";
+import { API_PREFIX } from "@/config.ts";
 import { resolveApiUrl } from "@/lib/api-client";
 
 const AUTH_TOKEN_KEY = "auth_token";
@@ -46,7 +47,7 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const isAuthenticated = !!token && !!user;
 
   const logout = useCallback(() => {
-    void fetch(resolveApiUrl("/api/auth/logout"), {
+    void fetch(resolveApiUrl(`${API_PREFIX}/auth/logout`), {
       method: "POST",
       credentials: "include",
     });
@@ -57,7 +58,7 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
 
   const checkAuth = useCallback(async (authToken: string) => {
     try {
-      const response = await fetch(resolveApiUrl("/api/auth/users/me"), {
+      const response = await fetch(resolveApiUrl(`${API_PREFIX}/auth/users/me`), {
         credentials: "include",
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -82,7 +83,7 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
       formData.append("username", email);
       formData.append("password", password);
 
-      const response = await fetch(resolveApiUrl("/api/auth/token"), {
+      const response = await fetch(resolveApiUrl(`${API_PREFIX}/auth/token`), {
         method: "POST",
         credentials: "include",
         body: formData,

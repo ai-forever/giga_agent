@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { DemoItem } from "../interfaces.ts";
 import axios from "axios";
+import { API_PREFIX } from "../config.ts";
 
 interface DemoItemsProps {
   children: any[] | any;
@@ -26,7 +27,7 @@ export const DemoItemsProvider = ({ children }: DemoItemsProps) => {
   const [demoItems, setDemoItems] = useState<DemoItem[]>([]);
   const [demoItemsLoaded, setDemoItemsLoaded] = useState(false);
   const updateItems = () => {
-    axios.get("/api/tasks/").then((resp) => {
+    axios.get(`${API_PREFIX}/tasks/`).then((resp) => {
       setDemoItems(resp.data);
       setDemoItemsLoaded(true);
     });
@@ -39,19 +40,19 @@ export const DemoItemsProvider = ({ children }: DemoItemsProps) => {
     setDemoItemsLoaded(true);
   }, []);
   const addItem = () => {
-    axios.post("/api/tasks/").then((resp) => {
+    axios.post(`${API_PREFIX}/tasks/`).then((resp) => {
       setDemoItems([...demoItems, resp.data]);
     });
   };
 
   const removeItem = (id: string) => {
-    axios.delete(`/api/tasks/${id}/`).then(() => {
+    axios.delete(`${API_PREFIX}/tasks/${id}/`).then(() => {
       setDemoItems(demoItems.filter((item) => item.id !== id));
     });
   };
 
   const updateItem = (item: DemoItem) => {
-    axios.put(`/api/tasks/${item.id}/`, item).then(() => {});
+    axios.put(`${API_PREFIX}/tasks/${item.id}/`, item).then(() => {});
   };
 
   return (

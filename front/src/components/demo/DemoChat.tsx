@@ -67,7 +67,7 @@ const DemoChat = ({
   );
 
   const thread = useStream<GraphState>({
-    apiUrl: `${window.location.protocol}//${window.location.host}/graph`,
+    apiUrl: `${window.location.protocol}//${window.location.host}/api`,
     assistantId: "chat",
     messagesKey: "messages",
     fetchStateHistory: true,

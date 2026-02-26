@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import type {
   ConnectorResponse,
@@ -48,9 +49,7 @@ function isSecretField(name: string): boolean {
 
 function fieldLabel(name: string, property: JsonSchemaProperty): string {
   if (property.title) return property.title;
-  return name
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function isFieldRequired(name: string, schema: JsonSchema): boolean {
@@ -85,7 +84,9 @@ function resolvePropertyType(
   return "string";
 }
 
-function compactObject(values: Record<string, unknown>): Record<string, unknown> {
+function compactObject(
+  values: Record<string, unknown>,
+): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined),
   );
@@ -168,7 +169,10 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
                     propertyType === "integer"
                       ? parseInt(nextValue, 10)
                       : parseFloat(nextValue);
-                  setFieldValue(name, Number.isNaN(parsed) ? undefined : parsed);
+                  setFieldValue(
+                    name,
+                    Number.isNaN(parsed) ? undefined : parsed,
+                  );
                 }}
                 disabled={disabled}
               />
@@ -201,7 +205,9 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
               disabled={disabled}
             />
             {property.description && (
-              <p className="text-xs text-muted-foreground">{property.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {property.description}
+              </p>
             )}
           </div>
         );
@@ -392,7 +398,9 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
             onValueChange={(value) =>
               onConnectorChange(value === "__none__" ? "" : value)
             }
-            disabled={loadingConnectors || saving || filteredConnectors.length === 0}
+            disabled={
+              loadingConnectors || saving || filteredConnectors.length === 0
+            }
           >
             <SelectTrigger id="search-engine-connector" className="w-full">
               {loadingConnectors ? (
@@ -472,7 +480,9 @@ export const SearchEnginesSettings: React.FC = () => {
   const [selectedType, setSelectedType] = useState("");
   const [engineName, setEngineName] = useState("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
-  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
+  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
+    {},
+  );
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
 
@@ -486,7 +496,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<SearchEngineTypeMeta[]>(
-        "/api/search-engines/types/meta",
+        `${API_PREFIX}/search-engines/types/meta`,
       );
       setEngineTypes(data);
     } catch {
@@ -500,7 +510,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        "/api/connectors?only_active=true",
+        `${API_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -513,7 +523,9 @@ export const SearchEnginesSettings: React.FC = () => {
   const fetchEngines = useCallback(async () => {
     setLoadingEngines(true);
     try {
-      const data = await apiClient.get<SearchEngineResponse[]>("/api/search-engines");
+      const data = await apiClient.get<SearchEngineResponse[]>(
+        `${API_PREFIX}/search-engines`,
+      );
       setEngines(data);
     } catch {
       // handled globally
@@ -542,7 +554,7 @@ export const SearchEnginesSettings: React.FC = () => {
     const run = async () => {
       try {
         const schema = await apiClient.get<JsonSchema>(
-          `/api/search-engines/types/${selectedType}/settings-schema`,
+          `${API_PREFIX}/search-engines/types/${selectedType}/settings-schema`,
         );
         if (!cancelled) {
           setSettingsSchema(schema);
@@ -572,7 +584,10 @@ export const SearchEnginesSettings: React.FC = () => {
 
   const requiresConnector = selectedTypeMeta?.requires_connector ?? false;
   const supportedConnectorTypes = useMemo(
-    () => (selectedTypeMeta?.supported_connector_types || []).map((type) => type.toLowerCase()),
+    () =>
+      (selectedTypeMeta?.supported_connector_types || []).map((type) =>
+        type.toLowerCase(),
+      ),
     [selectedTypeMeta],
   );
   const supportsConnectors = supportedConnectorTypes.length > 0;
@@ -643,7 +658,7 @@ export const SearchEnginesSettings: React.FC = () => {
     if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
 
     try {
-      await apiClient.delete(`/api/search-engines/${engineId}`);
+      await apiClient.delete(`${API_PREFIX}/search-engines/${engineId}`);
       toast.success("Search engine удален");
       if (editingEngineId === engineId) {
         handleCancelEdit();
@@ -656,7 +671,10 @@ export const SearchEnginesSettings: React.FC = () => {
 
   const handleSave = async () => {
     if (!selectedType) return;
-    if (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0)) {
+    if (
+      requiresConnector &&
+      (!selectedConnectorId || filteredConnectors.length === 0)
+    ) {
       return;
     }
 
@@ -675,7 +693,7 @@ export const SearchEnginesSettings: React.FC = () => {
         }
 
         await apiClient.patch<SearchEngineResponse>(
-          `/api/search-engines/${editingEngineId}`,
+          `${API_PREFIX}/search-engines/${editingEngineId}`,
           payload,
         );
         toast.success("Search engine обновлен");
@@ -693,7 +711,10 @@ export const SearchEnginesSettings: React.FC = () => {
           payload.connector_id = selectedConnectorId;
         }
 
-        await apiClient.post<SearchEngineResponse>("/api/search-engines", payload);
+        await apiClient.post<SearchEngineResponse>(
+          `${API_PREFIX}/search-engines`,
+          payload,
+        );
         toast.success("Search engine создан");
         handleCancelCreate();
       }
@@ -711,7 +732,8 @@ export const SearchEnginesSettings: React.FC = () => {
     saving ||
     loadingSchema ||
     !selectedType ||
-    (requiresConnector && (!selectedConnectorId || filteredConnectors.length === 0));
+    (requiresConnector &&
+      (!selectedConnectorId || filteredConnectors.length === 0));
 
   return (
     <div className="space-y-6">

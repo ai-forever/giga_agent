@@ -17,7 +17,7 @@ import LogoImage from "../assets/logo.png";
 import LogoWhiteImage from "../assets/logo-white.png";
 import QRImage from "../assets/qr.png";
 import { useSettings } from "./Settings.tsx";
-import { MEMORY_ENABLED, ragEnabled } from "@/config.ts";
+import { ragEnabled } from "@/config.ts";
 import { Switch } from "@/components/ui/switch";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
@@ -147,15 +147,13 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
             База знаний
           </div>
         )}
-        {MEMORY_ENABLED && (
-          <div
-            className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"
-            onClick={handleMemories}
-          >
-            <Brain size={24} className="mr-2" />
-            Долгосрочная память
-          </div>
-        )}
+        <div
+          className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"
+          onClick={handleMemories}
+        >
+          <Brain size={24} className="mr-2" />
+          Долгосрочная память
+        </div>
 
         {/* <div
           className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-white/10"

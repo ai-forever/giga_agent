@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -23,6 +29,7 @@ import type {
   LLMResponse,
   LLMTypeMeta,
 } from "./types";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 interface LLMFormProps {
@@ -50,7 +57,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const [llmTypes, setLlmTypes] = useState<LLMTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
 
-  const [selectedLLMType, setSelectedLLMType] = useState<string>(llm?.type || "");
+  const [selectedLLMType, setSelectedLLMType] = useState<string>(
+    llm?.type || "",
+  );
   const [selectedConnectorId, setSelectedConnectorId] = useState<string>(
     llm?.connector_id || "",
   );
@@ -101,7 +110,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const fetchLLMTypes = useCallback(async () => {
     setLoadingLLMTypes(true);
     try {
-      const data = await apiClient.get<LLMTypeMeta[]>("/api/llms/types/meta");
+      const data = await apiClient.get<LLMTypeMeta[]>(`${API_PREFIX}/llms/types/meta`);
       setLlmTypes(data);
       if (!llm?.type && data.length > 0) {
         setSelectedLLMType((prev) => prev || data[0].type);
@@ -118,7 +127,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     setLoadingConnectors(true);
     try {
       const data = await apiClient.get<ConnectorResponse[]>(
-        "/api/connectors?only_active=true",
+        `${API_PREFIX}/connectors?only_active=true`,
       );
       setConnectors(data);
     } catch {
@@ -134,30 +143,33 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     [],
   );
 
-  const fetchModelsForConnector = useCallback(async (connectorId: string, llmType: string) => {
-    const cacheKey = modelCacheKey(llmType, connectorId);
-    setLoadingModels(true);
-    try {
-      const data = await apiClient.get<AvailableModel[]>(
-        `/api/llms/models/${connectorId}?llm_type=${encodeURIComponent(llmType)}`,
-      );
-      const models = Array.isArray(data) ? data : [];
-      modelsBySelectionRef.current[cacheKey] = models;
-      if (prevModelsKeyRef.current === cacheKey) {
-        setAvailableModels(models);
+  const fetchModelsForConnector = useCallback(
+    async (connectorId: string, llmType: string) => {
+      const cacheKey = modelCacheKey(llmType, connectorId);
+      setLoadingModels(true);
+      try {
+        const data = await apiClient.get<AvailableModel[]>(
+          `${API_PREFIX}/llms/models/${connectorId}?llm_type=${encodeURIComponent(llmType)}`,
+        );
+        const models = Array.isArray(data) ? data : [];
+        modelsBySelectionRef.current[cacheKey] = models;
+        if (prevModelsKeyRef.current === cacheKey) {
+          setAvailableModels(models);
+        }
+      } catch {
+        // handled globally
+        modelsBySelectionRef.current[cacheKey] = [];
+        if (prevModelsKeyRef.current === cacheKey) {
+          setAvailableModels([]);
+        }
+      } finally {
+        if (prevModelsKeyRef.current === cacheKey) {
+          setLoadingModels(false);
+        }
       }
-    } catch {
-      // handled globally
-      modelsBySelectionRef.current[cacheKey] = [];
-      if (prevModelsKeyRef.current === cacheKey) {
-        setAvailableModels([]);
-      }
-    } finally {
-      if (prevModelsKeyRef.current === cacheKey) {
-        setLoadingModels(false);
-      }
-    }
-  }, [modelCacheKey]);
+    },
+    [modelCacheKey],
+  );
 
   useEffect(() => {
     fetchLLMTypes();
@@ -233,7 +245,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     setTempInput(value.toFixed(2));
   };
 
-  const handleTemperatureInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTemperatureInputChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const value = e.target.value;
     setTempInput(value);
     const num = parseFloat(value);
@@ -345,17 +359,24 @@ export const LLMForm: React.FC<LLMFormProps> = ({
             ))}
           </SelectContent>
         </Select>
-        {selectedLLMType && filteredConnectors.length === 0 && !loadingConnectors && (
-          <p className="text-sm text-amber-600">
-            Нет активных коннекторов для типа <span className="font-medium">{selectedLLMType}</span>.
-          </p>
-        )}
+        {selectedLLMType &&
+          filteredConnectors.length === 0 &&
+          !loadingConnectors && (
+            <p className="text-sm text-amber-600">
+              Нет активных коннекторов для типа{" "}
+              <span className="font-medium">{selectedLLMType}</span>.
+            </p>
+          )}
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="model-id">Название модели</Label>
         {availableModels.length > 0 ? (
-          <Select value={modelId} onValueChange={setModelId} disabled={saving || loadingModels}>
+          <Select
+            value={modelId}
+            onValueChange={setModelId}
+            disabled={saving || loadingModels}
+          >
             <SelectTrigger id="model-id" className="w-full">
               <SelectValue placeholder="Выберите модель" />
             </SelectTrigger>

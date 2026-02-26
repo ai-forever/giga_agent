@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { API_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
 // ============ Types ============
@@ -59,9 +60,7 @@ function isSecretField(name: string): boolean {
 /** Возвращает человеко-читаемый label из имени поля */
 function fieldLabel(name: string, property: JsonSchemaProperty): string {
   if (property.title) return property.title;
-  return name
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Проверяет, является ли поле обязательным */
@@ -101,18 +100,19 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
   };
 
   // Группируем S3-поля
-  const s3Fields = entries.filter(([name]) =>
-    name.startsWith("s3_") || name.startsWith("aws_")
+  const s3Fields = entries.filter(
+    ([name]) => name.startsWith("s3_") || name.startsWith("aws_"),
   );
   const otherFields = entries.filter(
-    ([name]) => !name.startsWith("s3_") && !name.startsWith("aws_")
+    ([name]) => !name.startsWith("s3_") && !name.startsWith("aws_"),
   );
 
   const renderField = ([name, property]: [string, JsonSchemaProperty]) => {
     const required = isFieldRequired(name, schema);
     const secret = isSecretField(name);
     const nullable = isNullable(property);
-    const value = (values[name] as string) ?? (property.default as string) ?? "";
+    const value =
+      (values[name] as string) ?? (property.default as string) ?? "";
     const InputComponent = secret ? SecretInput : Input;
 
     return (
@@ -137,7 +137,9 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
           disabled={disabled}
         />
         {property.description && (
-          <p className="text-xs text-muted-foreground">{property.description}</p>
+          <p className="text-xs text-muted-foreground">
+            {property.description}
+          </p>
         )}
       </div>
     );
@@ -151,9 +153,7 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
         <div className="space-y-4 pt-2">
           <div className="flex items-center gap-2">
             <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">
-              S3 Storage
-            </span>
+            <span className="text-xs text-muted-foreground">S3 Storage</span>
             <div className="h-px flex-1 bg-border" />
           </div>
           {s3Fields.map(renderField)}
@@ -222,7 +222,9 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
 
 export const SandboxSettings: React.FC = () => {
   // Data state
-  const [provider, setProvider] = useState<SandboxProviderResponse | null>(null);
+  const [provider, setProvider] = useState<SandboxProviderResponse | null>(
+    null,
+  );
   const [providerTypes, setProviderTypes] = useState<string[]>([]);
 
   // Form state
@@ -230,7 +232,9 @@ export const SandboxSettings: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedType, setSelectedType] = useState<string>("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
-  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
+  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
+    {},
+  );
   const [providerName, setProviderName] = useState("");
   const [idleTimeout, setIdleTimeout] = useState(3600);
   const [isActive, setIsActive] = useState(true);
@@ -247,7 +251,7 @@ export const SandboxSettings: React.FC = () => {
     setLoadingProvider(true);
     try {
       const data = await apiClient.get<SandboxProviderResponse[]>(
-        "/api/sandboxes/providers"
+        `${API_PREFIX}/sandboxes/providers`,
       );
       setProvider(data.length > 0 ? data[0] : null);
     } catch {
@@ -261,7 +265,7 @@ export const SandboxSettings: React.FC = () => {
     setLoadingTypes(true);
     try {
       const data = await apiClient.get<string[]>(
-        "/api/sandboxes/providers/types"
+        `${API_PREFIX}/sandboxes/providers/types`,
       );
       setProviderTypes(data);
     } catch {
@@ -275,7 +279,7 @@ export const SandboxSettings: React.FC = () => {
     setLoadingSchema(true);
     try {
       const data = await apiClient.get<JsonSchema>(
-        `/api/sandboxes/providers/types/${type}/settings-schema`
+        `${API_PREFIX}/sandboxes/providers/types/${type}/settings-schema`,
       );
       setSettingsSchema(data);
     } catch {
@@ -339,7 +343,7 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await apiClient.post("/api/sandboxes/providers", {
+      await apiClient.post(`${API_PREFIX}/sandboxes/providers`, {
         type: selectedType,
         name: providerName || null,
         settings: settingsValues,
@@ -362,7 +366,7 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await apiClient.patch(`/api/sandboxes/providers/${provider.id}`, {
+      await apiClient.patch(`${API_PREFIX}/sandboxes/providers/${provider.id}`, {
         name: providerName || null,
         settings: settingsValues,
         idle_timeout: idleTimeout,
@@ -381,15 +385,11 @@ export const SandboxSettings: React.FC = () => {
 
   const handleDelete = async () => {
     if (!provider) return;
-    if (
-      !confirm(
-        "Вы уверены? Все sandbox'ы этого провайдера будут удалены."
-      )
-    )
+    if (!confirm("Вы уверены? Все sandbox'ы этого провайдера будут удалены."))
       return;
 
     try {
-      await apiClient.delete(`/api/sandboxes/providers/${provider.id}`);
+      await apiClient.delete(`${API_PREFIX}/sandboxes/providers/${provider.id}`);
       toast.success("Sandbox провайдер удалён");
       setProvider(null);
       setIsEditing(false);
@@ -522,9 +522,7 @@ export const SandboxSettings: React.FC = () => {
 
           {/* Idle timeout */}
           <div className="space-y-1.5">
-            <Label htmlFor="idle-timeout">
-              Idle Timeout (секунды)
-            </Label>
+            <Label htmlFor="idle-timeout">Idle Timeout (секунды)</Label>
             <Input
               id="idle-timeout"
               type="number"
