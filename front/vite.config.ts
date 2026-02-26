@@ -11,36 +11,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, ".."), "");
   const runningEnv = env.RUNNING_ENV || process.env.RUNNING_ENV || "local";
 
-  const JUPYTER_UPLOAD_API =
-    env.JUPYTER_UPLOAD_API ||
-    process.env.JUPYTER_UPLOAD_API ||
-    "http://127.0.0.1:9092/";
-  const LANGGRAPH_API_URL =
-    env.LANGGRAPH_API_URL ||
-    process.env.LANGGRAPH_API_URL ||
-    "http://127.0.0.1:2024/";
-
-  const GIGA_AGENT_API = "http://127.0.0.1:9090/";
-
-  if (!process.env.VITE_LANGCONNECT_API_URL) {
-    process.env.VITE_LANGCONNECT_API_URL =
-      env.LANGCONNECT_API_URL || process.env.LANGCONNECT_API_URL || "";
-  }
-  if (!process.env.VITE_LANGCONNECT_API_SECRET_TOKEN) {
-    process.env.VITE_LANGCONNECT_API_SECRET_TOKEN =
-      env.LANGCONNECT_API_SECRET_TOKEN ||
-      process.env.LANGCONNECT_API_SECRET_TOKEN ||
-      "";
-  }
   if (!process.env.VITE_MCP_PROXY_URL) {
     process.env.VITE_MCP_PROXY_URL =
       env.VITE_MCP_PROXY_URL || process.env.VITE_MCP_PROXY_URL || "";
-  }
-  if (!process.env.VITE_MEMORY_ENABLED) {
-    process.env.VITE_MEMORY_ENABLED =
-      env.GIGA_AGENT_MEMORY_ENABLED ||
-      process.env.GIGA_AGENT_MEMORY_ENABLED ||
-      "true";
   }
 
   return {
@@ -66,8 +39,13 @@ export default defineConfig(({ mode }) => {
       runningEnv === "local"
         ? {
             proxy: {
+              "/graph": {
+                target: "http://localhost:9090/graph",
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/graph/, ""),
+              },
               "/api": {
-                target: GIGA_AGENT_API,
+                target: "http://localhost:9090/api",
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ""),
               },

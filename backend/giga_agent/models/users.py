@@ -240,6 +240,7 @@ class UserRepository:
 
     async def get_by_email(self, email: str) -> User | None:
         """Получить пользователя по email"""
+        u = await self.db.execute(select(User))
         result = await self.db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
