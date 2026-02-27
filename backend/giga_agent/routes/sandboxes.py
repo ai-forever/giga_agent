@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.models.users import User
+from giga_agent.models.users import User, UserRepository
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxProviderCreate,
@@ -120,6 +120,12 @@ async def create_sandbox_provider(
         idle_timeout=data.idle_timeout,
         is_active=data.is_active,
     )
+
+    user = await provider_repo.db.get(User, current_user.id)
+    if user is not None and user.sandbox_provider_id is None:
+        user.sandbox_provider_id = provider.id
+        await provider_repo.db.commit()
+        await UserRepository.invalidate_cache(current_user.id)
 
     await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
 
@@ -237,5 +243,11 @@ async def delete_sandbox_provider(
     provider = await get_provider_with_owner_check(
         provider_id, current_user.id, provider_repo
     )
+    user = await provider_repo.db.get(User, current_user.id)
+    if user is not None and user.sandbox_provider_id == provider.id:
+        user.sandbox_provider_id = None
+        await provider_repo.db.commit()
+        await UserRepository.invalidate_cache(current_user.id)
+
     await provider_repo.delete(provider)
     await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")

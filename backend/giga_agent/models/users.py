@@ -16,6 +16,7 @@ import giga_agent.models.connector  # noqa: F401
 import giga_agent.models.embedding  # noqa: F401
 import giga_agent.models.image_generator  # noqa: F401
 import giga_agent.models.llm  # noqa: F401
+import giga_agent.models.sandbox  # noqa: F401
 import giga_agent.models.search_engine  # noqa: F401
 
 
@@ -106,6 +107,18 @@ class User(Base):
         index=True,
         default=None,
     )
+    sandbox_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_sandbox_providers.id",
+            name="fk_core_users_sandbox_provider_id",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+        default=None,
+    )
 
 
 # ============ Pydantic Schemas ============
@@ -124,6 +137,7 @@ class UserBase(BaseModel):
     embedding_id: Optional[uuid.UUID] = None
     llm_id: Optional[uuid.UUID] = None
     fast_llm_id: Optional[uuid.UUID] = None
+    sandbox_provider_id: Optional[uuid.UUID] = None
 
 
 class UserCreate(UserBase):
@@ -171,6 +185,7 @@ class UserShort(UserBase):
                 _freeze(self.embedding_id),
                 _freeze(self.llm_id),
                 _freeze(self.fast_llm_id),
+                _freeze(self.sandbox_provider_id),
             )
         )
 
@@ -188,6 +203,7 @@ class UserUpdate(BaseModel):
     image_generator_id: uuid.UUID | None = None
     search_engine_id: uuid.UUID | None = None
     embedding_id: uuid.UUID | None = None
+    sandbox_provider_id: uuid.UUID | None = None
 
 
 # ============ Repository ============

@@ -50,6 +50,7 @@ class AuthRouterTests(unittest.TestCase):
             llm_id=None,
             fast_llm_id=None,
             embedding_id=None,
+            sandbox_provider_id=None,
             image_generator_id=None,
             search_engine_id=None,
         )
@@ -93,6 +94,7 @@ class AuthRouterTests(unittest.TestCase):
         user_model.llm_id = uuid.uuid4()
         user_model.fast_llm_id = uuid.uuid4()
         user_model.embedding_id = uuid.uuid4()
+        user_model.sandbox_provider_id = uuid.uuid4()
         user_model.image_generator_id = uuid.uuid4()
         user_model.search_engine_id = uuid.uuid4()
 
@@ -112,18 +114,25 @@ class AuthRouterTests(unittest.TestCase):
             "giga_agent.modules.auth.api._validate_embedding_id",
             AsyncMock(return_value=None),
         ) as mocked_validate_embedding, patch(
+            "giga_agent.modules.auth.api._validate_sandbox_provider_id",
+            AsyncMock(return_value=None),
+        ) as mocked_validate_sandbox_provider, patch(
             "giga_agent.modules.auth.api._validate_image_generator_id",
             AsyncMock(return_value=None),
         ) as mocked_validate_image, patch(
             "giga_agent.modules.auth.api._validate_search_engine_id",
             AsyncMock(return_value=None),
-        ) as mocked_validate_search:
+        ) as mocked_validate_search, patch(
+            "giga_agent.modules.auth.api.cache.delete_match",
+            AsyncMock(return_value=None),
+        ):
             response = self.client.patch(
                 "/users/me",
                 json={
                     "llm_id": None,
                     "fast_llm_id": None,
                     "embedding_id": None,
+                    "sandbox_provider_id": None,
                     "image_generator_id": None,
                     "search_engine_id": None,
                 },
@@ -134,13 +143,69 @@ class AuthRouterTests(unittest.TestCase):
         self.assertIsNone(payload["llm_id"])
         self.assertIsNone(payload["fast_llm_id"])
         self.assertIsNone(payload["embedding_id"])
+        self.assertIsNone(payload["sandbox_provider_id"])
         self.assertIsNone(payload["image_generator_id"])
         self.assertIsNone(payload["search_engine_id"])
         mocked_validate_llm.assert_not_awaited()
         mocked_validate_fast_llm.assert_not_awaited()
         mocked_validate_embedding.assert_not_awaited()
+        mocked_validate_sandbox_provider.assert_not_awaited()
         mocked_validate_image.assert_not_awaited()
         mocked_validate_search.assert_not_awaited()
+
+    def test_patch_users_me_updates_sandbox_provider_id(self):
+        user_model = self._user_model()
+        sandbox_provider_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api._validate_sandbox_provider_id",
+            AsyncMock(return_value=None),
+        ) as mocked_validate_sandbox_provider, patch(
+            "giga_agent.modules.auth.api.cache.delete_match",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"sandbox_provider_id": str(sandbox_provider_id)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["sandbox_provider_id"], str(sandbox_provider_id))
+        mocked_validate_sandbox_provider.assert_awaited_once_with(
+            self.db,
+            self.user.id,
+            sandbox_provider_id,
+        )
+
+    def test_patch_users_me_returns_422_for_invalid_sandbox_provider_reference(self):
+        user_model = self._user_model()
+        invalid_provider_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api._validate_sandbox_provider_id",
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=422,
+                    detail="Invalid value for sandbox_provider_id",
+                )
+            ),
+        ):
+            response = self.client.patch(
+                "/users/me",
+                json={"sandbox_provider_id": str(invalid_provider_id)},
+            )
+
+        self.assertEqual(response.status_code, 422)
 
     def test_patch_users_me_returns_422_for_invalid_reference(self):
         user_model = self._user_model()

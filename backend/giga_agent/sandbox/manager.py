@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.models.users import UserRepository
 from giga_agent.models.sandbox import (
     Sandbox,
     SandboxProvider,
@@ -136,26 +137,26 @@ class SandboxManager:
         """
         Определить провайдера для пользователя.
 
-        Если provider_id указан — загружает и проверяет владельца.
-        Если не указан — берёт первый активный провайдер пользователя.
+        Если provider_id указан — загружает провайдера по ID.
+        Если не указан — берёт provider из user.sandbox_provider_id.
 
-        :raises ValueError: Провайдер не найден или не принадлежит пользователю.
+        :raises ValueError: Провайдер не найден или не указан в профиле пользователя.
         """
-        if provider_id is not None:
-            provider = await self._provider_repo.get_by_id(provider_id)
-            if provider is None:
-                raise ValueError(f"Provider {provider_id} not found")
-            if provider.owner_id != owner_id:
-                raise ValueError(f"Provider {provider_id} does not belong to user {owner_id}")
-            return provider
+        resolved_provider_id = provider_id
+        if resolved_provider_id is None:
+            user = await UserRepository.get_cached_or_db(owner_id, session=self.db)
+            if user is None or user.sandbox_provider_id is None:
+                raise ValueError(
+                    f"User {owner_id} sandbox provider is not configured"
+                )
+            resolved_provider_id = user.sandbox_provider_id
 
-        providers = await self._provider_repo.get_by_owner(owner_id, only_active=True)
-        if not providers:
+        provider = await self._provider_repo.get_by_id(resolved_provider_id)
+        if provider is None:
             raise ValueError(
-                f"User {owner_id} has no active sandbox providers. "
-                "Create a provider first."
+                f"Provider {resolved_provider_id} not found"
             )
-        return providers[0]
+        return provider
 
     async def get_or_create_for_user(
         self,
@@ -168,7 +169,7 @@ class SandboxManager:
         """
         Получить существующий sandbox пользователя или создать новый.
 
-        Если provider_id не указан, используется первый активный провайдер.
+        Если provider_id не указан, используется user.sandbox_provider_id.
         Если sandbox для пары (owner, provider) уже есть — возвращает его.
         Если нет — создаёт запись в БД со статусом STOPPED.
 
@@ -417,7 +418,7 @@ class SandboxManager:
         """
         Загрузить файл в sandbox-хранилище пользователя и сохранить метаданные в БД.
 
-        Провайдер выбирается как первый активный provider пользователя.
+        Провайдер выбирается из user.sandbox_provider_id.
         """
         resolved = await self.get_or_create_for_user(
             owner_id=owner_id,

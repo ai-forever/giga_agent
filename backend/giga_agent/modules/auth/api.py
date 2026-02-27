@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 from typing import Annotated
 
+from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
@@ -14,6 +15,7 @@ from giga_agent.core.module import collect_module_secrets
 from giga_agent.models.embedding import EmbeddingRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
+from giga_agent.models.sandbox import SandboxProviderRepository
 from giga_agent.models.search_engine import SearchEngineRepository
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
@@ -185,6 +187,18 @@ async def _validate_search_engine_id(
     )
     if engine is None or engine.owner_id != owner_id or not engine.is_active:
         raise _invalid_reference_error("search_engine_id")
+
+
+async def _validate_sandbox_provider_id(
+    db: AsyncSession,
+    owner_id: uuid.UUID,
+    sandbox_provider_id: uuid.UUID,
+) -> None:
+    provider = await SandboxProviderRepository(db).get_by_id(
+        sandbox_provider_id
+    )
+    if provider is None or provider.owner_id != owner_id or not provider.is_active:
+        raise _invalid_reference_error("sandbox_provider_id")
 
 
 async def _validate_llm_secret_references(
@@ -362,6 +376,16 @@ async def update_user(
         if body.search_engine_id is not None:
             await _validate_search_engine_id(db, current_user.id, body.search_engine_id)
         user.search_engine_id = body.search_engine_id
+
+    if "sandbox_provider_id" in body.model_fields_set:
+        if body.sandbox_provider_id is not None:
+            await _validate_sandbox_provider_id(
+                db,
+                current_user.id,
+                body.sandbox_provider_id,
+            )
+        user.sandbox_provider_id = body.sandbox_provider_id
+        await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
 
     await db.commit()
     await db.refresh(user)

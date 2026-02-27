@@ -15,8 +15,7 @@ import {
 } from "@/components/ui/select";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
-
-// ============ Types ============
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface SandboxProviderResponse {
   id: string;
@@ -44,9 +43,6 @@ interface JsonSchema {
   title?: string;
 }
 
-// ============ Helpers ============
-
-/** Определяет, является ли поле секретным по имени */
 function isSecretField(name: string): boolean {
   const lower = name.toLowerCase();
   return (
@@ -57,26 +53,21 @@ function isSecretField(name: string): boolean {
   );
 }
 
-/** Возвращает человеко-читаемый label из имени поля */
 function fieldLabel(name: string, property: JsonSchemaProperty): string {
   if (property.title) return property.title;
   return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Проверяет, является ли поле обязательным */
 function isFieldRequired(name: string, schema: JsonSchema): boolean {
   return schema.required?.includes(name) ?? false;
 }
 
-/** Определяет, nullable ли поле (anyOf с null) */
 function isNullable(property: JsonSchemaProperty): boolean {
   if (property.anyOf) {
     return property.anyOf.some((t) => t.type === "null");
   }
   return false;
 }
-
-// ============ Dynamic Settings Form ============
 
 interface SettingsFormProps {
   schema: JsonSchema;
@@ -99,7 +90,6 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
     onChange({ ...values, [name]: value || undefined });
   };
 
-  // Группируем S3-поля
   const s3Fields = entries.filter(
     ([name]) => name.startsWith("s3_") || name.startsWith("aws_"),
   );
@@ -137,9 +127,7 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
           disabled={disabled}
         />
         {property.description && (
-          <p className="text-xs text-muted-foreground">
-            {property.description}
-          </p>
+          <p className="text-xs text-muted-foreground">{property.description}</p>
         )}
       </div>
     );
@@ -163,19 +151,21 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
   );
 };
 
-// ============ Provider Card ============
-
 interface ProviderCardProps {
   provider: SandboxProviderResponse;
+  isUserActive: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onActivate: () => void;
   disabled?: boolean;
 }
 
 const ProviderCard: React.FC<ProviderCardProps> = ({
   provider,
+  isUserActive,
   onEdit,
   onDelete,
+  onActivate,
   disabled,
 }) => {
   return (
@@ -188,8 +178,8 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
           <Badge variant="outline" className="text-xs">
             {provider.type}
           </Badge>
-          <Badge variant={provider.is_active ? "default" : "secondary"}>
-            {provider.is_active ? "Активен" : "Неактивен"}
+          <Badge variant={isUserActive ? "default" : "secondary"}>
+            {isUserActive ? "Активен" : "Неактивен"}
           </Badge>
         </div>
         <span className="text-sm text-muted-foreground">
@@ -197,12 +187,12 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onEdit}
-          disabled={disabled}
-        >
+        {!isUserActive && (
+          <Button variant="outline" size="sm" onClick={onActivate} disabled={disabled}>
+            Активировать
+          </Button>
+        )}
+        <Button variant="ghost" size="icon" onClick={onEdit} disabled={disabled}>
           <Pencil className="size-4" />
         </Button>
         <Button
@@ -218,18 +208,13 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
   );
 };
 
-// ============ Main Component ============
-
 export const SandboxSettings: React.FC = () => {
-  // Data state
-  const [provider, setProvider] = useState<SandboxProviderResponse | null>(
-    null,
-  );
+  const { user, refreshUser } = useAuth();
+  const [providerList, setProviderList] = useState<SandboxProviderResponse[]>([]);
   const [providerTypes, setProviderTypes] = useState<string[]>([]);
 
-  // Form state
   const [isCreating, setIsCreating] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<string>("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
@@ -239,25 +224,27 @@ export const SandboxSettings: React.FC = () => {
   const [idleTimeout, setIdleTimeout] = useState(3600);
   const [isActive, setIsActive] = useState(true);
 
-  // Loading state
-  const [loadingProvider, setLoadingProvider] = useState(false);
+  const [loadingProviders, setLoadingProviders] = useState(false);
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // ============ Data Fetching ============
+  const editingProvider =
+    editingProviderId === null
+      ? null
+      : providerList.find((item) => item.id === editingProviderId) ?? null;
 
-  const fetchProvider = useCallback(async () => {
-    setLoadingProvider(true);
+  const fetchProviders = useCallback(async () => {
+    setLoadingProviders(true);
     try {
       const data = await apiClient.get<SandboxProviderResponse[]>(
         `${API_AGENT_PREFIX}/sandboxes/providers`,
       );
-      setProvider(data.length > 0 ? data[0] : null);
+      setProviderList(data);
     } catch {
-      // Handled globally
+      // handled globally
     } finally {
-      setLoadingProvider(false);
+      setLoadingProviders(false);
     }
   }, []);
 
@@ -269,7 +256,7 @@ export const SandboxSettings: React.FC = () => {
       );
       setProviderTypes(data);
     } catch {
-      // Handled globally
+      // handled globally
     } finally {
       setLoadingTypes(false);
     }
@@ -289,13 +276,11 @@ export const SandboxSettings: React.FC = () => {
     }
   }, []);
 
-  // Fetch on mount
   useEffect(() => {
-    fetchProvider();
+    fetchProviders();
     fetchProviderTypes();
-  }, [fetchProvider, fetchProviderTypes]);
+  }, [fetchProviders, fetchProviderTypes]);
 
-  // Fetch schema when type changes
   useEffect(() => {
     if (selectedType) {
       fetchSettingsSchema(selectedType);
@@ -303,8 +288,6 @@ export const SandboxSettings: React.FC = () => {
       setSettingsSchema(null);
     }
   }, [selectedType, fetchSettingsSchema]);
-
-  // ============ Form Actions ============
 
   const resetForm = () => {
     setSelectedType("");
@@ -317,25 +300,51 @@ export const SandboxSettings: React.FC = () => {
 
   const handleStartCreate = () => {
     resetForm();
+    setEditingProviderId(null);
     setIsCreating(true);
-    setIsEditing(false);
   };
 
-  const handleStartEdit = () => {
-    if (!provider) return;
+  const handleStartEdit = (provider: SandboxProviderResponse) => {
     setSelectedType(provider.type);
     setSettingsValues(provider.settings);
     setProviderName(provider.name || "");
     setIdleTimeout(provider.idle_timeout);
     setIsActive(provider.is_active);
+    setEditingProviderId(provider.id);
     setIsCreating(false);
-    setIsEditing(true);
   };
 
   const handleCancel = () => {
     setIsCreating(false);
-    setIsEditing(false);
+    setEditingProviderId(null);
     resetForm();
+  };
+
+  const handleActivate = async (providerId: string) => {
+    if (saving || user?.sandbox_provider_id === providerId) return;
+
+    if (
+      user?.sandbox_provider_id &&
+      // eslint-disable-next-line no-restricted-globals
+      !confirm(
+        "Вы уверены, что хотите сменить sandbox? Могут возникнуть проблемы со старыми чатами",
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await apiClient.patch(`${API_AGENT_PREFIX}/auth/users/me`, {
+        sandbox_provider_id: providerId,
+      });
+      await refreshUser();
+      toast.success("Sandbox провайдер активирован");
+    } catch {
+      // handled globally
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCreate = async () => {
@@ -353,21 +362,22 @@ export const SandboxSettings: React.FC = () => {
       toast.success("Sandbox провайдер создан");
       setIsCreating(false);
       resetForm();
-      fetchProvider();
+      await fetchProviders();
+      await refreshUser();
     } catch {
-      // Handled globally
+      // handled globally
     } finally {
       setSaving(false);
     }
   };
 
   const handleUpdate = async () => {
-    if (!provider) return;
+    if (!editingProvider) return;
 
     setSaving(true);
     try {
       await apiClient.patch(
-        `${API_AGENT_PREFIX}/sandboxes/providers/${provider.id}`,
+        `${API_AGENT_PREFIX}/sandboxes/providers/${editingProvider.id}`,
         {
           name: providerName || null,
           settings: settingsValues,
@@ -376,39 +386,41 @@ export const SandboxSettings: React.FC = () => {
         },
       );
       toast.success("Sandbox провайдер обновлён");
-      setIsEditing(false);
+      setEditingProviderId(null);
       resetForm();
-      fetchProvider();
+      await fetchProviders();
     } catch {
-      // Handled globally
+      // handled globally
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!provider) return;
+  const handleDelete = async (providerId: string) => {
+    // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены? Все sandbox'ы этого провайдера будут удалены."))
       return;
 
     try {
-      await apiClient.delete(
-        `${API_AGENT_PREFIX}/sandboxes/providers/${provider.id}`,
-      );
+      setSaving(true);
+      await apiClient.delete(`${API_AGENT_PREFIX}/sandboxes/providers/${providerId}`);
       toast.success("Sandbox провайдер удалён");
-      setProvider(null);
-      setIsEditing(false);
-      resetForm();
+      if (editingProviderId === providerId) {
+        setEditingProviderId(null);
+        resetForm();
+      }
+      await fetchProviders();
+      await refreshUser();
     } catch {
-      // Handled globally
+      // handled globally
+    } finally {
+      setSaving(false);
     }
   };
 
-  // ============ Render ============
+  const isFormOpen = isCreating || editingProviderId !== null;
 
-  const isFormOpen = isCreating || isEditing;
-
-  if (loadingProvider) {
+  if (loadingProviders) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -420,12 +432,12 @@ export const SandboxSettings: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">Sandbox провайдер</h3>
+          <h3 className="font-medium">Sandbox провайдеры</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Настройте провайдер изолированной среды выполнения
+            Настройте и активируйте провайдер изолированной среды выполнения
           </p>
         </div>
-        {!provider && !isFormOpen && (
+        {!isFormOpen && (
           <Button onClick={handleStartCreate} size="sm" variant="default2">
             <Plus className="size-4 mr-2" />
             Добавить
@@ -433,23 +445,27 @@ export const SandboxSettings: React.FC = () => {
         )}
       </div>
 
-      {/* Existing provider */}
-      {provider && !isFormOpen && (
-        <ProviderCard
-          provider={provider}
-          onEdit={handleStartEdit}
-          onDelete={handleDelete}
-        />
+      {!isFormOpen && (
+        <div className="space-y-4">
+          {providerList.map((provider) => (
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              isUserActive={user?.sandbox_provider_id === provider.id}
+              onActivate={() => handleActivate(provider.id)}
+              onEdit={() => handleStartEdit(provider)}
+              onDelete={() => handleDelete(provider.id)}
+              disabled={saving}
+            />
+          ))}
+          {providerList.length === 0 && (
+            <p className="text-center text-muted-foreground py-8">
+              Sandbox провайдеры не настроены
+            </p>
+          )}
+        </div>
       )}
 
-      {/* No provider placeholder */}
-      {!provider && !isFormOpen && (
-        <p className="text-center text-muted-foreground py-8">
-          Sandbox провайдер не настроен
-        </p>
-      )}
-
-      {/* Create / Edit form */}
       {isFormOpen && (
         <div className="border border-border rounded-lg p-5 bg-muted/30 space-y-5">
           <div className="flex items-center justify-between">
@@ -461,7 +477,6 @@ export const SandboxSettings: React.FC = () => {
             </Button>
           </div>
 
-          {/* Provider type */}
           <div className="space-y-1.5">
             <Label htmlFor="provider-type">
               Тип провайдера <span className="text-destructive">*</span>
@@ -469,7 +484,7 @@ export const SandboxSettings: React.FC = () => {
             <Select
               value={selectedType}
               onValueChange={setSelectedType}
-              disabled={isEditing || loadingTypes}
+              disabled={!isCreating || loadingTypes}
             >
               <SelectTrigger id="provider-type" className="w-full">
                 {loadingTypes ? (
@@ -491,7 +506,6 @@ export const SandboxSettings: React.FC = () => {
             </Select>
           </div>
 
-          {/* Provider name */}
           <div className="space-y-1.5">
             <Label htmlFor="provider-name">
               Название{" "}
@@ -508,7 +522,6 @@ export const SandboxSettings: React.FC = () => {
             />
           </div>
 
-          {/* Dynamic settings from schema */}
           {loadingSchema && (
             <div className="flex items-center gap-2 text-muted-foreground py-2">
               <Loader2 className="size-4 animate-spin" />
@@ -525,7 +538,6 @@ export const SandboxSettings: React.FC = () => {
             />
           )}
 
-          {/* Idle timeout */}
           <div className="space-y-1.5">
             <Label htmlFor="idle-timeout">Idle Timeout (секунды)</Label>
             <Input
@@ -544,7 +556,6 @@ export const SandboxSettings: React.FC = () => {
             </p>
           </div>
 
-          {/* Active toggle */}
           <div className="flex items-center justify-between">
             <Label htmlFor="is-active">Активен</Label>
             <Switch
@@ -555,7 +566,6 @@ export const SandboxSettings: React.FC = () => {
             />
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-2 pt-2">
             <Button
               onClick={isCreating ? handleCreate : handleUpdate}

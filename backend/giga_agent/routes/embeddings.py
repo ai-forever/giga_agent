@@ -326,6 +326,7 @@ async def get_embedding_settings_schema(
 async def create_embedding(
     data: EmbeddingCreate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
@@ -368,6 +369,14 @@ async def create_embedding(
         settings=validated_settings,
         is_active=data.is_active,
     )
+
+    user = await _get_user_model(db=db, owner_id=current_user.id)
+    if user.embedding_id is None:
+        user.embedding_id = embedding.id
+        await db.commit()
+        await db.refresh(user)
+        await UserRepository.invalidate_cache(current_user.id)
+
     return EmbeddingRepository.to_response(embedding)
 
 

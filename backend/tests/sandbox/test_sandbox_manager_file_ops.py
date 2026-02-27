@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.file import FileRepository
 from giga_agent.models.sandbox import SandboxProvider
@@ -15,6 +16,7 @@ from giga_agent.sandbox.manager import SandboxManager
 
 class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
+        setup_cache()
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.engine.begin() as conn:
@@ -55,6 +57,12 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             session.add(provider)
             await session.commit()
             await session.refresh(provider)
+
+            user = await session.get(User, owner_id)
+            if user is not None and user.sandbox_provider_id is None:
+                user.sandbox_provider_id = provider.id
+                await session.commit()
+
             return provider
 
     async def test_upload_file_for_user_creates_db_record(self):
@@ -89,6 +97,31 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 content=b"data",
             )
             manager.ensure_running_for_user.assert_not_awaited()
+
+    async def test_resolve_provider_raises_when_user_sandbox_provider_not_configured(self):
+        user = await self._create_user("m1b@example.com")
+
+        async with self.session_factory() as session:
+            manager = SandboxManager(session)
+            with self.assertRaisesRegex(
+                ValueError,
+                "sandbox provider is not configured",
+            ):
+                await manager._resolve_provider(owner_id=user.id, provider_id=None)
+
+    async def test_resolve_provider_uses_user_sandbox_provider_id(self):
+        user = await self._create_user("m1c@example.com")
+        provider = await self._create_provider(user.id)
+
+        async with self.session_factory() as session:
+            user_in_db = await session.get(User, user.id)
+            assert user_in_db is not None
+            user_in_db.sandbox_provider_id = provider.id
+            await session.commit()
+
+            manager = SandboxManager(session)
+            resolved = await manager._resolve_provider(owner_id=user.id, provider_id=None)
+            self.assertEqual(resolved.id, provider.id)
 
     async def test_read_file_for_user_dispatches_to_runtime(self):
         user = await self._create_user("m2@example.com")

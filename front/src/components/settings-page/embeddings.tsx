@@ -7,18 +7,23 @@ import { EmbeddingForm, EmbeddingFormSubmitData } from "./forms/embedding";
 import type { EmbeddingResponse } from "./forms/types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface EmbeddingItemProps {
   embedding: EmbeddingResponse;
+  isUserActive: boolean;
   onEdit: (embeddingId: string) => void;
   onDelete: (embeddingId: string) => void;
+  onActivate: (embeddingId: string) => void;
   disabled?: boolean;
 }
 
 const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
   embedding,
+  isUserActive,
   onEdit,
   onDelete,
+  onActivate,
   disabled,
 }) => {
   return (
@@ -33,9 +38,19 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
       </div>
       <div className="flex items-center gap-2">
         <Badge variant="outline">{embedding.type}</Badge>
-        <Badge variant={embedding.is_active ? "default" : "secondary"}>
-          {embedding.is_active ? "Активен" : "Неактивен"}
+        <Badge variant={isUserActive ? "default" : "secondary"}>
+          {isUserActive ? "Активен" : "Неактивен"}
         </Badge>
+        {!isUserActive && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onActivate(embedding.id)}
+            disabled={disabled}
+          >
+            Активировать
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -58,6 +73,7 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
 };
 
 export const EmbeddingsSettings: React.FC = () => {
+  const { user, refreshUser } = useAuth();
   const [embeddingList, setEmbeddingList] = useState<EmbeddingResponse[]>([]);
   const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
   const [editingEmbedding, setEditingEmbedding] = useState<
@@ -158,6 +174,32 @@ export const EmbeddingsSettings: React.FC = () => {
     }
   };
 
+  const handleActivateEmbedding = async (embeddingId: string) => {
+    if (saving || user?.embedding_id === embeddingId) return;
+    if (
+      user?.embedding_id &&
+      // eslint-disable-next-line no-restricted-globals
+      !confirm(
+        "Вы уверены, что хотите сменить эмбединги? Вы не сможете работать со старыми RAG-коллекциями",
+      )
+    ) {
+      return;
+    }
+    try {
+      setSaving(true);
+      await apiClient.patch(`${API_AGENT_PREFIX}/auth/users/me`, {
+        embedding_id: embeddingId,
+      });
+      await refreshUser();
+      await fetchEmbeddings();
+      toast.success("Embedding модель активирована");
+    } catch {
+      // handled globally
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const isEditing = editingEmbedding !== undefined;
 
   return (
@@ -232,8 +274,10 @@ export const EmbeddingsSettings: React.FC = () => {
             <EmbeddingItem
               key={embedding.id}
               embedding={embedding}
+              isUserActive={user?.embedding_id === embedding.id}
               onEdit={handleEditEmbedding}
               onDelete={handleDeleteEmbedding}
+              onActivate={handleActivateEmbedding}
               disabled={isEditing || saving}
             />
           ),

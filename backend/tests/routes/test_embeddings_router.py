@@ -14,6 +14,7 @@ from giga_agent.routes.embeddings import router
 class EmbeddingsRouterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.db = types.SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
         self.app = FastAPI()
         self.app.include_router(router)
 
@@ -21,7 +22,7 @@ class EmbeddingsRouterTests(unittest.TestCase):
             return self.user
 
         async def _override_get_session():
-            yield object()
+            yield self.db
 
         self.app.dependency_overrides[get_current_active_user] = _override_current_user
         self.app.dependency_overrides[get_session] = _override_get_session
@@ -81,6 +82,7 @@ class EmbeddingsRouterTests(unittest.TestCase):
     def test_create_embedding_success(self):
         connector = self._connector_obj()
         created = self._embedding_obj(connector_id=connector.id)
+        user_model = types.SimpleNamespace(embedding_id=created.id)
 
         with patch(
             "giga_agent.routes.embeddings._get_connector_with_owner_check",
@@ -100,6 +102,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
             return_value=self._embedding_payload(created),
+        ), patch(
+            "giga_agent.routes.embeddings._get_user_model",
+            AsyncMock(return_value=user_model),
         ):
             response = self.client.post(
                 "/embeddings",
@@ -115,6 +120,95 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "openai")
         self.assertEqual(response.json()["connector_id"], str(connector.id))
+
+    def test_create_first_embedding_auto_sets_user_embedding_id(self):
+        connector = self._connector_obj()
+        created = self._embedding_obj(connector_id=connector.id)
+        user_model = types.SimpleNamespace(embedding_id=None)
+
+        with patch(
+            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._validate_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._probe_embedding_vector_size",
+            AsyncMock(return_value=1536),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
+            return_value=self._embedding_payload(created),
+        ), patch(
+            "giga_agent.routes.embeddings._get_user_model",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.routes.embeddings.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ) as mocked_invalidate_cache:
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(user_model.embedding_id, created.id)
+        self.db.commit.assert_awaited()
+        self.db.refresh.assert_awaited()
+        mocked_invalidate_cache.assert_awaited_once_with(self.user.id)
+
+    def test_create_next_embedding_does_not_change_user_embedding_id(self):
+        connector = self._connector_obj()
+        created = self._embedding_obj(connector_id=connector.id)
+        current_embedding_id = uuid.uuid4()
+        user_model = types.SimpleNamespace(embedding_id=current_embedding_id)
+
+        with patch(
+            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._validate_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._probe_embedding_vector_size",
+            AsyncMock(return_value=1536),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
+            return_value=self._embedding_payload(created),
+        ), patch(
+            "giga_agent.routes.embeddings._get_user_model",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(user_model.embedding_id, current_embedding_id)
 
     def test_models_route_not_shadowed_by_embedding_id_route(self):
         connector = self._connector_obj()

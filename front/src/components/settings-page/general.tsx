@@ -27,13 +27,11 @@ import { z } from "zod";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Secret } from "@/interfaces.ts";
 import type {
-  EmbeddingResponse,
   ImageGeneratorResponse,
   LLMResponse,
   SearchEngineResponse,
 } from "./forms/types";
 
-const NO_EMBEDDING_VALUE = "__none__";
 const NO_IMAGE_GENERATOR_VALUE = "__none__";
 const NO_SEARCH_ENGINE_VALUE = "__none__";
 const NO_LLM_VALUE = "__none_llm__";
@@ -151,7 +149,6 @@ export const GeneralSettings: React.FC = () => {
   const { user, refreshUser } = useAuth();
 
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
-  const [embeddingList, setEmbeddingList] = useState<EmbeddingResponse[]>([]);
   const [imageGeneratorList, setImageGeneratorList] = useState<
     ImageGeneratorResponse[]
   >([]);
@@ -165,8 +162,6 @@ export const GeneralSettings: React.FC = () => {
   >({});
   const [defaultLLM, setDefaultLLM] = useState<string>(NO_LLM_VALUE);
   const [fastLLM, setFastLLM] = useState<string>(FAST_LLM_INHERIT_VALUE);
-  const [currentEmbedding, setCurrentEmbedding] =
-    useState<string>(NO_EMBEDDING_VALUE);
   const [currentImageGenerator, setCurrentImageGenerator] = useState<string>(
     NO_IMAGE_GENERATOR_VALUE,
   );
@@ -182,7 +177,6 @@ export const GeneralSettings: React.FC = () => {
   const [generalError, setGeneralError] = useState<string>("");
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(true);
   const [loadingLLMs, setLoadingLLMs] = useState(false);
-  const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
   const [loadingImageGenerators, setLoadingImageGenerators] = useState(false);
   const [loadingSearchEngines, setLoadingSearchEngines] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -193,7 +187,6 @@ export const GeneralSettings: React.FC = () => {
     const settings = (user.settings ?? {}) as Record<string, unknown>;
     setDefaultLLM(user.llm_id ?? NO_LLM_VALUE);
     setFastLLM(user.fast_llm_id ?? FAST_LLM_INHERIT_VALUE);
-    setCurrentEmbedding(user.embedding_id ?? NO_EMBEDDING_VALUE);
     setCurrentImageGenerator(
       user.image_generator_id ?? NO_IMAGE_GENERATOR_VALUE,
     );
@@ -224,20 +217,6 @@ export const GeneralSettings: React.FC = () => {
       // Ошибка уже обработана глобально
     } finally {
       setLoadingLLMs(false);
-    }
-  }, []);
-
-  const fetchEmbeddings = useCallback(async () => {
-    setLoadingEmbeddings(true);
-    try {
-      const embeddings = await apiClient.get<EmbeddingResponse[]>(
-        `${API_AGENT_PREFIX}/embeddings?only_active=true`,
-      );
-      setEmbeddingList(embeddings);
-    } catch {
-      // Ошибка уже обработана глобально
-    } finally {
-      setLoadingEmbeddings(false);
     }
   }, []);
 
@@ -286,13 +265,11 @@ export const GeneralSettings: React.FC = () => {
 
   useEffect(() => {
     fetchLLMs();
-    fetchEmbeddings();
     fetchImageGenerators();
     fetchSearchEngines();
     fetchAgentSecrets();
   }, [
     fetchLLMs,
-    fetchEmbeddings,
     fetchImageGenerators,
     fetchSearchEngines,
     fetchAgentSecrets,
@@ -458,11 +435,6 @@ export const GeneralSettings: React.FC = () => {
           fastLLM === FAST_LLM_INHERIT_VALUE ? null : fastLLM;
       }
 
-      if (currentEmbedding !== (user?.embedding_id ?? NO_EMBEDDING_VALUE)) {
-        patchBody.embedding_id =
-          currentEmbedding === NO_EMBEDDING_VALUE ? null : currentEmbedding;
-      }
-
       if (
         currentImageGenerator !==
         (user?.image_generator_id ?? NO_IMAGE_GENERATOR_VALUE)
@@ -580,33 +552,6 @@ export const GeneralSettings: React.FC = () => {
               {llmList.map((llm) => (
                 <SelectItem key={llm.id} value={llm.id}>
                   {llm.name || llm.model_id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label className="block grow-1" htmlFor="default-embedding-select">
-            <div>Embeddings</div>
-            <p className="text-sm text-muted-foreground mt-2">
-              Выберите embedding модель по умолчанию
-            </p>
-          </Label>
-          <Select
-            value={currentEmbedding}
-            onValueChange={setCurrentEmbedding}
-            disabled={loadingEmbeddings}
-          >
-            <SelectTrigger id="default-embedding-select" className="w-full">
-              <SelectValue
-                placeholder={loadingEmbeddings ? "Загрузка..." : "Не выбран"}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_EMBEDDING_VALUE}>Не выбран</SelectItem>
-              {embeddingList.map((embedding) => (
-                <SelectItem key={embedding.id} value={embedding.id}>
-                  {embedding.name || embedding.model_id}
                 </SelectItem>
               ))}
             </SelectContent>
