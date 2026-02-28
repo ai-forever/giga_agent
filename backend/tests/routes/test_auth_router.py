@@ -1,6 +1,7 @@
 import types
 import unittest
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, HTTPException
@@ -20,7 +21,12 @@ class _ModuleStub:
 
 class AuthRouterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.user = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            is_active=True,
+            is_superuser=True,
+            email="admin@example.com",
+        )
         self.db = types.SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
 
         self.app = FastAPI()
@@ -45,6 +51,8 @@ class AuthRouterTests(unittest.TestCase):
             hashed_password="x",
             is_active=True,
             is_superuser=False,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
             settings={"theme": "dark", "keep": "value"},
             secrets={"api_key": "old", "keep_secret": "value"},
             llm_id=None,
@@ -357,6 +365,429 @@ class AuthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         mocked_validate_llm.assert_not_awaited()
+
+    def test_get_users_returns_list_for_superuser(self):
+        users = [
+            types.SimpleNamespace(
+                id=uuid.uuid4(),
+                email="one@example.com",
+                first_name="One",
+                last_name="User",
+                hashed_password="x",
+                is_active=True,
+                is_superuser=False,
+                created_at="2026-02-27T00:00:00Z",
+                updated_at="2026-02-27T00:00:00Z",
+                settings=None,
+                secrets=None,
+                llm_id=None,
+                fast_llm_id=None,
+                embedding_id=None,
+                sandbox_provider_id=None,
+                image_generator_id=None,
+                search_engine_id=None,
+            )
+        ]
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.get_all",
+            AsyncMock(return_value=users),
+        ):
+            response = self.client.get("/users")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["email"], "one@example.com")
+
+    def test_get_users_forbidden_for_non_superuser(self):
+        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+
+        async def _override_current_user():
+            return non_super
+
+        self.app.dependency_overrides[get_current_active_user] = _override_current_user
+        response = self.client.get("/users")
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_user_forbidden_for_non_superuser(self):
+        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+
+        async def _override_current_user():
+            return non_super
+
+        self.app.dependency_overrides[get_current_active_user] = _override_current_user
+        response = self.client.post(
+            "/users",
+            json={
+                "email": "new@example.com",
+                "password": "secret123",
+                "is_active": True,
+                "is_superuser": False,
+            },
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_user_returns_400_for_duplicate_email(self):
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=True),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "dup@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                },
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Email already registered")
+
+    def test_create_user_with_group_ids_assigns_memberships(self):
+        group_id_1 = uuid.uuid4()
+        group_id_2 = uuid.uuid4()
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "new@example.com"
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ) as mocked_create, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[group_id_1, group_id_2]),
+        ) as mocked_existing_groups, patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ) as mocked_add_users, patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ) as mocked_publish:
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "new@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "group_ids": [str(group_id_1), str(group_id_2)],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_existing_groups.assert_awaited_once_with([group_id_1, group_id_2])
+        mocked_create.assert_awaited_once()
+        self.assertEqual(mocked_add_users.await_count, 2)
+        mocked_add_users.assert_any_await(group_id_1, [created_user.id], commit=False)
+        mocked_add_users.assert_any_await(group_id_2, [created_user.id], commit=False)
+        self.db.commit.assert_awaited_once()
+        self.db.refresh.assert_awaited_once_with(created_user)
+        mocked_publish.assert_awaited_once()
+
+    def test_create_user_without_group_ids_skips_group_assignment(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "new-no-groups@example.com"
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ) as mocked_create, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ) as mocked_existing_groups, patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ) as mocked_add_users, patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "new-no-groups@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_create.assert_awaited_once()
+        mocked_existing_groups.assert_not_awaited()
+        mocked_add_users.assert_not_awaited()
+        self.db.commit.assert_awaited_once()
+
+    def test_create_user_returns_422_when_some_group_ids_missing(self):
+        existing_group_id = uuid.uuid4()
+        missing_group_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[existing_group_id]),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(),
+        ) as mocked_create:
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "missing-group@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "group_ids": [str(existing_group_id), str(missing_group_id)],
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn(str(missing_group_id), response.json()["detail"])
+        mocked_create.assert_not_awaited()
+        self.db.commit.assert_not_awaited()
+
+    def test_create_user_deduplicates_group_ids_before_assignment(self):
+        group_id = uuid.uuid4()
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "new-dedup@example.com"
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[group_id]),
+        ) as mocked_existing_groups, patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ) as mocked_add_users, patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "new-dedup@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "group_ids": [str(group_id), str(group_id)],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_existing_groups.assert_awaited_once_with([group_id])
+        mocked_add_users.assert_awaited_once_with(group_id, [created_user.id], commit=False)
+
+    def test_patch_user_by_id_updates_fields_for_superuser(self):
+        target = self._user_model()
+        target.id = uuid.uuid4()
+        target.email = "old@example.com"
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ) as mocked_exists_by_email, patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ) as mocked_invalidate_cache:
+            response = self.client.patch(
+                f"/users/{target.id}",
+                json={
+                    "email": "updated@example.com",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "is_active": False,
+                    "is_superuser": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["email"], "updated@example.com")
+        self.assertEqual(payload["first_name"], "John")
+        self.assertEqual(payload["last_name"], "Doe")
+        self.assertFalse(payload["is_active"])
+        self.assertTrue(payload["is_superuser"])
+        mocked_exists_by_email.assert_awaited_once_with("updated@example.com")
+        mocked_invalidate_cache.assert_awaited_once_with(target.id)
+
+    def test_patch_user_by_id_updates_password(self):
+        target = self._user_model()
+        target.id = uuid.uuid4()
+        target.hashed_password = "old-hash"
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="new-hash",
+        ) as mocked_hash, patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.patch(
+                f"/users/{target.id}",
+                json={"password": "new-password"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(target.hashed_password, "new-hash")
+        mocked_hash.assert_called_once_with("new-password")
+
+    def test_patch_user_by_id_returns_422_for_empty_password(self):
+        target = self._user_model()
+        target.id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ):
+            response = self.client.patch(
+                f"/users/{target.id}",
+                json={"password": "   "},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "password must not be empty")
+
+    def test_patch_user_by_id_returns_400_for_duplicate_email(self):
+        target = self._user_model()
+        target.id = uuid.uuid4()
+        target.email = "old@example.com"
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=True),
+        ):
+            response = self.client.patch(
+                f"/users/{target.id}",
+                json={"email": "dup@example.com"},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Email already registered")
+
+    def test_patch_user_by_id_returns_422_for_self_flags_update(self):
+        target = self._user_model()
+        target.id = self.user.id
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ):
+            response = self.client.patch(
+                f"/users/{target.id}",
+                json={"is_superuser": False},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "Cannot change is_active or is_superuser for current user",
+        )
+
+    def test_patch_user_by_id_forbidden_for_non_superuser(self):
+        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+
+        async def _override_current_user():
+            return non_super
+
+        self.app.dependency_overrides[get_current_active_user] = _override_current_user
+        response = self.client.patch(
+            f"/users/{uuid.uuid4()}",
+            json={"first_name": "Updated"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_patch_user_by_id_returns_404_for_missing_user(self):
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(
+                side_effect=HTTPException(status_code=404, detail="User not found")
+            ),
+        ):
+            response = self.client.patch(
+                f"/users/{uuid.uuid4()}",
+                json={"first_name": "Updated"},
+            )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "User not found")
+
+    def test_delete_user_returns_204_for_superuser(self):
+        target = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            email="target@example.com",
+            hashed_password="x",
+            is_active=True,
+            is_superuser=False,
+        )
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.delete",
+            AsyncMock(return_value=None),
+        ) as mocked_delete:
+            response = self.client.delete(f"/users/{target.id}")
+
+        self.assertEqual(response.status_code, 204)
+        mocked_delete.assert_awaited_once_with(target)
+
+    def test_delete_user_returns_422_for_self_delete(self):
+        response = self.client.delete(f"/users/{self.user.id}")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "Cannot delete current user")
+
+    def test_delete_user_returns_404_for_missing_user(self):
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(
+                side_effect=HTTPException(status_code=404, detail="User not found")
+            ),
+        ):
+            response = self.client.delete(f"/users/{uuid.uuid4()}")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "User not found")
+
+    def test_delete_user_forbidden_for_non_superuser(self):
+        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+
+        async def _override_current_user():
+            return non_super
+
+        self.app.dependency_overrides[get_current_active_user] = _override_current_user
+        response = self.client.delete(f"/users/{uuid.uuid4()}")
+        self.assertEqual(response.status_code, 403)
 
 
 if __name__ == "__main__":

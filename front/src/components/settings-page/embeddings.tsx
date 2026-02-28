@@ -180,7 +180,7 @@ export const EmbeddingsSettings: React.FC = () => {
       user?.embedding_id &&
       // eslint-disable-next-line no-restricted-globals
       !confirm(
-        "Вы уверены, что хотите сменить эмбединги? Вы не сможете работать со старыми RAG-коллекциями",
+        "Вы уверены, что хотите сменить эмбединги? Вы не сможете работать со старыми RAG-документами",
       )
     ) {
       return;

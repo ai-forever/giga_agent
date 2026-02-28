@@ -12,6 +12,7 @@ import {
   Monitor,
   User,
   LogOut,
+  Shield,
 } from "lucide-react";
 import LogoImage from "../assets/logo.png";
 import LogoWhiteImage from "../assets/logo-white.png";
@@ -75,6 +76,11 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
   const handleSettings = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigate("/settings");
+  };
+
+  const handleAdminPanel = (e: Event) => {
+    e.stopPropagation();
+    navigate("/admin-panel/users");
   };
 
   const handleRag = (e: React.MouseEvent) => {
@@ -144,7 +150,7 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
             onClick={handleRag}
           >
             <Files size={24} className="mr-2" />
-            База знаний
+            Документы
           </div>
         )}
         <div
@@ -206,6 +212,12 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
                   <User className="mr-2 h-4 w-4" />
                   Профиль
                 </DropdownMenuItem> */}
+                {user.is_superuser && (
+                  <DropdownMenuItem onSelect={handleAdminPanel}>
+                    <Shield className="mr-2 h-4 w-4" />
+                    Админ панель
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4 text-destructive" />

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from giga_agent.core.db import get_session
 from giga_agent.core.module import collect_module_secrets
 from giga_agent.models.embedding import EmbeddingRepository
+from giga_agent.models.group import GroupRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
 from giga_agent.models.sandbox import SandboxProviderRepository
@@ -28,6 +29,7 @@ from giga_agent.models.users import (
     UserResponse,
     UserCreate,
     UserUpdate,
+    AdminUserUpdate,
 )
 
 router = APIRouter(tags=["auth"])
@@ -122,6 +124,14 @@ def _invalid_reference_error(field_name: str) -> HTTPException:
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Invalid value for {field_name}: record must exist, belong to user, and be active",
     )
+
+
+def require_superuser(current_user: UserShort) -> None:
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
 
 
 async def _validate_llm_id(
@@ -309,6 +319,16 @@ async def read_users_me(
     return current_user
 
 
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+):
+    require_superuser(current_user)
+    users = await user_repo.get_all()
+    return [UserRepository.to_response(user) for user in users]
+
+
 @router.patch("/users/me", response_model=UserShort)
 async def update_user(
     body: UserUpdate,
@@ -398,21 +418,135 @@ async def create_user(
     user: UserCreate,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ):
+    require_superuser(current_user)
+
     if await user_repo.exists_by_email(user.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed_password = security.get_password_hash(user.password)
+    normalized_group_ids = list(dict.fromkeys(user.group_ids))
+    group_repo = GroupRepository(db)
 
-    db_user = await user_repo.create(
-        email=user.email,
-        hashed_password=hashed_password,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        is_active=user.is_active,
-        is_superuser=user.is_superuser,
-    )
+    if normalized_group_ids:
+        existing_group_ids = set(await group_repo.get_existing_group_ids(normalized_group_ids))
+        missing_group_ids = [
+            group_id for group_id in normalized_group_ids if group_id not in existing_group_ids
+        ]
+        if missing_group_ids:
+            missing_group_ids_str = ", ".join(str(group_id) for group_id in missing_group_ids)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Groups not found: {missing_group_ids_str}",
+            )
+
+    try:
+        db_user = await user_repo.create(
+            email=user.email,
+            hashed_password=hashed_password,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            is_active=user.is_active,
+            is_superuser=user.is_superuser,
+            commit=False,
+        )
+
+        for group_id in normalized_group_ids:
+            await group_repo.add_users(group_id, [db_user.id], commit=False)
+        await db.commit()
+        await db.refresh(db_user)
+    except Exception:
+        await db.rollback()
+        raise
 
     await event_bus.publish(UserCreatedEvent(user_id=db_user.id, email=db_user.email))
 
     return db_user
+
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+async def patch_user_by_id(
+    user_id: uuid.UUID,
+    body: AdminUserUpdate,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+):
+    require_superuser(current_user)
+
+    user = await _get_user_model_by_id(db, user_id)
+
+    if user_id == current_user.id and (
+        "is_active" in body.model_fields_set or "is_superuser" in body.model_fields_set
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot change is_active or is_superuser for current user",
+        )
+
+    if "email" in body.model_fields_set:
+        if body.email is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="email must not be null",
+            )
+        if body.email != user.email and await user_repo.exists_by_email(body.email):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = body.email
+
+    if "password" in body.model_fields_set:
+        password = (body.password or "").strip()
+        if not password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="password must not be empty",
+            )
+        user.hashed_password = security.get_password_hash(password)
+
+    if "first_name" in body.model_fields_set:
+        user.first_name = body.first_name
+
+    if "last_name" in body.model_fields_set:
+        user.last_name = body.last_name
+
+    if "is_active" in body.model_fields_set:
+        if body.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null",
+            )
+        user.is_active = body.is_active
+
+    if "is_superuser" in body.model_fields_set:
+        if body.is_superuser is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_superuser must not be null",
+            )
+        user.is_superuser = body.is_superuser
+
+    await db.commit()
+    await db.refresh(user)
+    await UserRepository.invalidate_cache(user.id)
+    return UserRepository.to_response(user)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: uuid.UUID,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+):
+    require_superuser(current_user)
+
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot delete current user",
+        )
+
+    db_user = await _get_user_model_by_id(db, user_id)
+
+    await user_repo.delete(db_user)

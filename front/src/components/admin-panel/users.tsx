@@ -1,0 +1,584 @@
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Trash2, Loader2, Plus, Pencil } from "lucide-react";
+import { toast } from "sonner";
+
+import { API_AGENT_PREFIX } from "@/config.ts";
+import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { SearchableMultiSelect } from "@/components/ui/searchable-select";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import type { AdminGroup, AdminUser } from "./types";
+import { PasswordInput } from "@/components/ui/password-input.tsx";
+
+type UserFormState = {
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  group_ids: string[];
+};
+
+const initialFormState: UserFormState = {
+  email: "",
+  password: "",
+  first_name: "",
+  last_name: "",
+  is_active: true,
+  is_superuser: false,
+  group_ids: [],
+};
+
+const initialEditFormState: UserFormState = {
+  ...initialFormState,
+};
+
+const AdminUsersTab: React.FC = () => {
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [groups, setGroups] = useState<AdminGroup[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isChangePassword, setIsChangePassword] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState<UserFormState>(initialFormState);
+  const [editForm, setEditForm] = useState<UserFormState>(initialEditFormState);
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.get<AdminUser[]>(
+        `${API_AGENT_PREFIX}/auth/users`,
+      );
+      setUsers(data);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchGroups = useCallback(async () => {
+    setLoadingGroups(true);
+    try {
+      const data = await apiClient.get<AdminGroup[]>(
+        `${API_AGENT_PREFIX}/groups`,
+      );
+      setGroups(data);
+    } finally {
+      setLoadingGroups(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void Promise.all([fetchUsers(), fetchGroups()]);
+  }, [fetchUsers, fetchGroups]);
+
+  const groupOptions = useMemo(
+    () =>
+      groups.map((group) => ({
+        value: group.id,
+        label: group.description
+          ? `${group.name} (${group.description})`
+          : group.name,
+      })),
+    [groups],
+  );
+
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return users;
+
+    return users.filter((u) => {
+      const fullName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim();
+      return (
+        u.email.toLowerCase().includes(q) ||
+        fullName.toLowerCase().includes(q) ||
+        (u.first_name ?? "").toLowerCase().includes(q) ||
+        (u.last_name ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [search, users]);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    setCreating(true);
+    try {
+      await apiClient.post(`${API_AGENT_PREFIX}/auth/users`, {
+        email: form.email,
+        password: form.password,
+        first_name: form.first_name || null,
+        last_name: form.last_name || null,
+        is_active: form.is_active,
+        is_superuser: form.is_superuser,
+        group_ids: form.group_ids,
+      });
+      toast.success("Пользователь создан");
+      setForm(initialFormState);
+      await fetchUsers();
+      setIsCreateModalOpen(false);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: string) => {
+    setDeletingUserId(id);
+    try {
+      await apiClient.delete(`${API_AGENT_PREFIX}/auth/users/${id}`);
+      toast.success("Пользователь удален");
+      await fetchUsers();
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
+  const openEditModal = (user: AdminUser) => {
+    setEditingUserId(user.id);
+    setIsChangePassword(false);
+    setEditForm({
+      email: user.email,
+      password: "",
+      first_name: user.first_name ?? "",
+      last_name: user.last_name ?? "",
+      is_active: user.is_active,
+      is_superuser: user.is_superuser,
+      group_ids: [],
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUserId) return;
+
+    const body: Record<string, unknown> = {
+      email: editForm.email,
+      first_name: editForm.first_name || null,
+      last_name: editForm.last_name || null,
+      is_active: editForm.is_active,
+      is_superuser: editForm.is_superuser,
+    };
+
+    if (isChangePassword) {
+      body.password = editForm.password;
+    }
+
+    setUpdating(true);
+    try {
+      await apiClient.patch(
+        `${API_AGENT_PREFIX}/auth/users/${editingUserId}`,
+        body,
+      );
+      toast.success("Пользователь обновлен");
+      await fetchUsers();
+      setIsEditModalOpen(false);
+      setEditingUserId(null);
+      setIsChangePassword(false);
+      setEditForm(initialEditFormState);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleCreateModalOpenChange = (open: boolean) => {
+    setIsCreateModalOpen(open);
+    if (!open) {
+      setForm(initialFormState);
+    }
+  };
+
+  const handleEditModalOpenChange = (open: boolean) => {
+    setIsEditModalOpen(open);
+    if (!open) {
+      setEditingUserId(null);
+      setIsChangePassword(false);
+      setEditForm(initialEditFormState);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Пользователи</h2>
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по email / имени"
+              className="w-full sm:w-72"
+            />
+            <Button
+              type="button"
+              variant={"default2"}
+              onClick={() => setIsCreateModalOpen(true)}
+            >
+              <Plus className="mr-2 size-4" />
+              Добавить пользователя
+            </Button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            Загрузка пользователей...
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Имя</TableHead>
+                <TableHead>Роль</TableHead>
+                <TableHead>Статус</TableHead>
+                <TableHead className="text-right">Действия</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredUsers.map((u) => {
+                const isSelf = currentUser?.id === u.id;
+                const fullName =
+                  `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim();
+
+                return (
+                  <TableRow key={u.id}>
+                    <TableCell
+                      className="max-w-[280px] truncate"
+                      title={u.email}
+                    >
+                      {u.email}
+                    </TableCell>
+                    <TableCell>{fullName || "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant={u.is_superuser ? "default" : "outline"}>
+                        {u.is_superuser ? "Admin" : "User"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={u.is_active ? "default" : "secondary"}>
+                        {u.is_active ? "Активен" : "Неактивен"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditModal(u)}
+                          disabled={updating}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        {isSelf ? (
+                          <span className="self-center text-xs text-muted-foreground">
+                            Нельзя удалить себя
+                          </span>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => void handleDeleteUser(u.id)}
+                            disabled={deletingUserId === u.id}
+                          >
+                            {deletingUserId === u.id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-4 text-destructive" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+
+              {filteredUsers.length === 0 && (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="text-center text-muted-foreground"
+                  >
+                    Пользователи не найдены
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      <Dialog
+        open={isCreateModalOpen}
+        onOpenChange={handleCreateModalOpenChange}
+      >
+        <DialogContent className="w-full max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Создать пользователя</DialogTitle>
+            <DialogDescription>
+              Заполните данные нового пользователя
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateUser} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-user-email">Email</Label>
+                <Input
+                  id="admin-user-email"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  required
+                  disabled={creating}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-user-password">Пароль</Label>
+                <PasswordInput
+                  id="admin-user-password"
+                  value={form.password}
+                  onChange={(e) =>
+                    setForm({ ...form, password: e.target.value })
+                  }
+                  required
+                  disabled={creating}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-user-first-name">Имя</Label>
+                <Input
+                  id="admin-user-first-name"
+                  value={form.first_name}
+                  onChange={(e) =>
+                    setForm({ ...form, first_name: e.target.value })
+                  }
+                  disabled={creating}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-user-last-name">Фамилия</Label>
+                <Input
+                  id="admin-user-last-name"
+                  value={form.last_name}
+                  onChange={(e) =>
+                    setForm({ ...form, last_name: e.target.value })
+                  }
+                  disabled={creating}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={form.is_active}
+                  onCheckedChange={(checked) =>
+                    setForm({ ...form, is_active: checked })
+                  }
+                  disabled={creating}
+                />
+                Активен
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={form.is_superuser}
+                  onCheckedChange={(checked) =>
+                    setForm({ ...form, is_superuser: checked })
+                  }
+                  disabled={creating}
+                />
+                Суперпользователь
+              </label>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-user-groups">Группы пользователя</Label>
+              <SearchableMultiSelect
+                className="w-full"
+                options={groupOptions}
+                values={form.group_ids}
+                onValuesChange={(groupIds) =>
+                  setForm({ ...form, group_ids: groupIds })
+                }
+                placeholder={
+                  loadingGroups ? "Загрузка групп..." : "Выберите группы"
+                }
+                searchPlaceholder="Поиск группы..."
+                emptyText="Группы не найдены"
+                disabled={creating || loadingGroups}
+              />
+            </div>
+
+            <Button type="submit" disabled={creating}>
+              {creating ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Создание...
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-2 size-4" />
+                  Создать
+                </>
+              )}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditModalOpen} onOpenChange={handleEditModalOpenChange}>
+        <DialogContent className="w-full max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Редактировать пользователя</DialogTitle>
+            <DialogDescription>
+              Обновите данные существующего пользователя
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateUser} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-edit-user-email">Email</Label>
+                <Input
+                  id="admin-edit-user-email"
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, email: e.target.value })
+                  }
+                  required
+                  disabled={updating}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-edit-user-first-name">Имя</Label>
+                <Input
+                  id="admin-edit-user-first-name"
+                  value={editForm.first_name}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, first_name: e.target.value })
+                  }
+                  disabled={updating}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-edit-user-last-name">Фамилия</Label>
+                <Input
+                  id="admin-edit-user-last-name"
+                  value={editForm.last_name}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, last_name: e.target.value })
+                  }
+                  disabled={updating}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={isChangePassword}
+                  onCheckedChange={(checked) => {
+                    setIsChangePassword(checked);
+                    if (!checked) {
+                      setEditForm({ ...editForm, password: "" });
+                    }
+                  }}
+                  disabled={updating}
+                />
+                Изменить пароль
+              </label>
+            </div>
+
+            {isChangePassword && (
+              <div className="space-y-1.5">
+                <Label htmlFor="admin-edit-user-password">Новый пароль</Label>
+                <PasswordInput
+                  id="admin-edit-user-password"
+                  value={editForm.password}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, password: e.target.value })
+                  }
+                  disabled={updating}
+                />
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={editForm.is_active}
+                  onCheckedChange={(checked) =>
+                    setEditForm({ ...editForm, is_active: checked })
+                  }
+                  disabled={updating || editingUserId === currentUser?.id}
+                />
+                Активен
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={editForm.is_superuser}
+                  onCheckedChange={(checked) =>
+                    setEditForm({ ...editForm, is_superuser: checked })
+                  }
+                  disabled={updating || editingUserId === currentUser?.id}
+                />
+                Суперпользователь
+              </label>
+            </div>
+
+            {editingUserId === currentUser?.id && (
+              <p className="text-xs text-muted-foreground">
+                Для текущего пользователя нельзя менять активность и роль.
+              </p>
+            )}
+
+            <Button type="submit" disabled={updating}>
+              {updating ? (
+                <>
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                  Сохранение...
+                </>
+              ) : (
+                <>
+                  <Pencil className="mr-2 size-4" />
+                  Сохранить
+                </>
+              )}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default AdminUsersTab;

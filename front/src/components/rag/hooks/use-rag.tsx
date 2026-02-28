@@ -174,7 +174,7 @@ export function useRag(): UseRagReturn {
           { showError: false },
         );
         setCollections((prevCollections) => [...prevCollections, created]);
-        // новая коллекция по умолчанию активна
+        // новая папка по умолчанию активна
         setSettings((prev) => ({
           ...prev,
           activeCollections: {
@@ -203,7 +203,7 @@ export function useRag(): UseRagReturn {
         (c) => c.uuid === collectionId,
       );
       if (!collectionToUpdate) {
-        toast.error(`Коллекция с ID "${collectionId}" не найдена.`, {
+        toast.error(`Папка с ID "${collectionId}" не найдена.`, {
           richColors: true,
         });
         return undefined;
@@ -211,7 +211,7 @@ export function useRag(): UseRagReturn {
 
       const trimmedNewName = newName.trim();
       if (!trimmedNewName) {
-        toast.error("Название коллекции не может быть пустым.", {
+        toast.error("Название папки не может быть пустым.", {
           richColors: true,
         });
         return undefined;
@@ -223,12 +223,9 @@ export function useRag(): UseRagReturn {
           c.name !== collectionToUpdate.name,
       );
       if (nameExists) {
-        toast.warning(
-          `Коллекция с именем "${trimmedNewName}" уже существует.`,
-          {
-            richColors: true,
-          },
-        );
+        toast.warning(`Папка с именем "${trimmedNewName}" уже существует.`, {
+          richColors: true,
+        });
         return undefined;
       }
 
@@ -324,7 +321,7 @@ export function useRag(): UseRagReturn {
     }
 
     setCollections(initCollections);
-    // Синхронизация активных коллекций со "входящими":
+    // Синхронизация активных папок со "входящими":
     // - сохраняем статусы существующих, которые остались во входящих
     // - удаляем отсутствующие
     // - добавляем новые как enabled=true

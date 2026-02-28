@@ -66,9 +66,9 @@ export function EditCollectionDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Редактировать коллекцию</DialogTitle>
+          <DialogTitle>Редактировать папок</DialogTitle>
           <DialogDescription>
-            Измените название и описание вашей коллекции.
+            Измените название и описание вашей папки.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">

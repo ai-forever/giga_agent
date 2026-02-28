@@ -94,6 +94,17 @@ from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )
+from giga_agent.models.group import (
+    Group,
+    GroupMember,
+    GroupBase,
+    GroupCreate,
+    GroupUpdate,
+    GroupResponse,
+    GroupMemberAddRequest,
+    GroupIdsByUserResponse,
+    GroupRepository,
+)
 
 __all__ = [
     # Users
@@ -175,4 +186,14 @@ __all__ = [
     "RagDocument",
     "RagCollectionsRepository",
     "RagDocumentsRepository",
+    # Groups
+    "Group",
+    "GroupMember",
+    "GroupBase",
+    "GroupCreate",
+    "GroupUpdate",
+    "GroupResponse",
+    "GroupMemberAddRequest",
+    "GroupIdsByUserResponse",
+    "GroupRepository",
 ]

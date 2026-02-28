@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from cashews import cache
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -142,6 +142,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    group_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class UserResponse(UserBase):
@@ -204,6 +205,17 @@ class UserUpdate(BaseModel):
     search_engine_id: uuid.UUID | None = None
     embedding_id: uuid.UUID | None = None
     sandbox_provider_id: uuid.UUID | None = None
+
+
+class AdminUserUpdate(BaseModel):
+    """Схема для частичного админ-обновления пользователя."""
+
+    email: EmailStr | None = None
+    password: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    is_active: bool | None = None
+    is_superuser: bool | None = None
 
 
 # ============ Repository ============
@@ -289,6 +301,8 @@ class UserRepository:
         last_name: Optional[str] = None,
         is_active: bool = True,
         is_superuser: bool = False,
+        *,
+        commit: bool = True,
     ) -> User:
         """Создать нового пользователя"""
         user = User(
@@ -300,7 +314,10 @@ class UserRepository:
             is_superuser=is_superuser,
         )
         self.db.add(user)
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         await self.db.refresh(user)
         return user
 
@@ -357,14 +374,16 @@ class UserRepository:
     async def get_all(
         self,
         skip: int = 0,
-        limit: int = 100,
+        limit: int | None = None,
         only_active: bool = False,
     ) -> list[User]:
         """Получить список пользователей"""
         query = select(User)
         if only_active:
             query = query.where(User.is_active.is_(True))
-        query = query.offset(skip).limit(limit)
+        query = query.offset(skip)
+        if limit is not None:
+            query = query.limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 

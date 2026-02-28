@@ -128,14 +128,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         },
       );
     },
-    [
-      thread,
-      selected,
-      clear,
-      mcpToolsPayload,
-      enabledCollections,
-      user,
-    ],
+    [thread, selected, clear, mcpToolsPayload, enabledCollections, user],
   );
   const handleContinueThread = useCallback(
     async (data: any) => {
@@ -309,7 +302,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={openCollectionsModal}>
                 <Files className={"size-5"} />
-                <span>Знания</span>
+                <span>Документы</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

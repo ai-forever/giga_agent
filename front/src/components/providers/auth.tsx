@@ -14,6 +14,8 @@ const AUTH_TOKEN_KEY = "auth_token";
 interface User {
   id: string;
   email: string;
+  first_name?: string | null;
+  last_name?: string | null;
   is_active: boolean;
   is_superuser: boolean;
   settings: Record<string, unknown> | null;

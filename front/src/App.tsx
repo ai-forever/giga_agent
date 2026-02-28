@@ -3,6 +3,7 @@ import Chat from "./components/Chat";
 import { SettingsProvider } from "./components/Settings.tsx";
 import {
   BrowserRouter,
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -27,6 +28,7 @@ import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
+import AdminPanelPage from "@/components/admin-panel";
 import { API_BASE_URL_KEY } from "@/lib/api-client";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
@@ -140,6 +142,12 @@ const InnerApp: React.FC = () => {
         <Route path="/memories" element={<MemoriesPage />} />
         <Route path="/demo/settings" element={<DemoSettings />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route
+          path="/admin-panel"
+          element={<Navigate to="/admin-panel/users" replace />}
+        />
+        <Route path="/admin-panel/users" element={<AdminPanelPage />} />
+        <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
       </Routes>
     </Sidebar>
   );
