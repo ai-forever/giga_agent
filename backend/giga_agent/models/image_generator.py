@@ -10,7 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
-from giga_agent.models.resource_permission import ResourcePermissionRepository
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 
 class ImageGenerator(Base):
@@ -58,7 +61,7 @@ class ImageGeneratorBase(BaseModel):
 
 
 class ImageGeneratorCreate(ImageGeneratorBase):
-    pass
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class ImageGeneratorUpdate(BaseModel):

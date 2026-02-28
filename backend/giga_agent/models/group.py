@@ -83,6 +83,7 @@ class GroupUpdate(BaseModel):
 class GroupResponse(GroupBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    users_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -136,6 +137,18 @@ class GroupRepository:
             select(GroupMember.group_id).where(GroupMember.user_id == user_id)
         )
         return [row[0] for row in result.all()]
+
+    async def get_user_counts(self, group_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        normalized_group_ids = list(dict.fromkeys(group_ids))
+        if not normalized_group_ids:
+            return {}
+
+        result = await self.db.execute(
+            select(GroupMember.group_id, func.count(GroupMember.user_id))
+            .where(GroupMember.group_id.in_(normalized_group_ids))
+            .group_by(GroupMember.group_id)
+        )
+        return {row[0]: row[1] for row in result.all()}
 
     async def get_existing_group_ids(self, group_ids: list[uuid.UUID]) -> list[uuid.UUID]:
         normalized_group_ids = list(dict.fromkeys(group_ids))
@@ -217,5 +230,5 @@ class GroupRepository:
         await self.db.commit()
 
     @staticmethod
-    def to_response(group: Group) -> GroupResponse:
-        return GroupResponse.model_validate(group)
+    def to_response(group: Group, *, users_count: int = 0) -> GroupResponse:
+        return GroupResponse.model_validate(group).model_copy(update={"users_count": users_count})

@@ -13,7 +13,11 @@ from giga_agent.routes.sandboxes import router
 
 class SandboxesRouterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.user = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            is_active=True,
+            is_superuser=True,
+        )
         self.db = types.SimpleNamespace(get=AsyncMock(), commit=AsyncMock())
         self.app = FastAPI()
         self.app.include_router(router)
@@ -90,6 +94,74 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertEqual(user_model.sandbox_provider_id, provider.id)
         self.db.commit.assert_awaited()
         mocked_invalidate_cache.assert_awaited_once_with(self.user.id)
+
+    def test_create_provider_with_permissions_for_superuser(self):
+        provider = self._provider_obj()
+        user_model = types.SimpleNamespace(sandbox_provider_id=None)
+        self.db.get = AsyncMock(return_value=user_model)
+
+        with patch(
+            "giga_agent.routes.sandboxes.validate_provider_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
+            AsyncMock(return_value=provider),
+        ), patch(
+            "giga_agent.routes.sandboxes.ResourcePermissionRepository.set_read_acl",
+            AsyncMock(return_value=None),
+        ) as mocked_set_acl, patch(
+            "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
+            return_value=self._provider_payload(provider),
+        ), patch(
+            "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.sandboxes.cache.delete_match",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/sandboxes/providers",
+                json={
+                    "type": "e2b",
+                    "name": "main",
+                    "settings": {},
+                    "idle_timeout": 3600,
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [str(uuid.uuid4())],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_set_acl.assert_awaited_once()
+
+    def test_create_provider_with_permissions_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+        with patch(
+            "giga_agent.routes.sandboxes.validate_provider_settings",
+            AsyncMock(return_value={}),
+        ) as mocked_validate_settings:
+            response = self.client.post(
+                "/sandboxes/providers",
+                json={
+                    "type": "e2b",
+                    "name": "main",
+                    "settings": {},
+                    "idle_timeout": 3600,
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_validate_settings.assert_not_awaited()
 
     def test_create_next_provider_does_not_change_user_sandbox_provider_id(self):
         provider = self._provider_obj()

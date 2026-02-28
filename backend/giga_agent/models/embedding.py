@@ -13,7 +13,10 @@ from sqlalchemy.sql import func
 from giga_agent.core.db import Base, JSON_VARIANT
 from giga_agent.embeddings.base import AvailableEmbeddingModel, EmbeddingModelFetchError
 from giga_agent.models.connector import Connector  # noqa: F401
-from giga_agent.models.resource_permission import ResourcePermissionRepository
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 # Ensure runtimes are registered.
 import giga_agent.connectors  # noqa: F401
@@ -81,7 +84,7 @@ class EmbeddingBase(BaseModel):
 
 
 class EmbeddingCreate(EmbeddingBase):
-    pass
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class EmbeddingResponse(EmbeddingBase):

@@ -13,7 +13,9 @@ from giga_agent.routes.embeddings import router
 
 class EmbeddingsRouterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.user = types.SimpleNamespace(
+            id=uuid.uuid4(), is_active=True, is_superuser=True
+        )
         self.db = types.SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
         self.app = FastAPI()
         self.app.include_router(router)
@@ -120,6 +122,80 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "openai")
         self.assertEqual(response.json()["connector_id"], str(connector.id))
+
+    def test_create_embedding_with_permissions_for_superuser(self):
+        connector = self._connector_obj()
+        created = self._embedding_obj(connector_id=connector.id)
+        user_model = types.SimpleNamespace(embedding_id=created.id)
+
+        with patch(
+            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._validate_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._probe_embedding_vector_size",
+            AsyncMock(return_value=1536),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.embeddings.ResourcePermissionRepository.set_read_acl",
+            AsyncMock(return_value=None),
+        ) as mocked_set_acl, patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
+            return_value=self._embedding_payload(created),
+        ), patch(
+            "giga_agent.routes.embeddings._get_user_model",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [str(uuid.uuid4())],
+                        "public_read": True,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_set_acl.assert_awaited_once()
+
+    def test_create_embedding_with_permissions_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+        with patch(
+            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            AsyncMock(),
+        ) as mocked_get_connector:
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(uuid.uuid4()),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_get_connector.assert_not_awaited()
 
     def test_create_first_embedding_auto_sets_user_embedding_id(self):
         connector = self._connector_obj()

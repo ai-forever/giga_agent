@@ -20,8 +20,9 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.models.users import User, UserRepository
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxProviderCreate,
@@ -133,6 +134,9 @@ async def create_sandbox_provider(
 
     Settings валидируются автоматически по схеме runtime-класса провайдера.
     """
+    if data.permissions is not None:
+        require_superuser(current_user)
+
     validated_settings = await validate_provider_settings(data.type, data.settings)
 
     provider = await provider_repo.create(
@@ -143,6 +147,14 @@ async def create_sandbox_provider(
         idle_timeout=data.idle_timeout,
         is_active=data.is_active,
     )
+    if data.permissions is not None:
+        await ResourcePermissionRepository(provider_repo.db).set_read_acl(
+            resource_type="sandbox",
+            resource_id=provider.id,
+            read_user_ids=data.permissions.read_user_ids,
+            read_group_ids=data.permissions.read_group_ids,
+            public_read=data.permissions.public_read,
+        )
 
     user = await provider_repo.db.get(User, current_user.id)
     if user is not None and user.sandbox_provider_id is None:

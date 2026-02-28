@@ -202,6 +202,7 @@ interface EmbeddingFormProps {
   embedding?: EmbeddingResponse;
   onSave: (data: EmbeddingFormSubmitData) => void | Promise<void>;
   onCancel: () => void;
+  permissionsSection?: React.ReactNode;
 }
 
 export interface EmbeddingFormSubmitData {
@@ -217,6 +218,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   embedding,
   onSave,
   onCancel,
+  permissionsSection,
 }) => {
   const [submitting, setSubmitting] = useState(false);
   const [embeddingTypes, setEmbeddingTypes] = useState<EmbeddingTypeMeta[]>([]);
@@ -628,6 +630,8 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           )}
         </div>
       )}
+
+      {permissionsSection}
 
       <div className="flex gap-2 pt-4">
         <Button onClick={handleSubmit} disabled={isSaveDisabled}>

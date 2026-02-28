@@ -114,7 +114,7 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
       {/* Sidebar */}
       <div
         className={[
-          "fixed top-0 left-0 h-full w-[250px] p-5 backdrop-blur-2xl rounded-r-lg z-[10] transition-transform duration-300 ease-in-out print:hidden",
+          "fixed top-0 left-0 h-full w-[250px] p-5 rounded-r-lg z-[10] transition-transform duration-300 ease-in-out print:hidden",
           "bg-card border text-card-foreground",
           settings.sideBarOpen ? "translate-x-0" : "-translate-x-[250px]",
           "max-[900px]:rounded-none",

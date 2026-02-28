@@ -37,6 +37,7 @@ interface LLMFormProps {
   onSave: (data: LLMFormSubmitData) => void;
   onCancel: () => void;
   saving?: boolean;
+  permissionsSection?: React.ReactNode;
 }
 
 export interface LLMFormSubmitData {
@@ -53,6 +54,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   onSave,
   onCancel,
   saving = false,
+  permissionsSection,
 }) => {
   const [llmTypes, setLlmTypes] = useState<LLMTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
@@ -457,6 +459,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {permissionsSection}
 
       <div className="flex gap-2 pt-4">
         <Button onClick={handleSubmit} disabled={isSaveDisabled}>

@@ -14,7 +14,11 @@ from giga_agent.routes.generators.image import router
 
 class GeneratorsRouterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.user = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            is_active=True,
+            is_superuser=True,
+        )
         self.app = FastAPI()
         self.app.include_router(router)
 
@@ -99,6 +103,71 @@ class GeneratorsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "openai")
+
+    def test_create_generator_with_permissions_for_superuser(self):
+        created = self._generator_obj(generator_type="openai", connector_id=uuid.uuid4())
+
+        with patch(
+            "giga_agent.routes.generators.image._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_settings",
+            AsyncMock(return_value={"model": "dall-e-3"}),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_connector_link",
+            AsyncMock(return_value=created.connector_id),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.generators.image.ResourcePermissionRepository.set_read_acl",
+            AsyncMock(return_value=None),
+        ) as mocked_set_acl, patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+            return_value=self._response_payload(created),
+        ):
+            response = self.client.post(
+                "/image",
+                json={
+                    "type": "openai",
+                    "settings": {"model": "dall-e-3"},
+                    "connector_id": str(created.connector_id),
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [str(uuid.uuid4())],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_set_acl.assert_awaited_once()
+
+    def test_create_generator_with_permissions_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+
+        with patch(
+            "giga_agent.routes.generators.image._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
+        ) as mocked_resolve_runtime:
+            response = self.client.post(
+                "/image",
+                json={
+                    "type": "openai",
+                    "settings": {"model": "dall-e-3"},
+                    "connector_id": str(uuid.uuid4()),
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_resolve_runtime.assert_not_called()
 
     def test_get_generator_types_meta(self):
         runtime_map = {

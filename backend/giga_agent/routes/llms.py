@@ -23,8 +23,9 @@ from giga_agent.models.llm import (
     LLMUpdate,
     ModelFetchError,
 )
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserShort
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 
 # Ensure runtime registrations
 import giga_agent.connectors  # noqa: F401
@@ -218,6 +219,9 @@ async def create_llm(
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
+    if data.permissions is not None:
+        require_superuser(current_user)
+
     connector = await _get_connector_with_owner_check(
         connector_id=data.connector_id,
         owner_id=current_user.id,
@@ -273,6 +277,14 @@ async def create_llm(
         settings=validated_settings,
         is_active=data.is_active,
     )
+    if data.permissions is not None:
+        await ResourcePermissionRepository(llm_repo.db).set_read_acl(
+            resource_type="llm",
+            resource_id=llm.id,
+            read_user_ids=data.permissions.read_user_ids,
+            read_group_ids=data.permissions.read_group_ids,
+            public_read=data.permissions.public_read,
+        )
     response = LLMRepository.to_response(llm)
     await cache.delete_tags(f"llms:{current_user.id}")
     return response

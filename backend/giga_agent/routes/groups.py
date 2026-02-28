@@ -84,7 +84,7 @@ async def create_group(
         )
     except IntegrityError as exc:
         raise _integrity_to_422(exc) from exc
-    return GroupRepository.to_response(group)
+    return GroupRepository.to_response(group, users_count=0)
 
 
 @router.get("", response_model=list[GroupResponse])
@@ -94,7 +94,11 @@ async def get_groups(
 ):
     require_superuser(current_user)
     groups = await group_repo.list_all()
-    return [GroupRepository.to_response(group) for group in groups]
+    users_count_by_group = await group_repo.get_user_counts([group.id for group in groups])
+    return [
+        GroupRepository.to_response(group, users_count=users_count_by_group.get(group.id, 0))
+        for group in groups
+    ]
 
 
 @router.get("/by-user/{user_id}/ids", response_model=GroupIdsByUserResponse)
@@ -116,7 +120,8 @@ async def get_group(
 ):
     require_superuser(current_user)
     group = await _get_group_or_404(group_id, group_repo)
-    return GroupRepository.to_response(group)
+    users_count = (await group_repo.get_user_counts([group.id])).get(group.id, 0)
+    return GroupRepository.to_response(group, users_count=users_count)
 
 
 @router.patch("/{group_id}", response_model=GroupResponse)
@@ -144,7 +149,8 @@ async def patch_group(
             group = await group_repo.update(group, **update_data)
         except IntegrityError as exc:
             raise _integrity_to_422(exc) from exc
-    return GroupRepository.to_response(group)
+    users_count = (await group_repo.get_user_counts([group.id])).get(group.id, 0)
+    return GroupRepository.to_response(group, users_count=users_count)
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)

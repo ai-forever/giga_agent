@@ -4,10 +4,21 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmbeddingForm, EmbeddingFormSubmitData } from "./forms/embedding";
-import type { EmbeddingResponse } from "./forms/types";
+import type {
+  EmbeddingResponse,
+  ResourcePermissionsDraft,
+} from "./forms/types";
+import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import ResourcePermissions from "./forms/resource-permissions";
+import {
+  hasNonDefaultPermissions,
+  permissionsEqual,
+  stableStringify,
+  toPermissionsApiPayload,
+} from "./forms/resource-permissions-utils";
 
 interface EmbeddingItemProps {
   embedding: EmbeddingResponse;
@@ -74,6 +85,7 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
 
 export const EmbeddingsSettings: React.FC = () => {
   const { user, refreshUser } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [embeddingList, setEmbeddingList] = useState<EmbeddingResponse[]>([]);
   const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
   const [editingEmbedding, setEditingEmbedding] = useState<
@@ -81,6 +93,13 @@ export const EmbeddingsSettings: React.FC = () => {
   >();
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [createPermissions, setCreatePermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [editPermissions, setEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [initialEditPermissions, setInitialEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const fetchEmbeddings = useCallback(async () => {
     setLoadingEmbeddings(true);
@@ -102,7 +121,30 @@ export const EmbeddingsSettings: React.FC = () => {
 
   const handleEditEmbedding = (embeddingId: string) => {
     setIsCreatingNew(false);
-    setEditingEmbedding(embeddingList.find((item) => item.id === embeddingId));
+    const embedding = embeddingList.find((item) => item.id === embeddingId);
+    setEditingEmbedding(embedding);
+    if (!embedding || !canManagePermissions) {
+      setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      setLoadingPermissions(false);
+      return;
+    }
+    setLoadingPermissions(true);
+    void apiClient
+      .get<ResourcePermissionsDraft>(
+        `${API_AGENT_PREFIX}/resource-permissions/embedding/${embeddingId}`,
+      )
+      .then((permissions) => {
+        setEditPermissions(permissions);
+        setInitialEditPermissions(permissions);
+      })
+      .catch(() => {
+        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      })
+      .finally(() => {
+        setLoadingPermissions(false);
+      });
   };
 
   const handleDeleteEmbedding = async (embeddingId: string) => {
@@ -125,14 +167,19 @@ export const EmbeddingsSettings: React.FC = () => {
   const handleCreateNew = () => {
     setEditingEmbedding(undefined);
     setIsCreatingNew(true);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
   };
 
   const handleCancelEdit = () => {
     setEditingEmbedding(undefined);
+    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setLoadingPermissions(false);
   };
 
   const handleCancelCreate = () => {
     setIsCreatingNew(false);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
   };
 
   const handleSaveEmbedding = async (
@@ -142,25 +189,63 @@ export const EmbeddingsSettings: React.FC = () => {
     if (saving) return;
     try {
       setSaving(true);
+      const nextType = data.embedding_type;
+      const nextConnectorId = data.connector_id;
+      const nextModelId = data.model_id;
+      const nextIsActive = data.is_active;
+      const nextName = data.embedding_name ?? null;
+      const nextSettings = data.embedding_settings;
       const payload: Record<string, unknown> = {
-        type: data.embedding_type,
-        connector_id: data.connector_id,
-        model_id: data.model_id,
-        settings: data.embedding_settings,
-        is_active: data.is_active,
+        type: nextType,
+        connector_id: nextConnectorId,
+        model_id: nextModelId,
+        settings: nextSettings,
+        is_active: nextIsActive,
       };
       if (data.embedding_name) {
         payload.name = data.embedding_name;
       }
 
       if (!isNewEmbedding && editingEmbedding) {
-        await apiClient.patch(
-          `${API_AGENT_PREFIX}/embeddings/${editingEmbedding.id}`,
-          payload,
-        );
+        const hasResourceChanges =
+          editingEmbedding.type !== nextType ||
+          editingEmbedding.connector_id !== nextConnectorId ||
+          editingEmbedding.model_id !== nextModelId ||
+          (editingEmbedding.name || null) !== nextName ||
+          editingEmbedding.is_active !== nextIsActive ||
+          stableStringify(editingEmbedding.settings || {}) !==
+            stableStringify(nextSettings);
+        const hasPermissionsChanges =
+          canManagePermissions &&
+          !permissionsEqual(editPermissions, initialEditPermissions);
+
+        if (!hasResourceChanges && !hasPermissionsChanges) {
+          toast.info("Изменений нет");
+          return;
+        }
+
+        if (hasResourceChanges) {
+          await apiClient.patch(
+            `${API_AGENT_PREFIX}/embeddings/${editingEmbedding.id}`,
+            payload,
+          );
+        }
+        if (hasPermissionsChanges) {
+          await apiClient.put(
+            `${API_AGENT_PREFIX}/resource-permissions/embedding/${editingEmbedding.id}`,
+            toPermissionsApiPayload(editPermissions),
+          );
+        }
+
         toast.success("Embedding модель обновлена");
         handleCancelEdit();
       } else {
+        if (
+          canManagePermissions &&
+          hasNonDefaultPermissions(createPermissions)
+        ) {
+          payload.permissions = toPermissionsApiPayload(createPermissions);
+        }
         await apiClient.post(`${API_AGENT_PREFIX}/embeddings`, payload);
         toast.success("Embedding модель создана");
         handleCancelCreate();
@@ -225,7 +310,7 @@ export const EmbeddingsSettings: React.FC = () => {
       </div>
 
       {isCreatingNew && (
-        <div className="border border-border rounded-lg p-4 bg-muted/30">
+        <div className="border border-border rounded-lg p-4 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новая embedding модель</h3>
             <Button
@@ -240,6 +325,18 @@ export const EmbeddingsSettings: React.FC = () => {
           <EmbeddingForm
             onSave={(data) => handleSaveEmbedding(data, true)}
             onCancel={handleCancelCreate}
+            permissionsSection={
+              canManagePermissions ? (
+                <ResourcePermissions
+                  mode="create"
+                  resourceType="embedding"
+                  value={createPermissions}
+                  onChange={setCreatePermissions}
+                  canManage={canManagePermissions}
+                  disabled={saving}
+                />
+              ) : undefined
+            }
           />
         </div>
       )}
@@ -249,7 +346,7 @@ export const EmbeddingsSettings: React.FC = () => {
           editingEmbedding && editingEmbedding.id === embedding.id ? (
             <div
               key={embedding.id}
-              className="border border-border rounded-lg p-4 bg-muted/30"
+              className="border border-border rounded-lg p-4 bg-muted/20"
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium">
@@ -268,6 +365,19 @@ export const EmbeddingsSettings: React.FC = () => {
                 embedding={editingEmbedding}
                 onSave={(data) => handleSaveEmbedding(data, false)}
                 onCancel={handleCancelEdit}
+                permissionsSection={
+                  canManagePermissions ? (
+                    <ResourcePermissions
+                      mode="edit"
+                      resourceType="embedding"
+                      resourceId={editingEmbedding.id}
+                      value={editPermissions}
+                      onChange={setEditPermissions}
+                      canManage={canManagePermissions}
+                      disabled={saving || loadingPermissions}
+                    />
+                  ) : undefined
+                }
               />
             </div>
           ) : (

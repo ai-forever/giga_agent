@@ -15,11 +15,21 @@ import {
 } from "@/components/ui/select";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
+import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ImageGeneratorResponse,
   ImageGeneratorTypeMeta,
   ConnectorResponse,
+  ResourcePermissionsDraft,
 } from "./forms/types";
+import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
+import {
+  hasNonDefaultPermissions,
+  permissionsEqual,
+  stableStringify,
+  toPermissionsApiPayload,
+} from "./forms/resource-permissions-utils";
 
 interface JsonSchemaProperty {
   type?: string;
@@ -290,6 +300,7 @@ interface ImageGeneratorFormProps {
   onActiveChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  permissionsSection?: React.ReactNode;
 }
 
 const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
@@ -315,6 +326,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   onActiveChange,
   onSubmit,
   onCancel,
+  permissionsSection,
 }) => {
   return (
     <div className="space-y-5">
@@ -441,6 +453,8 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
         />
       </div>
 
+      {permissionsSection}
+
       <div className="flex gap-2 pt-2">
         <Button onClick={onSubmit} disabled={submitDisabled}>
           {saving ? (
@@ -463,6 +477,8 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
 };
 
 export const ImageGeneratorsSettings: React.FC = () => {
+  const { user } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [generatorTypes, setGeneratorTypes] = useState<
     ImageGeneratorTypeMeta[]
   >([]);
@@ -488,6 +504,13 @@ export const ImageGeneratorsSettings: React.FC = () => {
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingGenerators, setLoadingGenerators] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [createPermissions, setCreatePermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [editPermissions, setEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [initialEditPermissions, setInitialEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const fetchGeneratorTypes = useCallback(async () => {
     setLoadingTypes(true);
@@ -618,6 +641,10 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSettingsValues({});
     setSelectedConnectorId("");
     setIsActive(true);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setLoadingPermissions(false);
   }, []);
 
   const handleCreateNew = () => {
@@ -637,6 +664,26 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSettingsValues(generator.settings || {});
     setSelectedConnectorId(generator.connector_id || "");
     setIsActive(generator.is_active);
+
+    if (!canManagePermissions) {
+      return;
+    }
+    setLoadingPermissions(true);
+    void apiClient
+      .get<ResourcePermissionsDraft>(
+        `${API_AGENT_PREFIX}/resource-permissions/image_generator/${generatorId}`,
+      )
+      .then((permissions) => {
+        setEditPermissions(permissions);
+        setInitialEditPermissions(permissions);
+      })
+      .catch(() => {
+        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      })
+      .finally(() => {
+        setLoadingPermissions(false);
+      });
   };
 
   const handleCancelCreate = () => {
@@ -680,11 +727,33 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSaving(true);
     try {
       const trimmedName = generatorName.trim();
+      const compactedSettings = compactObject(settingsValues);
 
       if (editingGeneratorId) {
+        const currentGenerator = generators.find(
+          (item) => item.id === editingGeneratorId,
+        );
+        if (!currentGenerator) return;
+
+        const isResourceChanged =
+          (currentGenerator.name || null) !== (trimmedName || null) ||
+          currentGenerator.is_active !== isActive ||
+          (currentGenerator.connector_id || null) !==
+            (requiresConnector ? selectedConnectorId : null) ||
+          stableStringify(currentGenerator.settings || {}) !==
+            stableStringify(compactedSettings);
+        const isPermissionsChanged =
+          canManagePermissions &&
+          !permissionsEqual(editPermissions, initialEditPermissions);
+
+        if (!isResourceChanged && !isPermissionsChanged) {
+          toast.info("Изменений нет");
+          return;
+        }
+
         const payload: Record<string, unknown> = {
           name: trimmedName || null,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
         };
 
@@ -692,16 +761,24 @@ export const ImageGeneratorsSettings: React.FC = () => {
           payload.connector_id = selectedConnectorId;
         }
 
-        await apiClient.patch<ImageGeneratorResponse>(
-          `${API_AGENT_PREFIX}/generators/image/${editingGeneratorId}`,
-          payload,
-        );
+        if (isResourceChanged) {
+          await apiClient.patch<ImageGeneratorResponse>(
+            `${API_AGENT_PREFIX}/generators/image/${editingGeneratorId}`,
+            payload,
+          );
+        }
+        if (isPermissionsChanged) {
+          await apiClient.put(
+            `${API_AGENT_PREFIX}/resource-permissions/image_generator/${editingGeneratorId}`,
+            toPermissionsApiPayload(editPermissions),
+          );
+        }
         toast.success("Image generator обновлен");
         handleCancelEdit();
       } else {
         const payload: Record<string, unknown> = {
           type: selectedType,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
         };
 
@@ -711,6 +788,12 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
         if (requiresConnector) {
           payload.connector_id = selectedConnectorId;
+        }
+        if (
+          canManagePermissions &&
+          hasNonDefaultPermissions(createPermissions)
+        ) {
+          payload.permissions = toPermissionsApiPayload(createPermissions);
         }
 
         await apiClient.post<ImageGeneratorResponse>(
@@ -733,6 +816,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
   const isSaveDisabled =
     saving ||
     loadingSchema ||
+    (Boolean(editingGeneratorId) && canManagePermissions && loadingPermissions) ||
     !selectedType ||
     (requiresConnector &&
       (!selectedConnectorId || filteredConnectors.length === 0));
@@ -760,7 +844,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
       </div>
 
       {isCreatingNew && (
-        <div className="border border-border rounded-lg p-4 bg-muted/30">
+        <div className="border border-border rounded-lg p-4 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новый image generator</h3>
             <Button
@@ -799,6 +883,18 @@ export const ImageGeneratorsSettings: React.FC = () => {
             onActiveChange={setIsActive}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
+            permissionsSection={
+              canManagePermissions ? (
+                <ResourcePermissions
+                  mode="create"
+                  resourceType="image_generator"
+                  value={createPermissions}
+                  onChange={setCreatePermissions}
+                  canManage={canManagePermissions}
+                  disabled={saving}
+                />
+              ) : undefined
+            }
           />
         </div>
       )}
@@ -813,7 +909,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
             return (
               <div
                 key={generator.id}
-                className="border border-border rounded-lg p-4 bg-muted/30"
+                className="border border-border rounded-lg p-4 bg-muted/20"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-medium">
@@ -853,6 +949,19 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   onActiveChange={setIsActive}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
+                  permissionsSection={
+                    canManagePermissions ? (
+                      <ResourcePermissions
+                        mode="edit"
+                        resourceType="image_generator"
+                        resourceId={editingGeneratorId ?? undefined}
+                        value={editPermissions}
+                        onChange={setEditPermissions}
+                        canManage={canManagePermissions}
+                        disabled={saving || loadingPermissions}
+                      />
+                    ) : undefined
+                  }
                 />
               </div>
             );

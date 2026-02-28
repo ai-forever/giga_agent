@@ -9,7 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ConnectorType, ConnectorSettings, GigaChatApiType, GigaChatScope } from "./types";
+import type {
+  ConnectorType,
+  ConnectorSettings,
+  GigaChatApiType,
+  GigaChatScope,
+} from "./types";
 
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
@@ -85,7 +90,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
     </div>
   );
 
-  const gigachatApiType = (settings.gigachat_api_type || "prod") as GigaChatApiType;
+  const gigachatApiType = (settings.gigachat_api_type ||
+    "prod") as GigaChatApiType;
   const isGigaChatDev = gigachatApiType === "dev";
 
   const renderGigaChatFields = () => (
@@ -119,7 +125,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
               id="gigachat_credentials"
               placeholder="Введите токен GigaChat"
               value={settings.gigachat_credentials || ""}
-              onChange={(e) => handleSettingChange("gigachat_credentials", e.target.value)}
+              onChange={(e) =>
+                handleSettingChange("gigachat_credentials", e.target.value)
+              }
             />
           </div>
           <div className="space-y-2">
@@ -160,7 +168,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
               id="gigachat_username"
               placeholder="Логин"
               value={settings.gigachat_username || ""}
-              onChange={(e) => handleSettingChange("gigachat_username", e.target.value)}
+              onChange={(e) =>
+                handleSettingChange("gigachat_username", e.target.value)
+              }
             />
           </div>
           <div className="space-y-2">
@@ -169,7 +179,9 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
               id="gigachat_password"
               placeholder="Пароль"
               value={settings.gigachat_password || ""}
-              onChange={(e) => handleSettingChange("gigachat_password", e.target.value)}
+              onChange={(e) =>
+                handleSettingChange("gigachat_password", e.target.value)
+              }
             />
           </div>
         </>
@@ -178,7 +190,13 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
   );
 
   return (
-    <div className={compact ? "space-y-4" : "space-y-4 p-4 border border-border rounded-lg bg-muted/30"}>
+    <div
+      className={
+        compact
+          ? "space-y-4"
+          : "space-y-4 p-4 border border-border rounded-lg bg-muted/20"
+      }
+    >
       {showConnectorTypeSelector && (
         <div className="space-y-2">
           <Label>Тип коннектора</Label>

@@ -23,8 +23,9 @@ from giga_agent.models.embedding import (
     EmbeddingRepository,
     EmbeddingResponse,
 )
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import User, UserRepository, UserShort
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 
 # Ensure runtime registrations
 import giga_agent.connectors  # noqa: F401
@@ -354,6 +355,9 @@ async def create_embedding(
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
+    if data.permissions is not None:
+        require_superuser(current_user)
+
     connector = await _get_connector_with_owner_check(
         connector_id=data.connector_id,
         owner_id=current_user.id,
@@ -393,6 +397,14 @@ async def create_embedding(
         settings=validated_settings,
         is_active=data.is_active,
     )
+    if data.permissions is not None:
+        await ResourcePermissionRepository(embedding_repo.db).set_read_acl(
+            resource_type="embedding",
+            resource_id=embedding.id,
+            read_user_ids=data.permissions.read_user_ids,
+            read_group_ids=data.permissions.read_group_ids,
+            public_read=data.permissions.public_read,
+        )
 
     user = await _get_user_model(db=db, owner_id=current_user.id)
     if user.embedding_id is None:

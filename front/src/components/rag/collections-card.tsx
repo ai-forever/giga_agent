@@ -9,6 +9,7 @@ import { CreateCollectionDialog } from "./create-collection-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { toast } from "sonner";
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface CollectionsCardProps {
   collections: Collection[];
@@ -25,6 +26,8 @@ export function CollectionsCard({
   setSelectedCollection,
   setCurrentPage,
 }: CollectionsCardProps) {
+  const { user } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const {
     createCollection,
     deleteCollection,
@@ -126,6 +129,7 @@ export function CollectionsCard({
           itemsPerPage={collectionsItemsPerPage}
           totalCollections={collections.length}
           onPageChange={setCollectionsCurrentPage}
+          canManagePermissions={canManagePermissions}
         />
       </CardContent>
     </Card>

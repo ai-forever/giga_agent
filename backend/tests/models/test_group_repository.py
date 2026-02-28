@@ -91,6 +91,9 @@ class GroupRepositoryTests(unittest.IsolatedAsyncioTestCase):
             member_1_group_ids = await repo.get_group_ids_by_user_id(member_1.id)
             self.assertEqual(member_1_group_ids, [group.id])
 
+            user_counts = await repo.get_user_counts([group.id])
+            self.assertEqual(user_counts[group.id], 2)
+
             removed = await repo.remove_user(group.id, member_1.id)
             self.assertTrue(removed)
             removed_again = await repo.remove_user(group.id, member_1.id)

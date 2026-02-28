@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { MoreVertical } from "lucide-react";
 import { EditCollectionDialog } from "./edit-collection-dialog";
 import { DeleteCollectionAlert } from "./delete-collection-alert";
+import { CollectionPermissionsDialog } from "./collection-permissions-dialog";
 
 export function CollectionActions({
   collection,
   onDelete,
   onEdit,
+  canManagePermissions,
 }: {
   collection: Collection;
   onDelete: (id: string) => void;
@@ -21,6 +23,7 @@ export function CollectionActions({
     name: string,
     metadata: Record<string, any>,
   ) => Promise<void>;
+  canManagePermissions: boolean;
 }) {
   return (
     <Popover>
@@ -35,6 +38,9 @@ export function CollectionActions({
             collection={collection}
             handleEditCollection={onEdit}
           />
+          {canManagePermissions && (
+            <CollectionPermissionsDialog collection={collection} />
+          )}
           <DeleteCollectionAlert collection={collection} onDelete={onDelete} />
         </div>
       </PopoverContent>

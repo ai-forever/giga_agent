@@ -13,7 +13,9 @@ from giga_agent.routes.connectors import _validate_type_change_compatibility, ro
 
 class ConnectorsRouterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.user = types.SimpleNamespace(
+            id=uuid.uuid4(), is_active=True, is_superuser=True
+        )
         self.app = FastAPI()
         self.app.include_router(router)
 
@@ -86,6 +88,70 @@ class ConnectorsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "openai")
+
+    def test_create_connector_with_permissions_for_superuser(self):
+        created = self._connector_obj()
+        with patch(
+            "giga_agent.routes.connectors._resolve_runtime_cls",
+            return_value=object(),
+        ), patch(
+            "giga_agent.routes.connectors._validate_settings",
+            AsyncMock(return_value={"api_key": "sk-test"}),
+        ), patch(
+            "giga_agent.routes.connectors.ConnectorRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.connectors.ResourcePermissionRepository.set_read_acl",
+            AsyncMock(return_value=None),
+        ) as mocked_set_acl, patch(
+            "giga_agent.routes.connectors.ConnectorRepository.to_response",
+            return_value=self._response_payload(created),
+        ):
+            response = self.client.post(
+                "/connectors",
+                json={
+                    "type": "openai",
+                    "settings": {"api_key": "sk-test"},
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [str(uuid.uuid4())],
+                        "public_read": True,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_set_acl.assert_awaited_once()
+
+    def test_create_connector_with_permissions_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+        with patch(
+            "giga_agent.routes.connectors._resolve_runtime_cls",
+            return_value=object(),
+        ), patch(
+            "giga_agent.routes.connectors._validate_settings",
+            AsyncMock(return_value={"api_key": "sk-test"}),
+        ), patch(
+            "giga_agent.routes.connectors.ConnectorRepository.create",
+            AsyncMock(),
+        ) as mocked_create:
+            response = self.client.post(
+                "/connectors",
+                json={
+                    "type": "openai",
+                    "settings": {"api_key": "sk-test"},
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_create.assert_not_awaited()
 
     def test_get_connectors_success(self):
         connector = self._connector_obj()

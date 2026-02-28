@@ -19,7 +19,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
-from giga_agent.models.resource_permission import ResourcePermissionRepository
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 SANDBOXPAIR_CACHE_TTL = "60s"
 
@@ -163,7 +166,7 @@ class SandboxProviderCreate(SandboxProviderBase):
     SandboxRegistry.validate_settings(type, settings).
     """
 
-    pass
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class SandboxProviderUpdate(BaseModel):

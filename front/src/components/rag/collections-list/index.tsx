@@ -30,6 +30,7 @@ interface CollectionsListProps {
   itemsPerPage: number;
   totalCollections: number;
   onPageChange: (page: number) => void;
+  canManagePermissions: boolean;
 }
 
 export function CollectionsList({
@@ -42,6 +43,7 @@ export function CollectionsList({
   itemsPerPage,
   totalCollections,
   onPageChange,
+  canManagePermissions,
 }: CollectionsListProps) {
   const totalPages = Math.ceil(totalCollections / itemsPerPage);
 
@@ -69,6 +71,7 @@ export function CollectionsList({
                 collection={collection}
                 onDelete={onDelete}
                 onEdit={onEdit}
+                canManagePermissions={canManagePermissions}
               />
             )}
           </div>

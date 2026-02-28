@@ -68,6 +68,7 @@ class GroupsRouterTests(unittest.TestCase):
             "description": group_obj.description,
             "data": group_obj.data,
             "permissions": group_obj.permissions,
+            "users_count": 0,
             "created_at": group_obj.created_at,
             "updated_at": group_obj.updated_at,
         }

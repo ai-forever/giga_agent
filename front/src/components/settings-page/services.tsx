@@ -16,6 +16,8 @@ import {
 import { ConnectorForm } from "./forms/provider";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
+import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ConnectorResponse,
   ConnectorSettings,
@@ -23,7 +25,15 @@ import type {
   ConnectorTypeMeta,
   JsonSchema,
   JsonSchemaProperty,
+  ResourcePermissionsDraft,
 } from "./forms/types";
+import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
+import {
+  hasNonDefaultPermissions,
+  permissionsEqual,
+  stableStringify,
+  toPermissionsApiPayload,
+} from "./forms/resource-permissions-utils";
 
 type FormMode = "create" | "edit";
 type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
@@ -276,6 +286,7 @@ interface ConnectorEditorProps {
   onActiveChange: (active: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  permissionsSection?: React.ReactNode;
 }
 
 const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
@@ -296,6 +307,7 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
   onActiveChange,
   onSubmit,
   onCancel,
+  permissionsSection,
 }) => {
   const isManagedType = MANAGED_CONNECTOR_TYPES.includes(
     selectedType as ConnectorType,
@@ -393,6 +405,8 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
         />
       </div>
 
+      {permissionsSection}
+
       <div className="flex gap-2 pt-2">
         <Button onClick={onSubmit} disabled={submitDisabled}>
           {saving ? (
@@ -415,6 +429,8 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
 };
 
 export const ServicesSettings: React.FC = () => {
+  const { user } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [connectorTypes, setConnectorTypes] = useState<ConnectorTypeMeta[]>([]);
 
@@ -435,6 +451,13 @@ export const ServicesSettings: React.FC = () => {
   const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [createPermissions, setCreatePermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [editPermissions, setEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [initialEditPermissions, setInitialEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const fetchConnectors = useCallback(async () => {
     setLoadingConnectors(true);
@@ -517,6 +540,10 @@ export const ServicesSettings: React.FC = () => {
     setSettingsValues({});
     setSettingsSchema(null);
     setIsActive(true);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setLoadingPermissions(false);
   }, []);
 
   const handleCreateNew = () => {
@@ -535,6 +562,27 @@ export const ServicesSettings: React.FC = () => {
     setConnectorName(connector.name || "");
     setSettingsValues((connector.settings || {}) as Record<string, unknown>);
     setIsActive(connector.is_active);
+
+    if (!canManagePermissions) {
+      return;
+    }
+
+    setLoadingPermissions(true);
+    void apiClient
+      .get<ResourcePermissionsDraft>(
+        `${API_AGENT_PREFIX}/resource-permissions/connector/${connectorId}`,
+      )
+      .then((permissions) => {
+        setEditPermissions(permissions);
+        setInitialEditPermissions(permissions);
+      })
+      .catch(() => {
+        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      })
+      .finally(() => {
+        setLoadingPermissions(false);
+      });
   };
 
   const handleCancelCreate = () => {
@@ -569,29 +617,65 @@ export const ServicesSettings: React.FC = () => {
     setSaving(true);
     try {
       const trimmedName = connectorName.trim();
+      const compactedSettings = compactObject(settingsValues);
 
       if (editingConnectorId) {
+        const currentConnector = connectors.find(
+          (item) => item.id === editingConnectorId,
+        );
+        if (!currentConnector) return;
+
+        const isResourceChanged =
+          (currentConnector.name || null) !== (trimmedName || null) ||
+          currentConnector.is_active !== isActive ||
+          stableStringify(currentConnector.settings || {}) !==
+            stableStringify(compactedSettings);
+        const isPermissionsChanged =
+          canManagePermissions &&
+          !permissionsEqual(editPermissions, initialEditPermissions);
+
+        if (!isResourceChanged && !isPermissionsChanged) {
+          toast.info("Изменений нет");
+          return;
+        }
+
         const payload: Record<string, unknown> = {
           name: trimmedName || null,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
         };
 
-        await apiClient.patch<ConnectorResponse>(
-          `${API_AGENT_PREFIX}/connectors/${editingConnectorId}`,
-          payload,
-        );
+        if (isResourceChanged) {
+          await apiClient.patch<ConnectorResponse>(
+            `${API_AGENT_PREFIX}/connectors/${editingConnectorId}`,
+            payload,
+          );
+        }
+
+        if (isPermissionsChanged) {
+          await apiClient.put(
+            `${API_AGENT_PREFIX}/resource-permissions/connector/${editingConnectorId}`,
+            toPermissionsApiPayload(editPermissions),
+          );
+        }
+
         toast.success("Сервис обновлен");
         handleCancelEdit();
       } else {
         const payload: Record<string, unknown> = {
           type: selectedType,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
         };
 
         if (trimmedName) {
           payload.name = trimmedName;
+        }
+        if (
+          canManagePermissions &&
+          hasNonDefaultPermissions(createPermissions)
+        ) {
+          payload.permissions = toPermissionsApiPayload(createPermissions);
         }
 
         await apiClient.post<ConnectorResponse>(
@@ -612,7 +696,10 @@ export const ServicesSettings: React.FC = () => {
 
   const isBusy = isCreatingNew || editingConnectorId !== null;
   const isSubmitDisabled =
-    saving || !selectedType || (!isManagedType && loadingSchema);
+    saving ||
+    !selectedType ||
+    (!isManagedType && loadingSchema) ||
+    (Boolean(editingConnectorId) && canManagePermissions && loadingPermissions);
 
   return (
     <div className="space-y-6">
@@ -637,7 +724,7 @@ export const ServicesSettings: React.FC = () => {
       </div>
 
       {isCreatingNew && (
-        <div className="border border-border rounded-lg p-4 bg-muted/30">
+        <div className="border border-border rounded-lg p-4 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новый сервис</h3>
             <Button
@@ -673,6 +760,18 @@ export const ServicesSettings: React.FC = () => {
             onActiveChange={setIsActive}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
+            permissionsSection={
+              canManagePermissions ? (
+                <ResourcePermissions
+                  mode="create"
+                  resourceType="connector"
+                  value={createPermissions}
+                  onChange={setCreatePermissions}
+                  canManage={canManagePermissions}
+                  disabled={saving}
+                />
+              ) : undefined
+            }
           />
         </div>
       )}
@@ -682,7 +781,7 @@ export const ServicesSettings: React.FC = () => {
           editingConnectorId === connector.id ? (
             <div
               key={connector.id}
-              className="border border-border rounded-lg p-4 bg-muted/30"
+              className="border border-border rounded-lg p-4 bg-muted/20"
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium">
@@ -717,6 +816,19 @@ export const ServicesSettings: React.FC = () => {
                 onActiveChange={setIsActive}
                 onSubmit={handleSave}
                 onCancel={handleCancelEdit}
+                permissionsSection={
+                  canManagePermissions ? (
+                    <ResourcePermissions
+                      mode="edit"
+                      resourceType="connector"
+                      resourceId={editingConnectorId ?? undefined}
+                      value={editPermissions}
+                      onChange={setEditPermissions}
+                      canManage={canManagePermissions}
+                      disabled={saving || loadingPermissions}
+                    />
+                  ) : undefined
+                }
               />
             </div>
           ) : (

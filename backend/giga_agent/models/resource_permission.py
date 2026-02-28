@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Sequence, TypeAlias
 
+from pydantic import BaseModel, Field
 from sqlalchemy import (
     DateTime,
     Text,
@@ -65,6 +66,12 @@ class ResourcePermission(Base):
 
 
 ResourceModelType: TypeAlias = type[Base]
+
+
+class ResourcePermissionsPayload(BaseModel):
+    read_user_ids: list[uuid.UUID] = Field(default_factory=list)
+    read_group_ids: list[uuid.UUID] = Field(default_factory=list)
+    public_read: bool = False
 
 
 class ResourcePermissionRepository:
@@ -315,6 +322,98 @@ class ResourcePermissionRepository:
             .order_by(ResourcePermission.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def get_read_acl(
+        self,
+        *,
+        resource_type: str,
+        resource_id: uuid.UUID,
+    ) -> ResourcePermissionsPayload:
+        rows = await self.list_permissions_for_resource(
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+
+        read_user_ids: list[uuid.UUID] = []
+        read_group_ids: list[uuid.UUID] = []
+        public_read = False
+
+        for row in rows:
+            if row.permission not in {"read", "write"}:
+                continue
+            if row.owner_id == "*":
+                public_read = True
+                continue
+            if row.owner_type == "user":
+                read_user_ids.append(uuid.UUID(row.owner_id))
+                continue
+            if row.owner_type == "group":
+                read_group_ids.append(uuid.UUID(row.owner_id))
+
+        dedup_user_ids = list(dict.fromkeys(read_user_ids))
+        dedup_group_ids = list(dict.fromkeys(read_group_ids))
+
+        return ResourcePermissionsPayload(
+            read_user_ids=dedup_user_ids,
+            read_group_ids=dedup_group_ids,
+            public_read=public_read,
+        )
+
+    async def set_read_acl(
+        self,
+        *,
+        resource_type: str,
+        resource_id: uuid.UUID,
+        read_user_ids: Sequence[uuid.UUID],
+        read_group_ids: Sequence[uuid.UUID],
+        public_read: bool,
+    ) -> None:
+        normalized_resource_type = self._normalize_resource_type(resource_type)
+
+        dedup_user_ids = list(dict.fromkeys(read_user_ids))
+        dedup_group_ids = list(dict.fromkeys(read_group_ids))
+
+        await self.db.execute(
+            delete(ResourcePermission)
+            .where(ResourcePermission.resource_type == normalized_resource_type)
+            .where(ResourcePermission.resource_id == resource_id)
+            .where(ResourcePermission.permission.in_(("read", "write")))
+        )
+
+        for user_id in dedup_user_ids:
+            self.db.add(
+                ResourcePermission(
+                    resource_type=normalized_resource_type,
+                    resource_id=resource_id,
+                    owner_type="user",
+                    owner_id=self._normalize_owner_id(user_id),
+                    permission="read",
+                )
+            )
+
+        for group_id in dedup_group_ids:
+            self.db.add(
+                ResourcePermission(
+                    resource_type=normalized_resource_type,
+                    resource_id=resource_id,
+                    owner_type="group",
+                    owner_id=self._normalize_owner_id(group_id),
+                    permission="read",
+                )
+            )
+
+        if public_read:
+            self.db.add(
+                ResourcePermission(
+                    resource_type=normalized_resource_type,
+                    resource_id=resource_id,
+                    owner_type="user",
+                    owner_id="*",
+                    permission="read",
+                )
+            )
+
+        await self.db.commit()
 
     async def build_access_clause(
         self,

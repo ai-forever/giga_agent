@@ -269,6 +269,7 @@ const AdminGroupsTab: React.FC = () => {
         {!loadingGroups &&
           filteredGroups.map((group) => {
             const members = membersByGroupId[group.id] ?? [];
+            const membersCount = membersByGroupId[group.id]?.length ?? group.users_count;
             const isExpanded = expandedGroupId === group.id;
             const loadingMembers = loadingMembersFor === group.id;
             const selectedUserIds = selectedUserIdsByGroupId[group.id] ?? [];
@@ -299,7 +300,7 @@ const AdminGroupsTab: React.FC = () => {
 
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
-                      {members.length} участник(ов)
+                      {membersCount} участник(ов)
                     </Badge>
                     <Button
                       type="button"

@@ -14,7 +14,11 @@ from giga_agent.routes.search_engines import _validate_connector_link, router
 
 class SearchGeneratorsRouterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.user = types.SimpleNamespace(id=uuid.uuid4(), is_active=True)
+        self.user = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            is_active=True,
+            is_superuser=True,
+        )
         self.app = FastAPI()
         self.app.include_router(router)
 
@@ -98,6 +102,69 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "tavily")
+
+    def test_create_engine_with_permissions_for_superuser(self):
+        created = self._engine_obj(connector_id=None)
+
+        with patch(
+            "giga_agent.routes.search_engines._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
+        ), patch(
+            "giga_agent.routes.search_engines._validate_settings",
+            AsyncMock(return_value={"search_depth": "basic"}),
+        ), patch(
+            "giga_agent.routes.search_engines._validate_connector_link",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.search_engines.ResourcePermissionRepository.set_read_acl",
+            AsyncMock(return_value=None),
+        ) as mocked_set_acl, patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+            return_value=self._response_payload(created),
+        ):
+            response = self.client.post(
+                "/search-engines",
+                json={
+                    "type": "tavily",
+                    "settings": {"search_depth": "basic"},
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [str(uuid.uuid4())],
+                        "public_read": True,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_set_acl.assert_awaited_once()
+
+    def test_create_engine_with_permissions_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+
+        with patch(
+            "giga_agent.routes.search_engines._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
+        ) as mocked_resolve_runtime:
+            response = self.client.post(
+                "/search-engines",
+                json={
+                    "type": "tavily",
+                    "settings": {"search_depth": "basic"},
+                    "is_active": True,
+                    "permissions": {
+                        "read_user_ids": [str(uuid.uuid4())],
+                        "read_group_ids": [],
+                        "public_read": False,
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 403)
+        mocked_resolve_runtime.assert_not_called()
 
     def test_get_engine_types_meta(self):
         with patch(

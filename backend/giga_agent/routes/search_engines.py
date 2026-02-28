@@ -18,8 +18,9 @@ from giga_agent.models.search_engine import (
     SearchEngineRepository,
     SearchEngineResponse,
 )
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import User, UserRepository, UserShort
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure providers are registered.
@@ -257,6 +258,9 @@ async def create_search_engine(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
+    if data.permissions is not None:
+        require_superuser(current_user)
+
     runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
     validated_connector_id = await _validate_connector_link(
@@ -274,6 +278,14 @@ async def create_search_engine(
         connector_id=validated_connector_id,
         is_active=data.is_active,
     )
+    if data.permissions is not None:
+        await ResourcePermissionRepository(engine_repo.db).set_read_acl(
+            resource_type="search_engine",
+            resource_id=engine.id,
+            read_user_ids=data.permissions.read_user_ids,
+            read_group_ids=data.permissions.read_group_ids,
+            public_read=data.permissions.public_read,
+        )
     return SearchEngineRepository.to_response(engine)
 
 

@@ -107,6 +107,7 @@ from giga_agent.models.group import (
 )
 from giga_agent.models.resource_permission import (
     ResourcePermission,
+    ResourcePermissionsPayload,
     ResourcePermissionRepository,
 )
 
@@ -202,5 +203,6 @@ __all__ = [
     "GroupRepository",
     # Resource permissions
     "ResourcePermission",
+    "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
 ]

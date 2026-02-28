@@ -16,6 +16,15 @@ import {
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import ResourcePermissions from "./forms/resource-permissions";
+import type { ResourcePermissionsDraft } from "./forms/types";
+import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
+import {
+  hasNonDefaultPermissions,
+  permissionsEqual,
+  stableStringify,
+  toPermissionsApiPayload,
+} from "./forms/resource-permissions-utils";
 
 interface SandboxProviderResponse {
   id: string;
@@ -127,7 +136,9 @@ const SettingsForm: React.FC<SettingsFormProps> = ({
           disabled={disabled}
         />
         {property.description && (
-          <p className="text-xs text-muted-foreground">{property.description}</p>
+          <p className="text-xs text-muted-foreground">
+            {property.description}
+          </p>
         )}
       </div>
     );
@@ -188,11 +199,21 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
       </div>
       <div className="flex items-center gap-2">
         {!isUserActive && (
-          <Button variant="outline" size="sm" onClick={onActivate} disabled={disabled}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onActivate}
+            disabled={disabled}
+          >
             Активировать
           </Button>
         )}
-        <Button variant="ghost" size="icon" onClick={onEdit} disabled={disabled}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onEdit}
+          disabled={disabled}
+        >
           <Pencil className="size-4" />
         </Button>
         <Button
@@ -210,11 +231,16 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
 
 export const SandboxSettings: React.FC = () => {
   const { user, refreshUser } = useAuth();
-  const [providerList, setProviderList] = useState<SandboxProviderResponse[]>([]);
+  const canManagePermissions = Boolean(user?.is_superuser);
+  const [providerList, setProviderList] = useState<SandboxProviderResponse[]>(
+    [],
+  );
   const [providerTypes, setProviderTypes] = useState<string[]>([]);
 
   const [isCreating, setIsCreating] = useState(false);
-  const [editingProviderId, setEditingProviderId] = useState<string | null>(null);
+  const [editingProviderId, setEditingProviderId] = useState<string | null>(
+    null,
+  );
   const [selectedType, setSelectedType] = useState<string>("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
@@ -228,11 +254,18 @@ export const SandboxSettings: React.FC = () => {
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [createPermissions, setCreatePermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [editPermissions, setEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [initialEditPermissions, setInitialEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const editingProvider =
     editingProviderId === null
       ? null
-      : providerList.find((item) => item.id === editingProviderId) ?? null;
+      : (providerList.find((item) => item.id === editingProviderId) ?? null);
 
   const fetchProviders = useCallback(async () => {
     setLoadingProviders(true);
@@ -296,6 +329,10 @@ export const SandboxSettings: React.FC = () => {
     setProviderName("");
     setIdleTimeout(3600);
     setIsActive(true);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setLoadingPermissions(false);
   };
 
   const handleStartCreate = () => {
@@ -312,6 +349,26 @@ export const SandboxSettings: React.FC = () => {
     setIsActive(provider.is_active);
     setEditingProviderId(provider.id);
     setIsCreating(false);
+
+    if (!canManagePermissions) {
+      return;
+    }
+    setLoadingPermissions(true);
+    void apiClient
+      .get<ResourcePermissionsDraft>(
+        `${API_AGENT_PREFIX}/resource-permissions/sandbox/${provider.id}`,
+      )
+      .then((permissions) => {
+        setEditPermissions(permissions);
+        setInitialEditPermissions(permissions);
+      })
+      .catch(() => {
+        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      })
+      .finally(() => {
+        setLoadingPermissions(false);
+      });
   };
 
   const handleCancel = () => {
@@ -352,13 +409,20 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await apiClient.post(`${API_AGENT_PREFIX}/sandboxes/providers`, {
+      const payload: Record<string, unknown> = {
         type: selectedType,
         name: providerName || null,
         settings: settingsValues,
         idle_timeout: idleTimeout,
         is_active: isActive,
-      });
+      };
+      if (
+        canManagePermissions &&
+        hasNonDefaultPermissions(createPermissions)
+      ) {
+        payload.permissions = toPermissionsApiPayload(createPermissions);
+      }
+      await apiClient.post(`${API_AGENT_PREFIX}/sandboxes/providers`, payload);
       toast.success("Sandbox провайдер создан");
       setIsCreating(false);
       resetForm();
@@ -376,15 +440,42 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
-      await apiClient.patch(
-        `${API_AGENT_PREFIX}/sandboxes/providers/${editingProvider.id}`,
-        {
-          name: providerName || null,
-          settings: settingsValues,
-          idle_timeout: idleTimeout,
-          is_active: isActive,
-        },
-      );
+      const nextName = providerName || null;
+      const nextSettings = settingsValues;
+      const nextIdleTimeout = idleTimeout;
+      const nextIsActive = isActive;
+      const hasResourceChanges =
+        (editingProvider.name || null) !== nextName ||
+        editingProvider.idle_timeout !== nextIdleTimeout ||
+        editingProvider.is_active !== nextIsActive ||
+        stableStringify(editingProvider.settings || {}) !==
+          stableStringify(nextSettings);
+      const hasPermissionsChanges =
+        canManagePermissions &&
+        !permissionsEqual(editPermissions, initialEditPermissions);
+
+      if (!hasResourceChanges && !hasPermissionsChanges) {
+        toast.info("Изменений нет");
+        return;
+      }
+
+      if (hasResourceChanges) {
+        await apiClient.patch(
+          `${API_AGENT_PREFIX}/sandboxes/providers/${editingProvider.id}`,
+          {
+            name: nextName,
+            settings: nextSettings,
+            idle_timeout: nextIdleTimeout,
+            is_active: nextIsActive,
+          },
+        );
+      }
+      if (hasPermissionsChanges) {
+        await apiClient.put(
+          `${API_AGENT_PREFIX}/resource-permissions/sandbox/${editingProvider.id}`,
+          toPermissionsApiPayload(editPermissions),
+        );
+      }
       toast.success("Sandbox провайдер обновлён");
       setEditingProviderId(null);
       resetForm();
@@ -403,7 +494,9 @@ export const SandboxSettings: React.FC = () => {
 
     try {
       setSaving(true);
-      await apiClient.delete(`${API_AGENT_PREFIX}/sandboxes/providers/${providerId}`);
+      await apiClient.delete(
+        `${API_AGENT_PREFIX}/sandboxes/providers/${providerId}`,
+      );
       toast.success("Sandbox провайдер удалён");
       if (editingProviderId === providerId) {
         setEditingProviderId(null);
@@ -467,7 +560,7 @@ export const SandboxSettings: React.FC = () => {
       )}
 
       {isFormOpen && (
-        <div className="border border-border rounded-lg p-5 bg-muted/30 space-y-5">
+        <div className="border border-border rounded-lg p-5 bg-muted/20 space-y-5">
           <div className="flex items-center justify-between">
             <h3 className="font-medium">
               {isCreating ? "Новый провайдер" : "Редактирование провайдера"}
@@ -566,10 +659,26 @@ export const SandboxSettings: React.FC = () => {
             />
           </div>
 
+          {canManagePermissions && (
+            <ResourcePermissions
+              mode={isCreating ? "create" : "edit"}
+              resourceType="sandbox"
+              resourceId={editingProviderId ?? undefined}
+              value={isCreating ? createPermissions : editPermissions}
+              onChange={isCreating ? setCreatePermissions : setEditPermissions}
+              canManage={canManagePermissions}
+              disabled={saving || loadingPermissions}
+            />
+          )}
+
           <div className="flex gap-2 pt-2">
             <Button
               onClick={isCreating ? handleCreate : handleUpdate}
-              disabled={saving || !selectedType}
+              disabled={
+                saving ||
+                !selectedType ||
+                (!isCreating && canManagePermissions && loadingPermissions)
+              }
             >
               {saving ? (
                 <>

@@ -24,9 +24,10 @@ from giga_agent.models.connector import (
 from giga_agent.models.embedding import EmbeddingRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.search_engine import SearchEngineRepository
 from giga_agent.models.users import UserShort
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure runtime registrations
@@ -274,6 +275,9 @@ async def create_connector(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
+    if data.permissions is not None:
+        require_superuser(current_user)
+
     _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
 
@@ -284,6 +288,14 @@ async def create_connector(
         settings=validated_settings,
         is_active=data.is_active,
     )
+    if data.permissions is not None:
+        await ResourcePermissionRepository(connector_repo.db).set_read_acl(
+            resource_type="connector",
+            resource_id=connector.id,
+            read_user_ids=data.permissions.read_user_ids,
+            read_group_ids=data.permissions.read_group_ids,
+            public_read=data.permissions.public_read,
+        )
     return ConnectorRepository.to_response(connector)
 
 

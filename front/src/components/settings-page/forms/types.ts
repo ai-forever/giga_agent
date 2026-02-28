@@ -151,3 +151,24 @@ export interface SearchEngineTypeMeta {
   supported_connector_types: string[];
   requires_connector: boolean;
 }
+
+export type PermissionResourceType =
+  | "connector"
+  | "llm"
+  | "embedding"
+  | "image_generator"
+  | "search_engine"
+  | "sandbox"
+  | "rag_collection";
+
+export interface ResourcePermissionsDraft {
+  read_user_ids: string[];
+  read_group_ids: string[];
+  public_read: boolean;
+}
+
+export const EMPTY_RESOURCE_PERMISSIONS: ResourcePermissionsDraft = {
+  read_user_ids: [],
+  read_group_ids: [],
+  public_read: false,
+};

@@ -12,7 +12,10 @@ from sqlalchemy.sql import func
 from giga_agent.core.db import Base, JSON_VARIANT
 from giga_agent.llm.base import AvailableModel, ModelFetchError
 from giga_agent.models.connector import Connector  # noqa: F401
-from giga_agent.models.resource_permission import ResourcePermissionRepository
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 # Ensure runtimes are registered.
 import giga_agent.connectors  # noqa: F401
@@ -77,7 +80,7 @@ class LLMBase(BaseModel):
 
 
 class LLMCreate(LLMBase):
-    pass
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class LLMUpdate(BaseModel):

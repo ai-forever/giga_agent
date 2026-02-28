@@ -33,6 +33,7 @@ export type AdminGroup = {
   description: string | null;
   data: Record<string, unknown> | null;
   permissions: Record<string, unknown> | null;
+  users_count: number;
   created_at: string;
   updated_at: string;
 };
