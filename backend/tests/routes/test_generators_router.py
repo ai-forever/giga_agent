@@ -325,7 +325,7 @@ class GeneratorsRouterTests(unittest.TestCase):
         generator_id = uuid.uuid4()
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_owner_check",
+            "giga_agent.routes.generators.image._get_generator_with_read_check",
             AsyncMock(
                 side_effect=HTTPException(
                     status_code=403,
@@ -341,7 +341,7 @@ class GeneratorsRouterTests(unittest.TestCase):
         generator_id = uuid.uuid4()
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_owner_check",
+            "giga_agent.routes.generators.image._get_generator_with_read_check",
             AsyncMock(
                 side_effect=HTTPException(
                     status_code=404,

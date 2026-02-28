@@ -90,6 +90,9 @@ class FilesRouterTests(unittest.TestCase):
         result = RedirectResult(url="https://signed.example.local/object")
 
         with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
             "giga_agent.routes.files.SandboxManager.read_file_for_user",
             AsyncMock(return_value=(file_obj, result)),
         ):
@@ -106,6 +109,9 @@ class FilesRouterTests(unittest.TestCase):
         result = RedirectResult(url="https://signed.example.local/object")
 
         with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
             "giga_agent.routes.files.SandboxManager.read_file_for_user",
             AsyncMock(return_value=(file_obj, result)),
         ):
@@ -129,6 +135,9 @@ class FilesRouterTests(unittest.TestCase):
         result = ContentResult(data=b"payload")
 
         with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
             "giga_agent.routes.files.SandboxManager.read_file_for_user",
             AsyncMock(return_value=(file_obj, result)),
         ):
@@ -141,8 +150,11 @@ class FilesRouterTests(unittest.TestCase):
     def test_read_foreign_file_returns_403(self):
         file_id = uuid.uuid4()
         with patch(
-            "giga_agent.routes.files.SandboxManager.read_file_for_user",
-            AsyncMock(side_effect=PermissionError("Access denied")),
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.files.FileRepository.get_by_id",
+            AsyncMock(return_value=self._file_obj("/tmp/foreign.txt")),
         ):
             response = self.client.get(f"/files/{file_id}/content")
 
@@ -151,8 +163,11 @@ class FilesRouterTests(unittest.TestCase):
     def test_read_missing_file_returns_404(self):
         file_id = uuid.uuid4()
         with patch(
-            "giga_agent.routes.files.SandboxManager.read_file_for_user",
-            AsyncMock(side_effect=ValueError("File not found")),
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.files.FileRepository.get_by_id",
+            AsyncMock(return_value=None),
         ):
             response = self.client.get(f"/files/{file_id}/content")
 
@@ -162,7 +177,10 @@ class FilesRouterTests(unittest.TestCase):
         file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
         result = RedirectResult(url="https://signed.example.local/by-path")
         with patch(
-            "giga_agent.routes.files.SandboxManager.read_file_by_path_for_user",
+            "giga_agent.routes.files.FileRepository.get_by_path_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
             AsyncMock(return_value=(file_obj, result)),
         ):
             response = self.client.get(
@@ -178,7 +196,10 @@ class FilesRouterTests(unittest.TestCase):
         file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
         result = RedirectResult(url="https://signed.example.local/by-path")
         with patch(
-            "giga_agent.routes.files.SandboxManager.read_file_by_path_for_user",
+            "giga_agent.routes.files.FileRepository.get_by_path_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
             AsyncMock(return_value=(file_obj, result)),
         ):
             response = self.client.get(
@@ -201,8 +222,11 @@ class FilesRouterTests(unittest.TestCase):
 
     def test_read_by_path_missing_returns_404(self):
         with patch(
-            "giga_agent.routes.files.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(side_effect=ValueError("not found")),
+            "giga_agent.routes.files.FileRepository.get_by_path_readable",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.files.FileRepository.get_by_path_any_owner",
+            AsyncMock(return_value=None),
         ):
             response = self.client.get(
                 "/files/content/by-path",

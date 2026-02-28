@@ -105,6 +105,10 @@ from giga_agent.models.group import (
     GroupIdsByUserResponse,
     GroupRepository,
 )
+from giga_agent.models.resource_permission import (
+    ResourcePermission,
+    ResourcePermissionRepository,
+)
 
 __all__ = [
     # Users
@@ -196,4 +200,7 @@ __all__ = [
     "GroupMemberAddRequest",
     "GroupIdsByUserResponse",
     "GroupRepository",
+    # Resource permissions
+    "ResourcePermission",
+    "ResourcePermissionRepository",
 ]

@@ -80,12 +80,17 @@ async def documents_create(
     failed_files = []
     added_chunk_ids: list[str] = []
 
-    collection = await RagCollectionsRepository(db).get_by_id(
-        owner_id=current_user.id,
-        collection_id=collection_id,
-    )
+    collections_repo = RagCollectionsRepository(db)
+    collection = await collections_repo.get_by_id_any(collection_id=collection_id)
     if collection is None:
         raise HTTPException(status_code=404, detail="Collection not found")
+    if collection.owner_id != current_user.id:
+        can_write = await collections_repo.can_write(
+            user_id=current_user.id,
+            collection_id=collection_id,
+        )
+        if not can_write:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
     embeddings = runtime.embeddings
@@ -110,13 +115,13 @@ async def documents_create(
             file_uuid = UUID(file_id)
             sandbox_rel_path = f"rag/{collection_id}/{file_uuid}.txt"
             sandbox_file = await SandboxManager(db).upload_file_for_user(
-                owner_id=current_user.id,
+                owner_id=collection.owner_id,
                 file_name=sandbox_rel_path,
                 content=(full_text or "").encode("utf-8"),
                 file_type="text",
             )
             await RagDocumentsRepository(db).create(
-                owner_id=current_user.id,
+                owner_id=collection.owner_id,
                 collection_id=collection_id,
                 document_id=file_uuid,
                 original_name=(metadata or {}).get("name") or file.filename or "document",
@@ -139,7 +144,7 @@ async def documents_create(
                 payload = dict(doc.metadata or {})
                 payload.update(
                     {
-                        "owner_id": str(current_user.id),
+                        "owner_id": str(collection.owner_id),
                         "collection_id": str(collection_id),
                         "embedding_id": str(collection.embedding_id),
                         "document_id": str(file_uuid),
@@ -202,8 +207,17 @@ async def documents_list(
     offset: int = Query(0, ge=0),
 ):
     """Lists documents within a specific collection."""
-    docs = await RagDocumentsRepository(db).list_by_collection(
-        owner_id=current_user.id,
+    collections_repo = RagCollectionsRepository(db)
+    collection = await collections_repo.get_by_id_readable(
+        user_id=current_user.id,
+        collection_id=collection_id,
+    )
+    if collection is None:
+        existing = await collections_repo.get_by_id_any(collection_id=collection_id)
+        if existing is not None:
+            raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=404, detail="Collection not found")
+    docs = await RagDocumentsRepository(db).list_by_collection_any_owner(
         collection_id=collection_id,
         limit=limit,
         offset=offset,
@@ -237,12 +251,17 @@ async def documents_delete(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Deletes a specific document from a collection by its ID."""
-    collection = await RagCollectionsRepository(db).get_by_id(
-        owner_id=current_user.id,
-        collection_id=collection_id,
-    )
+    collections_repo = RagCollectionsRepository(db)
+    collection = await collections_repo.get_by_id_any(collection_id=collection_id)
     if collection is None:
         raise HTTPException(status_code=404, detail="Collection not found")
+    if collection.owner_id != current_user.id:
+        can_write = await collections_repo.can_write(
+            user_id=current_user.id,
+            collection_id=collection_id,
+        )
+        if not can_write:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     try:
         doc_uuid = UUID(document_id)
@@ -250,7 +269,7 @@ async def documents_delete(
         raise HTTPException(status_code=400, detail="Invalid document_id")
 
     doc = await RagDocumentsRepository(db).get_by_id(
-        owner_id=current_user.id,
+        owner_id=collection.owner_id,
         collection_id=collection_id,
         document_id=doc_uuid,
     )
@@ -266,7 +285,7 @@ async def documents_delete(
         vector_size=vector_size,
     )
     qfilter = build_filter(
-        owner_id=current_user.id,
+        owner_id=collection.owner_id,
         collection_id=collection_id,
         document_id=doc_uuid,
     )
@@ -278,12 +297,12 @@ async def documents_delete(
 
     # Best-effort delete file from sandbox storage (S3) + remove core_files metadata.
     await SandboxManager(db).delete_file_by_path_for_user(
-        owner_id=current_user.id,
+        owner_id=collection.owner_id,
         sandbox_path=doc.sandbox_path,
     )
 
     ok = await RagDocumentsRepository(db).delete(
-        owner_id=current_user.id,
+        owner_id=collection.owner_id,
         collection_id=collection_id,
         document_id=doc_uuid,
     )
@@ -306,11 +325,15 @@ async def documents_search(
     if not search_query.query:
         raise HTTPException(status_code=400, detail="Search query cannot be empty")
 
-    collection = await RagCollectionsRepository(db).get_by_id(
-        owner_id=current_user.id,
+    collections_repo = RagCollectionsRepository(db)
+    collection = await collections_repo.get_by_id_readable(
+        user_id=current_user.id,
         collection_id=collection_id,
     )
     if collection is None:
+        existing = await collections_repo.get_by_id_any(collection_id=collection_id)
+        if existing is not None:
+            raise HTTPException(status_code=403, detail="Access denied")
         raise HTTPException(status_code=404, detail="Collection not found")
 
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
@@ -327,7 +350,7 @@ async def documents_search(
         collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
         vector_size=len(query_vector),
     )
-    qfilter = build_filter(owner_id=current_user.id, collection_id=collection_id)
+    qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection_id)
     points = await qdrant_search_chunks(
         client=qdrant_client,
         collection_name=qdrant_collection,

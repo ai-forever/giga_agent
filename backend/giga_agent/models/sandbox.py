@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 
 SANDBOXPAIR_CACHE_TTL = "60s"
 
@@ -274,6 +275,50 @@ class SandboxProviderRepository:
         query = query.order_by(SandboxProvider.created_at.desc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[SandboxProvider]:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            SandboxProvider,
+            user_id=user_id,
+            resource_type="sandbox",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        query = select(SandboxProvider).where(access_clause)
+        if only_active:
+            query = query.where(SandboxProvider.is_active == True)  # noqa: E712
+        query = query.order_by(SandboxProvider.created_at.desc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_by_id_readable(
+        self,
+        provider_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SandboxProvider | None:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            SandboxProvider,
+            user_id=user_id,
+            resource_type="sandbox",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        result = await self.db.execute(
+            select(SandboxProvider)
+            .where(SandboxProvider.id == provider_id)
+            .where(access_clause)
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_owner_and_type(
         self,

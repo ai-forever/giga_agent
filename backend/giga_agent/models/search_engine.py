@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 
 
 class SearchEngine(Base):
@@ -154,6 +155,48 @@ class SearchEngineRepository:
         query = query.order_by(SearchEngine.created_at.desc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[SearchEngine]:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            SearchEngine,
+            user_id=user_id,
+            resource_type="search_engine",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        query = select(SearchEngine).where(access_clause)
+        if only_active:
+            query = query.where(SearchEngine.is_active == True)  # noqa: E712
+        query = query.order_by(SearchEngine.created_at.desc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_by_id_readable(
+        self,
+        engine_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SearchEngine | None:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            SearchEngine,
+            user_id=user_id,
+            resource_type="search_engine",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        result = await self.db.execute(
+            select(SearchEngine).where(SearchEngine.id == engine_id).where(access_clause)
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_owner_and_type(
         self,

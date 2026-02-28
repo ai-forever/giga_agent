@@ -3,7 +3,7 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
@@ -270,6 +270,49 @@ class LLMsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertIn("not compatible", response.json()["detail"])
+
+    def test_get_llms_uses_readable_scope(self):
+        readable = [self._llm_obj(), self._llm_obj()]
+        payload = [self._llm_payload(item) for item in readable]
+
+        with patch(
+            "giga_agent.routes.llms.LLMRepository.get_readable_for_user",
+            AsyncMock(return_value=readable),
+        ) as mocked_get, patch(
+            "giga_agent.routes.llms.LLMRepository.to_response",
+            side_effect=payload,
+        ):
+            response = self.client.get("/llms")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 2)
+        self.assertEqual(mocked_get.await_args.args[0], self.user.id)
+
+    def test_get_llm_uses_read_check(self):
+        llm = self._llm_obj()
+        with patch(
+            "giga_agent.routes.llms._get_llm_with_read_check",
+            AsyncMock(return_value=llm),
+        ) as mocked_get, patch(
+            "giga_agent.routes.llms.LLMRepository.to_response",
+            return_value=self._llm_payload(llm),
+        ):
+            response = self.client.get(f"/llms/{llm.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], str(llm.id))
+        self.assertEqual(mocked_get.await_args.kwargs["user_id"], self.user.id)
+
+    def test_get_llm_returns_403_when_no_read_access(self):
+        llm_id = uuid.uuid4()
+        with patch(
+            "giga_agent.routes.llms._get_llm_with_read_check",
+            AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
+        ):
+            response = self.client.get(f"/llms/{llm_id}")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "Access denied")
 
     def test_patch_llm_updates_connector_and_invalidates_tags(self):
         llm_id = uuid.uuid4()

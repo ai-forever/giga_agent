@@ -124,8 +124,8 @@ async def list_files(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
 ):
-    files = await repo.get_by_owner(
-        owner_id=current_user.id,
+    files = await repo.get_readable_for_user(
+        user_id=current_user.id,
         provider_id=provider_id,
         skip=skip,
         limit=limit,
@@ -143,10 +143,21 @@ async def read_file_content(
         description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
     ),
 ):
+    repo = FileRepository(db)
+    readable_file = await repo.get_by_id_readable(
+        file_id,
+        user_id=current_user.id,
+    )
+    if readable_file is None:
+        existing = await repo.get_by_id(file_id)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     manager = SandboxManager(db)
     try:
         file, result = await manager.read_file_for_user(
-            owner_id=current_user.id,
+            owner_id=readable_file.owner_id,
             file_id=file_id,
         )
     except ValueError as e:
@@ -173,11 +184,22 @@ async def read_file_content_by_path(
         description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
     ),
 ):
+    repo = FileRepository(db)
+    readable_file = await repo.get_by_path_readable(
+        user_id=current_user.id,
+        sandbox_path=path,
+    )
+    if readable_file is None:
+        existing = await repo.get_by_path_any_owner(sandbox_path=path)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     manager = SandboxManager(db)
     try:
-        file, result = await manager.read_file_by_path_for_user(
-            owner_id=current_user.id,
-            sandbox_path=path,
+        file, result = await manager.read_file_for_user(
+            owner_id=readable_file.owner_id,
+            file_id=readable_file.id,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

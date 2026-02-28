@@ -123,6 +123,30 @@ async def _get_connector_with_owner_check(
     return connector
 
 
+async def _get_connector_with_read_check(
+    *,
+    connector_id: uuid.UUID,
+    user_id: uuid.UUID,
+    connector_repo: ConnectorRepository,
+) -> Connector:
+    connector = await connector_repo.get_by_id(connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
+    readable_connector = await connector_repo.get_by_id_readable(
+        connector_id,
+        user_id=user_id,
+    )
+    if readable_connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return readable_connector
+
+
 async def _validate_type_change_compatibility(
     *,
     connector_id: uuid.UUID,
@@ -269,7 +293,10 @@ async def get_connectors(
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
     only_active: bool = Query(False, description="Only active connectors"),
 ):
-    items = await connector_repo.get_by_owner(current_user.id, only_active=only_active)
+    items = await connector_repo.get_readable_for_user(
+        current_user.id,
+        only_active=only_active,
+    )
     return [ConnectorRepository.to_response(item) for item in items]
 
 
@@ -279,9 +306,9 @@ async def get_connector(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    connector = await _get_connector_with_owner_check(
+    connector = await _get_connector_with_read_check(
         connector_id=connector_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_repo=connector_repo,
     )
     return ConnectorRepository.to_response(connector)

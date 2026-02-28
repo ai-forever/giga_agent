@@ -66,6 +66,29 @@ async def get_provider_with_owner_check(
     return provider
 
 
+async def get_provider_with_read_check(
+    provider_id: uuid.UUID,
+    user_id: uuid.UUID,
+    provider_repo: SandboxProviderRepository,
+) -> SandboxProvider:
+    provider = await provider_repo.get_by_id(provider_id)
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sandbox provider not found",
+        )
+    readable_provider = await provider_repo.get_by_id_readable(
+        provider_id,
+        user_id=user_id,
+    )
+    if readable_provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return readable_provider
+
+
 async def validate_provider_settings(provider_type: str, settings: dict[str, Any]) -> dict[str, Any]:
     """
     Валидировать settings через схему runtime-класса провайдера.
@@ -139,8 +162,8 @@ async def get_sandbox_providers(
     only_active: bool = Query(False, description="Только активные"),
 ):
     """Получить список провайдеров песочниц текущего пользователя."""
-    providers = await provider_repo.get_by_owner(
-        owner_id=current_user.id,
+    providers = await provider_repo.get_readable_for_user(
+        user_id=current_user.id,
         only_active=only_active,
     )
     return [SandboxProviderRepository.to_response(p) for p in providers]
@@ -185,7 +208,7 @@ async def get_sandbox_provider(
     provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
 ):
     """Получить провайдера по ID."""
-    provider = await get_provider_with_owner_check(
+    provider = await get_provider_with_read_check(
         provider_id, current_user.id, provider_repo
     )
     return SandboxProviderRepository.to_response(provider)

@@ -90,7 +90,7 @@ class ConnectorsRouterTests(unittest.TestCase):
     def test_get_connectors_success(self):
         connector = self._connector_obj()
         with patch(
-            "giga_agent.routes.connectors.ConnectorRepository.get_by_owner",
+            "giga_agent.routes.connectors.ConnectorRepository.get_readable_for_user",
             AsyncMock(return_value=[connector]),
         ), patch(
             "giga_agent.routes.connectors.ConnectorRepository.to_response",
@@ -132,7 +132,7 @@ class ConnectorsRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        mocked_validate_compat.assert_awaited_once()
+        mocked_validate_compat.assert_not_awaited()
         self.assertEqual(response.json()["type"], "gigachat")
 
     def test_delete_connector_success(self):

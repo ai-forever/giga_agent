@@ -76,6 +76,30 @@ async def _get_llm_with_owner_check(
     return llm
 
 
+async def _get_llm_with_read_check(
+    *,
+    llm_id: uuid.UUID,
+    user_id: uuid.UUID,
+    llm_repo: LLMRepository,
+) -> LLM:
+    llm = await llm_repo.get_by_id(llm_id)
+    if llm is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="LLM not found",
+        )
+    readable_llm = await llm_repo.get_by_id_readable(
+        llm_id,
+        user_id=user_id,
+    )
+    if readable_llm is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return readable_llm
+
+
 async def _get_connector_with_owner_check(
     *,
     connector_id: uuid.UUID,
@@ -260,7 +284,10 @@ async def get_llms(
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
     only_active: bool = Query(False, description="Only active LLMs"),
 ):
-    items = await llm_repo.get_by_owner(current_user.id, only_active=only_active)
+    items = await llm_repo.get_readable_for_user(
+        current_user.id,
+        only_active=only_active,
+    )
     return [LLMRepository.to_response(item) for item in items]
 
 
@@ -349,9 +376,9 @@ async def get_llm(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
 ):
-    llm = await _get_llm_with_owner_check(
+    llm = await _get_llm_with_read_check(
         llm_id=llm_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         llm_repo=llm_repo,
     )
     return LLMRepository.to_response(llm)

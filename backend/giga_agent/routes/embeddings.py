@@ -255,6 +255,30 @@ async def _get_embedding_with_owner_check(
     return embedding
 
 
+async def _get_embedding_with_read_check(
+    *,
+    embedding_id: uuid.UUID,
+    user_id: uuid.UUID,
+    embedding_repo: EmbeddingRepository,
+) -> Embedding:
+    embedding = await embedding_repo.get_by_id(embedding_id)
+    if embedding is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Embedding not found",
+        )
+    readable_embedding = await embedding_repo.get_by_id_readable(
+        embedding_id,
+        user_id=user_id,
+    )
+    if readable_embedding is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return readable_embedding
+
+
 async def _get_user_model(
     *,
     db: AsyncSession,
@@ -386,7 +410,10 @@ async def get_embeddings(
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
     only_active: bool = Query(False, description="Only active embeddings"),
 ):
-    items = await embedding_repo.get_by_owner(current_user.id, only_active=only_active)
+    items = await embedding_repo.get_readable_for_user(
+        current_user.id,
+        only_active=only_active,
+    )
     return [EmbeddingRepository.to_response(item) for item in items]
 
 
@@ -495,9 +522,9 @@ async def get_embedding(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
 ):
-    embedding = await _get_embedding_with_owner_check(
+    embedding = await _get_embedding_with_read_check(
         embedding_id=embedding_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         embedding_repo=embedding_repo,
     )
     return EmbeddingRepository.to_response(embedding)

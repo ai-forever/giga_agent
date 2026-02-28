@@ -159,6 +159,30 @@ async def _get_engine_with_owner_check(
     return engine
 
 
+async def _get_engine_with_read_check(
+    *,
+    engine_id: uuid.UUID,
+    user_id: uuid.UUID,
+    engine_repo: SearchEngineRepository,
+) -> SearchEngine:
+    engine = await engine_repo.get_by_id(engine_id)
+    if engine is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Search engine not found",
+        )
+    readable_engine = await engine_repo.get_by_id_readable(
+        engine_id,
+        user_id=user_id,
+    )
+    if readable_engine is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return readable_engine
+
+
 async def _get_user_model(
     *,
     db: AsyncSession,
@@ -259,7 +283,10 @@ async def get_search_engines(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     only_active: bool = Query(False, description="Only active search engines"),
 ):
-    engines = await engine_repo.get_by_owner(current_user.id, only_active=only_active)
+    engines = await engine_repo.get_readable_for_user(
+        current_user.id,
+        only_active=only_active,
+    )
     return [SearchEngineRepository.to_response(engine) for engine in engines]
 
 
@@ -269,9 +296,9 @@ async def get_search_engine(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
 ):
-    engine = await _get_engine_with_owner_check(
+    engine = await _get_engine_with_read_check(
         engine_id=engine_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         engine_repo=engine_repo,
     )
     return SearchEngineRepository.to_response(engine)

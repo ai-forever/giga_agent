@@ -162,6 +162,30 @@ async def _get_generator_with_owner_check(
     return generator
 
 
+async def _get_generator_with_read_check(
+    *,
+    generator_id: uuid.UUID,
+    user_id: uuid.UUID,
+    generator_repo: ImageGeneratorRepository,
+) -> ImageGenerator:
+    generator = await generator_repo.get_by_id(generator_id)
+    if generator is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Image generator not found",
+        )
+    readable_generator = await generator_repo.get_by_id_readable(
+        generator_id,
+        user_id=user_id,
+    )
+    if readable_generator is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+    return readable_generator
+
+
 async def _get_user_model(
     *,
     db: AsyncSession,
@@ -264,7 +288,10 @@ async def get_image_generators(
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
     only_active: bool = Query(False, description="Only active image generators"),
 ):
-    generators = await generator_repo.get_by_owner(current_user.id, only_active=only_active)
+    generators = await generator_repo.get_readable_for_user(
+        current_user.id,
+        only_active=only_active,
+    )
     return [ImageGeneratorRepository.to_response(g) for g in generators]
 
 
@@ -274,9 +301,9 @@ async def get_image_generator(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
 ):
-    generator = await _get_generator_with_owner_check(
+    generator = await _get_generator_with_read_check(
         generator_id=generator_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         generator_repo=generator_repo,
     )
     return ImageGeneratorRepository.to_response(generator)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 
 
 class Connector(Base):
@@ -139,6 +140,48 @@ class ConnectorRepository:
         query = query.order_by(Connector.created_at.desc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[Connector]:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            Connector,
+            user_id=user_id,
+            resource_type="connector",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        query = select(Connector).where(access_clause)
+        if only_active:
+            query = query.where(Connector.is_active == True)  # noqa: E712
+        query = query.order_by(Connector.created_at.desc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_by_id_readable(
+        self,
+        connector_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> Connector | None:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            Connector,
+            user_id=user_id,
+            resource_type="connector",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        result = await self.db.execute(
+            select(Connector).where(Connector.id == connector_id).where(access_clause)
+        )
+        return result.scalar_one_or_none()
 
     async def create(
         self,

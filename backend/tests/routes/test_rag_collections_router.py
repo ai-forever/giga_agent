@@ -34,8 +34,12 @@ class RagCollectionsRouterTests(unittest.TestCase):
         embedding_id = uuid.uuid4()
 
         repo_instance = Mock()
-        repo_instance.get_by_id = AsyncMock(
-            return_value=types.SimpleNamespace(id=collection_id, embedding_id=embedding_id)
+        repo_instance.get_by_id_any = AsyncMock(
+            return_value=types.SimpleNamespace(
+                id=collection_id,
+                embedding_id=embedding_id,
+                owner_id=self.user.id,
+            )
         )
         repo_instance.delete = AsyncMock(return_value=True)
 
@@ -101,7 +105,7 @@ class RagCollectionsRouterTests(unittest.TestCase):
         collection_id = uuid.uuid4()
 
         repo_instance = Mock()
-        repo_instance.get_by_id = AsyncMock(return_value=None)
+        repo_instance.get_by_id_any = AsyncMock(return_value=None)
 
         with patch(
             "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
@@ -129,4 +133,3 @@ class RagCollectionsRouterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

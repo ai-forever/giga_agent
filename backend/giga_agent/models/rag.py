@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 
 
 class RagCollection(Base):
@@ -124,6 +125,27 @@ class RagCollectionsRepository:
         )
         return list(result.scalars().all())
 
+    async def list_readable_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[RagCollection]:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            RagCollection,
+            user_id=user_id,
+            resource_type="rag_collection",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        result = await self.db.execute(
+            select(RagCollection)
+            .where(access_clause)
+            .order_by(RagCollection.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def get_by_id(
         self, *, owner_id: uuid.UUID, collection_id: uuid.UUID
     ) -> RagCollection | None:
@@ -133,6 +155,49 @@ class RagCollectionsRepository:
             .where(RagCollection.owner_id == owner_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_by_id_any(self, *, collection_id: uuid.UUID) -> RagCollection | None:
+        result = await self.db.execute(
+            select(RagCollection).where(RagCollection.id == collection_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_readable(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> RagCollection | None:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            RagCollection,
+            user_id=user_id,
+            resource_type="rag_collection",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        result = await self.db.execute(
+            select(RagCollection)
+            .where(RagCollection.id == collection_id)
+            .where(access_clause)
+        )
+        return result.scalar_one_or_none()
+
+    async def can_write(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> bool:
+        return await ResourcePermissionRepository(self.db).has_access(
+            user_id=user_id,
+            resource_type="rag_collection",
+            resource_id=collection_id,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
 
     async def create(
         self,
@@ -221,6 +286,35 @@ class RagDocumentsRepository:
             .offset(offset)
         )
         return list(result.scalars().all())
+
+    async def list_by_collection_any_owner(
+        self,
+        *,
+        collection_id: uuid.UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[RagDocument]:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.collection_id == collection_id)
+            .order_by(RagDocument.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
+    async def get_by_id_any_owner(
+        self,
+        *,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> RagDocument | None:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.id == document_id)
+            .where(RagDocument.collection_id == collection_id)
+        )
+        return result.scalar_one_or_none()
 
     async def create(
         self,

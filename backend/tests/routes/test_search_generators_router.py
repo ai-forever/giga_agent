@@ -225,7 +225,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         engine_id = uuid.uuid4()
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            "giga_agent.routes.search_engines._get_engine_with_read_check",
             AsyncMock(
                 side_effect=HTTPException(
                     status_code=403,
@@ -241,7 +241,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         engine_id = uuid.uuid4()
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            "giga_agent.routes.search_engines._get_engine_with_read_check",
             AsyncMock(
                 side_effect=HTTPException(
                     status_code=404,

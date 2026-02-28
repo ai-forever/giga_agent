@@ -12,6 +12,7 @@ from sqlalchemy.sql import func
 from giga_agent.core.db import Base, JSON_VARIANT
 from giga_agent.llm.base import AvailableModel, ModelFetchError
 from giga_agent.models.connector import Connector  # noqa: F401
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 
 # Ensure runtimes are registered.
 import giga_agent.connectors  # noqa: F401
@@ -205,6 +206,48 @@ class LLMRepository:
         query = query.order_by(LLM.created_at.desc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[LLM]:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            LLM,
+            user_id=user_id,
+            resource_type="llm",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        query = select(LLM).where(access_clause)
+        if only_active:
+            query = query.where(LLM.is_active == True)  # noqa: E712
+        query = query.order_by(LLM.created_at.desc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_by_id_readable(
+        self,
+        llm_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> LLM | None:
+        permission_repo = ResourcePermissionRepository(self.db)
+        access_clause = await permission_repo.build_access_clause(
+            LLM,
+            user_id=user_id,
+            resource_type="llm",
+            permission="read",
+            user_group_ids=user_group_ids,
+        )
+        result = await self.db.execute(
+            select(LLM).where(LLM.id == llm_id).where(access_clause)
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_connector(
         self,
