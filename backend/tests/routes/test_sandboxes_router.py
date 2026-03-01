@@ -1,14 +1,16 @@
 import types
 import unittest
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.routes.sandboxes import router
+from giga_agent.sandbox.manager import SandboxBusyError, StorageOperationError
 
 
 class SandboxesRouterTests(unittest.TestCase):
@@ -57,6 +59,26 @@ class SandboxesRouterTests(unittest.TestCase):
             "created_at": provider_obj.created_at,
             "updated_at": provider_obj.updated_at,
         }
+
+    def _sandbox_obj(
+        self,
+        *,
+        provider_id: uuid.UUID,
+        owner_id: uuid.UUID | None = None,
+        sandbox_id: uuid.UUID | None = None,
+        status: str = "running",
+        started_at: datetime | None = None,
+        stopped_at: datetime | None = None,
+    ):
+        now = datetime.now(timezone.utc)
+        return types.SimpleNamespace(
+            id=sandbox_id or uuid.uuid4(),
+            provider_id=provider_id,
+            owner_id=owner_id or self.user.id,
+            status=status,
+            started_at=started_at or now,
+            stopped_at=stopped_at,
+        )
 
     def test_create_first_provider_auto_sets_user_sandbox_provider_id(self):
         provider = self._provider_obj()
@@ -240,3 +262,191 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertIsNone(user_model.sandbox_provider_id)
         self.db.commit.assert_awaited()
         mocked_invalidate_cache.assert_awaited_once_with(self.user.id)
+
+    def test_get_provider_sandboxes_returns_rows_with_owner_email_and_can_stop(self):
+        provider = self._provider_obj()
+        own_sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=self.user.id)
+        foreign_owner = uuid.uuid4()
+        foreign_sandbox = self._sandbox_obj(
+            provider_id=provider.id,
+            owner_id=foreign_owner,
+            status="stopped",
+            stopped_at=datetime.now(timezone.utc),
+        )
+
+        execute_result = types.SimpleNamespace(
+            all=lambda: [
+                (self.user.id, "self@example.com"),
+                (foreign_owner, "foreign@example.com"),
+            ]
+        )
+        self.db.execute = AsyncMock(return_value=execute_result)
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, False)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider",
+            AsyncMock(return_value=[own_sandbox, foreign_sandbox]),
+        ):
+            response = self.client.get(f"/sandboxes/providers/{provider.id}/sandboxes")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload), 2)
+        row_by_id = {item["id"]: item for item in payload}
+        self.assertEqual(row_by_id[str(own_sandbox.id)]["owner_email"], "self@example.com")
+        self.assertTrue(row_by_id[str(own_sandbox.id)]["can_stop"])
+        self.assertEqual(
+            row_by_id[str(foreign_sandbox.id)]["owner_email"],
+            "foreign@example.com",
+        )
+        self.assertFalse(row_by_id[str(foreign_sandbox.id)]["can_stop"])
+
+    def test_get_provider_sandboxes_forbidden_without_read_access(self):
+        provider_id = uuid.uuid4()
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied",
+                )
+            ),
+        ):
+            response = self.client.get(f"/sandboxes/providers/{provider_id}/sandboxes")
+        self.assertEqual(response.status_code, 403)
+
+    def test_stop_provider_sandbox_allows_editor_for_any_owner(self):
+        provider = self._provider_obj()
+        foreign_owner = uuid.uuid4()
+        sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=foreign_owner)
+        stopped = self._sandbox_obj(
+            provider_id=provider.id,
+            owner_id=foreign_owner,
+            sandbox_id=sandbox.id,
+            status="stopped",
+            stopped_at=datetime.now(timezone.utc),
+        )
+        self.db.get = AsyncMock(return_value=types.SimpleNamespace(email="foreign@example.com"))
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, True)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(side_effect=[sandbox, stopped]),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxManager.stop",
+            AsyncMock(return_value=stopped),
+        ) as mocked_stop:
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "stopped")
+        mocked_stop.assert_awaited_once_with(sandbox.id)
+
+    def test_stop_provider_sandbox_allows_owner_without_provider_edit(self):
+        provider = self._provider_obj()
+        sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=self.user.id)
+        stopped = self._sandbox_obj(
+            provider_id=provider.id,
+            owner_id=self.user.id,
+            sandbox_id=sandbox.id,
+            status="stopped",
+            stopped_at=datetime.now(timezone.utc),
+        )
+        self.db.get = AsyncMock(return_value=types.SimpleNamespace(email="self@example.com"))
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, False)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(side_effect=[sandbox, stopped]),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxManager.stop",
+            AsyncMock(return_value=stopped),
+        ):
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["can_stop"])
+
+    def test_stop_provider_sandbox_forbidden_for_non_owner_without_edit(self):
+        provider = self._provider_obj()
+        sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=uuid.uuid4())
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, False)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(return_value=sandbox),
+        ):
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_stop_provider_sandbox_returns_404_for_wrong_provider_binding(self):
+        provider = self._provider_obj()
+        sandbox_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, True)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox_id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_stop_provider_sandbox_maps_busy_error_to_409(self):
+        provider = self._provider_obj()
+        sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=self.user.id)
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, True)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(return_value=sandbox),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxManager.stop",
+            AsyncMock(side_effect=SandboxBusyError("busy")),
+        ):
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_stop_provider_sandbox_maps_storage_error_to_500(self):
+        provider = self._provider_obj()
+        sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=self.user.id)
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, True)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(return_value=sandbox),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxManager.stop",
+            AsyncMock(side_effect=StorageOperationError("failed")),
+        ):
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 500)

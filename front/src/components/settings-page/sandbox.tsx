@@ -7,6 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -37,6 +52,17 @@ interface SandboxProviderResponse {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+interface SandboxInstanceResponse {
+  id: string;
+  provider_id: string;
+  owner_id: string;
+  owner_email: string | null;
+  status: string;
+  started_at: string | null;
+  stopped_at: string | null;
+  can_stop: boolean;
 }
 
 interface JsonSchemaProperty {
@@ -77,6 +103,16 @@ function isNullable(property: JsonSchemaProperty): boolean {
     return property.anyOf.some((t) => t.type === "null");
   }
   return false;
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat("ru-RU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(parsed);
 }
 
 interface SettingsFormProps {
@@ -169,6 +205,7 @@ interface ProviderCardProps {
   onEdit: () => void;
   onDelete: () => void;
   onActivate: () => void;
+  onOpenSandboxes: () => void;
   disabled?: boolean;
 }
 
@@ -178,6 +215,7 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
   onEdit,
   onDelete,
   onActivate,
+  onOpenSandboxes,
   disabled,
 }) => {
   return (
@@ -199,6 +237,14 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
         </span>
       </div>
       <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onOpenSandboxes}
+          disabled={disabled}
+        >
+          Sandboxes
+        </Button>
         {!isUserActive && (
           <Button
             variant="outline"
@@ -259,6 +305,17 @@ export const SandboxSettings: React.FC = () => {
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sandboxesModalOpen, setSandboxesModalOpen] = useState(false);
+  const [sandboxesProvider, setSandboxesProvider] =
+    useState<SandboxProviderResponse | null>(null);
+  const [providerSandboxes, setProviderSandboxes] = useState<
+    SandboxInstanceResponse[]
+  >([]);
+  const [loadingProviderSandboxes, setLoadingProviderSandboxes] =
+    useState(false);
+  const [stoppingSandboxId, setStoppingSandboxId] = useState<string | null>(
+    null,
+  );
   const [loadingPermissions, setLoadingPermissions] = useState(false);
   const [createPermissions, setCreatePermissions] =
     useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
@@ -311,6 +368,20 @@ export const SandboxSettings: React.FC = () => {
       setSettingsSchema(null);
     } finally {
       setLoadingSchema(false);
+    }
+  }, []);
+
+  const fetchProviderSandboxes = useCallback(async (providerId: string) => {
+    setLoadingProviderSandboxes(true);
+    try {
+      const data = await apiClient.get<SandboxInstanceResponse[]>(
+        `${API_AGENT_PREFIX}/sandboxes/providers/${providerId}/sandboxes`,
+      );
+      setProviderSandboxes(data);
+    } catch {
+      // handled globally
+    } finally {
+      setLoadingProviderSandboxes(false);
     }
   }, []);
 
@@ -519,6 +590,43 @@ export const SandboxSettings: React.FC = () => {
     }
   };
 
+  const handleOpenSandboxes = (provider: SandboxProviderResponse) => {
+    setSandboxesProvider(provider);
+    setProviderSandboxes([]);
+    setStoppingSandboxId(null);
+    setSandboxesModalOpen(true);
+    void fetchProviderSandboxes(provider.id);
+  };
+
+  const handleSandboxesModalChange = (open: boolean) => {
+    setSandboxesModalOpen(open);
+    if (!open) {
+      setSandboxesProvider(null);
+      setProviderSandboxes([]);
+      setStoppingSandboxId(null);
+      setLoadingProviderSandboxes(false);
+    }
+  };
+
+  const handleStopSandbox = async (sandbox: SandboxInstanceResponse) => {
+    if (!sandboxesProvider || stoppingSandboxId) return;
+    setStoppingSandboxId(sandbox.id);
+    try {
+      const updated = await apiClient.post<SandboxInstanceResponse>(
+        `${API_AGENT_PREFIX}/sandboxes/providers/${sandboxesProvider.id}/sandboxes/${sandbox.id}/stop`,
+        {},
+      );
+      setProviderSandboxes((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      toast.success("Sandbox остановлен");
+    } catch {
+      // handled globally
+    } finally {
+      setStoppingSandboxId(null);
+    }
+  };
+
   const isFormOpen = isCreating || editingProviderId !== null;
 
   if (loadingProviders) {
@@ -556,6 +664,7 @@ export const SandboxSettings: React.FC = () => {
               onActivate={() => handleActivate(provider.id)}
               onEdit={() => handleStartEdit(provider)}
               onDelete={() => handleDelete(provider.id)}
+              onOpenSandboxes={() => handleOpenSandboxes(provider)}
               disabled={saving}
             />
           ))}
@@ -706,6 +815,103 @@ export const SandboxSettings: React.FC = () => {
           </div>
         </div>
       )}
+
+      <Dialog open={sandboxesModalOpen} onOpenChange={handleSandboxesModalChange}>
+        <DialogContent className="sandboxes-modal w-[900px] min-h-0 max-h-[85vh] overflow-hidden sm:max-w-6xl grid-rows-[auto_1fr]">
+          <DialogHeader>
+            <DialogTitle>
+              Sandboxes:{" "}
+              {sandboxesProvider
+                ? sandboxesProvider.name || sandboxesProvider.type.toUpperCase()
+                : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Список sandbox'ов провайдера и управление running-инстансами
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 overflow-auto">
+            {loadingProviderSandboxes ? (
+              <div className="flex items-center justify-center py-10 text-muted-foreground">
+                <Loader2 className="size-5 animate-spin mr-2" />
+                Загрузка sandbox'ов...
+              </div>
+            ) : providerSandboxes.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6">
+                Sandbox'ы не найдены
+              </p>
+            ) : (
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[38%]">Юзер</TableHead>
+                    <TableHead className="w-[38%]">
+                      Когда запущен или остановлен
+                    </TableHead>
+                    <TableHead className="w-[12%] min-w-[120px]">
+                      Статус
+                    </TableHead>
+                    <TableHead className="w-[12%] min-w-[120px] text-right">
+                      Действие
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {providerSandboxes.map((item) => {
+                    const isRunning = item.status === "running";
+                    const owner = item.owner_email || item.owner_id;
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell className="max-w-[520px] truncate" title={owner}>
+                          {owner}
+                        </TableCell>
+                        <TableCell className="min-w-[240px]">
+                          {formatDateTime(
+                            isRunning ? item.started_at : item.stopped_at,
+                          )}
+                        </TableCell>
+                        <TableCell className="min-w-[120px]">
+                          <Badge
+                            variant={
+                              isRunning
+                                ? "default"
+                                : item.status === "stopped"
+                                  ? "secondary"
+                                  : "outline"
+                            }
+                          >
+                            {item.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right min-w-[120px]">
+                          {isRunning && item.can_stop ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStopSandbox(item)}
+                              disabled={stoppingSandboxId !== null}
+                            >
+                              {stoppingSandboxId === item.id ? (
+                                <>
+                                  <Loader2 className="size-4 animate-spin mr-2" />
+                                  Stop...
+                                </>
+                              ) : (
+                                "Stop"
+                              )}
+                            </Button>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

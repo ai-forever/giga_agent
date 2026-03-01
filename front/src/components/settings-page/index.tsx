@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React from "react";
 import { ArrowLeft } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GeneralSettings } from "./general";
@@ -11,18 +11,30 @@ import { ImageGeneratorsSettings } from "./image-generators";
 import { SearchEnginesSettings } from "./search-engines";
 import { ServicesSettings } from "./services";
 
-type SettingsTab =
-  | "general"
-  | "llm"
-  | "embedding"
-  | "services"
-  | "sandbox"
-  | "image"
-  | "search";
+const SETTINGS_TABS = [
+  "general",
+  "llm",
+  "embedding",
+  "services",
+  "sandbox",
+  "image",
+  "search",
+] as const;
+
+type SettingsTab = (typeof SETTINGS_TABS)[number];
+
+const isSettingsTab = (value: string | undefined): value is SettingsTab =>
+  value !== undefined && SETTINGS_TABS.includes(value as SettingsTab);
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const { tab } = useParams<{ tab?: string }>();
+
+  if (!isSettingsTab(tab)) {
+    return <Navigate to="/settings/general" replace />;
+  }
+
+  const activeTab = tab;
 
   const tabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "Основные" },
@@ -77,7 +89,7 @@ const SettingsPage: React.FC = () => {
               key={tab.id}
               variant={activeTab === tab.id ? "default" : "outline"}
               className="cursor-pointer px-4 py-1.5 text-sm"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => navigate(`/settings/${tab.id}`)}
             >
               {tab.label}
             </Badge>

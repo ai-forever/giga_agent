@@ -224,6 +224,17 @@ class SandboxResponse(SandboxBase):
         from_attributes = True
 
 
+class SandboxProviderInstanceResponse(BaseModel):
+    id: uuid.UUID
+    provider_id: uuid.UUID
+    owner_id: uuid.UUID
+    owner_email: str | None = None
+    status: str
+    started_at: datetime | None = None
+    stopped_at: datetime | None = None
+    can_stop: bool = False
+
+
 class SandboxProviderSnapshot(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
@@ -577,6 +588,19 @@ class SandboxRepository:
         )
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_by_provider_and_id(
+        self,
+        provider_id: uuid.UUID,
+        sandbox_id: uuid.UUID,
+    ) -> Sandbox | None:
+        """Получить sandbox по ID в рамках провайдера."""
+        result = await self.db.execute(
+            select(Sandbox)
+            .where(Sandbox.provider_id == provider_id)
+            .where(Sandbox.id == sandbox_id)
+        )
+        return result.scalar_one_or_none()
 
     async def get_idle_sandboxes(self) -> list[Sandbox]:
         """

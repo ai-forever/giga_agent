@@ -5,6 +5,8 @@ Endpoints:
 - POST /sandboxes/providers - Создать провайдера
 - GET /sandboxes/providers - Получить провайдеров пользователя
 - GET /sandboxes/providers/types - Получить доступные типы провайдеров
+- GET /sandboxes/providers/{provider_id}/sandboxes - Получить sandbox'ы провайдера
+- POST /sandboxes/providers/{provider_id}/sandboxes/{sandbox_id}/stop - Остановить sandbox провайдера
 - GET /sandboxes/providers/{provider_id} - Получить провайдера по ID
 - GET /sandboxes/providers/{provider_id}/settings-schema - Получить схему settings для типа провайдера
 - PATCH /sandboxes/providers/{provider_id} - Обновить провайдера
@@ -17,6 +19,7 @@ from typing import Annotated, Any
 from cashews import cache
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
@@ -26,11 +29,20 @@ from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxProviderCreate,
+    SandboxProviderInstanceResponse,
     SandboxProviderUpdate,
     SandboxProviderResponse,
     SandboxProviderRepository,
+    SandboxRepository,
+    SandboxStatus,
 )
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.sandbox.manager import (
+    SandboxBusyError,
+    SandboxManager,
+    SandboxNotFoundError,
+    StorageOperationError,
+)
 from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
@@ -89,6 +101,24 @@ async def validate_provider_settings(provider_type: str, settings: dict[str, Any
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         )
+
+
+def _to_provider_instance_response(
+    *,
+    owner_email: str | None,
+    can_stop: bool,
+    sandbox,
+) -> SandboxProviderInstanceResponse:
+    return SandboxProviderInstanceResponse(
+        id=sandbox.id,
+        provider_id=sandbox.provider_id,
+        owner_id=sandbox.owner_id,
+        owner_email=owner_email,
+        status=sandbox.status,
+        started_at=sandbox.started_at,
+        stopped_at=sandbox.stopped_at,
+        can_stop=can_stop,
+    )
 
 
 # ============ Provider Endpoints ============
@@ -168,6 +198,112 @@ async def get_sandbox_provider_types(
 ):
     """Получить список доступных типов провайдеров (зарегистрированных в registry)."""
     return SandboxRegistry.available_types()
+
+
+@router.get(
+    "/providers/{provider_id}/sandboxes",
+    response_model=list[SandboxProviderInstanceResponse],
+)
+async def get_provider_sandboxes(
+    provider_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+):
+    """Получить список sandbox'ов конкретного провайдера."""
+    _, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=provider_id,
+        user_id=current_user.id,
+        repository=provider_repo,
+        not_found_detail="Sandbox provider not found",
+    )
+    sandbox_repo = SandboxRepository(provider_repo.db)
+    sandboxes = await sandbox_repo.get_by_provider(provider_id)
+    owner_ids = {item.owner_id for item in sandboxes}
+    owner_email_by_id: dict[uuid.UUID, str | None] = {}
+    if owner_ids:
+        rows = await provider_repo.db.execute(
+            select(User.id, User.email).where(User.id.in_(owner_ids))
+        )
+        owner_email_by_id = {user_id: email for user_id, email in rows.all()}
+
+    return [
+        _to_provider_instance_response(
+            owner_email=owner_email_by_id.get(item.owner_id),
+            can_stop=can_edit or item.owner_id == current_user.id,
+            sandbox=item,
+        )
+        for item in sandboxes
+    ]
+
+
+@router.post(
+    "/providers/{provider_id}/sandboxes/{sandbox_id}/stop",
+    response_model=SandboxProviderInstanceResponse,
+)
+async def stop_provider_sandbox(
+    provider_id: uuid.UUID,
+    sandbox_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+):
+    """Остановить sandbox в рамках конкретного провайдера."""
+    _, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=provider_id,
+        user_id=current_user.id,
+        repository=provider_repo,
+        not_found_detail="Sandbox provider not found",
+    )
+    sandbox_repo = SandboxRepository(provider_repo.db)
+    sandbox = await sandbox_repo.get_by_provider_and_id(
+        provider_id=provider_id,
+        sandbox_id=sandbox_id,
+    )
+    if sandbox is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sandbox not found",
+        )
+
+    if not can_edit and sandbox.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    if sandbox.status not in (SandboxStatus.STOPPED, SandboxStatus.PENDING):
+        try:
+            await SandboxManager(provider_repo.db).stop(sandbox_id)
+        except SandboxNotFoundError as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e),
+            ) from e
+        except SandboxBusyError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e),
+            ) from e
+        except StorageOperationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e),
+            ) from e
+
+    current = await sandbox_repo.get_by_provider_and_id(
+        provider_id=provider_id,
+        sandbox_id=sandbox_id,
+    )
+    if current is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sandbox not found",
+        )
+    owner = await provider_repo.db.get(User, current.owner_id)
+    return _to_provider_instance_response(
+        owner_email=None if owner is None else owner.email,
+        can_stop=can_edit or current.owner_id == current_user.id,
+        sandbox=current,
+    )
 
 
 @router.get(
