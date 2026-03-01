@@ -2,7 +2,13 @@ from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.conf import (
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
+    GIGA_PREFIX_API,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
@@ -18,6 +24,7 @@ from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import router as api_router
+from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 
 NOTES_PROMPT = """
 ====
@@ -48,6 +55,7 @@ class BaseAgent(BaseModel):
         default_factory=dict
     )
     _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
+    _idle_sandbox_sweeper: IdleSandboxSweeper | None = PrivateAttr(default=None)
 
     def get_modules(self) -> list[BaseModule]:
         return []
@@ -97,8 +105,14 @@ class BaseAgent(BaseModel):
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
             await self.run_startup_hooks()
-            yield
-            await shutdown_qdrant_client()
+            if self._idle_sandbox_sweeper is not None:
+                self._idle_sandbox_sweeper.start()
+            try:
+                yield
+            finally:
+                if self._idle_sandbox_sweeper is not None:
+                    await self._idle_sandbox_sweeper.stop()
+                await shutdown_qdrant_client()
 
         self._app = FastAPI(lifespan=_lifespan)
         self._app.state.agent = self
@@ -132,6 +146,12 @@ class BaseAgent(BaseModel):
         self._graph = create_graph(self, middleware=all_middleware)
         setattr(self.graph, "giga_agent", self)
         self.__check_for_unique_ids()
+        self._idle_sandbox_sweeper = IdleSandboxSweeper(
+            interval_sec=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
+            lock_key=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
+            lock_ttl_sec=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
+            enabled=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
+        )
 
     @property
     def app(self) -> FastAPI:
