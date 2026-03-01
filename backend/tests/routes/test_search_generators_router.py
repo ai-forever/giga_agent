@@ -188,6 +188,24 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             ],
         )
 
+    def test_get_search_engines_includes_can_edit(self):
+        owned = self._engine_obj()
+        writable = self._engine_obj(owner_id=uuid.uuid4())
+        readonly = self._engine_obj(owner_id=uuid.uuid4())
+
+        with patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.list_readable_with_edit_for_user",
+            AsyncMock(return_value=[(owned, True), (writable, True), (readonly, False)]),
+        ):
+            response = self.client.get("/search-engines")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        can_edit_by_id = {item["id"]: item["can_edit"] for item in payload}
+        self.assertTrue(can_edit_by_id[str(owned.id)])
+        self.assertTrue(can_edit_by_id[str(writable.id)])
+        self.assertFalse(can_edit_by_id[str(readonly.id)])
+
     def test_patch_with_type_returns_422(self):
         response = self.client.patch(
             f"/search-engines/{uuid.uuid4()}",
@@ -209,7 +227,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            "giga_agent.routes.search_engines._get_engine_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.search_engines._resolve_runtime_cls",
@@ -243,7 +261,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         updated = self._engine_obj(engine_id=engine_id, connector_id=existing.connector_id, is_active=False)
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            "giga_agent.routes.search_engines._get_engine_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.search_engines._resolve_runtime_cls",
@@ -274,7 +292,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         existing = self._engine_obj(engine_id=engine_id)
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_owner_check",
+            "giga_agent.routes.search_engines._get_engine_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.search_engines.SearchEngineRepository.delete",
@@ -290,15 +308,11 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
     def test_owner_check_returns_403(self):
         engine_id = uuid.uuid4()
+        engine = self._engine_obj(engine_id=engine_id)
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_read_check",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=403,
-                    detail="Access denied",
-                )
-            ),
+            "giga_agent.routes.search_engines.SearchEngineRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(engine, False, False)),
         ):
             response = self.client.get(f"/search-engines/{engine_id}")
 
@@ -308,13 +322,8 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         engine_id = uuid.uuid4()
 
         with patch(
-            "giga_agent.routes.search_engines._get_engine_with_read_check",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=404,
-                    detail="Search engine not found",
-                )
-            ),
+            "giga_agent.routes.search_engines.SearchEngineRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=None),
         ):
             response = self.client.get(f"/search-engines/{engine_id}")
 
@@ -323,39 +332,100 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
 class SearchEnginesConnectorValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_validate_connector_link_allows_missing_connector_for_supported_type(self):
-        connector_repo = types.SimpleNamespace(get_by_id=AsyncMock())
+        connector_repo = types.SimpleNamespace(get_by_id_with_access_for_user=AsyncMock())
         owner_id = uuid.uuid4()
 
         result = await _validate_connector_link(
-            owner_id=owner_id,
+            user_id=owner_id,
             connector_id=None,
             supported_connector_types=["tavily"],
             connector_repo=connector_repo,
         )
 
         self.assertIsNone(result)
-        connector_repo.get_by_id.assert_not_called()
+        connector_repo.get_by_id_with_access_for_user.assert_not_called()
 
     async def test_validate_connector_link_rejects_unsupported_connector_type(self):
         owner_id = uuid.uuid4()
         connector_id = uuid.uuid4()
         connector_repo = types.SimpleNamespace(
-            get_by_id=AsyncMock(
-                return_value=types.SimpleNamespace(
-                    id=connector_id,
-                    owner_id=owner_id,
-                    is_active=True,
-                    type="openai",
+            get_by_id_with_access_for_user=AsyncMock(
+                return_value=(
+                    types.SimpleNamespace(
+                        id=connector_id,
+                        owner_id=owner_id,
+                        is_active=True,
+                        type="openai",
+                    ),
+                    True,
+                    True,
                 )
             )
         )
 
         with self.assertRaises(HTTPException) as ctx:
             await _validate_connector_link(
-                owner_id=owner_id,
+                user_id=owner_id,
                 connector_id=connector_id,
                 supported_connector_types=["tavily"],
                 connector_repo=connector_repo,
             )
 
         self.assertEqual(ctx.exception.status_code, 422)
+
+    async def test_validate_connector_link_rejects_without_read_access(self):
+        owner_id = uuid.uuid4()
+        connector_id = uuid.uuid4()
+        connector_repo = types.SimpleNamespace(
+            get_by_id_with_access_for_user=AsyncMock(
+                return_value=(
+                    types.SimpleNamespace(
+                        id=connector_id,
+                        owner_id=uuid.uuid4(),
+                        is_active=True,
+                        type="tavily",
+                    ),
+                    False,
+                    False,
+                )
+            )
+        )
+
+        with self.assertRaises(HTTPException) as ctx:
+            await _validate_connector_link(
+                user_id=owner_id,
+                connector_id=connector_id,
+                supported_connector_types=["tavily", "openai"],
+                connector_repo=connector_repo,
+                require_owner=False,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    async def test_validate_connector_link_allows_read_for_non_owner(self):
+        owner_id = uuid.uuid4()
+        connector_id = uuid.uuid4()
+        connector_repo = types.SimpleNamespace(
+            get_by_id_with_access_for_user=AsyncMock(
+                return_value=(
+                    types.SimpleNamespace(
+                        id=connector_id,
+                        owner_id=uuid.uuid4(),
+                        is_active=True,
+                        type="tavily",
+                    ),
+                    True,
+                    False,
+                )
+            )
+        )
+
+        result = await _validate_connector_link(
+            user_id=owner_id,
+            connector_id=connector_id,
+            supported_connector_types=["tavily", "openai"],
+            connector_repo=connector_repo,
+            require_owner=False,
+        )
+
+        self.assertEqual(result, connector_id)

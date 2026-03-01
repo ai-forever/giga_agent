@@ -29,6 +29,7 @@ import {
 interface SandboxProviderResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: Record<string, unknown>;
@@ -208,22 +209,26 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
             Активировать
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onEdit}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onDelete}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {provider.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onEdit}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onDelete}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -342,6 +347,7 @@ export const SandboxSettings: React.FC = () => {
   };
 
   const handleStartEdit = (provider: SandboxProviderResponse) => {
+    if (!provider.can_edit) return;
     setSelectedType(provider.type);
     setSettingsValues(provider.settings);
     setProviderName(provider.name || "");
@@ -488,6 +494,8 @@ export const SandboxSettings: React.FC = () => {
   };
 
   const handleDelete = async (providerId: string) => {
+    const provider = providerList.find((item) => item.id === providerId);
+    if (!provider?.can_edit) return;
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены? Все sandbox'ы этого провайдера будут удалены."))
       return;

@@ -34,12 +34,13 @@ class RagCollectionsRouterTests(unittest.TestCase):
         embedding_id = uuid.uuid4()
 
         repo_instance = Mock()
-        repo_instance.get_by_id_any = AsyncMock(
-            return_value=types.SimpleNamespace(
-                id=collection_id,
-                embedding_id=embedding_id,
-                owner_id=self.user.id,
-            )
+        collection = types.SimpleNamespace(
+            id=collection_id,
+            embedding_id=embedding_id,
+            owner_id=self.user.id,
+        )
+        repo_instance.get_by_id_with_access_for_user = AsyncMock(
+            return_value=(collection, True, True)
         )
         repo_instance.delete = AsyncMock(return_value=True)
 
@@ -105,7 +106,7 @@ class RagCollectionsRouterTests(unittest.TestCase):
         collection_id = uuid.uuid4()
 
         repo_instance = Mock()
-        repo_instance.get_by_id_any = AsyncMock(return_value=None)
+        repo_instance.get_by_id_with_access_for_user = AsyncMock(return_value=None)
 
         with patch(
             "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
@@ -129,6 +130,47 @@ class RagCollectionsRouterTests(unittest.TestCase):
         mocked_docs_repo.assert_not_called()
         mocked_delete_file_by_path.assert_not_awaited()
         mocked_delete_by_filter.assert_not_awaited()
+
+    def test_list_collections_includes_can_edit(self) -> None:
+        owned = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=self.user.id,
+            name="owned",
+            metadata_={},
+        )
+        writable = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="writable",
+            metadata_={},
+        )
+        readonly = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            owner_id=uuid.uuid4(),
+            name="readonly",
+            metadata_={},
+        )
+        repo_instance = Mock()
+        repo_instance.list_readable_with_edit_for_user = AsyncMock(
+            return_value=[
+                (owned, True),
+                (writable, True),
+                (readonly, False),
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
+            return_value=repo_instance,
+        ):
+            resp = self.client.get("/collections")
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        can_edit_by_id = {item["uuid"]: item["can_edit"] for item in payload}
+        self.assertTrue(can_edit_by_id[str(owned.id)])
+        self.assertTrue(can_edit_by_id[str(writable.id)])
+        self.assertFalse(can_edit_by_id[str(readonly.id)])
 
 
 if __name__ == "__main__":

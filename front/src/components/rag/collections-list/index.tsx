@@ -66,14 +66,15 @@ export function CollectionsList({
             onClick={() => onSelect(collection.uuid)}
           >
             <span>{getCollectionName(collection.name)}</span>
-            {collection.name !== DEFAULT_COLLECTION_NAME && (
+            {collection.name !== DEFAULT_COLLECTION_NAME &&
+              (collection.can_edit || canManagePermissions) && (
               <CollectionActions
                 collection={collection}
                 onDelete={onDelete}
                 onEdit={onEdit}
                 canManagePermissions={canManagePermissions}
               />
-            )}
+              )}
           </div>
         ))}
       </div>

@@ -62,22 +62,26 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
             Активировать
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(embedding.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(embedding.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {embedding.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(embedding.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(embedding.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -122,6 +126,7 @@ export const EmbeddingsSettings: React.FC = () => {
   const handleEditEmbedding = (embeddingId: string) => {
     setIsCreatingNew(false);
     const embedding = embeddingList.find((item) => item.id === embeddingId);
+    if (!embedding?.can_edit) return;
     setEditingEmbedding(embedding);
     if (!embedding || !canManagePermissions) {
       setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
@@ -148,6 +153,8 @@ export const EmbeddingsSettings: React.FC = () => {
   };
 
   const handleDeleteEmbedding = async (embeddingId: string) => {
+    const embedding = embeddingList.find((item) => item.id === embeddingId);
+    if (!embedding?.can_edit) return;
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены, что хотите удалить эту embedding модель?"))
       return;

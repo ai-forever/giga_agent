@@ -7,7 +7,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
@@ -21,6 +20,15 @@ from giga_agent.models.search_engine import (
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
+from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.users import (
+    clear_user_current_link_if_matches,
+    get_user_model,
+)
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure providers are registered.
@@ -92,52 +100,21 @@ async def _validate_settings(
 
 async def _validate_connector_link(
     *,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     connector_id: uuid.UUID | None,
     supported_connector_types: list[str],
     connector_repo: ConnectorRepository,
+    require_owner: bool = True,
 ) -> uuid.UUID | None:
-    normalized_supported = [t.lower() for t in supported_connector_types]
-
-    if not normalized_supported:
-        if connector_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="This search engine type does not support connector_id.",
-            )
-        return None
-
-    if connector_id is None:
-        return None
-
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    if connector.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    if not connector.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Connector must be active",
-        )
-
-    connector_type = (connector.type or "").lower()
-    if connector_type not in normalized_supported:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Connector type '{connector_type}' is not supported by this "
-                f"search engine. Supported: {normalized_supported}"
-            ),
-        )
-
-    return connector_id
+    return await validate_connector_link(
+        user_id=user_id,
+        connector_id=connector_id,
+        supported_connector_types=supported_connector_types,
+        connector_repo=connector_repo,
+        resource_label="search engine",
+        require_owner=require_owner,
+        require_when_supported=False,
+    )
 
 
 async def _get_engine_with_owner_check(
@@ -166,22 +143,27 @@ async def _get_engine_with_read_check(
     user_id: uuid.UUID,
     engine_repo: SearchEngineRepository,
 ) -> SearchEngine:
-    engine = await engine_repo.get_by_id(engine_id)
-    if engine is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Search engine not found",
-        )
-    readable_engine = await engine_repo.get_by_id_readable(
-        engine_id,
+    return await fetch_resource_with_access_check(
+        resource_id=engine_id,
         user_id=user_id,
+        repository=engine_repo,
+        not_found_detail="Search engine not found",
     )
-    if readable_engine is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return readable_engine
+
+
+async def _get_engine_with_write_check(
+    *,
+    engine_id: uuid.UUID,
+    user_id: uuid.UUID,
+    engine_repo: SearchEngineRepository,
+) -> SearchEngine:
+    return await fetch_resource_with_access_check(
+        resource_id=engine_id,
+        user_id=user_id,
+        repository=engine_repo,
+        not_found_detail="Search engine not found",
+        require_edit=True,
+    )
 
 
 async def _get_user_model(
@@ -189,14 +171,7 @@ async def _get_user_model(
     db: AsyncSession,
     owner_id: uuid.UUID,
 ) -> User:
-    result = await db.execute(select(User).where(User.id == owner_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    return user
+    return await get_user_model(db=db, owner_id=owner_id)
 
 
 async def _clear_current_if_matches(
@@ -205,15 +180,12 @@ async def _clear_current_if_matches(
     owner_id: uuid.UUID,
     search_engine_id: uuid.UUID,
 ) -> bool:
-    user = await _get_user_model(db=db, owner_id=owner_id)
-    if user.search_engine_id != search_engine_id:
-        return False
-
-    user.search_engine_id = None
-    await db.commit()
-    await db.refresh(user)
-    await UserRepository.invalidate_cache(owner_id)
-    return True
+    return await clear_user_current_link_if_matches(
+        db=db,
+        owner_id=owner_id,
+        resource_id=search_engine_id,
+        user_field_name="search_engine_id",
+    )
 
 
 @router.get("/types", response_model=list[str])
@@ -264,10 +236,11 @@ async def create_search_engine(
     runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
     validated_connector_id = await _validate_connector_link(
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_id=data.connector_id,
         supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
+        require_owner=True,
     )
 
     engine = await engine_repo.create(
@@ -286,7 +259,7 @@ async def create_search_engine(
             read_group_ids=data.permissions.read_group_ids,
             public_read=data.permissions.public_read,
         )
-    return SearchEngineRepository.to_response(engine)
+    return SearchEngineRepository.to_response(engine, can_edit=True)
 
 
 @router.get("", response_model=list[SearchEngineResponse])
@@ -295,11 +268,17 @@ async def get_search_engines(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     only_active: bool = Query(False, description="Only active search engines"),
 ):
-    engines = await engine_repo.get_readable_for_user(
-        current_user.id,
+    rows = await engine_repo.list_readable_with_edit_for_user(
+        user_id=current_user.id,
         only_active=only_active,
     )
-    return [SearchEngineRepository.to_response(engine) for engine in engines]
+    return [
+        SearchEngineRepository.to_response(
+            engine,
+            can_edit=can_edit,
+        )
+        for engine, can_edit in rows
+    ]
 
 
 @router.get("/{engine_id}", response_model=SearchEngineResponse)
@@ -308,12 +287,13 @@ async def get_search_engine(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
 ):
-    engine = await _get_engine_with_read_check(
-        engine_id=engine_id,
+    engine, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=engine_id,
         user_id=current_user.id,
-        engine_repo=engine_repo,
+        repository=engine_repo,
+        not_found_detail="Search engine not found",
     )
-    return SearchEngineRepository.to_response(engine)
+    return SearchEngineRepository.to_response(engine, can_edit=can_edit)
 
 
 @router.patch("/{engine_id}", response_model=SearchEngineResponse)
@@ -325,9 +305,9 @@ async def patch_search_engine(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    engine = await _get_engine_with_owner_check(
+    engine = await _get_engine_with_write_check(
         engine_id=engine_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         engine_repo=engine_repo,
     )
 
@@ -351,10 +331,11 @@ async def patch_search_engine(
         else engine.connector_id
     )
     validated_connector_id = await _validate_connector_link(
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_id=effective_connector_id,
         supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
+        require_owner=engine.owner_id == current_user.id,
     )
     if "connector_id" in data.model_fields_set:
         update_data["connector_id"] = validated_connector_id
@@ -370,11 +351,11 @@ async def patch_search_engine(
     if is_deactivating_current:
         await _clear_current_if_matches(
             db=db,
-            owner_id=current_user.id,
+            owner_id=engine.owner_id,
             search_engine_id=engine.id,
         )
 
-    return SearchEngineRepository.to_response(engine)
+    return SearchEngineRepository.to_response(engine, can_edit=True)
 
 
 @router.delete("/{engine_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -384,14 +365,14 @@ async def delete_search_engine(
     db: Annotated[AsyncSession, Depends(get_session)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
 ):
-    engine = await _get_engine_with_owner_check(
+    engine = await _get_engine_with_write_check(
         engine_id=engine_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         engine_repo=engine_repo,
     )
     await engine_repo.delete(engine)
     await _clear_current_if_matches(
         db=db,
-        owner_id=current_user.id,
+        owner_id=engine.owner_id,
         search_engine_id=engine.id,
     )

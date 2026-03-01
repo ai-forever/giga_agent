@@ -67,6 +67,8 @@ export function CollectionsCard({
 
   // Handle deleting a collection (uses collection hook and document hook)
   const handleDeleteCollection = async (id: string) => {
+    const collectionToDelete = collections.find((c) => c.uuid === id);
+    if (!collectionToDelete?.can_edit) return;
     const loadingToast = toast.loading("Удаление папки", {
       richColors: true,
     });
@@ -91,6 +93,8 @@ export function CollectionsCard({
     name: string,
     metadata: Record<string, any>,
   ) => {
+    const collectionToUpdate = collections.find((c) => c.uuid === id);
+    if (!collectionToUpdate?.can_edit) return;
     const loadingToast = toast.loading("Обновление папок", {
       richColors: true,
     });

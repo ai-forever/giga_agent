@@ -29,6 +29,7 @@ export interface LLMSettings {
 export interface ConnectorResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: ConnectorSettings;
@@ -40,6 +41,7 @@ export interface ConnectorResponse {
 export interface LLMResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   connector_id: string;
   model_id: string;
@@ -106,6 +108,7 @@ export type EmbeddingSettings = Record<string, unknown>;
 export interface EmbeddingResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   connector_id: string;
   model_id: string;
@@ -119,6 +122,7 @@ export interface EmbeddingResponse {
 export interface ImageGeneratorResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: Record<string, unknown>;
@@ -137,6 +141,7 @@ export interface ImageGeneratorTypeMeta {
 export interface SearchEngineResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: Record<string, unknown>;

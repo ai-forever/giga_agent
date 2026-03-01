@@ -247,22 +247,26 @@ const ConnectorItem: React.FC<ConnectorItemProps> = ({
         <Badge variant={connector.is_active ? "default" : "secondary"}>
           {connector.is_active ? "Активен" : "Неактивен"}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(connector.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(connector.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {connector.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(connector.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(connector.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -554,7 +558,7 @@ export const ServicesSettings: React.FC = () => {
 
   const handleStartEdit = (connectorId: string) => {
     const connector = connectors.find((item) => item.id === connectorId);
-    if (!connector) return;
+    if (!connector || !connector.can_edit) return;
 
     setIsCreatingNew(false);
     setEditingConnectorId(connectorId);
@@ -596,6 +600,8 @@ export const ServicesSettings: React.FC = () => {
   };
 
   const handleDelete = async (connectorId: string) => {
+    const connector = connectors.find((item) => item.id === connectorId);
+    if (!connector?.can_edit) return;
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены, что хотите удалить этот сервис?")) return;
 

@@ -13,7 +13,7 @@ from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.cache import cache
 from giga_agent.core.db import get_session
 from giga_agent.llm.registry import LLMRegistry
-from giga_agent.models.connector import Connector, ConnectorRepository
+from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.llm import (
     LLM,
     AvailableModel,
@@ -26,6 +26,11 @@ from giga_agent.models.llm import (
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
+from giga_agent.routes._shared.connectors import validate_connector_link
 
 # Ensure runtime registrations
 import giga_agent.connectors  # noqa: F401
@@ -83,42 +88,48 @@ async def _get_llm_with_read_check(
     user_id: uuid.UUID,
     llm_repo: LLMRepository,
 ) -> LLM:
-    llm = await llm_repo.get_by_id(llm_id)
-    if llm is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="LLM not found",
-        )
-    readable_llm = await llm_repo.get_by_id_readable(
-        llm_id,
+    return await fetch_resource_with_access_check(
+        resource_id=llm_id,
         user_id=user_id,
+        repository=llm_repo,
+        not_found_detail="LLM not found",
     )
-    if readable_llm is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return readable_llm
 
 
-async def _get_connector_with_owner_check(
+async def _get_llm_with_write_check(
     *,
+    llm_id: uuid.UUID,
+    user_id: uuid.UUID,
+    llm_repo: LLMRepository,
+) -> LLM:
+    return await fetch_resource_with_access_check(
+        resource_id=llm_id,
+        user_id=user_id,
+        repository=llm_repo,
+        not_found_detail="LLM not found",
+        require_edit=True,
+    )
+
+
+async def _validate_connector_link(
+    *,
+    user_id: uuid.UUID,
     connector_id: uuid.UUID,
-    owner_id: uuid.UUID,
+    supported_connector_types: list[str],
     connector_repo: ConnectorRepository,
-) -> Connector:
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    if connector.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return connector
+    require_owner: bool = False,
+) -> uuid.UUID:
+    validated_connector_id = await validate_connector_link(
+        user_id=user_id,
+        connector_id=connector_id,
+        supported_connector_types=supported_connector_types,
+        connector_repo=connector_repo,
+        resource_label="llm",
+        require_owner=require_owner,
+        require_when_supported=True,
+    )
+    assert validated_connector_id is not None
+    return validated_connector_id
 
 
 def _resolve_llm_runtime(llm_type: str, *, status_code: int) -> type:
@@ -222,11 +233,22 @@ async def create_llm(
     if data.permissions is not None:
         require_superuser(current_user)
 
-    connector = await _get_connector_with_owner_check(
+    runtime_cls = _resolve_llm_runtime(
+        data.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    validated_connector_id = await _validate_connector_link(
+        user_id=current_user.id,
         connector_id=data.connector_id,
-        owner_id=current_user.id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
     )
+    connector = await connector_repo.get_by_id(validated_connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
     if not connector.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -239,10 +261,6 @@ async def create_llm(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
-    runtime_cls = _resolve_llm_runtime(
-        data.type,
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-    )
     raw_settings = data.settings.model_dump(exclude_none=True)
     try:
         connector_runtime = await ConnectorRegistry.get_runtime(
@@ -285,7 +303,7 @@ async def create_llm(
             read_group_ids=data.permissions.read_group_ids,
             public_read=data.permissions.public_read,
         )
-    response = LLMRepository.to_response(llm)
+    response = LLMRepository.to_response(llm, can_edit=True)
     await cache.delete_tags(f"llms:{current_user.id}")
     return response
 
@@ -296,11 +314,17 @@ async def get_llms(
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
     only_active: bool = Query(False, description="Only active LLMs"),
 ):
-    items = await llm_repo.get_readable_for_user(
-        current_user.id,
+    rows = await llm_repo.list_readable_with_edit_for_user(
+        user_id=current_user.id,
         only_active=only_active,
     )
-    return [LLMRepository.to_response(item) for item in items]
+    return [
+        LLMRepository.to_response(
+            item,
+            can_edit=can_edit,
+        )
+        for item, can_edit in rows
+    ]
 
 
 @router.get("/models/{connector_id}", response_model=list[AvailableModel])
@@ -310,11 +334,22 @@ async def get_available_models_by_connector(
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
     llm_type: str = Query(..., description="LLM runtime type"),
 ):
-    connector = await _get_connector_with_owner_check(
+    runtime_cls = _resolve_llm_runtime_by_type(
+        llm_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    validated_connector_id = await _validate_connector_link(
+        user_id=current_user.id,
         connector_id=connector_id,
-        owner_id=current_user.id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
     )
+    connector = await connector_repo.get_by_id(validated_connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
     if not connector.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -326,11 +361,6 @@ async def get_available_models_by_connector(
         connector_type=connector.type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
-    runtime_cls = _resolve_llm_runtime_by_type(
-        llm_type,
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-    )
-
     try:
         connector_runtime = await ConnectorRegistry.get_runtime(
             connector.type,
@@ -388,12 +418,13 @@ async def get_llm(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
 ):
-    llm = await _get_llm_with_read_check(
-        llm_id=llm_id,
+    llm, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=llm_id,
         user_id=current_user.id,
-        llm_repo=llm_repo,
+        repository=llm_repo,
+        not_found_detail="LLM not found",
     )
-    return LLMRepository.to_response(llm)
+    return LLMRepository.to_response(llm, can_edit=can_edit)
 
 
 @router.patch("/{llm_id}", response_model=LLMResponse)
@@ -404,9 +435,9 @@ async def patch_llm(
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    llm = await _get_llm_with_owner_check(
+    llm = await _get_llm_with_write_check(
         llm_id=llm_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         llm_repo=llm_repo,
     )
 
@@ -417,11 +448,22 @@ async def patch_llm(
         else llm.connector_id
     )
 
-    connector = await _get_connector_with_owner_check(
+    runtime_cls = _resolve_llm_runtime(
+        effective_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    validated_connector_id = await _validate_connector_link(
+        user_id=current_user.id,
         connector_id=effective_connector_id,
-        owner_id=current_user.id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
     )
+    connector = await connector_repo.get_by_id(validated_connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
     if not connector.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -474,7 +516,7 @@ async def patch_llm(
     if update_data:
         llm = await llm_repo.update(llm, **update_data)
 
-    response = LLMRepository.to_response(llm)
+    response = LLMRepository.to_response(llm, can_edit=True)
     await cache.delete_tags(f"llms:{current_user.id}")
     await cache.delete_tags(f"llm:{llm_id}")
     return response
@@ -486,9 +528,9 @@ async def delete_llm(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     llm_repo: Annotated[LLMRepository, Depends(get_llm_repository)],
 ):
-    llm = await _get_llm_with_owner_check(
+    llm = await _get_llm_with_write_check(
         llm_id=llm_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         llm_repo=llm_repo,
     )
     await llm_repo.delete(llm)

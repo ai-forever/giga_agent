@@ -18,7 +18,7 @@ class BaseAgentModuleResolutionTests(unittest.TestCase):
         agent = _AgentWithDefaults(modules=(_DummyModule(id="extra"),))
 
         self.assertEqual(
-            [module.id for module in agent.modules],
+            [module.id for module in agent.all_modules],
             ["default_one", "default_two", "extra"],
         )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Sequence, TypeAlias
 
@@ -72,6 +73,12 @@ class ResourcePermissionsPayload(BaseModel):
     read_user_ids: list[uuid.UUID] = Field(default_factory=list)
     read_group_ids: list[uuid.UUID] = Field(default_factory=list)
     public_read: bool = False
+
+
+@dataclass(frozen=True)
+class AccessFlags:
+    can_read: ColumnElement[bool]
+    can_edit: ColumnElement[bool]
 
 
 class ResourcePermissionRepository:
@@ -424,8 +431,26 @@ class ResourcePermissionRepository:
         permission: str = "read",
         user_group_ids: Sequence[uuid.UUID] | None = None,
     ) -> ColumnElement[bool]:
-        normalized_resource_type = self._normalize_resource_type(resource_type)
+        access_flags = await self.build_access_flags(
+            resource_model,
+            user_id=user_id,
+            resource_type=resource_type,
+            user_group_ids=user_group_ids,
+        )
         normalized_permission = self._normalize_permission(permission)
+        if normalized_permission == "write":
+            return access_flags.can_edit
+        return access_flags.can_read
+
+    async def build_access_flags(
+        self,
+        resource_model: ResourceModelType,
+        *,
+        user_id: uuid.UUID,
+        resource_type: str,
+        user_group_ids: Sequence[uuid.UUID] | None = None,
+    ) -> AccessFlags:
+        normalized_resource_type = self._normalize_resource_type(resource_type)
         group_ids = await self._resolve_group_ids(
             user_id=user_id,
             user_group_ids=user_group_ids,
@@ -436,15 +461,39 @@ class ResourcePermissionRepository:
         if model_id is None or model_owner_id is None:
             raise ValueError("resource_model must define id and owner_id columns")
 
-        return or_(
-            model_owner_id == user_id,
-            self._permission_exists_clause(
-                resource_type=normalized_resource_type,
-                resource_id_expr=model_id,
-                owner_id=str(user_id),
-                permission=normalized_permission,
-                group_ids=group_ids,
+        return AccessFlags(
+            can_read=or_(
+                model_owner_id == user_id,
+                self._permission_exists_clause(
+                    resource_type=normalized_resource_type,
+                    resource_id_expr=model_id,
+                    owner_id=str(user_id),
+                    permission="read",
+                    group_ids=group_ids,
+                ),
             ),
+            can_edit=or_(
+                model_owner_id == user_id,
+                self._permission_exists_clause(
+                    resource_type=normalized_resource_type,
+                    resource_id_expr=model_id,
+                    owner_id=str(user_id),
+                    permission="write",
+                    group_ids=group_ids,
+                ),
+            ),
+        )
+
+    @staticmethod
+    def select_with_access_flags(
+        resource_model: ResourceModelType,
+        *,
+        access_flags: AccessFlags,
+    ):
+        return select(
+            resource_model,
+            access_flags.can_edit.label("can_edit"),
+            access_flags.can_read.label("can_read"),
         )
 
     async def has_access(
@@ -482,3 +531,49 @@ class ResourcePermissionRepository:
         )
         result = await self.db.execute(select(permission_exists))
         return bool(result.scalar())
+
+    async def list_resource_ids_with_access(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_type: str,
+        resource_ids: Sequence[uuid.UUID],
+        permission: str = "read",
+        user_group_ids: Sequence[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        normalized_resource_type = self._normalize_resource_type(resource_type)
+        normalized_permission = self._normalize_permission(permission)
+        normalized_resource_ids = list(dict.fromkeys(resource_ids))
+        if not normalized_resource_ids:
+            return set()
+
+        group_ids = await self._resolve_group_ids(
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        allowed_permissions = self._permissions_for_check(normalized_permission)
+
+        owner_conditions: list[ColumnElement[bool]] = [
+            and_(
+                ResourcePermission.owner_type == "user",
+                ResourcePermission.owner_id == str(user_id),
+            )
+        ]
+        if group_ids:
+            owner_conditions.append(
+                and_(
+                    ResourcePermission.owner_type == "group",
+                    ResourcePermission.owner_id.in_([str(group_id) for group_id in group_ids]),
+                )
+            )
+        owner_conditions.append(ResourcePermission.owner_id == "*")
+
+        result = await self.db.execute(
+            select(ResourcePermission.resource_id)
+            .where(ResourcePermission.resource_type == normalized_resource_type)
+            .where(ResourcePermission.resource_id.in_(normalized_resource_ids))
+            .where(ResourcePermission.permission.in_(allowed_permissions))
+            .where(or_(*owner_conditions))
+            .distinct()
+        )
+        return {row[0] for row in result.all()}

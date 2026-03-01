@@ -156,8 +156,8 @@ class ConnectorsRouterTests(unittest.TestCase):
     def test_get_connectors_success(self):
         connector = self._connector_obj()
         with patch(
-            "giga_agent.routes.connectors.ConnectorRepository.get_readable_for_user",
-            AsyncMock(return_value=[connector]),
+            "giga_agent.routes.connectors.ConnectorRepository.list_readable_with_edit_for_user",
+            AsyncMock(return_value=[(connector, True)]),
         ), patch(
             "giga_agent.routes.connectors.ConnectorRepository.to_response",
             return_value=self._response_payload(connector),
@@ -168,13 +168,37 @@ class ConnectorsRouterTests(unittest.TestCase):
         self.assertEqual(len(response.json()), 1)
         self.assertEqual(response.json()[0]["id"], str(connector.id))
 
+    def test_get_connectors_includes_can_edit(self):
+        owner_connector = self._connector_obj()
+        writable_connector = self._connector_obj(owner_id=uuid.uuid4())
+        readonly_connector = self._connector_obj(owner_id=uuid.uuid4())
+
+        with patch(
+            "giga_agent.routes.connectors.ConnectorRepository.list_readable_with_edit_for_user",
+            AsyncMock(
+                return_value=[
+                    (owner_connector, True),
+                    (writable_connector, True),
+                    (readonly_connector, False),
+                ]
+            ),
+        ):
+            response = self.client.get("/connectors")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        can_edit_by_id = {item["id"]: item["can_edit"] for item in payload}
+        self.assertTrue(can_edit_by_id[str(owner_connector.id)])
+        self.assertTrue(can_edit_by_id[str(writable_connector.id)])
+        self.assertFalse(can_edit_by_id[str(readonly_connector.id)])
+
     def test_patch_type_change_checks_dependencies(self):
         connector_id = uuid.uuid4()
         existing = self._connector_obj(connector_id=connector_id, connector_type="openai")
         updated = self._connector_obj(connector_id=connector_id, connector_type="gigachat")
 
         with patch(
-            "giga_agent.routes.connectors._get_connector_with_owner_check",
+            "giga_agent.routes.connectors._get_connector_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.connectors._resolve_runtime_cls",
@@ -205,7 +229,7 @@ class ConnectorsRouterTests(unittest.TestCase):
         connector = self._connector_obj()
 
         with patch(
-            "giga_agent.routes.connectors._get_connector_with_owner_check",
+            "giga_agent.routes.connectors._get_connector_with_write_check",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.connectors.ConnectorRepository.delete",

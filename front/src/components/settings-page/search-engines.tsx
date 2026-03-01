@@ -255,22 +255,26 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
         <Badge variant={engine.is_active ? "default" : "secondary"}>
           {engine.is_active ? "Активен" : "Неактивен"}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(engine.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(engine.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {engine.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(engine.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(engine.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -659,7 +663,7 @@ export const SearchEnginesSettings: React.FC = () => {
 
   const handleStartEdit = (engineId: string) => {
     const engine = engines.find((item) => item.id === engineId);
-    if (!engine) return;
+    if (!engine || !engine.can_edit) return;
 
     setIsCreatingNew(false);
     setEditingEngineId(engineId);
@@ -701,6 +705,8 @@ export const SearchEnginesSettings: React.FC = () => {
   };
 
   const handleDelete = async (engineId: string) => {
+    const engine = engines.find((item) => item.id === engineId);
+    if (!engine?.can_edit) return;
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
 

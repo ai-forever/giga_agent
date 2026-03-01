@@ -52,6 +52,18 @@ class BaseAgent(BaseModel):
     def get_modules(self) -> list[BaseModule]:
         return []
 
+    def __check_for_unique_ids(self):
+        module_ids = [m.id for m in self.all_modules]
+        unique_ids = set(module_ids)
+        if len(module_ids) != len(unique_ids):
+            for mid in module_ids:
+                if module_ids.count(mid) > 1:
+                    raise ValueError(
+                        f"Agent cannot have multiple modules with the same id: '{mid}'"
+                    )
+            raise ValueError("Agent cannot have multiple modules with the same id")
+        return unique_ids
+
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "modules":
             return super().__setattr__(name, value)
@@ -59,17 +71,12 @@ class BaseAgent(BaseModel):
         old_modules = getattr(self, "modules", None)
         super().__setattr__(name, value)
 
-        module_ids = [m.id for m in self.modules]
-        unique_ids = set(module_ids)
-        if len(module_ids) != len(unique_ids):
+        try:
+            unique_ids = self.__check_for_unique_ids()
+        except ValueError as e:
             if old_modules is not None:
                 super().__setattr__("modules", old_modules)
-            for mid in module_ids:
-                if module_ids.count(mid) > 1:
-                    raise ValueError(
-                        f"Agent cannot have multiple modules with the same id: '{mid}'"
-                    )
-            raise ValueError("Agent cannot have multiple modules with the same id")
+            raise e
 
         if hasattr(self, "_module_ids"):
             self._module_ids = unique_ids
@@ -124,6 +131,7 @@ class BaseAgent(BaseModel):
 
         self._graph = create_graph(self, middleware=all_middleware)
         setattr(self.graph, "giga_agent", self)
+        self.__check_for_unique_ids()
 
     @property
     def app(self) -> FastAPI:

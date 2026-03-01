@@ -256,22 +256,26 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
         <Badge variant={generator.is_active ? "default" : "secondary"}>
           {generator.is_active ? "Активен" : "Неактивен"}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(generator.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(generator.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {generator.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(generator.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(generator.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -655,7 +659,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   const handleStartEdit = (generatorId: string) => {
     const generator = generators.find((item) => item.id === generatorId);
-    if (!generator) return;
+    if (!generator || !generator.can_edit) return;
 
     setIsCreatingNew(false);
     setEditingGeneratorId(generatorId);
@@ -697,6 +701,8 @@ export const ImageGeneratorsSettings: React.FC = () => {
   };
 
   const handleDelete = async (generatorId: string) => {
+    const generator = generators.find((item) => item.id === generatorId);
+    if (!generator?.can_edit) return;
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены, что хотите удалить этот image generator?"))
       return;

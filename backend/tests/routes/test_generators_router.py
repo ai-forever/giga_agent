@@ -169,6 +169,24 @@ class GeneratorsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         mocked_resolve_runtime.assert_not_called()
 
+    def test_get_image_generators_includes_can_edit(self):
+        owned = self._generator_obj()
+        writable = self._generator_obj(owner_id=uuid.uuid4())
+        readonly = self._generator_obj(owner_id=uuid.uuid4())
+
+        with patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.list_readable_with_edit_for_user",
+            AsyncMock(return_value=[(owned, True), (writable, True), (readonly, False)]),
+        ):
+            response = self.client.get("/image")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        can_edit_by_id = {item["id"]: item["can_edit"] for item in payload}
+        self.assertTrue(can_edit_by_id[str(owned.id)])
+        self.assertTrue(can_edit_by_id[str(writable.id)])
+        self.assertFalse(can_edit_by_id[str(readonly.id)])
+
     def test_get_generator_types_meta(self):
         runtime_map = {
             "openai": types.SimpleNamespace(
@@ -261,7 +279,7 @@ class GeneratorsRouterTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_owner_check",
+            "giga_agent.routes.generators.image._get_generator_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.generators.image._resolve_runtime_cls",
@@ -303,7 +321,7 @@ class GeneratorsRouterTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_owner_check",
+            "giga_agent.routes.generators.image._get_generator_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.generators.image._resolve_runtime_cls",
@@ -345,7 +363,7 @@ class GeneratorsRouterTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_owner_check",
+            "giga_agent.routes.generators.image._get_generator_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.generators.image._resolve_runtime_cls",
@@ -376,7 +394,7 @@ class GeneratorsRouterTests(unittest.TestCase):
         existing = self._generator_obj(generator_id=generator_id)
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_owner_check",
+            "giga_agent.routes.generators.image._get_generator_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.generators.image.ImageGeneratorRepository.delete",
@@ -392,15 +410,11 @@ class GeneratorsRouterTests(unittest.TestCase):
 
     def test_owner_check_returns_403(self):
         generator_id = uuid.uuid4()
+        generator = self._generator_obj(generator_id=generator_id)
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_read_check",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=403,
-                    detail="Access denied",
-                )
-            ),
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(generator, False, False)),
         ):
             response = self.client.get(f"/image/{generator_id}")
 
@@ -410,13 +424,8 @@ class GeneratorsRouterTests(unittest.TestCase):
         generator_id = uuid.uuid4()
 
         with patch(
-            "giga_agent.routes.generators.image._get_generator_with_read_check",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=404,
-                    detail="Image generator not found",
-                )
-            ),
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=None),
         ):
             response = self.client.get(f"/image/{generator_id}")
 

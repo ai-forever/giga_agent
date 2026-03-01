@@ -16,10 +16,13 @@ class OpenAIImageGenTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch.object(llm.root_async_client.images, "generate", mock_generate):
-            gen = OpenAIImageGen(connector=connector)
-            await gen.init()
-            result = await gen.generate_image("prompt", 1024, 1024)
+        # Важно: OpenAIImageGen.init() вызывает connector.get_api_object() ещё раз.
+        # Поэтому фиксируем один и тот же api_object, иначе мок окажется на другом клиенте.
+        with patch.object(OpenAIConnector, "get_api_object", return_value=llm):
+            with patch.object(llm.root_async_client.images, "generate", mock_generate):
+                gen = OpenAIImageGen(connector=connector)
+                await gen.init()
+                result = await gen.generate_image("prompt", 1024, 1024)
 
         self.assertEqual(result, "from-llm-client")
         mock_generate.assert_awaited_once()

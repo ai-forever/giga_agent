@@ -208,6 +208,9 @@ export function useRag(): UseRagReturn {
         });
         return undefined;
       }
+      if (!collectionToUpdate.can_edit) {
+        return undefined;
+      }
 
       const trimmedNewName = newName.trim();
       if (!trimmedNewName) {
@@ -260,6 +263,7 @@ export function useRag(): UseRagReturn {
         (c) => c.uuid === collectionId,
       );
       if (!collectionToDelete) return;
+      if (!collectionToDelete.can_edit) return;
 
       await apiClient.delete(
         `${API_AGENT_PREFIX}/rag/collections/${collectionId}`,

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.resource_permission import (
     ResourcePermissionRepository,
     ResourcePermissionsPayload,
@@ -179,6 +180,7 @@ class SandboxProviderUpdate(BaseModel):
 class SandboxProviderResponse(SandboxProviderBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -251,8 +253,10 @@ class SandboxPairSnapshot(BaseModel):
 # ============ Repository ============
 
 
-class SandboxProviderRepository:
+class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
     """Repository для работы с провайдерами песочниц."""
+    resource_model = SandboxProvider
+    resource_type = "sandbox"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -286,20 +290,25 @@ class SandboxProviderRepository:
         only_active: bool = False,
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> list[SandboxProvider]:
-        permission_repo = ResourcePermissionRepository(self.db)
-        access_clause = await permission_repo.build_access_clause(
-            SandboxProvider,
+        rows = await self.list_readable_with_edit_for_user(
             user_id=user_id,
-            resource_type="sandbox",
-            permission="read",
+            only_active=only_active,
             user_group_ids=user_group_ids,
         )
-        query = select(SandboxProvider).where(access_clause)
-        if only_active:
-            query = query.where(SandboxProvider.is_active == True)  # noqa: E712
-        query = query.order_by(SandboxProvider.created_at.desc())
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        provider_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[SandboxProvider, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            provider_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
 
     async def get_by_id_readable(
         self,
@@ -308,20 +317,51 @@ class SandboxProviderRepository:
         user_id: uuid.UUID,
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> SandboxProvider | None:
-        permission_repo = ResourcePermissionRepository(self.db)
-        access_clause = await permission_repo.build_access_clause(
-            SandboxProvider,
+        row = await self.get_by_id_with_access_for_user(
+            provider_id,
             user_id=user_id,
-            resource_type="sandbox",
-            permission="read",
             user_group_ids=user_group_ids,
         )
-        result = await self.db.execute(
-            select(SandboxProvider)
-            .where(SandboxProvider.id == provider_id)
-            .where(access_clause)
+        if row is None:
+            return None
+        provider, can_read, _ = row
+        if not can_read:
+            return None
+        return provider
+
+    async def get_by_id_writable(
+        self,
+        provider_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SandboxProvider | None:
+        row = await self.get_by_id_with_access_for_user(
+            provider_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
-        return result.scalar_one_or_none()
+        if row is None:
+            return None
+        provider, _, can_edit = row
+        if not can_edit:
+            return None
+        return provider
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="sandbox",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
 
     async def get_by_owner_and_type(
         self,
@@ -378,9 +418,15 @@ class SandboxProviderRepository:
         await self.db.commit()
 
     @staticmethod
-    def to_response(provider: SandboxProvider) -> SandboxProviderResponse:
+    def to_response(
+        provider: SandboxProvider,
+        *,
+        can_edit: bool = False,
+    ) -> SandboxProviderResponse:
         """Преобразовать в Pydantic response."""
-        return SandboxProviderResponse.model_validate(provider)
+        response = SandboxProviderResponse.model_validate(provider)
+        response.can_edit = can_edit
+        return response
 
 
 class SandboxRepository:

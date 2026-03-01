@@ -7,7 +7,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
@@ -22,6 +21,15 @@ from giga_agent.models.image_generator import (
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
+from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.users import (
+    clear_user_current_link_if_matches,
+    get_user_model,
+)
 
 router = APIRouter(prefix="/image", tags=["generators"])
 
@@ -89,58 +97,21 @@ async def _validate_settings(
 
 async def _validate_connector_link(
     *,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     connector_id: uuid.UUID | None,
     supported_connector_types: list[str],
     connector_repo: ConnectorRepository,
+    require_owner: bool = True,
 ) -> uuid.UUID | None:
-    normalized_supported = [t.lower() for t in supported_connector_types]
-
-    if not normalized_supported:
-        if connector_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="This image generator type does not support connector_id.",
-            )
-        return None
-
-    if connector_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "connector_id is required for this image generator type. "
-                f"Supported connector types: {normalized_supported}"
-            ),
-        )
-
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    if connector.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    if not connector.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Connector must be active",
-        )
-
-    connector_type = (connector.type or "").lower()
-    if connector_type not in normalized_supported:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Connector type '{connector_type}' is not supported by this "
-                f"image generator. Supported: {normalized_supported}"
-            ),
-        )
-
-    return connector_id
+    return await validate_connector_link(
+        user_id=user_id,
+        connector_id=connector_id,
+        supported_connector_types=supported_connector_types,
+        connector_repo=connector_repo,
+        resource_label="image generator",
+        require_owner=require_owner,
+        require_when_supported=True,
+    )
 
 
 async def _get_generator_with_owner_check(
@@ -169,22 +140,27 @@ async def _get_generator_with_read_check(
     user_id: uuid.UUID,
     generator_repo: ImageGeneratorRepository,
 ) -> ImageGenerator:
-    generator = await generator_repo.get_by_id(generator_id)
-    if generator is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Image generator not found",
-        )
-    readable_generator = await generator_repo.get_by_id_readable(
-        generator_id,
+    return await fetch_resource_with_access_check(
+        resource_id=generator_id,
         user_id=user_id,
+        repository=generator_repo,
+        not_found_detail="Image generator not found",
     )
-    if readable_generator is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return readable_generator
+
+
+async def _get_generator_with_write_check(
+    *,
+    generator_id: uuid.UUID,
+    user_id: uuid.UUID,
+    generator_repo: ImageGeneratorRepository,
+) -> ImageGenerator:
+    return await fetch_resource_with_access_check(
+        resource_id=generator_id,
+        user_id=user_id,
+        repository=generator_repo,
+        not_found_detail="Image generator not found",
+        require_edit=True,
+    )
 
 
 async def _get_user_model(
@@ -192,14 +168,7 @@ async def _get_user_model(
     db: AsyncSession,
     owner_id: uuid.UUID,
 ) -> User:
-    result = await db.execute(select(User).where(User.id == owner_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    return user
+    return await get_user_model(db=db, owner_id=owner_id)
 
 
 async def _clear_current_if_matches(
@@ -208,15 +177,12 @@ async def _clear_current_if_matches(
     owner_id: uuid.UUID,
     image_generator_id: uuid.UUID,
 ) -> bool:
-    user = await _get_user_model(db=db, owner_id=owner_id)
-    if user.image_generator_id != image_generator_id:
-        return False
-
-    user.image_generator_id = None
-    await db.commit()
-    await db.refresh(user)
-    await UserRepository.invalidate_cache(owner_id)
-    return True
+    return await clear_user_current_link_if_matches(
+        db=db,
+        owner_id=owner_id,
+        resource_id=image_generator_id,
+        user_field_name="image_generator_id",
+    )
 
 
 @router.get("/types", response_model=list[str])
@@ -269,10 +235,11 @@ async def create_image_generator(
     runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
     validated_connector_id = await _validate_connector_link(
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_id=data.connector_id,
         supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
+        require_owner=True,
     )
 
     generator = await generator_repo.create(
@@ -291,7 +258,7 @@ async def create_image_generator(
             read_group_ids=data.permissions.read_group_ids,
             public_read=data.permissions.public_read,
         )
-    return ImageGeneratorRepository.to_response(generator)
+    return ImageGeneratorRepository.to_response(generator, can_edit=True)
 
 
 @router.get("", response_model=list[ImageGeneratorResponse])
@@ -300,11 +267,17 @@ async def get_image_generators(
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
     only_active: bool = Query(False, description="Only active image generators"),
 ):
-    generators = await generator_repo.get_readable_for_user(
-        current_user.id,
+    rows = await generator_repo.list_readable_with_edit_for_user(
+        user_id=current_user.id,
         only_active=only_active,
     )
-    return [ImageGeneratorRepository.to_response(g) for g in generators]
+    return [
+        ImageGeneratorRepository.to_response(
+            generator,
+            can_edit=can_edit,
+        )
+        for generator, can_edit in rows
+    ]
 
 
 @router.get("/{generator_id}", response_model=ImageGeneratorResponse)
@@ -313,12 +286,13 @@ async def get_image_generator(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
 ):
-    generator = await _get_generator_with_read_check(
-        generator_id=generator_id,
+    generator, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=generator_id,
         user_id=current_user.id,
-        generator_repo=generator_repo,
+        repository=generator_repo,
+        not_found_detail="Image generator not found",
     )
-    return ImageGeneratorRepository.to_response(generator)
+    return ImageGeneratorRepository.to_response(generator, can_edit=can_edit)
 
 
 @router.patch("/{generator_id}", response_model=ImageGeneratorResponse)
@@ -330,9 +304,9 @@ async def patch_image_generator(
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    generator = await _get_generator_with_owner_check(
+    generator = await _get_generator_with_write_check(
         generator_id=generator_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         generator_repo=generator_repo,
     )
 
@@ -356,10 +330,11 @@ async def patch_image_generator(
         else generator.connector_id
     )
     validated_connector_id = await _validate_connector_link(
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_id=effective_connector_id,
         supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
+        require_owner=generator.owner_id == current_user.id,
     )
     if "connector_id" in data.model_fields_set:
         update_data["connector_id"] = validated_connector_id
@@ -375,11 +350,11 @@ async def patch_image_generator(
     if is_deactivating_current:
         await _clear_current_if_matches(
             db=db,
-            owner_id=current_user.id,
+            owner_id=generator.owner_id,
             image_generator_id=generator.id,
         )
 
-    return ImageGeneratorRepository.to_response(generator)
+    return ImageGeneratorRepository.to_response(generator, can_edit=True)
 
 
 @router.delete("/{generator_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -389,14 +364,14 @@ async def delete_image_generator(
     db: Annotated[AsyncSession, Depends(get_session)],
     generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
 ):
-    generator = await _get_generator_with_owner_check(
+    generator = await _get_generator_with_write_check(
         generator_id=generator_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         generator_repo=generator_repo,
     )
     await generator_repo.delete(generator)
     await _clear_current_if_matches(
         db=db,
-        owner_id=current_user.id,
+        owner_id=generator.owner_id,
         image_generator_id=generator.id,
     )

@@ -97,8 +97,15 @@ class LLMsRouterTests(unittest.TestCase):
             async def check_connection(self):
                 return await mocked_check()
 
+            @classmethod
+            def supported_connector_types(cls):
+                return []
+
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.llms._validate_llm_connector_compatibility",
@@ -135,9 +142,71 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["connector_id"], str(connector.id))
         mocked_check.assert_awaited_once()
 
+    def test_create_llm_allows_read_access_to_foreign_connector(self):
+        connector = self._connector_obj()
+        connector.owner_id = uuid.uuid4()
+        connector_runtime = types.SimpleNamespace()
+        created = self._llm_obj(connector_id=connector.id)
+
+        class _RuntimeStub:
+            @classmethod
+            def supported_connector_types(cls) -> list[str]:
+                return ["openai"]
+
+            @classmethod
+            async def validate_settings(cls, settings: dict) -> dict:
+                return settings
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            async def check_connection(self):
+                return None
+
+        with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime",
+            return_value=_RuntimeStub,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(connector, True, False)),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.llms._validate_llm_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
+        ), patch(
+            "giga_agent.routes.llms.LLMRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.llms.LLMRepository.to_response",
+            return_value=self._llm_payload(created),
+        ), patch(
+            "giga_agent.routes.llms.cache.delete_tags",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/llms",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "gpt-4o-mini",
+                    "settings": {},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["connector_id"], str(connector.id))
+
     def test_create_llm_with_permissions_for_superuser(self):
         connector = self._connector_obj()
-        connector_runtime = types.SimpleNamespace()
+        connector_runtime = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"],
+        )
         created = self._llm_obj(connector_id=connector.id)
 
         class _RuntimeStub:
@@ -151,8 +220,15 @@ class LLMsRouterTests(unittest.TestCase):
             async def check_connection(self):
                 return None
 
+            @classmethod
+            def supported_connector_types(cls):
+                return ["openai"]
+
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.llms._validate_llm_connector_compatibility",
@@ -198,7 +274,7 @@ class LLMsRouterTests(unittest.TestCase):
     def test_create_llm_with_permissions_forbidden_for_non_superuser(self):
         self.user.is_superuser = False
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
+            "giga_agent.routes.llms._validate_connector_link",
             AsyncMock(),
         ) as mocked_get_connector:
             response = self.client.post(
@@ -220,9 +296,33 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         mocked_get_connector.assert_not_awaited()
 
+    def test_get_llms_includes_can_edit(self):
+        owned = self._llm_obj()
+        writable = self._llm_obj()
+        writable.owner_id = uuid.uuid4()
+        readonly = self._llm_obj()
+        readonly.owner_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.routes.llms.LLMRepository.list_readable_with_edit_for_user",
+            AsyncMock(
+                return_value=[(owned, True), (writable, True), (readonly, False)]
+            ),
+        ):
+            response = self.client.get("/llms")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        can_edit_by_id = {item["id"]: item["can_edit"] for item in payload}
+        self.assertTrue(can_edit_by_id[str(owned.id)])
+        self.assertTrue(can_edit_by_id[str(writable.id)])
+        self.assertFalse(can_edit_by_id[str(readonly.id)])
+
     def test_create_llm_returns_422_when_connection_check_fails(self):
         connector = self._connector_obj()
-        connector_runtime = types.SimpleNamespace()
+        connector_runtime = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"],
+        )
 
         class _RuntimeStub:
             def __init__(self, **kwargs):
@@ -235,8 +335,15 @@ class LLMsRouterTests(unittest.TestCase):
             async def check_connection(self):
                 raise RuntimeError("auth failed")
 
+            @classmethod
+            def supported_connector_types(cls):
+                return []
+
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.llms._validate_llm_connector_compatibility",
@@ -268,7 +375,9 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_models_route_not_shadowed_by_llm_id_route(self):
         connector = self._connector_obj()
-        connector_runtime = types.SimpleNamespace()
+        connector_runtime = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"],
+        )
         runtime_cls = types.SimpleNamespace(
             fetch_available_models=AsyncMock(
                 return_value=[{"id": "gpt-4o-mini", "name": "gpt-4o-mini"}]
@@ -276,7 +385,10 @@ class LLMsRouterTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.llms._validate_llm_connector_compatibility",
@@ -284,6 +396,41 @@ class LLMsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.llms._resolve_llm_runtime_by_type",
             return_value=runtime_cls,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+            AsyncMock(return_value=connector_runtime),
+        ):
+            response = self.client.get(
+                f"/llms/models/{connector.id}",
+                params={"llm_type": "openai"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["id"], "gpt-4o-mini")
+
+    def test_get_models_allows_read_access_to_foreign_connector(self):
+        connector = self._connector_obj()
+        connector.owner_id = uuid.uuid4()
+        connector_runtime = types.SimpleNamespace()
+        runtime_cls = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"],
+            fetch_available_models=AsyncMock(
+                return_value=[{"id": "gpt-4o-mini", "name": "gpt-4o-mini"}]
+            ),
+        )
+
+        with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+            return_value=runtime_cls,
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(connector, True, False)),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.llms._validate_llm_connector_compatibility",
+            return_value=None,
         ), patch(
             "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
             AsyncMock(return_value=connector_runtime),
@@ -332,8 +479,8 @@ class LLMsRouterTests(unittest.TestCase):
         connector = self._connector_obj()
 
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
-            AsyncMock(return_value=connector),
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",
@@ -347,8 +494,8 @@ class LLMsRouterTests(unittest.TestCase):
         connector = self._connector_obj(connector_type="openai")
 
         with patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
-            AsyncMock(return_value=connector),
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",
@@ -363,8 +510,8 @@ class LLMsRouterTests(unittest.TestCase):
         payload = [self._llm_payload(item) for item in readable]
 
         with patch(
-            "giga_agent.routes.llms.LLMRepository.get_readable_for_user",
-            AsyncMock(return_value=readable),
+            "giga_agent.routes.llms.LLMRepository.list_readable_with_edit_for_user",
+            AsyncMock(return_value=[(readable[0], True), (readable[1], False)]),
         ) as mocked_get, patch(
             "giga_agent.routes.llms.LLMRepository.to_response",
             side_effect=payload,
@@ -373,13 +520,13 @@ class LLMsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()), 2)
-        self.assertEqual(mocked_get.await_args.args[0], self.user.id)
+        self.assertEqual(mocked_get.await_args.kwargs["user_id"], self.user.id)
 
     def test_get_llm_uses_read_check(self):
         llm = self._llm_obj()
         with patch(
-            "giga_agent.routes.llms._get_llm_with_read_check",
-            AsyncMock(return_value=llm),
+            "giga_agent.routes.llms.LLMRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(llm, True, True)),
         ) as mocked_get, patch(
             "giga_agent.routes.llms.LLMRepository.to_response",
             return_value=self._llm_payload(llm),
@@ -393,8 +540,8 @@ class LLMsRouterTests(unittest.TestCase):
     def test_get_llm_returns_403_when_no_read_access(self):
         llm_id = uuid.uuid4()
         with patch(
-            "giga_agent.routes.llms._get_llm_with_read_check",
-            AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
+            "giga_agent.routes.llms.LLMRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(self._llm_obj(llm_id=llm_id), False, False)),
         ):
             response = self.client.get(f"/llms/{llm_id}")
 
@@ -415,13 +562,18 @@ class LLMsRouterTests(unittest.TestCase):
             connector_id=new_connector_id,
             llm_type="openai",
         )
-        connector = self._connector_obj(connector_id=new_connector_id, connector_type="openai")
+        connector = self._connector_obj(
+            connector_id=new_connector_id, connector_type="openai"
+        )
 
         with patch(
-            "giga_agent.routes.llms._get_llm_with_owner_check",
+            "giga_agent.routes.llms._get_llm_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
-            "giga_agent.routes.llms._get_connector_with_owner_check",
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.llms._validate_llm_connector_compatibility",

@@ -31,6 +31,10 @@ from giga_agent.models.sandbox import (
     SandboxProviderRepository,
 )
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
 
 router = APIRouter(prefix="/sandboxes", tags=["sandboxes"])
 
@@ -72,22 +76,26 @@ async def get_provider_with_read_check(
     user_id: uuid.UUID,
     provider_repo: SandboxProviderRepository,
 ) -> SandboxProvider:
-    provider = await provider_repo.get_by_id(provider_id)
-    if not provider:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sandbox provider not found",
-        )
-    readable_provider = await provider_repo.get_by_id_readable(
-        provider_id,
+    return await fetch_resource_with_access_check(
+        resource_id=provider_id,
         user_id=user_id,
+        repository=provider_repo,
+        not_found_detail="Sandbox provider not found",
     )
-    if readable_provider is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return readable_provider
+
+
+async def get_provider_with_write_check(
+    provider_id: uuid.UUID,
+    user_id: uuid.UUID,
+    provider_repo: SandboxProviderRepository,
+) -> SandboxProvider:
+    return await fetch_resource_with_access_check(
+        resource_id=provider_id,
+        user_id=user_id,
+        repository=provider_repo,
+        not_found_detail="Sandbox provider not found",
+        require_edit=True,
+    )
 
 
 async def validate_provider_settings(provider_type: str, settings: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +172,7 @@ async def create_sandbox_provider(
 
     await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
 
-    return SandboxProviderRepository.to_response(provider)
+    return SandboxProviderRepository.to_response(provider, can_edit=True)
 
 
 @router.get("/providers", response_model=list[SandboxProviderResponse])
@@ -174,11 +182,17 @@ async def get_sandbox_providers(
     only_active: bool = Query(False, description="Только активные"),
 ):
     """Получить список провайдеров песочниц текущего пользователя."""
-    providers = await provider_repo.get_readable_for_user(
+    rows = await provider_repo.list_readable_with_edit_for_user(
         user_id=current_user.id,
         only_active=only_active,
     )
-    return [SandboxProviderRepository.to_response(p) for p in providers]
+    return [
+        SandboxProviderRepository.to_response(
+            provider,
+            can_edit=can_edit,
+        )
+        for provider, can_edit in rows
+    ]
 
 
 @router.get("/providers/types", response_model=list[str])
@@ -220,10 +234,13 @@ async def get_sandbox_provider(
     provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
 ):
     """Получить провайдера по ID."""
-    provider = await get_provider_with_read_check(
-        provider_id, current_user.id, provider_repo
+    provider, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=provider_id,
+        user_id=current_user.id,
+        repository=provider_repo,
+        not_found_detail="Sandbox provider not found",
     )
-    return SandboxProviderRepository.to_response(provider)
+    return SandboxProviderRepository.to_response(provider, can_edit=can_edit)
 
 
 @router.patch("/providers/{provider_id}", response_model=SandboxProviderResponse)
@@ -238,7 +255,7 @@ async def update_sandbox_provider(
 
     Если передан settings, он валидируется по схеме текущего типа провайдера.
     """
-    provider = await get_provider_with_owner_check(
+    provider = await get_provider_with_write_check(
         provider_id, current_user.id, provider_repo
     )
 
@@ -259,9 +276,9 @@ async def update_sandbox_provider(
         provider = await provider_repo.update(provider, **update_data)
 
     if update_data:
-        await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+        await cache.delete_match(f"sandboxpair:owner:{provider.owner_id}:*")
 
-    return SandboxProviderRepository.to_response(provider)
+    return SandboxProviderRepository.to_response(provider, can_edit=True)
 
 
 @router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -275,14 +292,14 @@ async def delete_sandbox_provider(
 
     ВНИМАНИЕ: Каскадно удалит все sandbox'ы, привязанные к этому провайдеру!
     """
-    provider = await get_provider_with_owner_check(
+    provider = await get_provider_with_write_check(
         provider_id, current_user.id, provider_repo
     )
-    user = await provider_repo.db.get(User, current_user.id)
+    user = await provider_repo.db.get(User, provider.owner_id)
     if user is not None and user.sandbox_provider_id == provider.id:
         user.sandbox_provider_id = None
         await provider_repo.db.commit()
-        await UserRepository.invalidate_cache(current_user.id)
+        await UserRepository.invalidate_cache(provider.owner_id)
 
     await provider_repo.delete(provider)
-    await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+    await cache.delete_match(f"sandboxpair:owner:{provider.owner_id}:*")

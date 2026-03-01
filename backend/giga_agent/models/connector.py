@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.resource_permission import (
     ResourcePermissionRepository,
     ResourcePermissionsPayload,
@@ -62,6 +63,7 @@ class ConnectorUpdate(BaseModel):
 class ConnectorResponse(ConnectorBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -69,8 +71,10 @@ class ConnectorResponse(ConnectorBase):
         from_attributes = True
 
 
-class ConnectorRepository:
+class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
     """Repository for connector records."""
+    resource_model = Connector
+    resource_type = "connector"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -151,20 +155,25 @@ class ConnectorRepository:
         only_active: bool = False,
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> list[Connector]:
-        permission_repo = ResourcePermissionRepository(self.db)
-        access_clause = await permission_repo.build_access_clause(
-            Connector,
+        rows = await self.list_readable_with_edit_for_user(
             user_id=user_id,
-            resource_type="connector",
-            permission="read",
+            only_active=only_active,
             user_group_ids=user_group_ids,
         )
-        query = select(Connector).where(access_clause)
-        if only_active:
-            query = query.where(Connector.is_active == True)  # noqa: E712
-        query = query.order_by(Connector.created_at.desc())
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        connector_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[Connector, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            connector_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
 
     async def get_by_id_readable(
         self,
@@ -173,18 +182,51 @@ class ConnectorRepository:
         user_id: uuid.UUID,
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> Connector | None:
-        permission_repo = ResourcePermissionRepository(self.db)
-        access_clause = await permission_repo.build_access_clause(
-            Connector,
+        row = await self.get_by_id_with_access_for_user(
+            connector_id,
             user_id=user_id,
-            resource_type="connector",
-            permission="read",
             user_group_ids=user_group_ids,
         )
-        result = await self.db.execute(
-            select(Connector).where(Connector.id == connector_id).where(access_clause)
+        if row is None:
+            return None
+        connector, can_read, _ = row
+        if not can_read:
+            return None
+        return connector
+
+    async def get_by_id_writable(
+        self,
+        connector_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> Connector | None:
+        row = await self.get_by_id_with_access_for_user(
+            connector_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
-        return result.scalar_one_or_none()
+        if row is None:
+            return None
+        connector, _, can_edit = row
+        if not can_edit:
+            return None
+        return connector
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="connector",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
 
     async def create(
         self,
@@ -231,5 +273,11 @@ class ConnectorRepository:
         await self.invalidate_cache(connector_id)
 
     @staticmethod
-    def to_response(connector: Connector) -> ConnectorResponse:
-        return ConnectorResponse.model_validate(connector)
+    def to_response(
+        connector: Connector,
+        *,
+        can_edit: bool = False,
+    ) -> ConnectorResponse:
+        response = ConnectorResponse.model_validate(connector)
+        response.can_edit = can_edit
+        return response

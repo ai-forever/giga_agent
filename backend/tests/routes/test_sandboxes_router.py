@@ -163,6 +163,26 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         mocked_validate_settings.assert_not_awaited()
 
+    def test_get_providers_includes_can_edit(self):
+        owned = self._provider_obj()
+        writable = self._provider_obj(provider_id=uuid.uuid4())
+        writable.owner_id = uuid.uuid4()
+        readonly = self._provider_obj(provider_id=uuid.uuid4())
+        readonly.owner_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.routes.sandboxes.SandboxProviderRepository.list_readable_with_edit_for_user",
+            AsyncMock(return_value=[(owned, True), (writable, True), (readonly, False)]),
+        ):
+            response = self.client.get("/sandboxes/providers")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        can_edit_by_id = {item["id"]: item["can_edit"] for item in payload}
+        self.assertTrue(can_edit_by_id[str(owned.id)])
+        self.assertTrue(can_edit_by_id[str(writable.id)])
+        self.assertFalse(can_edit_by_id[str(readonly.id)])
+
     def test_create_next_provider_does_not_change_user_sandbox_provider_id(self):
         provider = self._provider_obj()
         current_provider_id = uuid.uuid4()
@@ -202,7 +222,7 @@ class SandboxesRouterTests(unittest.TestCase):
         self.db.get = AsyncMock(return_value=user_model)
 
         with patch(
-            "giga_agent.routes.sandboxes.get_provider_with_owner_check",
+            "giga_agent.routes.sandboxes.get_provider_with_write_check",
             AsyncMock(return_value=provider),
         ), patch(
             "giga_agent.routes.sandboxes.SandboxProviderRepository.delete",

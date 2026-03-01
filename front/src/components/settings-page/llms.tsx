@@ -41,22 +41,26 @@ const LLMItem: React.FC<LLMItemProps> = ({
         <Badge variant={llm.is_active ? "default" : "secondary"}>
           {llm.is_active ? "Активна" : "Неактивна"}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(llm.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(llm.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {llm.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(llm.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(llm.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -99,6 +103,7 @@ export const LLMSettings: React.FC = () => {
   const handleEditLLM = (llmId: string) => {
     setIsCreatingNew(false);
     const llm = llmList.find((item) => item.id === llmId);
+    if (!llm?.can_edit) return;
     setEditingLLM(llm);
     if (!llm || !canManagePermissions) {
       setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
@@ -125,6 +130,8 @@ export const LLMSettings: React.FC = () => {
   };
 
   const handleDeleteLLM = async (llmId: string) => {
+    const llm = llmList.find((item) => item.id === llmId);
+    if (!llm?.can_edit) return;
     // eslint-disable-next-line no-restricted-globals
     if (!confirm("Вы уверены, что хотите удалить эту модель?")) return;
 

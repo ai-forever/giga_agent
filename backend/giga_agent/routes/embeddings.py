@@ -8,7 +8,6 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.connectors.registry import ConnectorRegistry
@@ -26,6 +25,15 @@ from giga_agent.models.embedding import (
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import User, UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
+from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.users import (
+    clear_user_current_link_if_matches,
+    get_user_model,
+)
 
 # Ensure runtime registrations
 import giga_agent.connectors  # noqa: F401
@@ -198,24 +206,25 @@ async def _probe_embedding_vector_size(
     return vector_size
 
 
-async def _get_connector_with_owner_check(
+async def _validate_connector_link(
     *,
+    user_id: uuid.UUID,
     connector_id: uuid.UUID,
-    owner_id: uuid.UUID,
+    supported_connector_types: list[str],
     connector_repo: ConnectorRepository,
-) -> Connector:
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    if connector.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return connector
+    require_owner: bool = False,
+) -> uuid.UUID:
+    validated_connector_id = await validate_connector_link(
+        user_id=user_id,
+        connector_id=connector_id,
+        supported_connector_types=supported_connector_types,
+        connector_repo=connector_repo,
+        resource_label="embedding",
+        require_owner=require_owner,
+        require_when_supported=True,
+    )
+    assert validated_connector_id is not None
+    return validated_connector_id
 
 
 def _validate_embedding_connector_compatibility(
@@ -262,22 +271,27 @@ async def _get_embedding_with_read_check(
     user_id: uuid.UUID,
     embedding_repo: EmbeddingRepository,
 ) -> Embedding:
-    embedding = await embedding_repo.get_by_id(embedding_id)
-    if embedding is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Embedding not found",
-        )
-    readable_embedding = await embedding_repo.get_by_id_readable(
-        embedding_id,
+    return await fetch_resource_with_access_check(
+        resource_id=embedding_id,
         user_id=user_id,
+        repository=embedding_repo,
+        not_found_detail="Embedding not found",
     )
-    if readable_embedding is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return readable_embedding
+
+
+async def _get_embedding_with_write_check(
+    *,
+    embedding_id: uuid.UUID,
+    user_id: uuid.UUID,
+    embedding_repo: EmbeddingRepository,
+) -> Embedding:
+    return await fetch_resource_with_access_check(
+        resource_id=embedding_id,
+        user_id=user_id,
+        repository=embedding_repo,
+        not_found_detail="Embedding not found",
+        require_edit=True,
+    )
 
 
 async def _get_user_model(
@@ -285,14 +299,7 @@ async def _get_user_model(
     db: AsyncSession,
     owner_id: uuid.UUID,
 ) -> User:
-    result = await db.execute(select(User).where(User.id == owner_id))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    return user
+    return await get_user_model(db=db, owner_id=owner_id)
 
 
 async def _clear_current_if_matches(
@@ -301,15 +308,12 @@ async def _clear_current_if_matches(
     owner_id: uuid.UUID,
     embedding_id: uuid.UUID,
 ) -> bool:
-    user = await _get_user_model(db=db, owner_id=owner_id)
-    if user.embedding_id != embedding_id:
-        return False
-
-    user.embedding_id = None
-    await db.commit()
-    await db.refresh(user)
-    await UserRepository.invalidate_cache(owner_id)
-    return True
+    return await clear_user_current_link_if_matches(
+        db=db,
+        owner_id=owner_id,
+        resource_id=embedding_id,
+        user_field_name="embedding_id",
+    )
 
 
 @router.get("/types", response_model=list[str])
@@ -358,11 +362,22 @@ async def create_embedding(
     if data.permissions is not None:
         require_superuser(current_user)
 
-    connector = await _get_connector_with_owner_check(
+    runtime_cls = _resolve_embedding_runtime(
+        data.type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    validated_connector_id = await _validate_connector_link(
+        user_id=current_user.id,
         connector_id=data.connector_id,
-        owner_id=current_user.id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
     )
+    connector = await connector_repo.get_by_id(validated_connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
     if not connector.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -413,7 +428,7 @@ async def create_embedding(
         await db.refresh(user)
         await UserRepository.invalidate_cache(current_user.id)
 
-    return EmbeddingRepository.to_response(embedding)
+    return EmbeddingRepository.to_response(embedding, can_edit=True)
 
 
 @router.get("", response_model=list[EmbeddingResponse])
@@ -422,11 +437,17 @@ async def get_embeddings(
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
     only_active: bool = Query(False, description="Only active embeddings"),
 ):
-    items = await embedding_repo.get_readable_for_user(
-        current_user.id,
+    rows = await embedding_repo.list_readable_with_edit_for_user(
+        user_id=current_user.id,
         only_active=only_active,
     )
-    return [EmbeddingRepository.to_response(item) for item in items]
+    return [
+        EmbeddingRepository.to_response(
+            item,
+            can_edit=can_edit,
+        )
+        for item, can_edit in rows
+    ]
 
 
 @router.get("/models/{connector_id}", response_model=list[AvailableEmbeddingModel])
@@ -436,11 +457,22 @@ async def get_available_models_by_connector(
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
     embedding_type: str = Query(..., description="Embedding runtime type"),
 ):
-    connector = await _get_connector_with_owner_check(
+    runtime_cls = _resolve_embedding_runtime_by_type(
+        embedding_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    validated_connector_id = await _validate_connector_link(
+        user_id=current_user.id,
         connector_id=connector_id,
-        owner_id=current_user.id,
+        supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
     )
+    connector = await connector_repo.get_by_id(validated_connector_id)
+    if connector is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Connector not found",
+        )
     if not connector.is_active:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -452,11 +484,6 @@ async def get_available_models_by_connector(
         connector_type=connector.type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
-    runtime_cls = _resolve_embedding_runtime_by_type(
-        embedding_type,
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-    )
-
     try:
         connector_runtime = await ConnectorRegistry.get_runtime(
             connector.type,
@@ -534,12 +561,13 @@ async def get_embedding(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
 ):
-    embedding = await _get_embedding_with_read_check(
-        embedding_id=embedding_id,
+    embedding, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=embedding_id,
         user_id=current_user.id,
-        embedding_repo=embedding_repo,
+        repository=embedding_repo,
+        not_found_detail="Embedding not found",
     )
-    return EmbeddingRepository.to_response(embedding)
+    return EmbeddingRepository.to_response(embedding, can_edit=can_edit)
 
 
 @router.delete("/{embedding_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -549,9 +577,9 @@ async def delete_embedding(
     db: Annotated[AsyncSession, Depends(get_session)],
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
 ):
-    embedding = await _get_embedding_with_owner_check(
+    embedding = await _get_embedding_with_write_check(
         embedding_id=embedding_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         embedding_repo=embedding_repo,
     )
     await embedding_repo.delete(embedding)

@@ -34,14 +34,18 @@ export function CollectionActions({
       </PopoverTrigger>
       <PopoverContent className="w-48 p-1" align="end">
         <div className="flex flex-col space-y-1">
-          <EditCollectionDialog
-            collection={collection}
-            handleEditCollection={onEdit}
-          />
+          {collection.can_edit && (
+            <EditCollectionDialog
+              collection={collection}
+              handleEditCollection={onEdit}
+            />
+          )}
           {canManagePermissions && (
             <CollectionPermissionsDialog collection={collection} />
           )}
-          <DeleteCollectionAlert collection={collection} onDelete={onDelete} />
+          {collection.can_edit && (
+            <DeleteCollectionAlert collection={collection} onDelete={onDelete} />
+          )}
         </div>
       </PopoverContent>
     </Popover>

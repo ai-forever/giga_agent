@@ -87,7 +87,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(embedding_id=created.id)
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
@@ -123,13 +126,65 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["type"], "openai")
         self.assertEqual(response.json()["connector_id"], str(connector.id))
 
+    def test_create_embedding_allows_read_access_to_foreign_connector(self):
+        connector = self._connector_obj()
+        connector.owner_id = uuid.uuid4()
+        created = self._embedding_obj(connector_id=connector.id)
+        user_model = types.SimpleNamespace(embedding_id=created.id)
+        runtime_cls = types.SimpleNamespace(supported_connector_types=lambda: ["openai"])
+
+        with patch(
+            "giga_agent.routes.embeddings._resolve_embedding_runtime",
+            return_value=runtime_cls,
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(connector, True, False)),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._validate_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._probe_embedding_vector_size",
+            AsyncMock(return_value=1536),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
+            return_value=self._embedding_payload(created),
+        ), patch(
+            "giga_agent.routes.embeddings._get_user_model",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["connector_id"], str(connector.id))
+
     def test_create_embedding_with_permissions_for_superuser(self):
         connector = self._connector_obj()
         created = self._embedding_obj(connector_id=connector.id)
         user_model = types.SimpleNamespace(embedding_id=created.id)
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
@@ -175,7 +230,7 @@ class EmbeddingsRouterTests(unittest.TestCase):
     def test_create_embedding_with_permissions_forbidden_for_non_superuser(self):
         self.user.is_superuser = False
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            "giga_agent.routes.embeddings._validate_connector_link",
             AsyncMock(),
         ) as mocked_get_connector:
             response = self.client.post(
@@ -203,7 +258,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(embedding_id=None)
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
@@ -251,7 +309,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(embedding_id=current_embedding_id)
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
@@ -295,7 +356,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
             AsyncMock(return_value=connector),
         ), patch(
             "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
@@ -303,6 +367,37 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings._resolve_embedding_runtime_by_type",
             return_value=runtime_cls,
+        ):
+            response = self.client.get(
+                f"/embeddings/models/{connector.id}",
+                params={"embedding_type": "openai"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["id"], "text-embedding-3-small")
+
+    def test_get_models_allows_read_access_to_foreign_connector(self):
+        connector = self._connector_obj()
+        connector.owner_id = uuid.uuid4()
+        runtime_cls = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"],
+            fetch_available_models=AsyncMock(
+                return_value=[{"id": "text-embedding-3-small", "name": "text-embedding-3-small"}]
+            ),
+        )
+
+        with patch(
+            "giga_agent.routes.embeddings._resolve_embedding_runtime_by_type",
+            return_value=runtime_cls,
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id_with_access_for_user",
+            AsyncMock(return_value=(connector, True, False)),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
         ):
             response = self.client.get(
                 f"/embeddings/models/{connector.id}",
@@ -345,8 +440,8 @@ class EmbeddingsRouterTests(unittest.TestCase):
         connector = self._connector_obj()
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
-            AsyncMock(return_value=connector),
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
         ):
             response = self.client.get(
                 f"/embeddings/models/{connector.id}",
@@ -360,8 +455,8 @@ class EmbeddingsRouterTests(unittest.TestCase):
         connector = self._connector_obj(connector_type="openai")
 
         with patch(
-            "giga_agent.routes.embeddings._get_connector_with_owner_check",
-            AsyncMock(return_value=connector),
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
         ):
             response = self.client.get(
                 f"/embeddings/models/{connector.id}",
@@ -382,7 +477,7 @@ class EmbeddingsRouterTests(unittest.TestCase):
         existing = self._embedding_obj(embedding_id=embedding_id)
 
         with patch(
-            "giga_agent.routes.embeddings._get_embedding_with_owner_check",
+            "giga_agent.routes.embeddings._get_embedding_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
             "giga_agent.routes.embeddings.EmbeddingRepository.delete",

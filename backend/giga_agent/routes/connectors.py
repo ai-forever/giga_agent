@@ -28,6 +28,10 @@ from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.search_engine import SearchEngineRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure runtime registrations
@@ -130,22 +134,27 @@ async def _get_connector_with_read_check(
     user_id: uuid.UUID,
     connector_repo: ConnectorRepository,
 ) -> Connector:
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    readable_connector = await connector_repo.get_by_id_readable(
-        connector_id,
+    return await fetch_resource_with_access_check(
+        resource_id=connector_id,
         user_id=user_id,
+        repository=connector_repo,
+        not_found_detail="Connector not found",
     )
-    if readable_connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return readable_connector
+
+
+async def _get_connector_with_write_check(
+    *,
+    connector_id: uuid.UUID,
+    user_id: uuid.UUID,
+    connector_repo: ConnectorRepository,
+) -> Connector:
+    return await fetch_resource_with_access_check(
+        resource_id=connector_id,
+        user_id=user_id,
+        repository=connector_repo,
+        not_found_detail="Connector not found",
+        require_edit=True,
+    )
 
 
 async def _validate_type_change_compatibility(
@@ -296,7 +305,7 @@ async def create_connector(
             read_group_ids=data.permissions.read_group_ids,
             public_read=data.permissions.public_read,
         )
-    return ConnectorRepository.to_response(connector)
+    return ConnectorRepository.to_response(connector, can_edit=True)
 
 
 @router.get("", response_model=list[ConnectorResponse])
@@ -305,11 +314,17 @@ async def get_connectors(
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
     only_active: bool = Query(False, description="Only active connectors"),
 ):
-    items = await connector_repo.get_readable_for_user(
-        current_user.id,
+    rows = await connector_repo.list_readable_with_edit_for_user(
+        user_id=current_user.id,
         only_active=only_active,
     )
-    return [ConnectorRepository.to_response(item) for item in items]
+    return [
+        ConnectorRepository.to_response(
+            item,
+            can_edit=can_edit,
+        )
+        for item, can_edit in rows
+    ]
 
 
 @router.get("/{connector_id}", response_model=ConnectorResponse)
@@ -318,12 +333,13 @@ async def get_connector(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    connector = await _get_connector_with_read_check(
-        connector_id=connector_id,
+    connector, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=connector_id,
         user_id=current_user.id,
-        connector_repo=connector_repo,
+        repository=connector_repo,
+        not_found_detail="Connector not found",
     )
-    return ConnectorRepository.to_response(connector)
+    return ConnectorRepository.to_response(connector, can_edit=can_edit)
 
 
 @router.patch("/{connector_id}", response_model=ConnectorResponse)
@@ -341,9 +357,9 @@ async def patch_connector(
         SearchEngineRepository, Depends(get_search_engine_repository)
     ],
 ):
-    connector = await _get_connector_with_owner_check(
+    connector = await _get_connector_with_write_check(
         connector_id=connector_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_repo=connector_repo,
     )
 
@@ -384,7 +400,7 @@ async def patch_connector(
     if update_data:
         connector = await connector_repo.update(connector, **update_data)
 
-    return ConnectorRepository.to_response(connector)
+    return ConnectorRepository.to_response(connector, can_edit=True)
 
 
 @router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -393,9 +409,9 @@ async def delete_connector(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    connector = await _get_connector_with_owner_check(
+    connector = await _get_connector_with_write_check(
         connector_id=connector_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_repo=connector_repo,
     )
 

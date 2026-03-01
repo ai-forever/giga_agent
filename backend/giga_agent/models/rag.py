@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 
 
@@ -113,7 +114,11 @@ class RagDocument(Base):
     )
 
 
-class RagCollectionsRepository:
+class RagCollectionsRepository(ACLResourceRepositoryMixin[RagCollection]):
+    resource_model = RagCollection
+    resource_type = "rag_collection"
+    supports_only_active = False
+
     def __init__(self, db: AsyncSession):
         self.db = db
 
@@ -131,20 +136,22 @@ class RagCollectionsRepository:
         user_id: uuid.UUID,
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> list[RagCollection]:
-        permission_repo = ResourcePermissionRepository(self.db)
-        access_clause = await permission_repo.build_access_clause(
-            RagCollection,
+        rows = await self.list_readable_with_edit_for_user(
             user_id=user_id,
-            resource_type="rag_collection",
-            permission="read",
             user_group_ids=user_group_ids,
         )
-        result = await self.db.execute(
-            select(RagCollection)
-            .where(access_clause)
-            .order_by(RagCollection.created_at.desc())
+        return [item for item, _ in rows]
+
+    async def list_readable_with_edit_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[tuple[RagCollection, bool]]:
+        return await super().list_readable_with_edit_for_user(
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
-        return list(result.scalars().all())
 
     async def get_by_id(
         self, *, owner_id: uuid.UUID, collection_id: uuid.UUID
@@ -169,20 +176,49 @@ class RagCollectionsRepository:
         collection_id: uuid.UUID,
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> RagCollection | None:
-        permission_repo = ResourcePermissionRepository(self.db)
-        access_clause = await permission_repo.build_access_clause(
-            RagCollection,
+        row = await self.get_by_id_with_access_for_user(
             user_id=user_id,
-            resource_type="rag_collection",
-            permission="read",
+            collection_id=collection_id,
             user_group_ids=user_group_ids,
         )
-        result = await self.db.execute(
-            select(RagCollection)
-            .where(RagCollection.id == collection_id)
-            .where(access_clause)
+        if row is None:
+            return None
+        collection, can_read, _ = row
+        if not can_read:
+            return None
+        return collection
+
+    async def get_by_id_with_access_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[RagCollection, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            collection_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
         )
-        return result.scalar_one_or_none()
+
+    async def get_by_id_writable(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> RagCollection | None:
+        row = await self.get_by_id_with_access_for_user(
+            user_id=user_id,
+            collection_id=collection_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        collection, _, can_edit = row
+        if not can_edit:
+            return None
+        return collection
 
     async def can_write(
         self,
@@ -195,6 +231,21 @@ class RagCollectionsRepository:
             user_id=user_id,
             resource_type="rag_collection",
             resource_id=collection_id,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="rag_collection",
+            resource_ids=resource_ids,
             permission="write",
             user_group_ids=user_group_ids,
         )
