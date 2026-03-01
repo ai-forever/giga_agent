@@ -18,7 +18,7 @@ from giga_agent.models.group import (
     GroupUpdate,
 )
 from giga_agent.models.users import User, UserShort
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
@@ -27,14 +27,6 @@ async def get_group_repository(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> GroupRepository:
     return GroupRepository(db)
-
-
-def require_superuser(current_user: UserShort) -> None:
-    if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
 
 
 async def _get_group_or_404(group_id: uuid.UUID, repo: GroupRepository) -> Group:

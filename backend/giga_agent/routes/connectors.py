@@ -108,40 +108,6 @@ async def _validate_settings(
         )
 
 
-async def _get_connector_with_owner_check(
-    *,
-    connector_id: uuid.UUID,
-    owner_id: uuid.UUID,
-    connector_repo: ConnectorRepository,
-) -> Connector:
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    if connector.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return connector
-
-
-async def _get_connector_with_read_check(
-    *,
-    connector_id: uuid.UUID,
-    user_id: uuid.UUID,
-    connector_repo: ConnectorRepository,
-) -> Connector:
-    return await fetch_resource_with_access_check(
-        resource_id=connector_id,
-        user_id=user_id,
-        repository=connector_repo,
-        not_found_detail="Connector not found",
-    )
-
-
 async def _get_connector_with_write_check(
     *,
     connector_id: uuid.UUID,

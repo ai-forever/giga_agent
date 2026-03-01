@@ -51,39 +51,6 @@ async def get_provider_repository(
 # ============ Helpers ============
 
 
-async def get_provider_with_owner_check(
-    provider_id: uuid.UUID,
-    owner_id: uuid.UUID,
-    provider_repo: SandboxProviderRepository,
-) -> SandboxProvider:
-    """Получить провайдера с проверкой владельца."""
-    provider = await provider_repo.get_by_id(provider_id)
-    if not provider:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Sandbox provider not found",
-        )
-    if provider.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return provider
-
-
-async def get_provider_with_read_check(
-    provider_id: uuid.UUID,
-    user_id: uuid.UUID,
-    provider_repo: SandboxProviderRepository,
-) -> SandboxProvider:
-    return await fetch_resource_with_access_check(
-        resource_id=provider_id,
-        user_id=user_id,
-        repository=provider_repo,
-        not_found_detail="Sandbox provider not found",
-    )
-
-
 async def get_provider_with_write_check(
     provider_id: uuid.UUID,
     user_id: uuid.UUID,

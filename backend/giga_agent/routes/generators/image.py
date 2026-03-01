@@ -19,7 +19,7 @@ from giga_agent.models.image_generator import (
     ImageGeneratorResponse,
 )
 from giga_agent.models.resource_permission import ResourcePermissionRepository
-from giga_agent.models.users import User, UserRepository, UserShort
+from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
@@ -28,7 +28,6 @@ from giga_agent.routes._shared.access import (
 from giga_agent.routes._shared.connectors import validate_connector_link
 from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
-    get_user_model,
 )
 
 router = APIRouter(prefix="/image", tags=["generators"])
@@ -114,40 +113,6 @@ async def _validate_connector_link(
     )
 
 
-async def _get_generator_with_owner_check(
-    *,
-    generator_id: uuid.UUID,
-    owner_id: uuid.UUID,
-    generator_repo: ImageGeneratorRepository,
-) -> ImageGenerator:
-    generator = await generator_repo.get_by_id(generator_id)
-    if generator is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Image generator not found",
-        )
-    if generator.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return generator
-
-
-async def _get_generator_with_read_check(
-    *,
-    generator_id: uuid.UUID,
-    user_id: uuid.UUID,
-    generator_repo: ImageGeneratorRepository,
-) -> ImageGenerator:
-    return await fetch_resource_with_access_check(
-        resource_id=generator_id,
-        user_id=user_id,
-        repository=generator_repo,
-        not_found_detail="Image generator not found",
-    )
-
-
 async def _get_generator_with_write_check(
     *,
     generator_id: uuid.UUID,
@@ -160,28 +125,6 @@ async def _get_generator_with_write_check(
         repository=generator_repo,
         not_found_detail="Image generator not found",
         require_edit=True,
-    )
-
-
-async def _get_user_model(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-) -> User:
-    return await get_user_model(db=db, owner_id=owner_id)
-
-
-async def _clear_current_if_matches(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    image_generator_id: uuid.UUID,
-) -> bool:
-    return await clear_user_current_link_if_matches(
-        db=db,
-        owner_id=owner_id,
-        resource_id=image_generator_id,
-        user_field_name="image_generator_id",
     )
 
 
@@ -348,10 +291,11 @@ async def patch_image_generator(
         generator = await generator_repo.update(generator, **update_data)
 
     if is_deactivating_current:
-        await _clear_current_if_matches(
+        await clear_user_current_link_if_matches(
             db=db,
             owner_id=generator.owner_id,
-            image_generator_id=generator.id,
+            resource_id=generator.id,
+            user_field_name="image_generator_id",
         )
 
     return ImageGeneratorRepository.to_response(generator, can_edit=True)
@@ -370,8 +314,9 @@ async def delete_image_generator(
         generator_repo=generator_repo,
     )
     await generator_repo.delete(generator)
-    await _clear_current_if_matches(
+    await clear_user_current_link_if_matches(
         db=db,
         owner_id=generator.owner_id,
-        image_generator_id=generator.id,
+        resource_id=generator.id,
+        user_field_name="image_generator_id",
     )

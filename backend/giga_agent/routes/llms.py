@@ -31,6 +31,11 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_read_and_edit,
 )
 from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.model_discovery import (
+    fetch_models_from_connector_or_http_error,
+    fetch_models_or_http_error,
+    validate_connector_settings_or_422,
+)
 
 # Ensure runtime registrations
 import giga_agent.connectors  # noqa: F401
@@ -60,40 +65,6 @@ async def get_connector_repository(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ConnectorRepository:
     return ConnectorRepository(db)
-
-
-async def _get_llm_with_owner_check(
-    *,
-    llm_id: uuid.UUID,
-    owner_id: uuid.UUID,
-    llm_repo: LLMRepository,
-) -> LLM:
-    llm = await llm_repo.get_by_id(llm_id)
-    if llm is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="LLM not found",
-        )
-    if llm.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return llm
-
-
-async def _get_llm_with_read_check(
-    *,
-    llm_id: uuid.UUID,
-    user_id: uuid.UUID,
-    llm_repo: LLMRepository,
-) -> LLM:
-    return await fetch_resource_with_access_check(
-        resource_id=llm_id,
-        user_id=user_id,
-        repository=llm_repo,
-        not_found_detail="LLM not found",
-    )
 
 
 async def _get_llm_with_write_check(
@@ -155,33 +126,6 @@ def _resolve_llm_runtime_by_type(llm_type: str, *, status_code: int) -> type:
             ),
         )
     return LLMRegistry.get(key)
-
-
-async def _validate_connector_settings(
-    connector_type: str,
-    settings: dict[str, Any],
-) -> dict[str, Any]:
-    if not ConnectorRegistry.is_registered(connector_type):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Unknown connector type: '{connector_type}'. "
-                f"Available: {ConnectorRegistry.available_types()}"
-            ),
-        )
-
-    try:
-        return await ConnectorRegistry.validate_settings(connector_type, settings)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=e.errors(),
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        )
 
 
 def _validate_llm_connector_compatibility(
@@ -361,19 +305,15 @@ async def get_available_models_by_connector(
         connector_type=connector.type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
-    try:
-        connector_runtime = await ConnectorRegistry.get_runtime(
-            connector.type,
-            connector.settings or {},
-        )
-        return await runtime_cls.fetch_available_models(
-            connector=connector_runtime,
-        )
-    except ModelFetchError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch models from llm '{e.llm_type}': {e.detail}",
-        )
+    return await fetch_models_from_connector_or_http_error(
+        runtime_cls=runtime_cls,
+        connector=connector,
+        fetch_error_type=ModelFetchError,
+        failure_message_builder=lambda e: (
+            f"Failed to fetch models from llm '{e.llm_type}': {e.detail}"
+        ),
+        get_runtime=ConnectorRegistry.get_runtime,
+    )
 
 
 @router.post("/models/", response_model=list[AvailableModel])
@@ -382,7 +322,7 @@ async def fetch_available_models(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
     _ = current_user
-    normalized_settings = await _validate_connector_settings(
+    normalized_settings = await validate_connector_settings_or_422(
         data.connector_type,
         data.settings,
     )
@@ -397,19 +337,16 @@ async def fetch_available_models(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
-    try:
-        connector_runtime = await ConnectorRegistry.get_runtime(
-            data.connector_type,
-            normalized_settings,
-        )
-        return await runtime_cls.fetch_available_models(
-            connector=connector_runtime,
-        )
-    except ModelFetchError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch models from llm '{e.llm_type}': {e.detail}",
-        )
+    return await fetch_models_or_http_error(
+        runtime_cls=runtime_cls,
+        connector_type=data.connector_type,
+        connector_settings=normalized_settings,
+        fetch_error_type=ModelFetchError,
+        failure_message_builder=lambda e: (
+            f"Failed to fetch models from llm '{e.llm_type}': {e.detail}"
+        ),
+        get_runtime=ConnectorRegistry.get_runtime,
+    )
 
 
 @router.get("/{llm_id}", response_model=LLMResponse)

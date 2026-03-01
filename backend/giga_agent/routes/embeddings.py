@@ -23,13 +23,18 @@ from giga_agent.models.embedding import (
     EmbeddingResponse,
 )
 from giga_agent.models.resource_permission import ResourcePermissionRepository
-from giga_agent.models.users import User, UserRepository, UserShort
+from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
 from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.model_discovery import (
+    fetch_models_from_connector_or_http_error,
+    fetch_models_or_http_error,
+    validate_connector_settings_or_422,
+)
 from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
     get_user_model,
@@ -92,33 +97,6 @@ def _resolve_embedding_runtime_by_type(
             ),
         )
     return EmbeddingRegistry.get(key)
-
-
-async def _validate_connector_settings(
-    connector_type: str,
-    settings: dict[str, Any],
-) -> dict[str, Any]:
-    if not ConnectorRegistry.is_registered(connector_type):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Unknown connector type: '{connector_type}'. "
-                f"Available: {ConnectorRegistry.available_types()}"
-            ),
-        )
-
-    try:
-        return await ConnectorRegistry.validate_settings(connector_type, settings)
-    except ValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=e.errors(),
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        )
 
 
 async def _validate_settings(
@@ -245,40 +223,6 @@ def _validate_embedding_connector_compatibility(
         )
 
 
-async def _get_embedding_with_owner_check(
-    *,
-    embedding_id: uuid.UUID,
-    owner_id: uuid.UUID,
-    embedding_repo: EmbeddingRepository,
-) -> Embedding:
-    embedding = await embedding_repo.get_by_id(embedding_id)
-    if embedding is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Embedding not found",
-        )
-    if embedding.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return embedding
-
-
-async def _get_embedding_with_read_check(
-    *,
-    embedding_id: uuid.UUID,
-    user_id: uuid.UUID,
-    embedding_repo: EmbeddingRepository,
-) -> Embedding:
-    return await fetch_resource_with_access_check(
-        resource_id=embedding_id,
-        user_id=user_id,
-        repository=embedding_repo,
-        not_found_detail="Embedding not found",
-    )
-
-
 async def _get_embedding_with_write_check(
     *,
     embedding_id: uuid.UUID,
@@ -291,28 +235,6 @@ async def _get_embedding_with_write_check(
         repository=embedding_repo,
         not_found_detail="Embedding not found",
         require_edit=True,
-    )
-
-
-async def _get_user_model(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-) -> User:
-    return await get_user_model(db=db, owner_id=owner_id)
-
-
-async def _clear_current_if_matches(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    embedding_id: uuid.UUID,
-) -> bool:
-    return await clear_user_current_link_if_matches(
-        db=db,
-        owner_id=owner_id,
-        resource_id=embedding_id,
-        user_field_name="embedding_id",
     )
 
 
@@ -421,7 +343,7 @@ async def create_embedding(
             public_read=data.permissions.public_read,
         )
 
-    user = await _get_user_model(db=db, owner_id=current_user.id)
+    user = await get_user_model(db=db, owner_id=current_user.id)
     if user.embedding_id is None:
         user.embedding_id = embedding.id
         await db.commit()
@@ -484,29 +406,17 @@ async def get_available_models_by_connector(
         connector_type=connector.type,
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
-    try:
-        connector_runtime = await ConnectorRegistry.get_runtime(
-            connector.type,
-            connector.settings or {},
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Некорректные настройки коннектора для эмбеддингов",
-        ) from e
-
-    try:
-        return await runtime_cls.fetch_available_models(
-            connector=connector_runtime,
-        )
-    except EmbeddingModelFetchError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"Failed to fetch models from embeddings '{e.embedding_type}': "
-                f"{e.detail}"
-            ),
-        )
+    return await fetch_models_from_connector_or_http_error(
+        runtime_cls=runtime_cls,
+        connector=connector,
+        fetch_error_type=EmbeddingModelFetchError,
+        failure_message_builder=lambda e: (
+            f"Failed to fetch models from embeddings '{e.embedding_type}': "
+            f"{e.detail}"
+        ),
+        connector_runtime_error_message="Некорректные настройки коннектора для эмбеддингов",
+        get_runtime=ConnectorRegistry.get_runtime,
+    )
 
 
 @router.post("/models/", response_model=list[AvailableEmbeddingModel])
@@ -515,7 +425,7 @@ async def fetch_available_models(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
     _ = current_user
-    normalized_settings = await _validate_connector_settings(
+    normalized_settings = await validate_connector_settings_or_422(
         data.connector_type,
         data.settings,
     )
@@ -530,29 +440,18 @@ async def fetch_available_models(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
     )
 
-    try:
-        connector_runtime = await ConnectorRegistry.get_runtime(
-            data.connector_type,
-            normalized_settings,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Некорректные настройки коннектора для эмбеддингов",
-        ) from e
-
-    try:
-        return await runtime_cls.fetch_available_models(
-            connector=connector_runtime,
-        )
-    except EmbeddingModelFetchError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                f"Failed to fetch models from embeddings '{e.embedding_type}': "
-                f"{e.detail}"
-            ),
-        )
+    return await fetch_models_or_http_error(
+        runtime_cls=runtime_cls,
+        connector_type=data.connector_type,
+        connector_settings=normalized_settings,
+        fetch_error_type=EmbeddingModelFetchError,
+        failure_message_builder=lambda e: (
+            f"Failed to fetch models from embeddings '{e.embedding_type}': "
+            f"{e.detail}"
+        ),
+        connector_runtime_error_message="Некорректные настройки коннектора для эмбеддингов",
+        get_runtime=ConnectorRegistry.get_runtime,
+    )
 
 
 @router.get("/{embedding_id}", response_model=EmbeddingResponse)
@@ -583,8 +482,9 @@ async def delete_embedding(
         embedding_repo=embedding_repo,
     )
     await embedding_repo.delete(embedding)
-    await _clear_current_if_matches(
+    await clear_user_current_link_if_matches(
         db=db,
         owner_id=current_user.id,
-        embedding_id=embedding.id,
+        resource_id=embedding.id,
+        user_field_name="embedding_id",
     )

@@ -379,6 +379,7 @@ class LLMsRouterTests(unittest.TestCase):
             supported_connector_types=lambda: ["openai"],
         )
         runtime_cls = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"],
             fetch_available_models=AsyncMock(
                 return_value=[{"id": "gpt-4o-mini", "name": "gpt-4o-mini"}]
             )
@@ -451,7 +452,7 @@ class LLMsRouterTests(unittest.TestCase):
             )
         )
         with patch(
-            "giga_agent.routes.llms._validate_connector_settings",
+            "giga_agent.routes.llms.validate_connector_settings_or_422",
             AsyncMock(return_value={"api_key": "sk-test"}),
         ), patch(
             "giga_agent.routes.llms._validate_llm_connector_compatibility",
@@ -492,10 +493,17 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_get_models_returns_422_for_incompatible_llm_and_connector(self):
         connector = self._connector_obj(connector_type="openai")
+        runtime_cls = types.SimpleNamespace(supported_connector_types=lambda: ["openai"])
 
         with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+            return_value=runtime_cls,
+        ), patch(
             "giga_agent.routes.llms._validate_connector_link",
             AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",

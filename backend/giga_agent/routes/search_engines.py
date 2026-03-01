@@ -18,7 +18,7 @@ from giga_agent.models.search_engine import (
     SearchEngineResponse,
 )
 from giga_agent.models.resource_permission import ResourcePermissionRepository
-from giga_agent.models.users import User, UserRepository, UserShort
+from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
@@ -27,7 +27,6 @@ from giga_agent.routes._shared.access import (
 from giga_agent.routes._shared.connectors import validate_connector_link
 from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
-    get_user_model,
 )
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
@@ -117,40 +116,6 @@ async def _validate_connector_link(
     )
 
 
-async def _get_engine_with_owner_check(
-    *,
-    engine_id: uuid.UUID,
-    owner_id: uuid.UUID,
-    engine_repo: SearchEngineRepository,
-) -> SearchEngine:
-    engine = await engine_repo.get_by_id(engine_id)
-    if engine is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Search engine not found",
-        )
-    if engine.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return engine
-
-
-async def _get_engine_with_read_check(
-    *,
-    engine_id: uuid.UUID,
-    user_id: uuid.UUID,
-    engine_repo: SearchEngineRepository,
-) -> SearchEngine:
-    return await fetch_resource_with_access_check(
-        resource_id=engine_id,
-        user_id=user_id,
-        repository=engine_repo,
-        not_found_detail="Search engine not found",
-    )
-
-
 async def _get_engine_with_write_check(
     *,
     engine_id: uuid.UUID,
@@ -163,28 +128,6 @@ async def _get_engine_with_write_check(
         repository=engine_repo,
         not_found_detail="Search engine not found",
         require_edit=True,
-    )
-
-
-async def _get_user_model(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-) -> User:
-    return await get_user_model(db=db, owner_id=owner_id)
-
-
-async def _clear_current_if_matches(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    search_engine_id: uuid.UUID,
-) -> bool:
-    return await clear_user_current_link_if_matches(
-        db=db,
-        owner_id=owner_id,
-        resource_id=search_engine_id,
-        user_field_name="search_engine_id",
     )
 
 
@@ -349,10 +292,11 @@ async def patch_search_engine(
         engine = await engine_repo.update(engine, **update_data)
 
     if is_deactivating_current:
-        await _clear_current_if_matches(
+        await clear_user_current_link_if_matches(
             db=db,
             owner_id=engine.owner_id,
-            search_engine_id=engine.id,
+            resource_id=engine.id,
+            user_field_name="search_engine_id",
         )
 
     return SearchEngineRepository.to_response(engine, can_edit=True)
@@ -371,8 +315,9 @@ async def delete_search_engine(
         engine_repo=engine_repo,
     )
     await engine_repo.delete(engine)
-    await _clear_current_if_matches(
+    await clear_user_current_link_if_matches(
         db=db,
         owner_id=engine.owner_id,
-        search_engine_id=engine.id,
+        resource_id=engine.id,
+        user_field_name="search_engine_id",
     )

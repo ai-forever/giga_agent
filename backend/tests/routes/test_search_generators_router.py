@@ -273,7 +273,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             "giga_agent.routes.search_engines.SearchEngineRepository.update",
             AsyncMock(return_value=updated),
         ), patch(
-            "giga_agent.routes.search_engines._clear_current_if_matches",
+            "giga_agent.routes.search_engines.clear_user_current_link_if_matches",
             AsyncMock(return_value=True),
         ) as mocked_clear_current, patch(
             "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
@@ -298,7 +298,7 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             "giga_agent.routes.search_engines.SearchEngineRepository.delete",
             AsyncMock(return_value=None),
         ), patch(
-            "giga_agent.routes.search_engines._clear_current_if_matches",
+            "giga_agent.routes.search_engines.clear_user_current_link_if_matches",
             AsyncMock(return_value=True),
         ) as mocked_clear_current:
             response = self.client.delete(f"/search-engines/{engine_id}")
