@@ -36,7 +36,7 @@ from giga_agent.models.sandbox import (
     SandboxRepository,
     SandboxStatus,
 )
-from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.sandbox.registry import LOCAL_DOCKER_PROVIDER, SandboxRegistry
 from giga_agent.sandbox.manager import (
     SandboxBusyError,
     SandboxManager,
@@ -77,17 +77,42 @@ async def get_provider_with_write_check(
     )
 
 
-async def validate_provider_settings(provider_type: str, settings: dict[str, Any]) -> dict[str, Any]:
+def _is_local_docker_type(provider_type: str) -> bool:
+    return provider_type == LOCAL_DOCKER_PROVIDER
+
+
+def _assert_local_provider_access(provider_type: str, current_user: User) -> None:
+    if _is_local_docker_type(provider_type) and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
+def _visible_provider_types_for_user(current_user: User) -> list[str]:
+    types = SandboxRegistry.available_types()
+    if current_user.is_superuser:
+        return types
+    return [provider_type for provider_type in types if not _is_local_docker_type(provider_type)]
+
+
+async def validate_provider_settings(
+    provider_type: str,
+    settings: dict[str, Any],
+    *,
+    current_user: User,
+) -> dict[str, Any]:
     """
     Валидировать settings через схему runtime-класса провайдера.
     Проверяет реальное подключение (API key, S3 и т.д.).
     Бросает HTTPException при ошибке валидации или подключения.
     """
+    _assert_local_provider_access(provider_type, current_user)
     if not SandboxRegistry.is_registered(provider_type):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown provider type: '{provider_type}'. "
-            f"Available: {SandboxRegistry.available_types()}",
+            f"Available: {_visible_provider_types_for_user(current_user)}",
         )
     try:
         return await SandboxRegistry.validate_settings(provider_type, settings)
@@ -142,7 +167,11 @@ async def create_sandbox_provider(
     if data.permissions is not None:
         require_superuser(current_user)
 
-    validated_settings = await validate_provider_settings(data.type, data.settings)
+    validated_settings = await validate_provider_settings(
+        data.type,
+        data.settings,
+        current_user=current_user,
+    )
 
     provider = await provider_repo.create(
         owner_id=current_user.id,
@@ -197,7 +226,7 @@ async def get_sandbox_provider_types(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ):
     """Получить список доступных типов провайдеров (зарегистрированных в registry)."""
-    return SandboxRegistry.available_types()
+    return _visible_provider_types_for_user(current_user)
 
 
 @router.get(
@@ -319,11 +348,12 @@ async def get_sandbox_provider_settings_schema(
 
     Полезно для фронтенда — динамическая генерация формы настроек.
     """
+    _assert_local_provider_access(provider_type, current_user)
     if not SandboxRegistry.is_registered(provider_type):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Unknown provider type: '{provider_type}'. "
-            f"Available: {SandboxRegistry.available_types()}",
+            f"Available: {_visible_provider_types_for_user(current_user)}",
         )
 
     schema_cls = SandboxRegistry.get_settings_schema(provider_type)
@@ -372,7 +402,9 @@ async def update_sandbox_provider(
         update_data["is_active"] = data.is_active
     if data.settings is not None:
         update_data["settings"] = await validate_provider_settings(
-            provider.type, data.settings
+            provider.type,
+            data.settings,
+            current_user=current_user,
         )
 
     if update_data:

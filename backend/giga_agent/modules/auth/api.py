@@ -313,11 +313,6 @@ async def _validate_llm_secret_references(
             )
 
 
-@router.get("/tt")
-async def get_tt():
-    return {"test": "test"}
-
-
 # ============ Endpoints ============
 
 

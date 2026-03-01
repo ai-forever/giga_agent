@@ -16,6 +16,7 @@ class SandboxRuntimeFactory:
     ) -> dict:
         settings = {**(provider.settings or {}), **(sandbox.settings or {})}
         settings["idle_timeout"] = provider.idle_timeout
+        settings["owner_id"] = sandbox.owner_id
         return settings
 
     @classmethod

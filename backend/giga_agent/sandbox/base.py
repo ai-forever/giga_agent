@@ -43,6 +43,8 @@ FileReadResult = RedirectResult | ContentResult | StreamResult
 class BaseSandbox(BaseModel, ABC):
     """Абстрактный базовый класс для виртуальных окружений."""
 
+    max_active_sandboxes: int | None = None
+
     # Поля, управляемые системой (менеджером/БД), а НЕ пользовательскими settings.
     # Подклассы могут расширять через: _runtime_fields = BaseSandbox._runtime_fields | {"my_field"}
     _runtime_fields: ClassVar[set[str]] = {
@@ -64,6 +66,8 @@ class BaseSandbox(BaseModel, ABC):
         for name, field_info in cls.model_fields.items():
             if name in cls._runtime_fields:
                 continue
+            if name == "max_active_sandboxes" and not cls.has_limit_cls():
+                continue
             # Сохраняем тип и default/description из оригинального FieldInfo
             fields[name] = (field_info.annotation, field_info)
 
@@ -84,6 +88,13 @@ class BaseSandbox(BaseModel, ABC):
         """
         schema = cls.settings_schema()
         return schema(**settings).model_dump(exclude_none=True)
+
+    @classmethod
+    def has_limit_cls(cls) -> bool:
+        return False
+
+    def has_limit(self) -> bool:
+        return self.has_limit_cls()
 
     @classmethod
     @override

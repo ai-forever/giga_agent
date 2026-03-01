@@ -1,175 +1,487 @@
-import secrets
-import time
-import os
 import asyncio
-import docker
-from typing import Optional, Any
+import mimetypes
+import os
+import secrets
+import shlex
+import time
+import uuid
+from collections.abc import AsyncIterator
+from pathlib import Path, PurePosixPath
+from typing import Any, Optional
 
-from dotenv import load_dotenv
+import docker
+from docker.errors import NotFound
+from docker.types import Ulimit
 from pydantic import Field, PrivateAttr
-from giga_agent.sandbox.jupyter import JupyterSandbox
+
 from giga_agent.core.logging import get_logger
+from giga_agent.core.paths import ensure_giga_agent_dir
+from giga_agent.sandbox.base import (
+    LARGE_FILE_THRESHOLD,
+    ContentResult,
+    FileReadResult,
+    StreamResult,
+)
+from giga_agent.sandbox.jupyter import JupyterSandbox
+from giga_agent.sandbox.registry import SandboxRegistry
 
 logger = get_logger(__name__)
 
-load_dotenv()
+JUPYTER_PORT = 8888
+BUCKET_PREFIX = "/bucket/"
 
 
+def _env_int(name: str, default: int | None) -> int | None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _env_path(name: str) -> Path | None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return None
+    return Path(raw).expanduser()
+
+
+@SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(JupyterSandbox):
     image: str = Field(
-        default="mikelarg/code-interpreter:0.0.4", description="Docker image to use"
+        default="mikelarg/code-interpreter:0.0.4",
+        description="Docker image to run for local sandbox",
     )
+
+    owner_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="Sandbox owner id injected by runtime factory",
+    )
+
+    memory_limit_mb: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB", 512) or 512,
+        description="Container memory hard limit in MB",
+    )
+    memory_reservation_mb: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB", 512) or 512,
+        description="Container memory soft reservation in MB",
+    )
+    vcpu: float = Field(
+        default=_env_float("GIGA_AGENT_LOCAL_DOCKER_VCPU", 0.3),
+        description="Container CPU quota in vCPU units",
+    )
+    pids_limit: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT", 256) or 256,
+        description="Maximum number of processes in container",
+    )
+    shm_size_mb: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_SHM_SIZE_MB", 128) or 128,
+        description="Container /dev/shm size in MB",
+    )
+    nofile_soft: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_NOFILE_SOFT", 1024) or 1024,
+        description="Soft nofile ulimit for container",
+    )
+    nofile_hard: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_NOFILE_HARD", 4096) or 4096,
+        description="Hard nofile ulimit for container",
+    )
+    startup_timeout_sec: int = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_STARTUP_TIMEOUT_SEC", 20) or 20,
+        description="Timeout in seconds to wait for Jupyter startup",
+    )
+    max_active_sandboxes: int | None = Field(
+        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", 3),
+        description="Maximum active local sandboxes for this provider",
+    )
+    enforce_readonly_rootfs: bool = Field(
+        default=_env_bool("GIGA_AGENT_LOCAL_DOCKER_READONLY_ROOTFS", False),
+        description="Run container with readonly root filesystem",
+    )
+    allow_network: bool = Field(
+        default=_env_bool("GIGA_AGENT_LOCAL_DOCKER_ALLOW_NETWORK", True),
+        description="Allow container network access",
+    )
+
+    external_id: Optional[str] = Field(
+        default=None,
+        description="Docker container ID",
+    )
+    jupyter_token: Optional[str] = Field(
+        default=None,
+        description="Jupyter auth token",
+    )
+    host_port: Optional[int] = Field(
+        default=None,
+        description="Mapped host port for Jupyter",
+    )
+
+    base_url: str = Field(
+        default="",
+        description="Base URL of local Jupyter server",
+    )
+
+    _runtime_fields = JupyterSandbox._runtime_fields | {
+        "jupyter_token",
+        "host_port",
+        "owner_id",
+    }
 
     _client: Any = PrivateAttr(default=None)
     _container: Any = PrivateAttr(default=None)
+    _sandbox_root_dir: Path = PrivateAttr(default_factory=Path)
 
-    def __init__(self, **data):
-        super().__init__(base_url="", **data)
+    def model_post_init(self, __context: Any) -> None:
         self._client = docker.from_env()
+        root_dir = _env_path("GIGA_AGENT_LOCAL_DOCKER_FILES_PATH")
+        if root_dir is None:
+            root_dir = ensure_giga_agent_dir() / "sandboxes"
+        self._sandbox_root_dir = root_dir
+        if self.jupyter_token:
+            self._token = self.jupyter_token
+
+    @classmethod
+    def has_limit_cls(cls) -> bool:
+        return True
+
+    def get_connection_settings(self) -> dict:
+        return {
+            "external_id": self.external_id,
+            "jupyter_token": self._token,
+            "host_port": self.host_port,
+        }
+
+    @classmethod
+    async def validate_settings(cls, settings: dict) -> dict:
+        validated = await super().validate_settings(settings)
+        cls._check_docker_connection()
+
+        def _require_positive(name: str) -> None:
+            value = validated.get(name)
+            if value is None or value <= 0:
+                raise ValueError(f"{name} must be > 0")
+
+        for field_name in (
+            "memory_limit_mb",
+            "memory_reservation_mb",
+            "vcpu",
+            "pids_limit",
+            "shm_size_mb",
+            "nofile_soft",
+            "nofile_hard",
+            "startup_timeout_sec",
+        ):
+            _require_positive(field_name)
+
+        if validated["memory_reservation_mb"] > validated["memory_limit_mb"]:
+            raise ValueError("memory_reservation_mb must be <= memory_limit_mb")
+        if validated["nofile_soft"] > validated["nofile_hard"]:
+            raise ValueError("nofile_soft must be <= nofile_hard")
+
+        if validated.get("max_active_sandboxes") is None:
+            env_limit = _env_int("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", None)
+            if env_limit is not None:
+                validated["max_active_sandboxes"] = env_limit
+
+        if validated.get("max_active_sandboxes") is None:
+            raise ValueError(
+                "max_active_sandboxes is required for local_docker "
+                "(provide in settings or set GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES)"
+            )
+        if validated["max_active_sandboxes"] <= 0:
+            raise ValueError("max_active_sandboxes must be > 0")
+
+        return validated
+
+    @staticmethod
+    def _check_docker_connection() -> None:
+        client = None
+        try:
+            client = docker.from_env()
+            client.ping()
+        except Exception as e:
+            raise ValueError(f"Docker connection check failed: {e}") from e
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
     async def up(self) -> None:
-        """Запускает Docker контейнер и настраивает окружение."""
-        # Generate tokens and load envs
+        if self.owner_id is None:
+            raise RuntimeError("owner_id is required for local_docker runtime")
+
         self._token = secrets.token_urlsafe(13)
-        aws_access_key = os.getenv("AWS_ACCESS_KEY_ID")
-        aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+        self.jupyter_token = self._token
 
-        if not aws_access_key or not aws_secret_key:
-            logger.warning(
-                "⚠️  Warning: AWS credentials not found in environment variables"
-            )
+        user_root = self._user_root_dir(self.owner_id)
+        user_root.mkdir(parents=True, exist_ok=True)
 
-        logger.info("🚀 Starting Docker container...")
+        envs = {
+            "JUPYTER_TOKEN": self._token,
+            "JUPYTER_RUNTIME_DIR": "/tmp/jupyter_runtime",
+            "IPYTHONDIR": "/tmp/ipython",
+            "MATPLOTLIBRC": "/tmp/matplotlibrc",
+        }
 
-        # 1. Start Docker container with sleep infinity
-        self._container = self._client.containers.run(
-            self.image,
-            command="sleep infinity",
-            detach=True,
-            remove=True,  # Automatically remove container when it stops
-            privileged=True,  # Needed for s3fs fuse mounting
-            environment={
-                "JUPYTER_TOKEN": self._token,
-                "AWSACCESSKEYID": aws_access_key,
-                "AWSSECRETACCESSKEY": aws_secret_key,
-                "MATPLOTLIBRC": "/root/.config/matplotlib/.matplotlibrc",
+        run_kwargs: dict[str, Any] = {
+            "command": "sleep infinity",
+            "detach": True,
+            "remove": True,
+            "environment": envs,
+            "ports": {f"{JUPYTER_PORT}/tcp": None},
+            "volumes": {
+                str(user_root): {"bind": BUCKET_PREFIX.rstrip("/"), "mode": "rw"}
             },
-            ports={"8888/tcp": None},  # Map 8888 to a random host port
+            "nano_cpus": int(self.vcpu * 1_000_000_000),
+            "mem_limit": f"{self.memory_limit_mb}m",
+            "mem_reservation": f"{self.memory_reservation_mb}m",
+            "pids_limit": self.pids_limit,
+            "shm_size": f"{self.shm_size_mb}m",
+            "ulimits": [
+                Ulimit(name="nofile", soft=self.nofile_soft, hard=self.nofile_hard)
+            ],
+            "read_only": self.enforce_readonly_rootfs,
+        }
+        if not self.allow_network:
+            run_kwargs["network_mode"] = "none"
+        if self.enforce_readonly_rootfs:
+            run_kwargs["tmpfs"] = {
+                "/tmp": "rw,exec,nosuid,size=512m",
+                "/run": "rw,nosuid,size=64m",
+                "/var/run": "rw,nosuid,size=64m",
+            }
+
+        logger.info(
+            "Starting local sandbox container owner=%s image=%s mem=%sMB vcpu=%s",
+            self.owner_id,
+            self.image,
+            self.memory_limit_mb,
+            self.vcpu,
         )
+        self._container = self._client.containers.run(self.image, **run_kwargs)
 
-        logger.info(f"📦 Container started with ID: {self._container.id[:12]}")
-
-        # 2. Run setup commands inside container
-        logger.info("⚙️  Configuring environment...")
-
-        # Create directory
-        self._container.exec_run("mkdir -p /home/user/bucket/")
-
-        # Mount S3
-        logger.info("☁️  Mounting S3...")
-        s3_cmd = (
-            "s3fs giga-agent /home/user/bucket "
-            "-o url=https://s3.cloud.ru "
-            "-o endpoint=ru-central-1 "
-            "-o use_path_request_style "
-            "-o allow_other"
-        )
-        # Using sh -c to ensure complex command string works
-        exit_code, output = self._container.exec_run(f"sh -c '{s3_cmd}'")
-        if exit_code != 0:
-            logger.warning(f"Warning: S3 mount failed: {output.decode()}")
-
-        # 3. Start Jupyter Server
-        logger.info("📓 Starting Jupyter Server...")
-        # Start in background
-        jupyter_cmd = (
-            f"jupyter server --ip=0.0.0.0 --port=8888 --allow-root > /dev/null 2>&1 &"
-        )
-        self._container.exec_run(f"sh -c '{jupyter_cmd}'", detach=True)
-
-        # 4. Get connection details
-        # Reload container attributes to get assigned ports
+        self.external_id = self._container.id
         self._container.reload()
         ports = self._container.attrs["NetworkSettings"]["Ports"]
-        if "8888/tcp" in ports and ports["8888/tcp"]:
-            host_port = ports["8888/tcp"][0]["HostPort"]
-        else:
-            raise RuntimeError("Could not find mapped port for 8888")
+        binding = ports.get(f"{JUPYTER_PORT}/tcp")
+        if not binding:
+            raise RuntimeError(f"Could not find mapped port for {JUPYTER_PORT}")
 
-        self.base_url = f"http://localhost:{host_port}"
-        logger.info(f"🔗 Jupyter available at: {self.base_url}")
-        logger.info(f"🔑 Token: {self._token}")
+        self.host_port = int(binding[0]["HostPort"])
+        self.base_url = f"http://localhost:{self.host_port}"
 
-        # Wait for Jupyter to be ready
-        TIMEOUT_SECONDS = 15
-        start_time = time.time()
+        cmd = (
+            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
+            '--ServerApp.token="${JUPYTER_TOKEN}" > /dev/null 2>&1 &'
+        )
+        self._container.exec_run(f"sh -c {shlex.quote(cmd)}", detach=True)
 
+        start = time.time()
         while True:
             if await self.is_up():
-                logger.info("✅ Jupyter is up and connected")
-                break
-
-            if time.time() - start_time > TIMEOUT_SECONDS:
+                return
+            if time.time() - start > self.startup_timeout_sec:
                 raise TimeoutError(
-                    f"Jupyter did not start within {TIMEOUT_SECONDS} seconds"
+                    f"Jupyter did not start within {self.startup_timeout_sec} seconds"
                 )
-            logger.debug("⏳ Waiting for Jupyter...")
             await asyncio.sleep(1)
 
-    
+    async def stop(self) -> None:
+        container = self._container
+        if container is None and self.external_id:
+            try:
+                container = self._client.containers.get(self.external_id)
+            except NotFound:
+                container = None
 
-    async def stop(self):
-        if self._container:
-            logger.info(f"🧹 Cleaning up container {self._container.id[:12]}...")
-            self._container.stop()
+        if container is not None:
+            logger.info("Stopping local sandbox container %s", container.id[:12])
+            try:
+                container.stop(timeout=5)
+            except NotFound:
+                pass
+
+        self._container = None
+
+    async def _reconnect(self) -> None:
+        if not self.external_id:
+            return
+        try:
+            self._container = self._client.containers.get(self.external_id)
+            if self.host_port:
+                self.base_url = f"http://localhost:{self.host_port}"
+        except NotFound:
             self._container = None
 
+    async def is_up(self) -> bool:
+        if not self.base_url and self.host_port:
+            self.base_url = f"http://localhost:{self.host_port}"
+        if not self.base_url and self.external_id:
+            await self._reconnect()
+        if not self.base_url:
+            return False
+        return await super().is_up()
 
-async def main():
-    sandbox = LocalDockerSandbox()
-    try:
-        await sandbox.up()
+    async def upload_file(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        file_name: str,
+        content: bytes,
+    ) -> str:
+        rel_path = self._validate_relative_file_name(file_name)
+        target = self._user_root_dir(owner_id) / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return f"{BUCKET_PREFIX}{rel_path.as_posix()}"
 
-        # 6. Run Tests
-        code = """
-print('Hello from Jupyter')
-name = input()
-print(f'Hello {name}')
+    def requires_running_for_upload(self) -> bool:
+        return False
 
-import os
-try:
-    print(f"Bucket content: {os.listdir('/home/user/bucket')}")
-    with open('/home/user/bucket/docker_test.txt', 'w') as f:
-        f.write('Hello from Docker Jupyter')
-    print("Successfully wrote to bucket")
-except Exception as e:
-    print(f"Error accessing bucket: {e}")
-"""
-        logger.info("🧪 Running test code...")
-        gen = sandbox.run_code(code)
+    async def read_file(self, sandbox_path: str) -> FileReadResult:
+        if self._is_bucket_path(sandbox_path):
+            local_path = self._local_path_from_bucket_path(sandbox_path)
+            if not local_path.exists() or not local_path.is_file():
+                raise FileNotFoundError(f"File not found: {sandbox_path}")
 
-        try:
-            # Note: In async generator, we use anext or async for
-            output = await anext(gen)
+            media_type, _ = mimetypes.guess_type(local_path.name)
+            if not media_type:
+                media_type = "application/octet-stream"
+            inline = local_path.suffix.lower() in {".html", ".htm"}
 
+            size = local_path.stat().st_size
+            if size >= LARGE_FILE_THRESHOLD:
+                return StreamResult(
+                    stream=self._stream_local_file(local_path),
+                    media_type=media_type,
+                    inline=inline,
+                    content_length=size,
+                )
+
+            data = local_path.read_bytes()
+            return ContentResult(data=data, media_type=media_type, inline=inline)
+
+        await self._ensure_container_connected()
+        assert self._container is not None
+        exit_code, output = self._container.exec_run(
+            cmd=["cat", "--", sandbox_path],
+            stdout=True,
+            stderr=True,
+        )
+        if exit_code != 0:
+            stderr = output.decode(errors="ignore")
+            if "No such file or directory" in stderr:
+                raise FileNotFoundError(f"File not found: {sandbox_path}")
+            raise RuntimeError(
+                f"Failed to read file '{sandbox_path}': {stderr}".strip()
+            )
+
+        media_type, _ = mimetypes.guess_type(sandbox_path)
+        return ContentResult(
+            data=bytes(output), media_type=media_type or "application/octet-stream"
+        )
+
+    def requires_running_for_read(self, sandbox_path: str) -> bool:
+        return not self._is_bucket_path(sandbox_path)
+
+    async def delete_file(self, sandbox_path: str) -> None:
+        if self._is_bucket_path(sandbox_path):
+            local_path = self._local_path_from_bucket_path(sandbox_path)
+            if local_path.exists():
+                local_path.unlink()
+            return
+
+        await self._ensure_container_connected()
+        assert self._container is not None
+        exit_code, output = self._container.exec_run(
+            cmd=["rm", "-f", "--", sandbox_path],
+            stdout=True,
+            stderr=True,
+        )
+        if exit_code != 0:
+            stderr = output.decode(errors="ignore")
+            raise RuntimeError(
+                f"Failed to delete file '{sandbox_path}': {stderr}".strip()
+            )
+
+    def requires_running_for_delete(self, sandbox_path: str) -> bool:
+        return not self._is_bucket_path(sandbox_path)
+
+    def _is_bucket_path(self, path: str) -> bool:
+        return path.startswith(BUCKET_PREFIX)
+
+    async def _stream_local_file(
+        self, path: Path, chunk_size: int = 1024 * 1024
+    ) -> AsyncIterator[bytes]:
+        with path.open("rb") as f:
             while True:
-                logger.info(f"Received: {output}")
-                if output["type"] == "input_request":
-                    logger.info(f"Providing input for prompt: {output.get('prompt')}")
-                    output = await gen.asend("GigaUser")
-                else:
-                    output = await anext(gen)
-        except StopAsyncIteration:
-            pass
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+                await asyncio.sleep(0)
 
-        logger.info("✨ Test completed successfully")
+    def _validate_relative_file_name(self, file_name: str) -> PurePosixPath:
+        clean = file_name.strip().replace("\\", "/").lstrip("/")
+        path = PurePosixPath(clean)
+        if path.name in {"", ".", ".."}:
+            raise ValueError("file_name must contain a valid file name")
+        if any(part in {".", ".."} for part in path.parts):
+            raise ValueError("file_name must not contain '.' or '..' path segments")
+        return path
 
-    except Exception as e:
-        logger.error(f"❌ An error occurred: {e}", exc_info=True)
-    finally:
-        sandbox.stop()
+    def _user_root_dir(self, owner_id: uuid.UUID) -> Path:
+        root = self._sandbox_root_dir
+        root.mkdir(parents=True, exist_ok=True)
+        user_root = (root / str(owner_id)).resolve()
+        user_root.mkdir(parents=True, exist_ok=True)
+        return user_root
 
+    def _local_path_from_bucket_path(self, sandbox_path: str) -> Path:
+        if self.owner_id is None:
+            raise RuntimeError("owner_id is required to resolve sandbox path")
+        key = sandbox_path[len(BUCKET_PREFIX) :].strip("/")
+        if not key:
+            raise ValueError(f"Invalid bucket path: {sandbox_path}")
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+        rel = PurePosixPath(key)
+        if any(part in {".", ".."} for part in rel.parts):
+            raise ValueError(f"Invalid bucket path: {sandbox_path}")
+
+        user_root = self._user_root_dir(self.owner_id).resolve()
+        local_path = (user_root / Path(*rel.parts)).resolve()
+        if user_root != local_path and user_root not in local_path.parents:
+            raise ValueError(f"Path escapes user sandbox root: {sandbox_path}")
+        return local_path
+
+    async def _ensure_container_connected(self) -> None:
+        if self._container is None and self.external_id:
+            await self._reconnect()
+        if self._container is None:
+            raise RuntimeError("Local docker sandbox is not connected")

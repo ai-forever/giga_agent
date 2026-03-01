@@ -64,6 +64,55 @@ class SandboxLifecycleService:
                 f"Sandbox {sandbox_id} is busy with another lifecycle operation"
             ) from e
 
+    async def _with_provider_capacity_lock(
+        self,
+        provider_id: uuid.UUID,
+        action: Callable[[], Awaitable[None]],
+    ) -> None:
+        key = f"sandbox:provider:capacity:{provider_id}"
+        try:
+            async with asyncio.timeout(self._lock_timeout):
+                async with cache.lock(
+                    key,
+                    expire=self._lock_timeout + 5,
+                    wait=True,
+                    check_interval=0.05,
+                ):
+                    await action()
+        except TimeoutError as e:
+            raise SandboxBusyError(
+                f"Provider {provider_id} is busy with another capacity operation"
+            ) from e
+
+    async def _reserve_capacity_and_mark_starting(
+        self,
+        *,
+        sandbox: Sandbox,
+        runtime: BaseSandbox,
+    ) -> None:
+        if not runtime.has_limit():
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STARTING)
+            return
+
+        if runtime.max_active_sandboxes is None or runtime.max_active_sandboxes <= 0:
+            raise StorageOperationError(
+                "Runtime limit is enabled but max_active_sandboxes is not configured"
+            )
+
+        async def _reserve() -> None:
+            active_count = await self._sandbox_repo.count_by_provider_and_statuses(
+                sandbox.provider_id,
+                statuses=[SandboxStatus.RUNNING, SandboxStatus.STARTING],
+            )
+            if active_count >= runtime.max_active_sandboxes:
+                raise SandboxBusyError(
+                    "Sandbox capacity exceeded: "
+                    f"{active_count}/{runtime.max_active_sandboxes} already active"
+                )
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STARTING)
+
+        await self._with_provider_capacity_lock(sandbox.provider_id, action=_reserve)
+
     async def _start_unlocked(self, sandbox_id: uuid.UUID) -> BaseSandbox:
         sandbox = await self._sandbox_repo.get_by_id_with_provider(sandbox_id)
         if sandbox is None:
@@ -74,10 +123,13 @@ class SandboxLifecycleService:
             return self._runtime_factory.build(sandbox.provider, sandbox)
 
         provider = sandbox.provider
-        await self._sandbox_repo.set_status(sandbox, SandboxStatus.STARTING)
 
         try:
             runtime = self._runtime_factory.build(provider, sandbox)
+            await self._reserve_capacity_and_mark_starting(
+                sandbox=sandbox,
+                runtime=runtime,
+            )
             await runtime.up()
 
             connection = runtime.get_connection_settings()
@@ -94,6 +146,8 @@ class SandboxLifecycleService:
                 provider_id=sandbox.provider_id,
             )
 
+        except SandboxBusyError:
+            raise
         except Exception as e:
             logger.error("Failed to start sandbox %s: %s", sandbox_id, e)
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.ERROR)

@@ -1,6 +1,7 @@
 import types
 import unittest
 import uuid
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -450,3 +451,47 @@ class SandboxesRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 500)
+
+    def test_get_provider_types_hides_local_for_non_superuser(self):
+        self.user.is_superuser = False
+        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
+            "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
+            return_value=["e2b", "local_docker"],
+        ):
+            response = self.client.get("/sandboxes/providers/types")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), ["e2b"])
+
+    def test_get_provider_types_shows_local_for_superuser_when_enabled(self):
+        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
+            "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
+            return_value=["e2b", "local_docker"],
+        ):
+            response = self.client.get("/sandboxes/providers/types")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), ["e2b", "local_docker"])
+
+    def test_get_local_provider_schema_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
+            response = self.client.get(
+                "/sandboxes/providers/types/local_docker/settings-schema"
+            )
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_local_provider_forbidden_for_non_superuser(self):
+        self.user.is_superuser = False
+        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
+            response = self.client.post(
+                "/sandboxes/providers",
+                json={
+                    "type": "local_docker",
+                    "name": "local",
+                    "settings": {"max_active_sandboxes": 1},
+                    "idle_timeout": 3600,
+                    "is_active": True,
+                },
+            )
+        self.assertEqual(response.status_code, 403)

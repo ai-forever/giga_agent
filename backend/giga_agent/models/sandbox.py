@@ -602,6 +602,20 @@ class SandboxRepository:
         )
         return result.scalar_one_or_none()
 
+    async def count_by_provider_and_statuses(
+        self,
+        provider_id: uuid.UUID,
+        statuses: list[SandboxStatus],
+    ) -> int:
+        if not statuses:
+            return 0
+        result = await self.db.execute(
+            select(func.count(Sandbox.id))
+            .where(Sandbox.provider_id == provider_id)
+            .where(Sandbox.status.in_(statuses))
+        )
+        return int(result.scalar_one() or 0)
+
     async def get_idle_sandboxes(self) -> list[Sandbox]:
         """
         Найти все запущенные sandbox'ы, превысившие idle timeout.
