@@ -108,6 +108,9 @@ class SandboxManager:
     async def stop_idle_sandboxes(self) -> list[uuid.UUID]:
         return await self._lifecycle.stop_idle_sandboxes()
 
+    async def reconcile_stale_starting_sandboxes(self, ttl_sec: int) -> list[uuid.UUID]:
+        return await self._lifecycle.reconcile_stale_starting(ttl_sec)
+
     async def upload_file_for_user(
         self,
         user_id: uuid.UUID,

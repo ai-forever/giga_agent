@@ -378,6 +378,40 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["can_stop"])
 
+    def test_stop_provider_sandbox_starting_returns_stopped(self):
+        provider = self._provider_obj()
+        sandbox = self._sandbox_obj(
+            provider_id=provider.id,
+            owner_id=self.user.id,
+            status="starting",
+            started_at=datetime.now(timezone.utc),
+        )
+        stopped = self._sandbox_obj(
+            provider_id=provider.id,
+            owner_id=self.user.id,
+            sandbox_id=sandbox.id,
+            status="stopped",
+            stopped_at=datetime.now(timezone.utc),
+        )
+        self.db.get = AsyncMock(return_value=types.SimpleNamespace(email="self@example.com"))
+
+        with patch(
+            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+            AsyncMock(return_value=(provider, False)),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+            AsyncMock(side_effect=[sandbox, stopped]),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxManager.stop",
+            AsyncMock(return_value=stopped),
+        ):
+            response = self.client.post(
+                f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "stopped")
+
     def test_stop_provider_sandbox_forbidden_for_non_owner_without_edit(self):
         provider = self._provider_obj()
         sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=uuid.uuid4())

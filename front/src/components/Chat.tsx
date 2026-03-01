@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { useStableMessages } from "../hooks/useStableMessages";
@@ -9,6 +9,7 @@ import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_AGENT_PREFIX, API_PREFIX } from "@/config.ts";
+import { refreshThreads } from "@/lib/events";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -55,6 +56,34 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [threadId, onThreadIdChange]);
 
   const stableMessages = useStableMessages(thread);
+
+  const aiCountRef = useRef<{ threadId: string | null; aiCount: number }>({
+    threadId: null,
+    aiCount: 0,
+  });
+
+  useEffect(() => {
+    const currentThreadId = threadId ?? null;
+    if (!currentThreadId) return;
+    if (!stableMessages || stableMessages.length === 0) return;
+
+    const messages = stableMessages as Array<{ type?: string }>;
+    let aiCount = 0;
+    for (const m of messages) {
+      if (m?.type === "ai") aiCount += 1;
+    }
+
+    if (aiCountRef.current.threadId !== currentThreadId) {
+      aiCountRef.current = { threadId: currentThreadId, aiCount };
+      return;
+    }
+
+    if (aiCountRef.current.aiCount === 0 && aiCount > 0) {
+      refreshThreads();
+    }
+
+    aiCountRef.current = { threadId: currentThreadId, aiCount };
+  }, [stableMessages, threadId]);
 
   return (
     <SelectedAttachmentsProvider>

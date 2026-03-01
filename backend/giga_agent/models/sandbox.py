@@ -637,6 +637,21 @@ class SandboxRepository:
             > s.provider.idle_timeout
         ]
 
+    async def get_stale_starting_sandboxes(
+        self,
+        *,
+        stale_before: datetime,
+    ) -> list[Sandbox]:
+        """Найти sandbox'ы в STARTING, которые застряли дольше заданного TTL."""
+        result = await self.db.execute(
+            select(Sandbox)
+            .options(joinedload(Sandbox.provider))
+            .where(Sandbox.status == SandboxStatus.STARTING)
+            .where(Sandbox.updated_at.isnot(None))
+            .where(Sandbox.updated_at < stale_before)
+        )
+        return result.scalars().all()
+
     async def create(
         self,
         owner_id: uuid.UUID,

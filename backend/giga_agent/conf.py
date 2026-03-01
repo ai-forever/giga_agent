@@ -46,3 +46,8 @@ GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC = _env_int(
     55,
     min_value=5,
 )
+GIGA_AGENT_SANDBOX_STARTING_TTL_SEC = _env_int(
+    "GIGA_AGENT_SANDBOX_STARTING_TTL_SEC",
+    120,
+    min_value=10,
+)

@@ -2,6 +2,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
 
 from cashews import cache
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,12 @@ logger = get_logger(__name__)
 
 
 class SandboxLifecycleService:
+    _FORCED_STOP_FALLBACK_STATUSES = {
+        SandboxStatus.STARTING,
+        SandboxStatus.STOPPING,
+        SandboxStatus.ERROR,
+    }
+
     def __init__(
         self,
         db: AsyncSession,
@@ -177,19 +184,14 @@ class SandboxLifecycleService:
             return sandbox
 
         provider = sandbox.provider
+        initial_status = SandboxStatus(sandbox.status)
         await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPING)
 
         try:
             runtime = self._runtime_factory.build(provider, sandbox)
             await runtime.stop()
 
-            connection_keys = set(runtime.get_connection_settings().keys())
-            sandbox.settings = {
-                k: v
-                for k, v in (sandbox.settings or {}).items()
-                if k not in connection_keys
-            }
-            sandbox.external_id = None
+            self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
 
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
             logger.info("Sandbox %s stopped successfully", sandbox_id)
@@ -199,6 +201,22 @@ class SandboxLifecycleService:
             )
 
         except Exception as e:
+            if initial_status in self._FORCED_STOP_FALLBACK_STATUSES:
+                logger.warning(
+                    "sandbox_stop_forced_fallback sandbox_id=%s initial_status=%s reason=%s",
+                    sandbox_id,
+                    initial_status,
+                    e,
+                )
+                runtime = self._runtime_factory.build(provider, sandbox)
+                self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
+                await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
+                await SandboxRepository.cache_invalidate_pair(
+                    owner_id=sandbox.owner_id,
+                    provider_id=sandbox.provider_id,
+                )
+                return sandbox
+
             logger.error("Failed to stop sandbox %s: %s", sandbox_id, e)
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.ERROR)
             await SandboxRepository.cache_invalidate_pair(
@@ -216,6 +234,14 @@ class SandboxLifecycleService:
         )
         assert isinstance(result, Sandbox)
         return result
+
+    @staticmethod
+    def _clear_runtime_connection_state(*, sandbox: Sandbox, runtime: BaseSandbox) -> None:
+        connection_keys = set(runtime.get_connection_settings().keys())
+        sandbox.settings = {
+            k: v for k, v in (sandbox.settings or {}).items() if k not in connection_keys
+        }
+        sandbox.external_id = None
 
     async def ensure_running_for_user(
         self,
@@ -307,3 +333,66 @@ class SandboxLifecycleService:
             logger.info("Stopped %s idle sandbox(es)", len(stopped))
 
         return stopped
+
+    async def _reconcile_stale_starting_unlocked(self, sandbox_id: uuid.UUID) -> uuid.UUID | None:
+        sandbox = await self._sandbox_repo.get_by_id_with_provider(sandbox_id)
+        if sandbox is None:
+            logger.info("sandbox_reconcile_skipped sandbox_id=%s reason=not_found", sandbox_id)
+            return None
+        if sandbox.status != SandboxStatus.STARTING:
+            logger.info(
+                "sandbox_reconcile_skipped sandbox_id=%s reason=status_changed status=%s",
+                sandbox_id,
+                sandbox.status,
+            )
+            return None
+
+        runtime = self._runtime_factory.build(sandbox.provider, sandbox)
+        is_up = False
+        try:
+            is_up = await runtime.is_up()
+        except Exception as e:
+            logger.warning(
+                "sandbox_reconcile_probe_failed sandbox_id=%s reason=%s",
+                sandbox_id,
+                e,
+            )
+
+        if is_up:
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.RUNNING)
+            logger.info("sandbox_reconcile_promoted_running sandbox_id=%s", sandbox_id)
+        else:
+            self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
+            logger.info("sandbox_reconcile_healed_stopped sandbox_id=%s", sandbox_id)
+
+        await SandboxRepository.cache_invalidate_pair(
+            owner_id=sandbox.owner_id,
+            provider_id=sandbox.provider_id,
+        )
+        return sandbox.id
+
+    async def reconcile_stale_starting(self, ttl_sec: int) -> list[uuid.UUID]:
+        stale_before = datetime.utcnow() - timedelta(seconds=max(ttl_sec, 1))
+        stale_sandboxes = await self._sandbox_repo.get_stale_starting_sandboxes(
+            stale_before=stale_before
+        )
+        reconciled: list[uuid.UUID] = []
+
+        for sandbox in stale_sandboxes:
+            try:
+                result = await self._with_lifecycle_lock(
+                    sandbox.id,
+                    action=lambda sandbox_id=sandbox.id: self._reconcile_stale_starting_unlocked(
+                        sandbox_id
+                    ),
+                )
+                if isinstance(result, uuid.UUID):
+                    reconciled.append(result)
+            except Exception:
+                logger.exception(
+                    "sandbox_reconcile_failed sandbox_id=%s",
+                    sandbox.id,
+                )
+
+        return reconciled

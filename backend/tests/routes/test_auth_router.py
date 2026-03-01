@@ -116,9 +116,6 @@ class AuthRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.modules.auth.api._validate_llm_id",
             AsyncMock(return_value=None),
-        ) as mocked_validate_llm, patch(
-            "giga_agent.modules.auth.api._validate_fast_llm_id",
-            AsyncMock(return_value=None),
         ) as mocked_validate_fast_llm, patch(
             "giga_agent.modules.auth.api._validate_embedding_id",
             AsyncMock(return_value=None),
@@ -155,7 +152,6 @@ class AuthRouterTests(unittest.TestCase):
         self.assertIsNone(payload["sandbox_provider_id"])
         self.assertIsNone(payload["image_generator_id"])
         self.assertIsNone(payload["search_engine_id"])
-        mocked_validate_llm.assert_not_awaited()
         mocked_validate_fast_llm.assert_not_awaited()
         mocked_validate_embedding.assert_not_awaited()
         mocked_validate_sandbox_provider.assert_not_awaited()
@@ -344,7 +340,7 @@ class AuthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         mocked_validate_llm.assert_awaited_once_with(
-            self.db, self.user.id, llm_secret_id
+            self.db, self.user.id, llm_secret_id, field_name="secrets.ASSISTANT_LLM"
         )
 
     def test_patch_users_me_returns_422_for_invalid_uuid_in_llm_id_secret(self):
@@ -409,7 +405,7 @@ class AuthRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 422)
-        self.assertIn("secrets.ASSISTANT_LLM", response.json()["detail"])
+        self.assertIn("Invalid value for llm_id", response.json()["detail"])
 
     def test_patch_users_me_skips_llm_secret_validation_for_empty_value(self):
         user_model = self._user_model()

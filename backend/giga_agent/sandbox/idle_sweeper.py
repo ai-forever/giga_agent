@@ -6,6 +6,7 @@ from contextlib import suppress
 from cashews import cache
 from cashews.exceptions import LockedError
 
+from giga_agent.conf import GIGA_AGENT_SANDBOX_STARTING_TTL_SEC
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.sandbox.manager import SandboxManager
@@ -77,8 +78,23 @@ class IdleSandboxSweeper:
                     expire=self.lock_ttl_sec,
                     wait=False,
                 ):
-                    stopped = await SandboxManager(session).stop_idle_sandboxes()
-                    logger.info("Idle sandbox sweeper stopped %s sandbox(es)", len(stopped))
+                    manager = SandboxManager(session)
+                    stopped = await manager.stop_idle_sandboxes()
+                    reconciled = await manager.reconcile_stale_starting_sandboxes(
+                        GIGA_AGENT_SANDBOX_STARTING_TTL_SEC
+                    )
+                    stopped_count = len(stopped)
+                    reconciled_count = len(reconciled)
+                    if stopped_count > 0:
+                        logger.info(
+                            "Idle sandbox sweeper stopped %s sandbox(es)",
+                            stopped_count,
+                        )
+                    if reconciled_count > 0:
+                        logger.info(
+                            "Idle sandbox sweeper reconciled %s stale starting sandbox(es)",
+                            reconciled_count,
+                        )
             except LockedError:
                 logger.debug("Idle sandbox cleanup skipped: lock is busy")
                 return

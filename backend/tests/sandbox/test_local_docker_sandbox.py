@@ -15,10 +15,14 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             os.environ.pop("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", None)
             with patch(
                 "giga_agent.sandbox.local_docker.docker.from_env",
-                return_value=types.SimpleNamespace(ping=lambda: None, close=lambda: None),
+                return_value=types.SimpleNamespace(
+                    ping=lambda: None, close=lambda: None
+                ),
             ):
                 with self.assertRaisesRegex(ValueError, "max_active_sandboxes"):
-                    await LocalDockerSandbox.validate_settings({})
+                    await LocalDockerSandbox.validate_settings(
+                        {"max_active_sandboxes": None}
+                    )
 
     async def test_validate_settings_uses_env_fallback_for_max_active(self):
         with patch.dict(

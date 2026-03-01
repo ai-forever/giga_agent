@@ -858,6 +858,11 @@ export const SandboxSettings: React.FC = () => {
                 <TableBody>
                   {providerSandboxes.map((item) => {
                     const isRunning = item.status === "running";
+                    const canRenderStopAction =
+                      item.can_stop &&
+                      ["starting", "running", "stopping", "error"].includes(
+                        item.status,
+                      );
                     const owner = item.owner_email || item.owner_id;
                     return (
                       <TableRow key={item.id}>
@@ -883,7 +888,7 @@ export const SandboxSettings: React.FC = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right min-w-[120px]">
-                          {isRunning && item.can_stop ? (
+                          {canRenderStopAction ? (
                             <Button
                               size="sm"
                               variant="outline"

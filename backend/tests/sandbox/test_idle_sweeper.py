@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from cashews.exceptions import LockedError
 
+from giga_agent.conf import GIGA_AGENT_SANDBOX_STARTING_TTL_SEC
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 
 
@@ -46,7 +47,8 @@ class IdleSandboxSweeperTests(unittest.IsolatedAsyncioTestCase):
         )
         session = object()
         manager = types.SimpleNamespace(
-            stop_idle_sandboxes=AsyncMock(return_value=[uuid.uuid4()])
+            stop_idle_sandboxes=AsyncMock(return_value=[uuid.uuid4()]),
+            reconcile_stale_starting_sandboxes=AsyncMock(return_value=[uuid.uuid4()]),
         )
 
         with (
@@ -72,6 +74,9 @@ class IdleSandboxSweeperTests(unittest.IsolatedAsyncioTestCase):
         )
         manager_cls.assert_called_once_with(session)
         manager.stop_idle_sandboxes.assert_awaited_once()
+        manager.reconcile_stale_starting_sandboxes.assert_awaited_once_with(
+            GIGA_AGENT_SANDBOX_STARTING_TTL_SEC
+        )
 
     async def test_run_once_skips_when_lock_is_busy(self):
         sweeper = IdleSandboxSweeper(
@@ -146,4 +151,3 @@ class IdleSandboxSweeperTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(sweeper._task)
         assert task is not None
         self.assertTrue(task.done())
-
