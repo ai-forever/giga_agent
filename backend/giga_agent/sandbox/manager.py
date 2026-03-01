@@ -146,16 +146,12 @@ class SandboxManager:
         if resolved_provider_id is None:
             user = await UserRepository.get_cached_or_db(owner_id, session=self.db)
             if user is None or user.sandbox_provider_id is None:
-                raise ValueError(
-                    f"User {owner_id} sandbox provider is not configured"
-                )
+                raise ValueError(f"User {owner_id} sandbox provider is not configured")
             resolved_provider_id = user.sandbox_provider_id
 
         provider = await self._provider_repo.get_by_id(resolved_provider_id)
         if provider is None:
-            raise ValueError(
-                f"Provider {resolved_provider_id} not found"
-            )
+            raise ValueError(f"Provider {resolved_provider_id} not found")
         return provider
 
     async def get_or_create_for_user(
@@ -184,15 +180,9 @@ class SandboxManager:
                 provider_id=provider_id,
             )
             if cached is not None:
-                # Safety: ensure the cached pair belongs to the requested user
-                if cached.sandbox.owner_id == owner_id:
-                    return SandboxResolved(
-                        provider=cached.provider,
-                        sandbox=cached.sandbox,
-                    )
-                await SandboxRepository.cache_invalidate_pair(
-                    owner_id=owner_id,
-                    provider_id=cached.provider.id,
+                return SandboxResolved(
+                    provider=cached.provider,
+                    sandbox=cached.sandbox,
                 )
 
         provider = await self._resolve_provider(owner_id, provider_id)
@@ -363,7 +353,8 @@ class SandboxManager:
             # Очищаем connection settings (external_id, токены и т.д.)
             connection_keys = set(runtime.get_connection_settings().keys())
             sandbox.settings = {
-                k: v for k, v in (sandbox.settings or {}).items()
+                k: v
+                for k, v in (sandbox.settings or {}).items()
                 if k not in connection_keys
             }
             sandbox.external_id = None
@@ -549,9 +540,7 @@ class SandboxManager:
         if file is None:
             raise ValueError(f"File {file_id} not found")
         if file.owner_id != owner_id:
-            raise PermissionError(
-                f"File {file_id} does not belong to user {owner_id}"
-            )
+            raise PermissionError(f"File {file_id} does not belong to user {owner_id}")
 
         provider = await self._provider_repo.get_by_id(file.provider_id)
         if provider is None:
@@ -565,16 +554,8 @@ class SandboxManager:
                     f"Provider {file.provider_id} not found for file {file_id}"
                 )
             provider_obj = cached.provider
-            if provider_obj.owner_id != owner_id:
-                raise PermissionError(
-                    f"Provider {provider_obj.id} does not belong to user {owner_id}"
-                )
             sandbox_obj = cached.sandbox
         else:
-            if provider.owner_id != owner_id:
-                raise PermissionError(
-                    f"Provider {provider.id} does not belong to user {owner_id}"
-                )
             resolved = await self.get_or_create_for_user(
                 owner_id=owner_id,
                 provider_id=provider.id,
@@ -640,9 +621,7 @@ class SandboxManager:
         if file is None:
             raise ValueError(f"File {file_id} not found")
         if file.owner_id != owner_id:
-            raise PermissionError(
-                f"File {file_id} does not belong to user {owner_id}"
-            )
+            raise PermissionError(f"File {file_id} does not belong to user {owner_id}")
 
         # Best-effort physical delete (may be unsupported by provider).
         try:
@@ -659,10 +638,6 @@ class SandboxManager:
                 provider_obj = cached.provider
                 sandbox_obj = cached.sandbox
             else:
-                if provider.owner_id != owner_id:
-                    raise PermissionError(
-                        f"Provider {provider.id} does not belong to user {owner_id}"
-                    )
                 resolved = await self.get_or_create_for_user(
                     owner_id=owner_id,
                     provider_id=provider.id,

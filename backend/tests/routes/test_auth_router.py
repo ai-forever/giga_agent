@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user, router
+from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 
 
 class _ModuleStub:
@@ -191,6 +192,60 @@ class AuthRouterTests(unittest.TestCase):
             self.user.id,
             sandbox_provider_id,
         )
+
+    def test_patch_users_me_publishes_embedding_changed_event(self):
+        user_model = self._user_model()
+        old_embedding_id = uuid.uuid4()
+        new_embedding_id = uuid.uuid4()
+        user_model.embedding_id = old_embedding_id
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api._validate_embedding_id",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ) as mocked_publish:
+            response = self.client.patch(
+                "/users/me",
+                json={"embedding_id": str(new_embedding_id)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_publish.assert_awaited_once()
+        event = mocked_publish.await_args.args[0]
+        self.assertIsInstance(event, UserEmbeddingChangedEvent)
+        self.assertEqual(event.user_id, self.user.id)
+        self.assertEqual(event.old_embedding_id, old_embedding_id)
+        self.assertEqual(event.new_embedding_id, new_embedding_id)
+
+    def test_patch_users_me_does_not_publish_embedding_event_without_change(self):
+        user_model = self._user_model()
+        user_model.embedding_id = uuid.uuid4()
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=user_model),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ) as mocked_publish:
+            response = self.client.patch(
+                "/users/me",
+                json={"settings": {"theme": "light"}},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_publish.assert_not_awaited()
 
     def test_patch_users_me_returns_422_for_invalid_sandbox_provider_reference(self):
         user_model = self._user_model()

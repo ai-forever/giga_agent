@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 from giga_agent.routes.embeddings import router
 
 
@@ -284,7 +285,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings.UserRepository.invalidate_cache",
             AsyncMock(return_value=None),
-        ) as mocked_invalidate_cache:
+        ) as mocked_invalidate_cache, patch(
+            "giga_agent.routes.embeddings.event_bus.publish",
+            AsyncMock(return_value=None),
+        ) as mocked_publish:
             response = self.client.post(
                 "/embeddings",
                 json={
@@ -301,6 +305,12 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.db.commit.assert_awaited()
         self.db.refresh.assert_awaited()
         mocked_invalidate_cache.assert_awaited_once_with(self.user.id)
+        mocked_publish.assert_awaited_once()
+        event = mocked_publish.await_args.args[0]
+        self.assertIsInstance(event, UserEmbeddingChangedEvent)
+        self.assertEqual(event.user_id, self.user.id)
+        self.assertIsNone(event.old_embedding_id)
+        self.assertEqual(event.new_embedding_id, created.id)
 
     def test_create_next_embedding_does_not_change_user_embedding_id(self):
         connector = self._connector_obj()
@@ -332,7 +342,10 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings.get_user_model",
             AsyncMock(return_value=user_model),
-        ):
+        ), patch(
+            "giga_agent.routes.embeddings.event_bus.publish",
+            AsyncMock(return_value=None),
+        ) as mocked_publish:
             response = self.client.post(
                 "/embeddings",
                 json={
@@ -346,6 +359,7 @@ class EmbeddingsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(user_model.embedding_id, current_embedding_id)
+        mocked_publish.assert_not_awaited()
 
     def test_models_route_not_shadowed_by_embedding_id_route(self):
         connector = self._connector_obj()
@@ -483,8 +497,12 @@ class EmbeddingsRouterTests(unittest.TestCase):
     def test_delete_current_auto_clears_current(self):
         embedding_id = uuid.uuid4()
         existing = self._embedding_obj(embedding_id=embedding_id)
+        user_model = types.SimpleNamespace(embedding_id=embedding_id)
 
         with patch(
+            "giga_agent.routes.embeddings.get_user_model",
+            AsyncMock(return_value=user_model),
+        ), patch(
             "giga_agent.routes.embeddings._get_embedding_with_write_check",
             AsyncMock(return_value=existing),
         ), patch(
@@ -493,8 +511,17 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings.clear_user_current_link_if_matches",
             AsyncMock(return_value=True),
-        ) as mocked_clear_current:
+        ) as mocked_clear_current, patch(
+            "giga_agent.routes.embeddings.event_bus.publish",
+            AsyncMock(return_value=None),
+        ) as mocked_publish:
             response = self.client.delete(f"/embeddings/{embedding_id}")
 
         self.assertEqual(response.status_code, 204)
         mocked_clear_current.assert_awaited_once()
+        mocked_publish.assert_awaited_once()
+        event = mocked_publish.await_args.args[0]
+        self.assertIsInstance(event, UserEmbeddingChangedEvent)
+        self.assertEqual(event.user_id, self.user.id)
+        self.assertEqual(event.old_embedding_id, embedding_id)
+        self.assertIsNone(event.new_embedding_id)

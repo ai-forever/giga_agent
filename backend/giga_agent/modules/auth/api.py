@@ -25,7 +25,7 @@ from giga_agent.models.resource_permission import (
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.core.events import event_bus
-from giga_agent.modules.auth.events import UserCreatedEvent
+from giga_agent.modules.auth.events import UserCreatedEvent, UserEmbeddingChangedEvent
 from giga_agent.models.users import (
     User,
     UserShort,
@@ -394,6 +394,7 @@ async def update_user(
         return current_user
 
     user = await _get_user_model_by_id(db, current_user.id)
+    old_embedding_id = user.embedding_id
 
     if "settings" in body.model_fields_set:
         if body.settings is None:
@@ -463,6 +464,14 @@ async def update_user(
     await db.commit()
     await db.refresh(user)
     await UserRepository.invalidate_cache(user.id)
+    if old_embedding_id != user.embedding_id:
+        await event_bus.publish(
+            UserEmbeddingChangedEvent(
+                user_id=user.id,
+                old_embedding_id=old_embedding_id,
+                new_embedding_id=user.embedding_id,
+            )
+        )
     return UserRepository.to_short(user)
 
 

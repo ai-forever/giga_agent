@@ -24,6 +24,8 @@ from giga_agent.models.embedding import (
 )
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.core.events import event_bus
+from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
@@ -344,11 +346,19 @@ async def create_embedding(
         )
 
     user = await get_user_model(db=db, owner_id=current_user.id)
+    old_embedding_id = user.embedding_id
     if user.embedding_id is None:
         user.embedding_id = embedding.id
         await db.commit()
         await db.refresh(user)
         await UserRepository.invalidate_cache(current_user.id)
+        await event_bus.publish(
+            UserEmbeddingChangedEvent(
+                user_id=current_user.id,
+                old_embedding_id=old_embedding_id,
+                new_embedding_id=user.embedding_id,
+            )
+        )
 
     return EmbeddingRepository.to_response(embedding, can_edit=True)
 
@@ -476,15 +486,27 @@ async def delete_embedding(
     db: Annotated[AsyncSession, Depends(get_session)],
     embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
 ):
+    user = await get_user_model(db=db, owner_id=current_user.id)
     embedding = await _get_embedding_with_write_check(
         embedding_id=embedding_id,
         user_id=current_user.id,
         embedding_repo=embedding_repo,
     )
+    old_embedding_id = (
+        user.embedding_id if user.embedding_id == embedding.id else None
+    )
     await embedding_repo.delete(embedding)
-    await clear_user_current_link_if_matches(
+    was_cleared = await clear_user_current_link_if_matches(
         db=db,
         owner_id=current_user.id,
         resource_id=embedding.id,
         user_field_name="embedding_id",
     )
+    if was_cleared and old_embedding_id is not None:
+        await event_bus.publish(
+            UserEmbeddingChangedEvent(
+                user_id=current_user.id,
+                old_embedding_id=old_embedding_id,
+                new_embedding_id=None,
+            )
+        )
