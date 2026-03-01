@@ -86,10 +86,11 @@ async def _upload_files_for_owner(
     factory = await get_session_factory()
     async with factory() as session:
         manager = SandboxManager(session)
-        uploaded = await manager.upload_files_for_user(owner_id=owner_id, files=files)
+        uploaded = await manager.upload_files_for_user(user_id=owner_id, files=files)
 
     return [
-        FileResponse.model_validate(item).model_dump(mode="json") for item in uploaded
+        FileResponse.model_validate(item).model_dump(mode="json")
+        for item in uploaded.files
     ]
 
 

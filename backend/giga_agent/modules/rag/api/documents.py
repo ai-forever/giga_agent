@@ -115,7 +115,7 @@ async def documents_create(
             file_uuid = UUID(file_id)
             sandbox_rel_path = f"rag/{collection_id}/{file_uuid}.txt"
             sandbox_file = await SandboxManager(db).upload_file_for_user(
-                owner_id=collection.owner_id,
+                user_id=collection.owner_id,
                 file_name=sandbox_rel_path,
                 content=(full_text or "").encode("utf-8"),
                 file_type="text",
@@ -297,7 +297,7 @@ async def documents_delete(
 
     # Best-effort delete file from sandbox storage (S3) + remove core_files metadata.
     await SandboxManager(db).delete_file_by_path_for_user(
-        owner_id=collection.owner_id,
+        user_id=collection.owner_id,
         sandbox_path=doc.sandbox_path,
     )
 

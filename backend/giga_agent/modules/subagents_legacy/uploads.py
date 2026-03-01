@@ -89,11 +89,11 @@ async def upload_files_for_owner(
     async with factory() as session:
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(
-            owner_id=owner_id,
+            user_id=owner_id,
             files=upload_files,
         )
 
-    return [FileResponse.model_validate(item) for item in uploaded]
+    return [FileResponse.model_validate(item) for item in uploaded.files]
 
 
 def build_tool_message(

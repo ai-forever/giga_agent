@@ -9,6 +9,7 @@ from giga_agent.modules.subagents_legacy.uploads import (
     resolve_upload_prefix,
     upload_files_for_runtime_user,
 )
+from giga_agent.sandbox.manager import UploadBatchResult
 
 
 def _file_payload(path: str) -> dict:
@@ -60,7 +61,12 @@ class SubagentsLegacyUploadsTests(unittest.IsolatedAsyncioTestCase):
             config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
         )
         fake_manager = types.SimpleNamespace(
-            upload_files_for_user=AsyncMock(return_value=[_file_payload("runs/result.txt")])
+            upload_files_for_user=AsyncMock(
+                return_value=UploadBatchResult(
+                    files=[_file_payload("runs/result.txt")],
+                    errors=[],
+                )
+            )
         )
         with patch(
             "giga_agent.modules.subagents_legacy.uploads.get_session_factory",

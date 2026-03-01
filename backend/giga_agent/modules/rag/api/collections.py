@@ -173,7 +173,7 @@ async def collections_delete(
             break
         for d in docs:
             await SandboxManager(db).delete_file_by_path_for_user(
-                owner_id=collection.owner_id,
+                user_id=collection.owner_id,
                 sandbox_path=d.sandbox_path,
             )
         offset += len(docs)

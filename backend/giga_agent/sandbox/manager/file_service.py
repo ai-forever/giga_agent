@@ -1,0 +1,329 @@
+import asyncio
+import uuid
+from pathlib import PurePosixPath
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from giga_agent.core.logging import get_logger
+from giga_agent.models.file import File, FileRepository, FileType
+from giga_agent.models.sandbox import SandboxRepository, SandboxProviderRepository
+from giga_agent.sandbox.base import FileReadResult
+from giga_agent.sandbox.manager.errors import (
+    FileAccessError,
+    FileNotFoundForUserError,
+    ProviderNotFoundError,
+    StorageOperationError,
+)
+from giga_agent.sandbox.manager.lifecycle_service import SandboxLifecycleService
+from giga_agent.sandbox.manager.resolve_service import SandboxResolveService
+from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
+from giga_agent.sandbox.manager.types import (
+    UploadBatchError,
+    UploadBatchResult,
+    UploadFileSpec,
+)
+
+logger = get_logger(__name__)
+
+
+class SandboxFileService:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        resolve_service: SandboxResolveService | None = None,
+        lifecycle_service: SandboxLifecycleService | None = None,
+        runtime_factory: SandboxRuntimeFactory | None = None,
+    ):
+        self.db = db
+        self._file_repo = FileRepository(db)
+        self._provider_repo = SandboxProviderRepository(db)
+        self._resolve = resolve_service or SandboxResolveService(db)
+        self._runtime_factory = runtime_factory or SandboxRuntimeFactory()
+        self._lifecycle = lifecycle_service or SandboxLifecycleService(
+            db,
+            resolve_service=self._resolve,
+            runtime_factory=self._runtime_factory,
+        )
+
+    async def _resolve_runtime_for_file(
+        self,
+        *,
+        user_id: uuid.UUID,
+        provider_id: uuid.UUID,
+        sandbox_path: str,
+        for_op: str,
+    ):
+        provider = await self._provider_repo.get_by_id(provider_id)
+        if provider is None:
+            cached = await SandboxRepository.cache_get_pair(
+                owner_id=user_id,
+                provider_id=provider_id,
+            )
+            if cached is None:
+                raise ProviderNotFoundError(f"Provider {provider_id} not found")
+            provider_obj = cached.provider
+            sandbox_obj = cached.sandbox
+        else:
+            resolved = await self._resolve.get_or_create_for_user(
+                user_id=user_id,
+                provider_id=provider.id,
+                use_cache=True,
+            )
+            provider_obj = resolved.provider
+            sandbox_obj = resolved.sandbox
+
+        runtime = self._runtime_factory.build(provider_obj, sandbox_obj)
+
+        needs_running = False
+        if for_op == "read":
+            needs_running = runtime.requires_running_for_read(sandbox_path)
+        elif for_op == "delete":
+            needs_running = runtime.requires_running_for_delete(sandbox_path)
+
+        if needs_running:
+            runtime = await self._lifecycle.ensure_running_for_user(
+                user_id=user_id,
+                provider_id=provider_obj.id,
+            )
+
+        return runtime, provider_obj
+
+    async def upload_file_for_user(
+        self,
+        user_id: uuid.UUID,
+        file_name: str,
+        content: bytes,
+        file_type: FileType = "other",
+    ) -> File:
+        resolved = await self._resolve.get_or_create_for_user(
+            user_id=user_id,
+            provider_id=None,
+            use_cache=True,
+        )
+        provider = resolved.provider
+        sandbox = resolved.sandbox
+        runtime = self._runtime_factory.build(provider, sandbox)
+        if runtime.requires_running_for_upload():
+            runtime = await self._lifecycle.ensure_running_for_user(
+                user_id=user_id,
+                provider_id=provider.id,
+            )
+
+        sandbox_path = await runtime.upload_file(
+            owner_id=user_id,
+            file_name=file_name,
+            content=content,
+        )
+
+        original_name = PurePosixPath(file_name).name
+        file = await self._file_repo.create(
+            owner_id=user_id,
+            provider_id=provider.id,
+            sandbox_path=sandbox_path,
+            original_name=original_name,
+            file_type=file_type,
+            size=len(content),
+        )
+        if file is None:
+            file = await self._file_repo.get_by_owner_provider_path(
+                owner_id=user_id,
+                provider_id=provider.id,
+                sandbox_path=sandbox_path,
+            )
+            if file is None:
+                raise StorageOperationError("Failed to persist uploaded file metadata")
+        return file
+
+    async def upload_files_for_user(
+        self,
+        user_id: uuid.UUID,
+        files: list[UploadFileSpec],
+    ) -> UploadBatchResult:
+        if not files:
+            return UploadBatchResult(files=[], errors=[])
+
+        resolved = await self._resolve.get_or_create_for_user(
+            user_id=user_id,
+            provider_id=None,
+            use_cache=True,
+        )
+        provider = resolved.provider
+        sandbox = resolved.sandbox
+        runtime = self._runtime_factory.build(provider, sandbox)
+        if runtime.requires_running_for_upload():
+            runtime = await self._lifecycle.ensure_running_for_user(
+                user_id=user_id,
+                provider_id=provider.id,
+            )
+
+        upload_tasks = [
+            runtime.upload_file(
+                owner_id=user_id,
+                file_name=item["file_name"],
+                content=item["content"],
+            )
+            for item in files
+        ]
+        uploaded_paths = await asyncio.gather(*upload_tasks, return_exceptions=True)
+
+        created_files: list[File] = []
+        upload_errors: list[UploadBatchError] = []
+        for idx, path_or_error in enumerate(uploaded_paths):
+            item = files[idx]
+            file_name = item["file_name"]
+            if isinstance(path_or_error, Exception):
+                logger.warning(
+                    "Failed to upload file '%s' for user %s: %s",
+                    file_name,
+                    user_id,
+                    path_or_error,
+                )
+                upload_errors.append(
+                    UploadBatchError(
+                        index=idx,
+                        file_name=file_name,
+                        code="upload_failed",
+                        message=str(path_or_error),
+                        retryable=True,
+                    )
+                )
+                continue
+
+            sandbox_path = path_or_error
+            original_name = PurePosixPath(file_name).name
+            file = await self._file_repo.create(
+                owner_id=user_id,
+                provider_id=provider.id,
+                sandbox_path=sandbox_path,
+                original_name=original_name,
+                file_type=item["file_type"],
+                size=len(item["content"]),
+            )
+            if file is None:
+                file = await self._file_repo.get_by_owner_provider_path(
+                    owner_id=user_id,
+                    provider_id=provider.id,
+                    sandbox_path=sandbox_path,
+                )
+                if file is None:
+                    logger.warning(
+                        "Failed to persist uploaded file metadata for '%s' (path=%s)",
+                        file_name,
+                        sandbox_path,
+                    )
+                    upload_errors.append(
+                        UploadBatchError(
+                            index=idx,
+                            file_name=file_name,
+                            code="metadata_persist_failed",
+                            message=(
+                                "Failed to persist uploaded file metadata "
+                                f"for path {sandbox_path}"
+                            ),
+                            retryable=False,
+                        )
+                    )
+                    continue
+
+            created_files.append(file)
+
+        return UploadBatchResult(files=created_files, errors=upload_errors)
+
+    async def read_file_for_user(
+        self,
+        user_id: uuid.UUID,
+        file_id: uuid.UUID,
+    ) -> tuple[File, FileReadResult]:
+        file = await self._file_repo.get_by_id(file_id)
+        if file is None:
+            raise FileNotFoundForUserError(f"File {file_id} not found")
+        if file.owner_id != user_id:
+            raise FileAccessError(f"File {file_id} does not belong to user {user_id}")
+
+        runtime, provider = await self._resolve_runtime_for_file(
+            user_id=user_id,
+            provider_id=file.provider_id,
+            sandbox_path=file.sandbox_path,
+            for_op="read",
+        )
+
+        try:
+            result = await runtime.read_file(file.sandbox_path)
+        except FileNotFoundError as e:
+            raise FileNotFoundForUserError(str(e)) from e
+        except PermissionError as e:
+            raise FileAccessError(str(e)) from e
+        except Exception as e:
+            raise StorageOperationError(
+                f"Failed to read file '{file.sandbox_path}' (id={file.id}): {e}"
+            ) from e
+
+        return file, result
+
+    async def read_file_by_path_for_user(
+        self,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+    ) -> tuple[File, FileReadResult]:
+        file = await self._file_repo.get_by_owner_path(
+            owner_id=user_id,
+            sandbox_path=sandbox_path,
+        )
+        if file is None:
+            raise FileNotFoundForUserError(
+                f"File with path '{sandbox_path}' not found for user {user_id}"
+            )
+
+        return await self.read_file_for_user(
+            user_id=user_id,
+            file_id=file.id,
+        )
+
+    async def delete_file_for_user(
+        self,
+        user_id: uuid.UUID,
+        file_id: uuid.UUID,
+    ) -> None:
+        file = await self._file_repo.get_by_id(file_id)
+        if file is None:
+            raise FileNotFoundForUserError(f"File {file_id} not found")
+        if file.owner_id != user_id:
+            raise FileAccessError(f"File {file_id} does not belong to user {user_id}")
+
+        try:
+            runtime, _ = await self._resolve_runtime_for_file(
+                user_id=user_id,
+                provider_id=file.provider_id,
+                sandbox_path=file.sandbox_path,
+                for_op="delete",
+            )
+            await runtime.delete_file(file.sandbox_path)
+        except FileNotFoundError:
+            pass
+        except ProviderNotFoundError:
+            logger.warning(
+                "Provider for file %s is not found during delete, metadata will be removed",
+                file_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to delete file from storage (best-effort): %s",
+                e,
+                exc_info=True,
+            )
+
+        await self._file_repo.delete(file)
+
+    async def delete_file_by_path_for_user(
+        self,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+    ) -> None:
+        file = await self._file_repo.get_by_owner_path(
+            owner_id=user_id,
+            sandbox_path=sandbox_path,
+        )
+        if file is None:
+            return
+        await self.delete_file_for_user(user_id=user_id, file_id=file.id)

@@ -68,3 +68,16 @@ async def inject_team_id(ctx, value):
         value["metadata"] = {}
     value["metadata"]["user_id"] = ctx.user["identity"]
     return value  # Return modified value
+
+
+@auth.on
+async def add_owner(
+    ctx: Auth.types.AuthContext,  # Contains info about the current user
+    value: dict,  # The resource being created/accessed
+):
+    filters = {"user_id": ctx.user.identity}
+    metadata = value.setdefault("metadata", {})
+    metadata.update(filters)
+
+    # Only let users see their own resources
+    return filters

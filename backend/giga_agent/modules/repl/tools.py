@@ -441,12 +441,12 @@ async def python(
                 raise ValueError(f"User with id {user_id} not found")
 
         resolved = await SandboxManager.get_cached_or_db(
-            owner_id=owner_id,
+            user_id=owner_id,
             session=session,
         )
         manager = SandboxManager(session)
         sandbox_runtime = await manager.ensure_running_for_user(
-            owner_id=owner_id,
+            user_id=owner_id,
             provider_id=resolved.provider.id,
         )
 
@@ -533,12 +533,13 @@ async def python(
         factory = await get_session_factory()
         async with factory() as session:
             manager = SandboxManager(session)
-            uploaded_files = await manager.upload_files_for_user(
-                owner_id=owner_id,
+            uploaded_result = await manager.upload_files_for_user(
+                user_id=owner_id,
                 files=uploads,
             )
+            uploaded_files = uploaded_result.files
 
-        if len(uploaded_files) < len(uploads):
+        if uploaded_result.errors:
             outputs.append(
                 "Часть вложений не удалось загрузить в sandbox. "
                 "Показываю только успешно загруженные файлы."
@@ -593,12 +594,12 @@ async def shell(
     factory = await get_session_factory()
     async with factory() as session:
         resolved = await SandboxManager.get_cached_or_db(
-            owner_id=owner_id,
+            user_id=owner_id,
             session=session,
         )
         manager = SandboxManager(session)
         sandbox_runtime = await manager.ensure_running_for_user(
-            owner_id=owner_id,
+            user_id=owner_id,
             provider_id=resolved.provider.id,
         )
 
