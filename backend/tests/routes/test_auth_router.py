@@ -601,6 +601,404 @@ class AuthRouterTests(unittest.TestCase):
         mocked_existing_groups.assert_awaited_once_with([group_id])
         mocked_add_users.assert_awaited_once_with(group_id, [created_user.id], commit=False)
 
+    def test_create_user_copies_runtime_ids_grants_read_permissions_and_copies_module_secrets(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "runtime-copy@example.com"
+        created_user.secrets = None
+
+        shared_llm_id = uuid.uuid4()
+        owner_model = self._user_model()
+        owner_model.llm_id = shared_llm_id
+        owner_model.fast_llm_id = shared_llm_id
+        owner_model.embedding_id = uuid.uuid4()
+        owner_model.image_generator_id = uuid.uuid4()
+        owner_model.search_engine_id = uuid.uuid4()
+        owner_model.sandbox_provider_id = uuid.uuid4()
+        owner_model.secrets = {"MODULE_KEY": "secret-value"}
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=owner_model),
+        ) as mocked_owner_model, patch(
+            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+        ) as mocked_grant_permissions, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ) as mocked_add_users, patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "runtime-copy@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "copy_owner_runtime_ids": True,
+                    "copy_owner_module_secrets": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(created_user.llm_id, owner_model.llm_id)
+        self.assertEqual(created_user.fast_llm_id, owner_model.fast_llm_id)
+        self.assertEqual(created_user.embedding_id, owner_model.embedding_id)
+        self.assertEqual(created_user.image_generator_id, owner_model.image_generator_id)
+        self.assertEqual(created_user.search_engine_id, owner_model.search_engine_id)
+        self.assertEqual(created_user.sandbox_provider_id, owner_model.sandbox_provider_id)
+        self.assertEqual(created_user.secrets, {"MODULE_KEY": "secret-value"})
+        mocked_owner_model.assert_awaited_once_with(self.db, self.user.id)
+        mocked_add_users.assert_not_awaited()
+        self.db.commit.assert_awaited_once()
+
+        mocked_grant_permissions.assert_awaited_once()
+        grant_kwargs = mocked_grant_permissions.await_args.kwargs
+        self.assertEqual(grant_kwargs["no_commit"], True)
+        items = grant_kwargs["items"]
+        self.assertEqual(len(items), 5)
+        seen = {(item.resource_type, item.resource_id, item.owner_id, item.permission) for item in items}
+        self.assertEqual(
+            seen,
+            {
+                ("llm", owner_model.llm_id, created_user.id, "read"),
+                ("embedding", owner_model.embedding_id, created_user.id, "read"),
+                ("image_generator", owner_model.image_generator_id, created_user.id, "read"),
+                ("search_engine", owner_model.search_engine_id, created_user.id, "read"),
+                ("sandbox", owner_model.sandbox_provider_id, created_user.id, "read"),
+            },
+        )
+
+    def test_create_user_ignores_module_secrets_toggle_when_runtime_copy_is_disabled(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "runtime-disabled@example.com"
+        created_user.secrets = None
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(),
+        ) as mocked_owner_model, patch(
+            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+            AsyncMock(),
+        ) as mocked_grant_permissions, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "runtime-disabled@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "copy_owner_runtime_ids": False,
+                    "copy_owner_module_secrets": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_owner_model.assert_not_awaited()
+        mocked_grant_permissions.assert_not_awaited()
+        self.assertIsNone(created_user.secrets)
+
+    def test_create_user_does_not_copy_module_secrets_when_flag_is_disabled(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "runtime-no-module-secrets@example.com"
+        created_user.secrets = None
+
+        owner_model = self._user_model()
+        owner_model.llm_id = uuid.uuid4()
+        owner_model.secrets = {"MODULE_KEY": "secret-value"}
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=owner_model),
+        ), patch(
+            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "runtime-no-module-secrets@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "copy_owner_runtime_ids": True,
+                    "copy_owner_module_secrets": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(created_user.secrets)
+
+    def test_create_user_grants_acl_for_runtime_ids_found_in_module_secret_metadata(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "runtime-secrets-acl@example.com"
+        created_user.secrets = None
+
+        field_llm_id = uuid.uuid4()
+        secret_llm_id = uuid.uuid4()
+
+        owner_model = self._user_model()
+        owner_model.llm_id = field_llm_id
+        owner_model.fast_llm_id = None
+        owner_model.embedding_id = None
+        owner_model.image_generator_id = None
+        owner_model.search_engine_id = None
+        owner_model.sandbox_provider_id = None
+        owner_model.secrets = {
+            "ASSISTANT_LLM": str(secret_llm_id),
+            "PASS_SECRET": str(uuid.uuid4()),
+            "TEXT_SECRET": str(uuid.uuid4()),
+            "UNKNOWN_LLM": str(uuid.uuid4()),
+        }
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {"name": "PASS_SECRET", "description": "pass", "type": "pass"},
+                        {"name": "TEXT_SECRET", "description": "text", "type": "text"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=owner_model),
+        ), patch(
+            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+        ) as mocked_grant_permissions, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "runtime-secrets-acl@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "copy_owner_runtime_ids": True,
+                    "copy_owner_module_secrets": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(created_user.secrets, owner_model.secrets)
+        mocked_grant_permissions.assert_awaited_once()
+        items = mocked_grant_permissions.await_args.kwargs["items"]
+        seen = {(item.resource_type, item.resource_id) for item in items}
+        self.assertEqual(
+            seen,
+            {
+                ("llm", field_llm_id),
+                ("llm", secret_llm_id),
+            },
+        )
+
+    def test_create_user_includes_known_module_secret_llm_ids_and_skips_invalid_uuid(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "runtime-secrets-invalid@example.com"
+        created_user.secrets = None
+
+        field_llm_id = uuid.uuid4()
+        foreign_llm_id = uuid.uuid4()
+        owner_model = self._user_model()
+        owner_model.llm_id = field_llm_id
+        owner_model.secrets = {
+            "ASSISTANT_LLM": "not-a-uuid",
+            "FOREIGN_LLM": str(foreign_llm_id),
+        }
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {"name": "FOREIGN_LLM", "description": "LLM", "type": "llm_id"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=owner_model),
+        ), patch(
+            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+        ) as mocked_grant_permissions, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "runtime-secrets-invalid@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "copy_owner_runtime_ids": True,
+                    "copy_owner_module_secrets": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mocked_grant_permissions.assert_awaited_once()
+        items = mocked_grant_permissions.await_args.kwargs["items"]
+        self.assertEqual(
+            {(item.resource_type, item.resource_id) for item in items},
+            {("llm", field_llm_id), ("llm", foreign_llm_id)},
+        )
+
+    def test_create_user_deduplicates_llm_acl_between_runtime_field_and_module_secret(self):
+        created_user = self._user_model()
+        created_user.id = uuid.uuid4()
+        created_user.email = "runtime-secrets-dedup@example.com"
+
+        shared_llm_id = uuid.uuid4()
+        owner_model = self._user_model()
+        owner_model.llm_id = shared_llm_id
+        owner_model.fast_llm_id = None
+        owner_model.secrets = {"ASSISTANT_LLM": str(shared_llm_id)}
+        self.app.state.agent = types.SimpleNamespace(
+            modules=[
+                _ModuleStub(
+                    [
+                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                    ]
+                )
+            ]
+        )
+
+        with patch(
+            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+            AsyncMock(return_value=False),
+        ), patch(
+            "giga_agent.modules.auth.api.security.get_password_hash",
+            return_value="hashed",
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.create",
+            AsyncMock(return_value=created_user),
+        ), patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=owner_model),
+        ), patch(
+            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+        ) as mocked_grant_permissions, patch(
+            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.modules.auth.api.GroupRepository.add_users",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.event_bus.publish",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/users",
+                json={
+                    "email": "runtime-secrets-dedup@example.com",
+                    "password": "secret123",
+                    "is_active": True,
+                    "is_superuser": False,
+                    "copy_owner_runtime_ids": True,
+                    "copy_owner_module_secrets": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        items = mocked_grant_permissions.await_args.kwargs["items"]
+        self.assertEqual(
+            [(item.resource_type, item.resource_id) for item in items],
+            [("llm", shared_llm_id)],
+        )
+
     def test_patch_user_by_id_updates_fields_for_superuser(self):
         target = self._user_model()
         target.id = uuid.uuid4()

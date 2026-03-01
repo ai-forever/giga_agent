@@ -143,6 +143,8 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str
     group_ids: list[uuid.UUID] = Field(default_factory=list)
+    copy_owner_runtime_ids: bool = False
+    copy_owner_module_secrets: bool = False
 
 
 class UserResponse(UserBase):

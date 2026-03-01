@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Trash2, Loader2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
@@ -37,6 +38,8 @@ type UserFormState = {
   is_active: boolean;
   is_superuser: boolean;
   group_ids: string[];
+  copy_owner_runtime_ids: boolean;
+  copy_owner_module_secrets: boolean;
 };
 
 const initialFormState: UserFormState = {
@@ -47,6 +50,8 @@ const initialFormState: UserFormState = {
   is_active: true,
   is_superuser: false,
   group_ids: [],
+  copy_owner_runtime_ids: false,
+  copy_owner_module_secrets: false,
 };
 
 const initialEditFormState: UserFormState = {
@@ -137,6 +142,8 @@ const AdminUsersTab: React.FC = () => {
         is_active: form.is_active,
         is_superuser: form.is_superuser,
         group_ids: form.group_ids,
+        copy_owner_runtime_ids: form.copy_owner_runtime_ids,
+        copy_owner_module_secrets: form.copy_owner_module_secrets,
       });
       toast.success("Пользователь создан");
       setForm(initialFormState);
@@ -169,6 +176,8 @@ const AdminUsersTab: React.FC = () => {
       is_active: user.is_active,
       is_superuser: user.is_superuser,
       group_ids: [],
+      copy_owner_runtime_ids: false,
+      copy_owner_module_secrets: false,
     });
     setIsEditModalOpen(true);
   };
@@ -298,9 +307,7 @@ const AdminUsersTab: React.FC = () => {
                           <Pencil className="size-4" />
                         </Button>
                         {isSelf ? (
-                          <span className="self-center text-xs text-muted-foreground">
-                            Нельзя удалить себя
-                          </span>
+                          <></>
                         ) : (
                           <Button
                             type="button"
@@ -418,6 +425,61 @@ const AdminUsersTab: React.FC = () => {
                 />
                 Суперпользователь
               </label>
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={form.copy_owner_runtime_ids}
+                    onCheckedChange={(checked) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        copy_owner_runtime_ids: checked,
+                        copy_owner_module_secrets: checked
+                          ? prev.copy_owner_module_secrets
+                          : false,
+                      }))
+                    }
+                    disabled={creating}
+                  />
+                  Назначить пользователю Ваши настройки LLM/Embeddings и т.д.
+                </label>
+                <p className="text-xs text-muted-foreground pl-12">
+                  Ваши API-ключи подключений будут скрыты для него.
+                </p>
+              </div>
+
+              <AnimatePresence initial={false}>
+                {form.copy_owner_runtime_ids && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-1.5">
+                      <label className="flex items-center gap-2 text-sm">
+                        <Switch
+                          checked={form.copy_owner_module_secrets}
+                          onCheckedChange={(checked) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              copy_owner_module_secrets: checked,
+                            }))
+                          }
+                          disabled={creating}
+                        />
+                        Перенести API ключи модулей?
+                      </label>
+                      <p className="text-xs text-muted-foreground pl-12">
+                        API ключи модулей будут доступны пользователю.
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             <div className="space-y-1.5">

@@ -18,6 +18,10 @@ from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
 from giga_agent.models.sandbox import SandboxProviderRepository
 from giga_agent.models.search_engine import SearchEngineRepository
+from giga_agent.models.resource_permission import (
+    PermissionGrantItem,
+    ResourcePermissionRepository,
+)
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.core.events import event_bus
@@ -134,6 +138,57 @@ def require_superuser(current_user: UserShort) -> None:
         )
 
 
+def _collect_runtime_grant_targets_from_user_model(
+    user_model: User,
+) -> set[tuple[str, uuid.UUID]]:
+    targets: set[tuple[str, uuid.UUID]] = set()
+    llm_ids = {item for item in [user_model.llm_id, user_model.fast_llm_id] if item}
+    for llm_id in llm_ids:
+        targets.add(("llm", llm_id))
+
+    runtime_refs: list[tuple[str, uuid.UUID | None]] = [
+        ("embedding", user_model.embedding_id),
+        ("image_generator", user_model.image_generator_id),
+        ("search_engine", user_model.search_engine_id),
+        ("sandbox", user_model.sandbox_provider_id),
+    ]
+    for resource_type, resource_id in runtime_refs:
+        if resource_id is not None:
+            targets.add((resource_type, resource_id))
+    return targets
+
+
+async def _collect_runtime_grant_targets_from_module_secrets(
+    *,
+    request: Request,
+    secrets: dict,
+) -> set[tuple[str, uuid.UUID]]:
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return set()
+
+    targets: set[tuple[str, uuid.UUID]] = set()
+    for secret_meta in collect_module_secrets(agent.all_modules):
+        secret_name = secret_meta["name"]
+        secret_type = secret_meta.get("type") or "pass"
+        if secret_type != "llm_id":
+            continue
+
+        raw_value = secrets.get(secret_name)
+        if raw_value is None:
+            continue
+        value = str(raw_value).strip()
+        if not value:
+            continue
+        try:
+            llm_id = uuid.UUID(value)
+        except ValueError:
+            continue
+        targets.add(("llm", llm_id))
+
+    return targets
+
+
 async def _validate_llm_id(
     db: AsyncSession,
     owner_id: uuid.UUID,
@@ -204,9 +259,7 @@ async def _validate_sandbox_provider_id(
     owner_id: uuid.UUID,
     sandbox_provider_id: uuid.UUID,
 ) -> None:
-    provider = await SandboxProviderRepository(db).get_by_id(
-        sandbox_provider_id
-    )
+    provider = await SandboxProviderRepository(db).get_by_id(sandbox_provider_id)
     if provider is None or provider.owner_id != owner_id or not provider.is_active:
         raise _invalid_reference_error("sandbox_provider_id")
 
@@ -222,7 +275,7 @@ async def _validate_llm_secret_references(
     if agent is None:
         return
 
-    for secret_meta in collect_module_secrets(agent.modules):
+    for secret_meta in collect_module_secrets(agent.all_modules):
         if secret_meta["type"] != "llm_id":
             continue
 
@@ -415,6 +468,7 @@ async def update_user(
 
 @router.post("/users", response_model=UserResponse)
 async def create_user(
+    request: Request,
     user: UserCreate,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
@@ -430,12 +484,18 @@ async def create_user(
     group_repo = GroupRepository(db)
 
     if normalized_group_ids:
-        existing_group_ids = set(await group_repo.get_existing_group_ids(normalized_group_ids))
+        existing_group_ids = set(
+            await group_repo.get_existing_group_ids(normalized_group_ids)
+        )
         missing_group_ids = [
-            group_id for group_id in normalized_group_ids if group_id not in existing_group_ids
+            group_id
+            for group_id in normalized_group_ids
+            if group_id not in existing_group_ids
         ]
         if missing_group_ids:
-            missing_group_ids_str = ", ".join(str(group_id) for group_id in missing_group_ids)
+            missing_group_ids_str = ", ".join(
+                str(group_id) for group_id in missing_group_ids
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Groups not found: {missing_group_ids_str}",
@@ -451,6 +511,45 @@ async def create_user(
             is_superuser=user.is_superuser,
             commit=False,
         )
+
+        if user.copy_owner_runtime_ids:
+            owner_model = await _get_user_model_by_id(db, current_user.id)
+            db_user.llm_id = owner_model.llm_id
+            db_user.fast_llm_id = owner_model.fast_llm_id
+            db_user.embedding_id = owner_model.embedding_id
+            db_user.image_generator_id = owner_model.image_generator_id
+            db_user.search_engine_id = owner_model.search_engine_id
+            db_user.sandbox_provider_id = owner_model.sandbox_provider_id
+
+            grant_targets = _collect_runtime_grant_targets_from_user_model(owner_model)
+
+            if user.copy_owner_module_secrets:
+                db_user.secrets = dict(owner_model.secrets or {})
+                grant_targets.update(
+                    await _collect_runtime_grant_targets_from_module_secrets(
+                        request=request,
+                        secrets=db_user.secrets,
+                    )
+                )
+
+            if grant_targets:
+                grants = [
+                    PermissionGrantItem(
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        owner_type="user",
+                        owner_id=db_user.id,
+                        permission="read",
+                    )
+                    for resource_type, resource_id in sorted(
+                        grant_targets,
+                        key=lambda item: (item[0], str(item[1])),
+                    )
+                ]
+                await ResourcePermissionRepository(db).grant_permissions(
+                    items=grants,
+                    no_commit=True,
+                )
 
         for group_id in normalized_group_ids:
             await group_repo.add_users(group_id, [db_user.id], commit=False)

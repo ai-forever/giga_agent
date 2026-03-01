@@ -11,6 +11,8 @@ from giga_agent.models.group import GroupRepository
 from giga_agent.models.llm import LLM
 from giga_agent.models.llm import LLMRepository
 from giga_agent.models.resource_permission import (
+    BulkGrantPermissionsResult,
+    PermissionGrantItem,
     ResourcePermission,
     ResourcePermissionRepository,
 )
@@ -102,6 +104,268 @@ class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
                     owner_id=target.id,
                     permission="read",
                 )
+
+    async def test_grant_permissions_creates_multiple_entries(self):
+        owner = await self._create_user("owner-bulk-create@example.com")
+        target_a = await self._create_user("target-a-bulk-create@example.com")
+        target_b = await self._create_user("target-b-bulk-create@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            result = await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target_a.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target_b.id,
+                        permission="write",
+                    ),
+                ]
+            )
+
+        self.assertIsInstance(result, BulkGrantPermissionsResult)
+        self.assertEqual(len(result.created), 2)
+        self.assertEqual(len(result.existing), 0)
+        self.assertEqual(len(result.errors), 0)
+        self.assertEqual({item.owner_id for item in result.created}, {str(target_a.id), str(target_b.id)})
+        self.assertEqual({item.permission for item in result.created}, {"read", "write"})
+
+    async def test_grant_permissions_deduplicates_input_items(self):
+        owner = await self._create_user("owner-bulk-dedup@example.com")
+        target = await self._create_user("target-bulk-dedup@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            result = await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="LLM",
+                        resource_id=llm.id,
+                        owner_type="USER",
+                        owner_id=target.id,
+                        permission="Read",
+                    ),
+                ]
+            )
+            rows = await session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_id == llm.id,
+                    ResourcePermission.owner_id == str(target.id),
+                )
+            )
+            all_permissions = rows.scalars().all()
+
+        self.assertEqual(len(result.created), 1)
+        self.assertEqual(len(result.existing), 0)
+        self.assertEqual(len(result.errors), 0)
+        self.assertEqual(len(all_permissions), 1)
+
+    async def test_grant_permissions_returns_partial_success_with_errors(self):
+        owner = await self._create_user("owner-bulk-errors@example.com")
+        target = await self._create_user("target-bulk-errors@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            result = await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="unknown",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id="   ",
+                        permission="write",
+                    ),
+                ]
+            )
+
+        self.assertEqual(len(result.created), 1)
+        self.assertEqual(len(result.existing), 0)
+        self.assertEqual(len(result.errors), 2)
+        self.assertEqual({item.index for item in result.errors}, {1, 2})
+
+    async def test_grant_permissions_returns_existing_entries(self):
+        owner = await self._create_user("owner-bulk-existing@example.com")
+        target_existing = await self._create_user("target-existing@example.com")
+        target_new = await self._create_user("target-new@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            existing_row = await repo.grant_permission(
+                resource_type="llm",
+                resource_id=llm.id,
+                owner_type="user",
+                owner_id=target_existing.id,
+                permission="read",
+            )
+            result = await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target_existing.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target_new.id,
+                        permission="read",
+                    ),
+                ]
+            )
+
+        self.assertEqual(len(result.created), 1)
+        self.assertEqual(len(result.existing), 1)
+        self.assertEqual(len(result.errors), 0)
+        self.assertEqual(result.existing[0].id, existing_row.id)
+
+    async def test_grant_permissions_public_owner_id_validation(self):
+        owner = await self._create_user("owner-bulk-public@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            result = await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="group",
+                        owner_id="*",
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id="*",
+                        permission="write",
+                    ),
+                ]
+            )
+
+        self.assertEqual(len(result.created), 1)
+        self.assertEqual(result.created[0].owner_type, "user")
+        self.assertEqual(result.created[0].owner_id, "*")
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(result.errors[0].index, 1)
+        self.assertIn("public owner_id='*' supports only read permission", result.errors[0].error)
+
+    async def test_grant_permissions_no_commit_flushes_and_external_rollback_reverts(self):
+        owner = await self._create_user("owner-bulk-nocommit@example.com")
+        target = await self._create_user("target-bulk-nocommit@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            result = await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=target.id,
+                        permission="read",
+                    ),
+                ],
+                no_commit=True,
+            )
+            self.assertEqual(len(result.created), 1)
+            self.assertEqual(len(result.existing), 0)
+            rows = await session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_type == "llm",
+                    ResourcePermission.resource_id == llm.id,
+                    ResourcePermission.owner_id == str(target.id),
+                    ResourcePermission.permission == "read",
+                )
+            )
+            self.assertEqual(len(rows.scalars().all()), 1)
+            await session.rollback()
+
+        async with self.session_factory() as verify_session:
+            verify_rows = await verify_session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_type == "llm",
+                    ResourcePermission.resource_id == llm.id,
+                    ResourcePermission.owner_id == str(target.id),
+                    ResourcePermission.permission == "read",
+                )
+            )
+            self.assertEqual(len(verify_rows.scalars().all()), 0)
+
+    async def test_grant_permission_no_commit_flushes_without_persisting_after_rollback(self):
+        owner = await self._create_user("owner-single-nocommit@example.com")
+        target = await self._create_user("target-single-nocommit@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            row = await repo.grant_permission(
+                resource_type="llm",
+                resource_id=llm.id,
+                owner_type="user",
+                owner_id=target.id,
+                permission="read",
+                no_commit=True,
+            )
+            self.assertEqual(row.resource_type, "llm")
+            rows = await session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_type == "llm",
+                    ResourcePermission.resource_id == llm.id,
+                    ResourcePermission.owner_id == str(target.id),
+                    ResourcePermission.permission == "read",
+                )
+            )
+            self.assertEqual(len(rows.scalars().all()), 1)
+            await session.rollback()
+
+        async with self.session_factory() as verify_session:
+            verify_rows = await verify_session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_type == "llm",
+                    ResourcePermission.resource_id == llm.id,
+                    ResourcePermission.owner_id == str(target.id),
+                    ResourcePermission.permission == "read",
+                )
+            )
+            self.assertEqual(len(verify_rows.scalars().all()), 0)
 
     async def test_revoke_permission(self):
         owner = await self._create_user("owner-revoke@example.com")

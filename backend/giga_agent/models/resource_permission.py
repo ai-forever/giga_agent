@@ -81,6 +81,29 @@ class AccessFlags:
     can_edit: ColumnElement[bool]
 
 
+@dataclass(frozen=True)
+class PermissionGrantItem:
+    resource_type: str
+    resource_id: uuid.UUID
+    owner_type: str
+    owner_id: uuid.UUID | str
+    permission: str
+
+
+@dataclass(frozen=True)
+class PermissionGrantError:
+    index: int
+    item: PermissionGrantItem
+    error: str
+
+
+@dataclass(frozen=True)
+class BulkGrantPermissionsResult:
+    created: list["ResourcePermission"]
+    existing: list["ResourcePermission"]
+    errors: list[PermissionGrantError]
+
+
 class ResourcePermissionRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -216,57 +239,204 @@ class ResourcePermissionRepository:
         owner_type: str,
         owner_id: uuid.UUID | str,
         permission: str,
+        no_commit: bool = False,
     ) -> ResourcePermission:
-        normalized_resource_type = self._normalize_resource_type(resource_type)
-        normalized_owner_id = self._normalize_owner_id(owner_id)
-        normalized_permission = self._normalize_permission(permission)
-        normalized_owner_type = self._normalize_owner_type(owner_type)
-        if normalized_owner_id == "*":
-            if normalized_permission != "read":
-                raise ValueError("public owner_id='*' supports only read permission")
-            normalized_owner_type = "user"
-
-        existing = await self.db.execute(
-            select(ResourcePermission).where(
-                ResourcePermission.resource_type == normalized_resource_type,
-                ResourcePermission.resource_id == resource_id,
-                ResourcePermission.owner_type == normalized_owner_type,
-                ResourcePermission.owner_id == normalized_owner_id,
-                ResourcePermission.permission == normalized_permission,
-            )
-        )
-        row = existing.scalar_one_or_none()
-        if row is not None:
-            return row
-
-        entity = ResourcePermission(
-            resource_type=normalized_resource_type,
-            resource_id=resource_id,
-            owner_type=normalized_owner_type,
-            owner_id=normalized_owner_id,
-            permission=normalized_permission,
-        )
-        self.db.add(entity)
-        try:
-            await self.db.commit()
-        except IntegrityError:
-            await self.db.rollback()
-            result = await self.db.execute(
-                select(ResourcePermission).where(
-                    ResourcePermission.resource_type == normalized_resource_type,
-                    ResourcePermission.resource_id == resource_id,
-                    ResourcePermission.owner_type == normalized_owner_type,
-                    ResourcePermission.owner_id == normalized_owner_id,
-                    ResourcePermission.permission == normalized_permission,
+        result = await self.grant_permissions(
+            items=[
+                PermissionGrantItem(
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    owner_type=owner_type,
+                    owner_id=owner_id,
+                    permission=permission,
                 )
-            )
-            existing_after_race = result.scalar_one_or_none()
-            if existing_after_race is None:
-                raise
-            return existing_after_race
+            ],
+            no_commit=no_commit,
+        )
+        if result.created:
+            return result.created[0]
+        if result.existing:
+            return result.existing[0]
+        if result.errors:
+            raise ValueError(result.errors[0].error)
+        raise RuntimeError("grant_permission produced no result")
 
-        await self.db.refresh(entity)
-        return entity
+    async def grant_permissions(
+        self,
+        *,
+        items: Sequence[PermissionGrantItem],
+        no_commit: bool = False,
+    ) -> BulkGrantPermissionsResult:
+        if not items:
+            return BulkGrantPermissionsResult(created=[], existing=[], errors=[])
+
+        errors: list[PermissionGrantError] = []
+        unique_items: dict[
+            tuple[str, uuid.UUID, str, str, str],
+            tuple[int, PermissionGrantItem, PermissionGrantItem],
+        ] = {}
+
+        for index, item in enumerate(items):
+            try:
+                normalized_resource_type = self._normalize_resource_type(item.resource_type)
+                normalized_owner_id = self._normalize_owner_id(item.owner_id)
+                normalized_permission = self._normalize_permission(item.permission)
+                normalized_owner_type = self._normalize_owner_type(item.owner_type)
+                if normalized_owner_id == "*":
+                    if normalized_permission != "read":
+                        raise ValueError("public owner_id='*' supports only read permission")
+                    normalized_owner_type = "user"
+            except ValueError as exc:
+                errors.append(
+                    PermissionGrantError(
+                        index=index,
+                        item=item,
+                        error=str(exc),
+                    )
+                )
+                continue
+
+            normalized_item = PermissionGrantItem(
+                resource_type=normalized_resource_type,
+                resource_id=item.resource_id,
+                owner_type=normalized_owner_type,
+                owner_id=normalized_owner_id,
+                permission=normalized_permission,
+            )
+            key = (
+                normalized_item.resource_type,
+                normalized_item.resource_id,
+                normalized_item.owner_type,
+                str(normalized_item.owner_id),
+                normalized_item.permission,
+            )
+            if key not in unique_items:
+                unique_items[key] = (index, item, normalized_item)
+
+        if not unique_items:
+            return BulkGrantPermissionsResult(created=[], existing=[], errors=errors)
+
+        conditions = [
+            and_(
+                ResourcePermission.resource_type == key[0],
+                ResourcePermission.resource_id == key[1],
+                ResourcePermission.owner_type == key[2],
+                ResourcePermission.owner_id == key[3],
+                ResourcePermission.permission == key[4],
+            )
+            for key in unique_items
+        ]
+        existing_rows = await self.db.execute(
+            select(ResourcePermission).where(or_(*conditions))
+        )
+        existing_by_key = {
+            (
+                row.resource_type,
+                row.resource_id,
+                row.owner_type,
+                row.owner_id,
+                row.permission,
+            ): row
+            for row in existing_rows.scalars().all()
+        }
+
+        candidates: list[
+            tuple[tuple[str, uuid.UUID, str, str, str], int, PermissionGrantItem, ResourcePermission]
+        ] = []
+        for key, (index, original_item, normalized_item) in unique_items.items():
+            if key in existing_by_key:
+                continue
+            entity = ResourcePermission(
+                resource_type=normalized_item.resource_type,
+                resource_id=normalized_item.resource_id,
+                owner_type=normalized_item.owner_type,
+                owner_id=str(normalized_item.owner_id),
+                permission=normalized_item.permission,
+            )
+            candidates.append((key, index, original_item, entity))
+            self.db.add(entity)
+
+        if not candidates:
+            ordered_existing = [
+                existing_by_key[key]
+                for key in unique_items
+                if key in existing_by_key
+            ]
+            return BulkGrantPermissionsResult(
+                created=[],
+                existing=ordered_existing,
+                errors=errors,
+            )
+
+        try:
+            if no_commit:
+                await self.db.flush()
+            else:
+                await self.db.commit()
+            for _, _, _, entity in candidates:
+                await self.db.refresh(entity)
+            ordered_created = [entity for _, _, _, entity in candidates]
+            ordered_existing = [
+                existing_by_key[key]
+                for key in unique_items
+                if key in existing_by_key
+            ]
+            return BulkGrantPermissionsResult(
+                created=ordered_created,
+                existing=ordered_existing,
+                errors=errors,
+            )
+        except IntegrityError as exc:
+            if no_commit:
+                raise
+            await self.db.rollback()
+            candidate_keys = [key for key, _, _, _ in candidates]
+            race_conditions = [
+                and_(
+                    ResourcePermission.resource_type == key[0],
+                    ResourcePermission.resource_id == key[1],
+                    ResourcePermission.owner_type == key[2],
+                    ResourcePermission.owner_id == key[3],
+                    ResourcePermission.permission == key[4],
+                )
+                for key in candidate_keys
+            ]
+            raced_rows = await self.db.execute(
+                select(ResourcePermission).where(or_(*race_conditions))
+            )
+            raced_by_key = {
+                (
+                    row.resource_type,
+                    row.resource_id,
+                    row.owner_type,
+                    row.owner_id,
+                    row.permission,
+                ): row
+                for row in raced_rows.scalars().all()
+            }
+
+            for key, index, original_item, _ in candidates:
+                if key in raced_by_key:
+                    existing_by_key[key] = raced_by_key[key]
+                    continue
+                errors.append(
+                    PermissionGrantError(
+                        index=index,
+                        item=original_item,
+                        error=f"Failed to grant permission: {exc}",
+                    )
+                )
+
+            ordered_existing = [
+                existing_by_key[key]
+                for key in unique_items
+                if key in existing_by_key
+            ]
+            return BulkGrantPermissionsResult(
+                created=[],
+                existing=ordered_existing,
+                errors=errors,
+            )
 
     async def revoke_permission(
         self,
