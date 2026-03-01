@@ -414,6 +414,11 @@ class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
 
     async def delete(self, provider: SandboxProvider) -> None:
         """Удалить провайдера и все связанные sandbox'ы."""
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="sandbox",
+            resource_id=provider.id,
+            no_commit=True,
+        )
         await self.db.delete(provider)
         await self.db.commit()
 

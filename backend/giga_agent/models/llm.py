@@ -348,6 +348,11 @@ class LLMRepository(ACLResourceRepositoryMixin[LLM]):
 
     async def delete(self, llm: LLM) -> None:
         llm_id = llm.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="llm",
+            resource_id=llm_id,
+            no_commit=True,
+        )
         await self.db.delete(llm)
         await self.db.commit()
         await self.invalidate_cache(llm_id)

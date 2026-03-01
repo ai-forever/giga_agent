@@ -32,7 +32,7 @@ class AgentRouterTests(unittest.TestCase):
 
     def test_get_agent_secrets_returns_flat_list(self):
         agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
                         {
@@ -79,7 +79,7 @@ class AgentRouterTests(unittest.TestCase):
 
     def test_get_agent_secrets_deduplicates_by_name(self):
         agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
                         {
@@ -111,11 +111,17 @@ class AgentRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             response.json(),
-            [{"name": "shared_key", "description": "First description", "type": "llm_id"}],
+            [
+                {
+                    "name": "shared_key",
+                    "description": "First description",
+                    "type": "llm_id",
+                }
+            ],
         )
 
     def test_get_agent_secrets_empty_when_no_module_secrets(self):
-        agent = types.SimpleNamespace(modules=[_ModuleStub([]), _ModuleStub([])])
+        agent = types.SimpleNamespace(all_modules=[_ModuleStub([]), _ModuleStub([])])
 
         async def _override_agent():
             return agent

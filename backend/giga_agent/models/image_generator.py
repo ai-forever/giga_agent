@@ -311,6 +311,11 @@ class ImageGeneratorRepository(ACLResourceRepositoryMixin[ImageGenerator]):
 
     async def delete(self, generator: ImageGenerator) -> None:
         generator_id = generator.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="image_generator",
+            resource_id=generator_id,
+            no_commit=True,
+        )
         await self.db.delete(generator)
         await self.db.commit()
         await self.invalidate_cache(generator_id)

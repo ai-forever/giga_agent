@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.search_engine import SearchEngineRepository
 from giga_agent.models.users import User
 
@@ -114,3 +115,32 @@ class SearchEngineRepositoryTests(unittest.IsolatedAsyncioTestCase):
             active_engines = await repo.get_by_owner(user.id, only_active=True)
             self.assertEqual(len(all_engines), 2)
             self.assertEqual(len(active_engines), 1)
+
+    async def test_delete_cleans_resource_permissions(self) -> None:
+        owner = await self._create_user("search-owner-delete@example.com")
+        viewer = await self._create_user("search-viewer-delete@example.com")
+
+        async with self.session_factory() as session:
+            repo = SearchEngineRepository(session)
+            engine = await repo.create(
+                owner_id=owner.id,
+                engine_type="tavily",
+                settings={"api_key": "tvly-key"},
+                is_active=True,
+            )
+            permissions = ResourcePermissionRepository(session)
+            await permissions.grant_permission(
+                resource_type="search_engine",
+                resource_id=engine.id,
+                owner_type="user",
+                owner_id=viewer.id,
+                permission="read",
+            )
+
+            await repo.delete(engine)
+            acl = await permissions.list_permissions_for_resource(
+                resource_type="search_engine",
+                resource_id=engine.id,
+            )
+
+        self.assertEqual(acl, [])

@@ -287,6 +287,11 @@ class FileRepository:
 
     async def delete(self, file: File) -> None:
         """Удалить запись файла."""
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="file",
+            resource_id=file.id,
+            no_commit=True,
+        )
         await self.db.delete(file)
         await self.db.commit()
 

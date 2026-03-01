@@ -8,6 +8,7 @@ from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.embedding import EmbeddingRepository
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import User
 
 
@@ -78,3 +79,42 @@ class EmbeddingRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
         cached = await cache.get(EmbeddingRepository.cache_key(embedding.id))
         self.assertIsNotNone(cached)
+
+    async def test_delete_cleans_resource_permissions(self):
+        owner = await self._create_user("embedding-owner-delete@example.com")
+        viewer = await self._create_user("embedding-viewer-delete@example.com")
+
+        async with self.session_factory() as session:
+            connector = await ConnectorRepository(session).create(
+                owner_id=owner.id,
+                connector_type="openai",
+                settings={"api_key": "sk-test"},
+                is_active=True,
+            )
+
+            embedding_repo = EmbeddingRepository(session)
+            embedding = await embedding_repo.create(
+                owner_id=owner.id,
+                embedding_type="openai",
+                connector_id=connector.id,
+                model_id="text-embedding-3-small",
+                vector_size=512,
+                settings={},
+                is_active=True,
+            )
+            permissions = ResourcePermissionRepository(session)
+            await permissions.grant_permission(
+                resource_type="embedding",
+                resource_id=embedding.id,
+                owner_type="user",
+                owner_id=viewer.id,
+                permission="read",
+            )
+
+            await embedding_repo.delete(embedding)
+            acl = await permissions.list_permissions_for_resource(
+                resource_type="embedding",
+                resource_id=embedding.id,
+            )
+
+        self.assertEqual(acl, [])

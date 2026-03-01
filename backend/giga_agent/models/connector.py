@@ -268,6 +268,71 @@ class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
 
     async def delete(self, connector: Connector) -> None:
         connector_id = connector.id
+        from giga_agent.models.embedding import Embedding
+        from giga_agent.models.image_generator import ImageGenerator
+        from giga_agent.models.llm import LLM
+        from giga_agent.models.search_engine import SearchEngine
+
+        llm_ids = list(
+            (
+                await self.db.execute(
+                    select(LLM.id).where(LLM.connector_id == connector_id)
+                )
+            ).scalars().all()
+        )
+        embedding_ids = list(
+            (
+                await self.db.execute(
+                    select(Embedding.id).where(Embedding.connector_id == connector_id)
+                )
+            ).scalars().all()
+        )
+        image_generator_ids = list(
+            (
+                await self.db.execute(
+                    select(ImageGenerator.id).where(
+                        ImageGenerator.connector_id == connector_id
+                    )
+                )
+            ).scalars().all()
+        )
+        search_engine_ids = list(
+            (
+                await self.db.execute(
+                    select(SearchEngine.id).where(
+                        SearchEngine.connector_id == connector_id
+                    )
+                )
+            ).scalars().all()
+        )
+
+        permission_repo = ResourcePermissionRepository(self.db)
+        await permission_repo.revoke_all_for_resource(
+            resource_type="connector",
+            resource_id=connector_id,
+            no_commit=True,
+        )
+        await permission_repo.revoke_all_for_resources(
+            resource_type="llm",
+            resource_ids=llm_ids,
+            no_commit=True,
+        )
+        await permission_repo.revoke_all_for_resources(
+            resource_type="embedding",
+            resource_ids=embedding_ids,
+            no_commit=True,
+        )
+        await permission_repo.revoke_all_for_resources(
+            resource_type="image_generator",
+            resource_ids=image_generator_ids,
+            no_commit=True,
+        )
+        await permission_repo.revoke_all_for_resources(
+            resource_type="search_engine",
+            resource_ids=search_engine_ids,
+            no_commit=True,
+        )
+
         await self.db.delete(connector)
         await self.db.commit()
         await self.invalidate_cache(connector_id)

@@ -590,3 +590,89 @@ class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
             rows = await session.execute(select(ResourcePermission))
 
         self.assertEqual(len(list(rows.scalars().all())), 1)
+
+    async def test_revoke_all_for_resource_removes_all_acl_for_single_resource(self):
+        owner = await self._create_user("owner-revoke-one@example.com")
+        user_a = await self._create_user("user-a-revoke-one@example.com")
+        user_b = await self._create_user("user-b-revoke-one@example.com")
+        llm = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=user_a.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm.id,
+                        owner_type="user",
+                        owner_id=user_b.id,
+                        permission="write",
+                    ),
+                ]
+            )
+            removed = await repo.revoke_all_for_resource(
+                resource_type="llm",
+                resource_id=llm.id,
+            )
+            rows = await session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_type == "llm",
+                    ResourcePermission.resource_id == llm.id,
+                )
+            )
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(rows.scalars().all(), [])
+
+    async def test_revoke_all_for_resources_removes_batch_and_handles_empty(self):
+        owner = await self._create_user("owner-revoke-many@example.com")
+        user_a = await self._create_user("user-a-revoke-many@example.com")
+        user_b = await self._create_user("user-b-revoke-many@example.com")
+        llm_a = await self._create_llm_for_owner(owner.id)
+        llm_b = await self._create_llm_for_owner(owner.id)
+
+        async with self.session_factory() as session:
+            repo = ResourcePermissionRepository(session)
+            await repo.grant_permissions(
+                items=[
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm_a.id,
+                        owner_type="user",
+                        owner_id=user_a.id,
+                        permission="read",
+                    ),
+                    PermissionGrantItem(
+                        resource_type="llm",
+                        resource_id=llm_b.id,
+                        owner_type="user",
+                        owner_id=user_b.id,
+                        permission="read",
+                    ),
+                ]
+            )
+            removed = await repo.revoke_all_for_resources(
+                resource_type="llm",
+                resource_ids=[llm_a.id, llm_b.id],
+            )
+            removed_empty = await repo.revoke_all_for_resources(
+                resource_type="llm",
+                resource_ids=[],
+            )
+            rows = await session.execute(
+                select(ResourcePermission).where(
+                    ResourcePermission.resource_type == "llm",
+                    ResourcePermission.resource_id.in_([llm_a.id, llm_b.id]),
+                )
+            )
+
+        self.assertEqual(removed, 2)
+        self.assertEqual(removed_empty, 0)
+        self.assertEqual(rows.scalars().all(), [])

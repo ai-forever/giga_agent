@@ -251,16 +251,22 @@ class AuthRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()["detail"], "secrets must be an object when provided")
+        self.assertEqual(
+            response.json()["detail"], "secrets must be an object when provided"
+        )
 
     def test_patch_users_me_validates_llm_id_secret_when_present(self):
         user_model = self._user_model()
         llm_secret_id = uuid.uuid4()
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                     ]
                 )
             ]
@@ -282,15 +288,21 @@ class AuthRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        mocked_validate_llm.assert_awaited_once_with(self.db, self.user.id, llm_secret_id)
+        mocked_validate_llm.assert_awaited_once_with(
+            self.db, self.user.id, llm_secret_id
+        )
 
     def test_patch_users_me_returns_422_for_invalid_uuid_in_llm_id_secret(self):
         user_model = self._user_model()
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                     ]
                 )
             ]
@@ -312,10 +324,14 @@ class AuthRouterTests(unittest.TestCase):
         user_model = self._user_model()
         llm_secret_id = uuid.uuid4()
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                     ]
                 )
             ]
@@ -326,7 +342,11 @@ class AuthRouterTests(unittest.TestCase):
             AsyncMock(return_value=user_model),
         ), patch(
             "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(side_effect=HTTPException(status_code=422, detail="Invalid value for llm_id")),
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=422, detail="Invalid value for llm_id"
+                )
+            ),
         ):
             response = self.client.patch(
                 "/users/me",
@@ -339,10 +359,14 @@ class AuthRouterTests(unittest.TestCase):
     def test_patch_users_me_skips_llm_secret_validation_for_empty_value(self):
         user_model = self._user_model()
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                     ]
                 )
             ]
@@ -400,7 +424,9 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(response.json()[0]["email"], "one@example.com")
 
     def test_get_users_forbidden_for_non_superuser(self):
-        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+        non_super = types.SimpleNamespace(
+            **{**self.user.__dict__, "is_superuser": False}
+        )
 
         async def _override_current_user():
             return non_super
@@ -410,7 +436,9 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_create_user_forbidden_for_non_superuser(self):
-        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+        non_super = types.SimpleNamespace(
+            **{**self.user.__dict__, "is_superuser": False}
+        )
 
         async def _override_current_user():
             return non_super
@@ -599,9 +627,13 @@ class AuthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         mocked_existing_groups.assert_awaited_once_with([group_id])
-        mocked_add_users.assert_awaited_once_with(group_id, [created_user.id], commit=False)
+        mocked_add_users.assert_awaited_once_with(
+            group_id, [created_user.id], commit=False
+        )
 
-    def test_create_user_copies_runtime_ids_grants_read_permissions_and_copies_module_secrets(self):
+    def test_create_user_copies_runtime_ids_grants_read_permissions_and_copies_module_secrets(
+        self,
+    ):
         created_user = self._user_model()
         created_user.id = uuid.uuid4()
         created_user.email = "runtime-copy@example.com"
@@ -631,7 +663,9 @@ class AuthRouterTests(unittest.TestCase):
             AsyncMock(return_value=owner_model),
         ) as mocked_owner_model, patch(
             "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+            AsyncMock(
+                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+            ),
         ) as mocked_grant_permissions, patch(
             "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
             AsyncMock(return_value=[]),
@@ -658,9 +692,13 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(created_user.llm_id, owner_model.llm_id)
         self.assertEqual(created_user.fast_llm_id, owner_model.fast_llm_id)
         self.assertEqual(created_user.embedding_id, owner_model.embedding_id)
-        self.assertEqual(created_user.image_generator_id, owner_model.image_generator_id)
+        self.assertEqual(
+            created_user.image_generator_id, owner_model.image_generator_id
+        )
         self.assertEqual(created_user.search_engine_id, owner_model.search_engine_id)
-        self.assertEqual(created_user.sandbox_provider_id, owner_model.sandbox_provider_id)
+        self.assertEqual(
+            created_user.sandbox_provider_id, owner_model.sandbox_provider_id
+        )
         self.assertEqual(created_user.secrets, {"MODULE_KEY": "secret-value"})
         mocked_owner_model.assert_awaited_once_with(self.db, self.user.id)
         mocked_add_users.assert_not_awaited()
@@ -671,19 +709,34 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(grant_kwargs["no_commit"], True)
         items = grant_kwargs["items"]
         self.assertEqual(len(items), 5)
-        seen = {(item.resource_type, item.resource_id, item.owner_id, item.permission) for item in items}
+        seen = {
+            (item.resource_type, item.resource_id, item.owner_id, item.permission)
+            for item in items
+        }
         self.assertEqual(
             seen,
             {
                 ("llm", owner_model.llm_id, created_user.id, "read"),
                 ("embedding", owner_model.embedding_id, created_user.id, "read"),
-                ("image_generator", owner_model.image_generator_id, created_user.id, "read"),
-                ("search_engine", owner_model.search_engine_id, created_user.id, "read"),
+                (
+                    "image_generator",
+                    owner_model.image_generator_id,
+                    created_user.id,
+                    "read",
+                ),
+                (
+                    "search_engine",
+                    owner_model.search_engine_id,
+                    created_user.id,
+                    "read",
+                ),
                 ("sandbox", owner_model.sandbox_provider_id, created_user.id, "read"),
             },
         )
 
-    def test_create_user_ignores_module_secrets_toggle_when_runtime_copy_is_disabled(self):
+    def test_create_user_ignores_module_secrets_toggle_when_runtime_copy_is_disabled(
+        self,
+    ):
         created_user = self._user_model()
         created_user.id = uuid.uuid4()
         created_user.email = "runtime-disabled@example.com"
@@ -755,7 +808,9 @@ class AuthRouterTests(unittest.TestCase):
             AsyncMock(return_value=owner_model),
         ), patch(
             "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+            AsyncMock(
+                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+            ),
         ), patch(
             "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
             AsyncMock(return_value=[]),
@@ -781,7 +836,9 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(created_user.secrets)
 
-    def test_create_user_grants_acl_for_runtime_ids_found_in_module_secret_metadata(self):
+    def test_create_user_grants_acl_for_runtime_ids_found_in_module_secret_metadata(
+        self,
+    ):
         created_user = self._user_model()
         created_user.id = uuid.uuid4()
         created_user.email = "runtime-secrets-acl@example.com"
@@ -804,10 +861,14 @@ class AuthRouterTests(unittest.TestCase):
             "UNKNOWN_LLM": str(uuid.uuid4()),
         }
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                         {"name": "PASS_SECRET", "description": "pass", "type": "pass"},
                         {"name": "TEXT_SECRET", "description": "text", "type": "text"},
                     ]
@@ -829,7 +890,9 @@ class AuthRouterTests(unittest.TestCase):
             AsyncMock(return_value=owner_model),
         ), patch(
             "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+            AsyncMock(
+                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+            ),
         ) as mocked_grant_permissions, patch(
             "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
             AsyncMock(return_value=[]),
@@ -865,7 +928,9 @@ class AuthRouterTests(unittest.TestCase):
             },
         )
 
-    def test_create_user_includes_known_module_secret_llm_ids_and_skips_invalid_uuid(self):
+    def test_create_user_includes_known_module_secret_llm_ids_and_skips_invalid_uuid(
+        self,
+    ):
         created_user = self._user_model()
         created_user.id = uuid.uuid4()
         created_user.email = "runtime-secrets-invalid@example.com"
@@ -880,10 +945,14 @@ class AuthRouterTests(unittest.TestCase):
             "FOREIGN_LLM": str(foreign_llm_id),
         }
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                         {"name": "FOREIGN_LLM", "description": "LLM", "type": "llm_id"},
                     ]
                 )
@@ -904,7 +973,9 @@ class AuthRouterTests(unittest.TestCase):
             AsyncMock(return_value=owner_model),
         ), patch(
             "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+            AsyncMock(
+                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+            ),
         ) as mocked_grant_permissions, patch(
             "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
             AsyncMock(return_value=[]),
@@ -935,7 +1006,9 @@ class AuthRouterTests(unittest.TestCase):
             {("llm", field_llm_id), ("llm", foreign_llm_id)},
         )
 
-    def test_create_user_deduplicates_llm_acl_between_runtime_field_and_module_secret(self):
+    def test_create_user_deduplicates_llm_acl_between_runtime_field_and_module_secret(
+        self,
+    ):
         created_user = self._user_model()
         created_user.id = uuid.uuid4()
         created_user.email = "runtime-secrets-dedup@example.com"
@@ -946,10 +1019,14 @@ class AuthRouterTests(unittest.TestCase):
         owner_model.fast_llm_id = None
         owner_model.secrets = {"ASSISTANT_LLM": str(shared_llm_id)}
         self.app.state.agent = types.SimpleNamespace(
-            modules=[
+            all_modules=[
                 _ModuleStub(
                     [
-                        {"name": "ASSISTANT_LLM", "description": "LLM", "type": "llm_id"},
+                        {
+                            "name": "ASSISTANT_LLM",
+                            "description": "LLM",
+                            "type": "llm_id",
+                        },
                     ]
                 )
             ]
@@ -969,7 +1046,9 @@ class AuthRouterTests(unittest.TestCase):
             AsyncMock(return_value=owner_model),
         ), patch(
             "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(return_value=types.SimpleNamespace(created=[], existing=[], errors=[])),
+            AsyncMock(
+                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+            ),
         ) as mocked_grant_permissions, patch(
             "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
             AsyncMock(return_value=[]),
@@ -1115,7 +1194,9 @@ class AuthRouterTests(unittest.TestCase):
         )
 
     def test_patch_user_by_id_forbidden_for_non_superuser(self):
-        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+        non_super = types.SimpleNamespace(
+            **{**self.user.__dict__, "is_superuser": False}
+        )
 
         async def _override_current_user():
             return non_super
@@ -1178,7 +1259,9 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "User not found")
 
     def test_delete_user_forbidden_for_non_superuser(self):
-        non_super = types.SimpleNamespace(**{**self.user.__dict__, "is_superuser": False})
+        non_super = types.SimpleNamespace(
+            **{**self.user.__dict__, "is_superuser": False}
+        )
 
         async def _override_current_user():
             return non_super

@@ -239,7 +239,7 @@ def dev(
     logger.info(f"Loading agent from {graph_and_app_path}...")
     graph, _fast_api_app = cli.load_graph_and_app_from_string(graph_and_app_path)
     agent = graph.giga_agent
-    logger.info(f"Loaded agent with {len(agent.modules)} modules.")
+    logger.info(f"Loaded agent with {len(agent.all_modules)} modules.")
 
     cli.apply_migrations(agent)
 

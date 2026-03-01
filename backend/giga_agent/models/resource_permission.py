@@ -466,6 +466,43 @@ class ResourcePermissionRepository:
         await self.db.commit()
         return bool(res.rowcount)
 
+    async def revoke_all_for_resource(
+        self,
+        *,
+        resource_type: str,
+        resource_id: uuid.UUID,
+        no_commit: bool = False,
+    ) -> int:
+        return await self.revoke_all_for_resources(
+            resource_type=resource_type,
+            resource_ids=[resource_id],
+            no_commit=no_commit,
+        )
+
+    async def revoke_all_for_resources(
+        self,
+        *,
+        resource_type: str,
+        resource_ids: Sequence[uuid.UUID],
+        no_commit: bool = False,
+    ) -> int:
+        normalized_resource_type = self._normalize_resource_type(resource_type)
+        normalized_resource_ids = list(dict.fromkeys(resource_ids))
+        if not normalized_resource_ids:
+            return 0
+
+        stmt = (
+            delete(ResourcePermission)
+            .where(ResourcePermission.resource_type == normalized_resource_type)
+            .where(ResourcePermission.resource_id.in_(normalized_resource_ids))
+        )
+        res = await self.db.execute(stmt)
+        if no_commit:
+            await self.db.flush()
+        else:
+            await self.db.commit()
+        return int(res.rowcount or 0)
+
     async def list_permissions_for_resource(
         self,
         *,

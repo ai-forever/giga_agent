@@ -114,3 +114,40 @@ class LLMRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item.id for item in readable], [llm.id])
         self.assertIsNotNone(readable_by_id)
         self.assertEqual(readable_by_id.id, llm.id)
+
+    async def test_delete_cleans_resource_permissions(self):
+        owner = await self._create_user("llm-owner-delete@example.com")
+        viewer = await self._create_user("llm-viewer-delete@example.com")
+
+        async with self.session_factory() as session:
+            connector = await ConnectorRepository(session).create(
+                owner_id=owner.id,
+                connector_type="openai",
+                settings={"api_key": "sk-test"},
+                is_active=True,
+            )
+            llm_repo = LLMRepository(session)
+            llm = await llm_repo.create(
+                owner_id=owner.id,
+                llm_type="openai",
+                connector_id=connector.id,
+                model_id="gpt-4o-mini",
+                settings={},
+                is_active=True,
+            )
+            permissions = ResourcePermissionRepository(session)
+            await permissions.grant_permission(
+                resource_type="llm",
+                resource_id=llm.id,
+                owner_type="user",
+                owner_id=viewer.id,
+                permission="read",
+            )
+
+            await llm_repo.delete(llm)
+            acl = await permissions.list_permissions_for_resource(
+                resource_type="llm",
+                resource_id=llm.id,
+            )
+
+        self.assertEqual(acl, [])

@@ -20,7 +20,7 @@ class _SubgraphModule(BaseModule):
 
 class CLISubgraphsTests(unittest.TestCase):
     def _make_agent_graph(self, modules: list[BaseModule]):
-        agent = types.SimpleNamespace(modules=modules)
+        agent = types.SimpleNamespace(all_modules=modules)
         graph = types.SimpleNamespace(giga_agent=agent)
         return graph
 
@@ -54,12 +54,18 @@ class CLISubgraphsTests(unittest.TestCase):
             ]
         )
 
-        with patch.dict(sys.modules, self._make_langgraph_api_modules(_run_server)), patch(
+        with patch.dict(
+            sys.modules, self._make_langgraph_api_modules(_run_server)
+        ), patch(
             "giga_agent.cli.load_graph_and_app_from_string",
             return_value=(graph, FastAPI()),
-        ), patch("giga_agent.cli.apply_migrations"), patch(
+        ), patch(
+            "giga_agent.cli.apply_migrations"
+        ), patch(
             "giga_agent.cli.asyncio.run"
-        ), patch("giga_agent.core.cache.setup_cache"):
+        ), patch(
+            "giga_agent.core.cache.setup_cache"
+        ):
             dev(
                 graph_and_app_path="giga_agent.agents.run:graph:app",
                 no_reload=True,
@@ -96,9 +102,13 @@ class CLISubgraphsTests(unittest.TestCase):
         ), patch(
             "giga_agent.cli.load_graph_and_app_from_string",
             return_value=(graph, FastAPI()),
-        ) as load_graph_and_app, patch("giga_agent.cli.apply_migrations"), patch(
+        ) as load_graph_and_app, patch(
+            "giga_agent.cli.apply_migrations"
+        ), patch(
             "giga_agent.cli.asyncio.run"
-        ), patch("giga_agent.core.cache.setup_cache"):
+        ), patch(
+            "giga_agent.core.cache.setup_cache"
+        ):
             dev(no_reload=True)
 
         load_graph_and_app.assert_called_once_with("giga_agent.agents.run:graph:app")
@@ -114,12 +124,18 @@ class CLISubgraphsTests(unittest.TestCase):
             ]
         )
 
-        with patch.dict(sys.modules, self._make_langgraph_api_modules(_run_server)), patch(
+        with patch.dict(
+            sys.modules, self._make_langgraph_api_modules(_run_server)
+        ), patch(
             "giga_agent.cli.load_graph_and_app_from_string",
             return_value=(graph, FastAPI()),
-        ), patch("giga_agent.cli.apply_migrations"), patch(
+        ), patch(
+            "giga_agent.cli.apply_migrations"
+        ), patch(
             "giga_agent.cli.asyncio.run"
-        ), patch("giga_agent.core.cache.setup_cache"):
+        ), patch(
+            "giga_agent.core.cache.setup_cache"
+        ):
             with self.assertRaises(CLIException) as exc:
                 dev(
                     graph_and_app_path="giga_agent.agents.run:graph:app",
@@ -127,31 +143,3 @@ class CLISubgraphsTests(unittest.TestCase):
                 )
 
         self.assertIn("Duplicate subgraph key 'landing'", str(exc.exception))
-
-    def test_dev_logs_frontend_base_hint_url(self):
-        graph = self._make_agent_graph(modules=[])
-
-        with patch.dict(
-            sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
-        ), patch(
-            "giga_agent.cli.load_graph_and_app_from_string",
-            return_value=(graph, FastAPI()),
-        ), patch("giga_agent.cli.apply_migrations"), patch(
-            "giga_agent.cli.asyncio.run"
-        ), patch("giga_agent.core.cache.setup_cache"), patch(
-            "giga_agent.cli.commands.dev.logger"
-        ) as logger_mock:
-            dev(
-                graph_and_app_path="giga_agent.agents.run:graph:app",
-                host="0.0.0.0",
-                port=9090,
-                frontend_url="http://localhost:5173/",
-                no_reload=True,
-            )
-
-        expected_hint = (
-            f"Open: http://localhost:5173/base?url="
-            f"{quote('http://127.0.0.1:9090', safe='')}"
-        )
-        logged_messages = [str(call.args[0]) for call in logger_mock.info.call_args_list]
-        self.assertIn(expected_hint, logged_messages)

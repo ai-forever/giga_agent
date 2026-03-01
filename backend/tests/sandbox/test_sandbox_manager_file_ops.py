@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.file import FileRepository
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.sandbox import SandboxProvider
 from giga_agent.models.users import User
 from giga_agent.sandbox.base import ContentResult
@@ -320,6 +321,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_delete_file_for_user_deletes_from_storage_best_effort_and_removes_db_record(self):
         user = await self._create_user("m7@example.com")
+        viewer = await self._create_user("m7_viewer@example.com")
         provider = await self._create_provider(user.id)
 
         async with self.session_factory() as session:
@@ -333,6 +335,14 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 size=1,
             )
             self.assertIsNotNone(file)
+            permissions = ResourcePermissionRepository(session)
+            await permissions.grant_permission(
+                resource_type="file",
+                resource_id=file.id,
+                owner_type="user",
+                owner_id=viewer.id,
+                permission="read",
+            )
 
             runtime = types.SimpleNamespace(
                 delete_file=AsyncMock(return_value=None),
@@ -348,6 +358,13 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             runtime.delete_file.assert_awaited_once_with(file.sandbox_path)
             manager.ensure_running_for_user.assert_not_awaited()
             self.assertIsNone(await repo.get_by_id(file.id))
+            self.assertEqual(
+                await permissions.list_permissions_for_resource(
+                    resource_type="file",
+                    resource_id=file.id,
+                ),
+                [],
+            )
 
     async def test_delete_file_for_user_uses_running_sandbox_when_required(self):
         user = await self._create_user("m8@example.com")

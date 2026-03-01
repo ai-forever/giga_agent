@@ -309,6 +309,11 @@ class SearchEngineRepository(ACLResourceRepositoryMixin[SearchEngine]):
 
     async def delete(self, engine: SearchEngine) -> None:
         engine_id = engine.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="search_engine",
+            resource_id=engine_id,
+            no_commit=True,
+        )
         await self.db.delete(engine)
         await self.db.commit()
         await self.invalidate_cache(engine_id)

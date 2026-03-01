@@ -296,6 +296,11 @@ class RagCollectionsRepository(ACLResourceRepositoryMixin[RagCollection]):
         )
         if collection is None:
             return False
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="rag_collection",
+            resource_id=collection.id,
+            no_commit=True,
+        )
         await self.db.delete(collection)
         await self.db.commit()
         return True

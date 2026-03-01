@@ -347,6 +347,11 @@ class EmbeddingRepository(ACLResourceRepositoryMixin[Embedding]):
 
     async def delete(self, embedding: Embedding) -> None:
         embedding_id = embedding.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="embedding",
+            resource_id=embedding_id,
+            no_commit=True,
+        )
         await self.db.delete(embedding)
         await self.db.commit()
         await self.invalidate_cache(embedding_id)
