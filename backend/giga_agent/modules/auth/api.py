@@ -1,7 +1,7 @@
 import time
 import uuid
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Awaitable, Callable
 
 from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
@@ -126,7 +126,10 @@ async def _get_user_model_by_id(
 def _invalid_reference_error(field_name: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail=f"Invalid value for {field_name}: record must exist, belong to user, and be active",
+        detail=(
+            f"Invalid value for {field_name}: record must exist, be owned by user "
+            "or readable by user, and be active"
+        ),
     )
 
 
@@ -189,86 +192,126 @@ async def _collect_runtime_grant_targets_from_module_secrets(
     return targets
 
 
+async def _validate(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    resource_type: str,
+    resource_id: uuid.UUID,
+    field_name: str,
+    loader: Callable[[uuid.UUID], Awaitable[object | None]],
+) -> None:
+    resource = await loader(resource_id)
+    if resource is None:
+        raise _invalid_reference_error(field_name)
+
+    owner_id = getattr(resource, "owner_id", None)
+    is_active = getattr(resource, "is_active", False)
+    if owner_id is None or not is_active:
+        raise _invalid_reference_error(field_name)
+
+    if owner_id == user_id:
+        return
+
+    has_read_access = await ResourcePermissionRepository(db).has_access(
+        user_id=user_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        permission="read",
+    )
+    if not has_read_access:
+        raise _invalid_reference_error(field_name)
+
+
 async def _validate_llm_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     llm_id: uuid.UUID,
+    field_name: str = "llm_id",
 ) -> None:
-    llm = await LLMRepository.get_cached_or_db(
-        llm_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="llm",
+        resource_id=llm_id,
+        field_name=field_name,
+        loader=lambda resource_id: LLMRepository.get_cached_or_db(resource_id, session=db),
     )
-    if llm is None or llm.owner_id != owner_id or not llm.is_active:
-        raise _invalid_reference_error("llm_id")
-
-
-async def _validate_fast_llm_id(
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    fast_llm_id: uuid.UUID,
-) -> None:
-    llm = await LLMRepository.get_cached_or_db(
-        fast_llm_id,
-        session=db,
-    )
-    if llm is None or llm.owner_id != owner_id or not llm.is_active:
-        raise _invalid_reference_error("fast_llm_id")
 
 
 async def _validate_embedding_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     embedding_id: uuid.UUID,
 ) -> None:
-    embedding = await EmbeddingRepository.get_cached_or_db(
-        embedding_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="embedding",
+        resource_id=embedding_id,
+        field_name="embedding_id",
+        loader=lambda resource_id: EmbeddingRepository.get_cached_or_db(
+            resource_id,
+            session=db,
+        ),
     )
-    if embedding is None or embedding.owner_id != owner_id or not embedding.is_active:
-        raise _invalid_reference_error("embedding_id")
 
 
 async def _validate_image_generator_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     image_generator_id: uuid.UUID,
 ) -> None:
-    generator = await ImageGeneratorRepository.get_cached_or_db(
-        image_generator_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="image_generator",
+        resource_id=image_generator_id,
+        field_name="image_generator_id",
+        loader=lambda resource_id: ImageGeneratorRepository.get_cached_or_db(
+            resource_id,
+            session=db,
+        ),
     )
-    if generator is None or generator.owner_id != owner_id or not generator.is_active:
-        raise _invalid_reference_error("image_generator_id")
 
 
 async def _validate_search_engine_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     search_engine_id: uuid.UUID,
 ) -> None:
-    engine = await SearchEngineRepository.get_cached_or_db(
-        search_engine_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="search_engine",
+        resource_id=search_engine_id,
+        field_name="search_engine_id",
+        loader=lambda resource_id: SearchEngineRepository.get_cached_or_db(
+            resource_id,
+            session=db,
+        ),
     )
-    if engine is None or engine.owner_id != owner_id or not engine.is_active:
-        raise _invalid_reference_error("search_engine_id")
 
 
 async def _validate_sandbox_provider_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     sandbox_provider_id: uuid.UUID,
 ) -> None:
-    provider = await SandboxProviderRepository(db).get_by_id(sandbox_provider_id)
-    if provider is None or provider.owner_id != owner_id or not provider.is_active:
-        raise _invalid_reference_error("sandbox_provider_id")
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="sandbox",
+        resource_id=sandbox_provider_id,
+        field_name="sandbox_provider_id",
+        loader=lambda resource_id: SandboxProviderRepository(db).get_by_id(resource_id),
+    )
 
 
 async def _validate_llm_secret_references(
     *,
     request: Request,
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     merged_secrets: dict,
 ) -> None:
     agent = getattr(request.app.state, "agent", None)
@@ -299,18 +342,12 @@ async def _validate_llm_secret_references(
                 ),
             )
 
-        try:
-            await _validate_llm_id(db, owner_id, llm_id)
-        except HTTPException as exc:
-            if exc.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY:
-                raise
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Invalid value for secrets.{secret_name}: record must exist, "
-                    "belong to user, and be active"
-                ),
-            )
+        await _validate_llm_id(
+            db,
+            user_id,
+            llm_id,
+            field_name=f"secrets.{secret_name}",
+        )
 
 
 # ============ Endpoints ============
@@ -412,7 +449,7 @@ async def update_user(
         await _validate_llm_secret_references(
             request=request,
             db=db,
-            owner_id=current_user.id,
+            user_id=current_user.id,
             merged_secrets=merged_secrets,
         )
         user.secrets = merged_secrets
@@ -424,7 +461,12 @@ async def update_user(
 
     if "fast_llm_id" in body.model_fields_set:
         if body.fast_llm_id is not None:
-            await _validate_fast_llm_id(db, current_user.id, body.fast_llm_id)
+            await _validate_llm_id(
+                db,
+                current_user.id,
+                body.fast_llm_id,
+                field_name="fast_llm_id",
+            )
         user.fast_llm_id = body.fast_llm_id
 
     if "embedding_id" in body.model_fields_set:
