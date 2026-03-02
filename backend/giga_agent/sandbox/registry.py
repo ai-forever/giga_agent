@@ -1,8 +1,8 @@
-import os
 from typing import Type
 
 from pydantic import BaseModel
 
+from giga_agent.conf import get_settings
 from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.core.logging import get_logger
 
@@ -31,23 +31,11 @@ class SandboxRegistry:
 
     _registry: dict[str, Type[BaseSandbox]] = {}
 
-    @staticmethod
-    def _is_true_env(name: str, default: bool = False) -> bool:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        value = raw.strip().lower()
-        if value in {"1", "true", "yes", "on"}:
-            return True
-        if value in {"0", "false", "no", "off"}:
-            return False
-        return default
-
     @classmethod
     def is_provider_enabled(cls, provider_type: str) -> bool:
         if provider_type != LOCAL_DOCKER_PROVIDER:
             return True
-        return cls._is_true_env("GIGA_AGENT_LOCAL_SANDBOX_ENABLED", default=False)
+        return get_settings().giga_agent_local_sandbox_enabled
 
     @classmethod
     def register(cls, provider_type: str):

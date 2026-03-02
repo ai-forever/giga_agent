@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from giga_agent.conf import GIGA_AGENT_FRONTEND_DIR, GIGA_PREFIX_API
+from giga_agent.conf import GIGA_AGENT_FRONTEND_DIR, GIGA_AGENT_PREFIX_API
 
 
 def _resolve_ui_dir(app: FastAPI) -> Path | None:
@@ -63,7 +63,7 @@ def mount_ui(app: FastAPI) -> None:
     index = ui_dir / "index.html"
     assets_dir = ui_dir / "assets"
     reserved_prefixes = {
-        GIGA_PREFIX_API.lstrip("/"),
+        GIGA_AGENT_PREFIX_API.lstrip("/"),
         "docs",
         "redoc",
     }
@@ -87,4 +87,3 @@ def mount_ui(app: FastAPI) -> None:
             if candidate.is_file():
                 return FileResponse(candidate)
         return FileResponse(index)
-

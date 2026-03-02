@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
-import os
 import uuid
 from typing import Annotated
 from urllib.parse import urlparse
@@ -13,6 +12,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.llm.manager import LLMManager
@@ -59,12 +59,7 @@ PROMPT = ChatPromptTemplate.from_messages(
 
 
 def _get_jina_base_url() -> str:
-    base = (
-        os.getenv("GIGA_AGENT_SCRAPER_JINA_BASE_URL") or "https://r.jina.ai/"
-    ).strip()
-    if not base.endswith("/"):
-        base += "/"
-    return base
+    return get_settings().giga_agent_scraper_jina_base_url
 
 
 def _jina_reader_url(url: str) -> str:
@@ -229,9 +224,7 @@ async def get_urls(
     """
     llm, llm_parallel_calls = await _resolve_fast_llm(runtime)
     summarize_sem = asyncio.Semaphore(llm_parallel_calls)
-    total_concurrency = int(
-        (os.getenv("GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY") or "8").strip() or "8"
-    )
+    total_concurrency = get_settings().giga_agent_scraper_total_concurrency
 
     fetch_sem = asyncio.Semaphore(max(1, int(total_concurrency)))
     timeout = httpx.Timeout(30.0, connect=10.0)

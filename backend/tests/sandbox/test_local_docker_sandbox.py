@@ -3,15 +3,27 @@ import tempfile
 import types
 import unittest
 import uuid
+from contextlib import contextmanager
 from unittest.mock import patch
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.sandbox.base import ContentResult
 from giga_agent.sandbox.local_docker import LocalDockerSandbox
 
 
 class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
+    @contextmanager
+    def _patched_env(self, values: dict[str, str], *, clear: bool = False):
+        reset_settings_cache()
+        with patch.dict(os.environ, values, clear=clear):
+            reset_settings_cache()
+            try:
+                yield
+            finally:
+                reset_settings_cache()
+
     async def test_validate_settings_requires_max_active(self):
-        with patch.dict(os.environ, {}, clear=False):
+        with self._patched_env({}, clear=False):
             os.environ.pop("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", None)
             with patch(
                 "giga_agent.sandbox.local_docker.docker.from_env",
@@ -25,8 +37,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
                     )
 
     async def test_validate_settings_uses_env_fallback_for_max_active(self):
-        with patch.dict(
-            os.environ,
+        with self._patched_env(
             {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
             clear=False,
         ), patch(
@@ -37,8 +48,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(validated["max_active_sandboxes"], 3)
 
     async def test_validate_settings_fails_when_docker_unreachable(self):
-        with patch.dict(
-            os.environ,
+        with self._patched_env(
             {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
             clear=False,
         ), patch(
@@ -62,8 +72,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_read_delete_bucket_file(self):
         owner_id = uuid.uuid4()
-        with tempfile.TemporaryDirectory() as tmp_dir, patch.dict(
-            os.environ,
+        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
             {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
             clear=False,
         ), patch(
@@ -89,8 +98,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bucket_path_rejects_traversal(self):
         owner_id = uuid.uuid4()
-        with tempfile.TemporaryDirectory() as tmp_dir, patch.dict(
-            os.environ,
+        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
             {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
             clear=False,
         ), patch(

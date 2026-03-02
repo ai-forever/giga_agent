@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -10,6 +9,7 @@ from typing import Any
 from mem0 import AsyncMemory
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.embeddings.manager import EmbeddingManager
@@ -45,10 +45,7 @@ def _qdrant_ensure_cache_enabled() -> bool:
     Default: enabled. Set env var explicitly to disable:
       GIGA_AGENT_MEM0_QDRANT_ENSURE_CACHE=0|false
     """
-    raw = (os.getenv("GIGA_AGENT_MEM0_QDRANT_ENSURE_CACHE") or "").strip()
-    if raw in {"0", "false", "False"}:
-        return False
-    return True
+    return get_settings().giga_agent_mem0_qdrant_ensure_cache
 
 
 def _mem0_collection_name_for_embedding(embedding_id: uuid.UUID) -> str:

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from typing import Any, TypedDict
 from urllib.parse import urlencode
 
-from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.conf import GIGA_PREFIX_API, get_settings
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 
@@ -26,8 +25,9 @@ class LegacyUploadFileSpec(TypedDict):
 
 
 def build_file_content_by_path_api() -> str:
-    host = os.environ.get("GIGA_AGENT_HOST", "").strip().rstrip("/")
-    port = os.environ.get("GIGA_AGENT_PORT", "").strip()
+    settings = get_settings()
+    host = (settings.giga_agent_host or "").strip().rstrip("/")
+    port = (settings.giga_agent_port or "").strip()
 
     if host and port:
         base = f"{host}:{port}"

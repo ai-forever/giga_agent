@@ -3,11 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from giga_agent.conf import (
+    GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
-    GIGA_PREFIX_API,
 )
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -117,7 +117,7 @@ class BaseAgent(BaseModel):
 
         self._app = FastAPI(lifespan=_lifespan)
         self._app.state.agent = self
-        api_router.prefix = GIGA_PREFIX_API
+        api_router.prefix = GIGA_AGENT_PREFIX_API
 
         # Подключаем core routes
         self._app.include_router(api_router)
@@ -134,7 +134,7 @@ class BaseAgent(BaseModel):
 
             if module.get_api_router():
                 self._app.include_router(
-                    module.get_api_router(), prefix=f"{GIGA_PREFIX_API}/{module.id}"
+                    module.get_api_router(), prefix=f"{GIGA_AGENT_PREFIX_API}/{module.id}"
                 )
 
         # Собираем middleware из модулей

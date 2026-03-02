@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
 from ..migrations.common import _get_alembic_config, _get_core_models_migration_path
@@ -27,6 +28,7 @@ def check(
     from alembic.script import ScriptDirectory
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    reset_settings_cache()
     setup_cli_logging("INFO")
 
     logger.info(f"Loading agent from {agent_path}...")

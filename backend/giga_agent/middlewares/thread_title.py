@@ -132,7 +132,7 @@ async def _generate_title(llm: Any, first_message: str) -> str:
             return extracted
         return _fallback_title_from_message(excerpt)
     except Exception as e:
-        return _fallback_title_from_message(prompt)
+        return _fallback_title_from_message(excerpt)
 
 
 class ThreadTitleMiddleware(AgentMiddleware):

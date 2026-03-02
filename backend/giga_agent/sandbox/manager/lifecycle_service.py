@@ -2,7 +2,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from cashews import cache
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -162,7 +162,9 @@ class SandboxLifecycleService:
                 owner_id=sandbox.owner_id,
                 provider_id=sandbox.provider_id,
             )
-            raise StorageOperationError(f"Failed to start sandbox {sandbox_id}: {e}") from e
+            raise StorageOperationError(
+                f"Failed to start sandbox {sandbox_id}: {e}"
+            ) from e
 
         return runtime
 
@@ -223,7 +225,9 @@ class SandboxLifecycleService:
                 owner_id=sandbox.owner_id,
                 provider_id=sandbox.provider_id,
             )
-            raise StorageOperationError(f"Failed to stop sandbox {sandbox_id}: {e}") from e
+            raise StorageOperationError(
+                f"Failed to stop sandbox {sandbox_id}: {e}"
+            ) from e
 
         return sandbox
 
@@ -236,10 +240,14 @@ class SandboxLifecycleService:
         return result
 
     @staticmethod
-    def _clear_runtime_connection_state(*, sandbox: Sandbox, runtime: BaseSandbox) -> None:
+    def _clear_runtime_connection_state(
+        *, sandbox: Sandbox, runtime: BaseSandbox
+    ) -> None:
         connection_keys = set(runtime.get_connection_settings().keys())
         sandbox.settings = {
-            k: v for k, v in (sandbox.settings or {}).items() if k not in connection_keys
+            k: v
+            for k, v in (sandbox.settings or {}).items()
+            if k not in connection_keys
         }
         sandbox.external_id = None
 
@@ -264,7 +272,9 @@ class SandboxLifecycleService:
                 raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found")
 
             if sandbox_fresh.status == SandboxStatus.RUNNING:
-                runtime = self._runtime_factory.build(sandbox_fresh.provider, sandbox_fresh)
+                runtime = self._runtime_factory.build(
+                    sandbox_fresh.provider, sandbox_fresh
+                )
                 if await runtime.is_up():
                     await self._sandbox_repo.touch(sandbox_fresh.id)
                     return runtime
@@ -273,7 +283,9 @@ class SandboxLifecycleService:
                     "Sandbox %s is marked as RUNNING but is not responding, restarting...",
                     sandbox_fresh.id,
                 )
-                await self._sandbox_repo.set_status(sandbox_fresh, SandboxStatus.STOPPED)
+                await self._sandbox_repo.set_status(
+                    sandbox_fresh, SandboxStatus.STOPPED
+                )
                 await SandboxRepository.cache_invalidate_pair(
                     owner_id=user_id,
                     provider_id=sandbox_fresh.provider_id,
@@ -334,10 +346,14 @@ class SandboxLifecycleService:
 
         return stopped
 
-    async def _reconcile_stale_starting_unlocked(self, sandbox_id: uuid.UUID) -> uuid.UUID | None:
+    async def _reconcile_stale_starting_unlocked(
+        self, sandbox_id: uuid.UUID
+    ) -> uuid.UUID | None:
         sandbox = await self._sandbox_repo.get_by_id_with_provider(sandbox_id)
         if sandbox is None:
-            logger.info("sandbox_reconcile_skipped sandbox_id=%s reason=not_found", sandbox_id)
+            logger.info(
+                "sandbox_reconcile_skipped sandbox_id=%s reason=not_found", sandbox_id
+            )
             return None
         if sandbox.status != SandboxStatus.STARTING:
             logger.info(
@@ -373,7 +389,7 @@ class SandboxLifecycleService:
         return sandbox.id
 
     async def reconcile_stale_starting(self, ttl_sec: int) -> list[uuid.UUID]:
-        stale_before = datetime.utcnow() - timedelta(seconds=max(ttl_sec, 1))
+        stale_before = datetime.now(timezone.utc) - timedelta(seconds=max(ttl_sec, 1))
         stale_sandboxes = await self._sandbox_repo.get_stale_starting_sandboxes(
             stale_before=stale_before
         )

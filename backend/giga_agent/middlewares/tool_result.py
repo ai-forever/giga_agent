@@ -2,7 +2,6 @@ import base64
 import binascii
 import json
 import mimetypes
-import os
 import uuid
 from copy import deepcopy
 from typing import Any, Awaitable, Callable, Optional
@@ -15,6 +14,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
@@ -23,7 +23,7 @@ from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
 
 def _get_max_tool_size() -> int:
-    raw = os.getenv("GIGA_AGENT_TOOL_MAX_SIZE", "25000")
+    raw = str(get_settings().giga_agent_tool_max_size)
     try:
         return int(raw)
     except (TypeError, ValueError):

@@ -1,7 +1,7 @@
-import os
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter
 
+from giga_agent.conf import get_settings
 from giga_agent.core.module import BaseModule
 from giga_agent.modules.auth import security, api
 from giga_agent.core.events import event_bus
@@ -27,8 +27,9 @@ class AuthModule(BaseModule):
 
         if not users:
             logger.info("No users found. Creating admin user...")
-            admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-            admin_password = os.getenv("ADMIN_PASSWORD", "admin")
+            settings = get_settings()
+            admin_email = settings.giga_agent_admin_email
+            admin_password = settings.giga_agent_admin_password
 
             hashed_password = security.get_password_hash(admin_password)
 

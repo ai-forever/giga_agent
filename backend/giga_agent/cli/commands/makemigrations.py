@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_db_url
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
@@ -80,6 +81,7 @@ def makemigrations(
     from alembic.script import ScriptDirectory
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    reset_settings_cache()
     setup_cli_logging("INFO")
 
     if core and module_path is not None:

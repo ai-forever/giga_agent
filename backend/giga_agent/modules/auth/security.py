@@ -1,13 +1,11 @@
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
 import jwt
+from giga_agent.conf import get_settings
 
-SECRET_KEY = os.getenv("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = None  # None = tokens never expire
 
 
@@ -27,6 +25,7 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    settings = get_settings()
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -37,12 +36,21 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         to_encode["jti"] = str(uuid.uuid4())
 
     
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.giga_agent_secret_key,
+        algorithm=settings.giga_agent_auth_algorithm,
+    )
     return encoded_jwt
 
 
 def get_user_id_from_token(token: str) -> uuid.UUID:
-    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    settings = get_settings()
+    payload = jwt.decode(
+        token,
+        settings.giga_agent_secret_key,
+        algorithms=[settings.giga_agent_auth_algorithm],
+    )
     user_id_str: str | None = payload.get("user_id")
     if user_id_str is None:
         raise ValueError("user_id is missing from token")

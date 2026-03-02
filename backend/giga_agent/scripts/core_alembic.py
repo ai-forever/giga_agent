@@ -29,6 +29,7 @@ sys.path.insert(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
 )
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_db_url
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
@@ -41,6 +42,7 @@ class CoreAlembicCommandLine(CommandLine):
     def main(self, argv=None):
         setup_cli_logging("INFO")
         os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+        reset_settings_cache()
 
         # Import core models so they register with Base.metadata
         import giga_agent.models  # noqa: F401

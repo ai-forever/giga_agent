@@ -19,6 +19,7 @@ from alembic import command
 # Ensure giga_agent package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_db_url
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
@@ -46,6 +47,7 @@ def make_core_migration(message: str = ""):
     """
     setup_cli_logging("INFO")
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    reset_settings_cache()
     
     # Import models to register them with Base.metadata
     # This is necessary for autogenerate to detect changes

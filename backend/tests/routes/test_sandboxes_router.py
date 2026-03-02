@@ -2,12 +2,14 @@ import types
 import unittest
 import uuid
 import os
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.testclient import TestClient
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.routes.sandboxes import router
@@ -34,6 +36,16 @@ class SandboxesRouterTests(unittest.TestCase):
         self.app.dependency_overrides[get_current_active_user] = _override_current_user
         self.app.dependency_overrides[get_session] = _override_get_session
         self.client = TestClient(self.app)
+
+    @contextmanager
+    def _patched_env(self, values: dict[str, str], *, clear: bool = False):
+        reset_settings_cache()
+        with patch.dict(os.environ, values, clear=clear):
+            reset_settings_cache()
+            try:
+                yield
+            finally:
+                reset_settings_cache()
 
     def _provider_obj(self, *, provider_id: uuid.UUID | None = None):
         return types.SimpleNamespace(
@@ -488,7 +500,7 @@ class SandboxesRouterTests(unittest.TestCase):
 
     def test_get_provider_types_hides_local_for_non_superuser(self):
         self.user.is_superuser = False
-        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
+        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
             "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
             return_value=["e2b", "local_docker"],
         ):
@@ -498,7 +510,7 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertEqual(response.json(), ["e2b"])
 
     def test_get_provider_types_shows_local_for_superuser_when_enabled(self):
-        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
+        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
             "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
             return_value=["e2b", "local_docker"],
         ):
@@ -509,7 +521,7 @@ class SandboxesRouterTests(unittest.TestCase):
 
     def test_get_local_provider_schema_forbidden_for_non_superuser(self):
         self.user.is_superuser = False
-        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
+        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
             response = self.client.get(
                 "/sandboxes/providers/types/local_docker/settings-schema"
             )
@@ -517,7 +529,7 @@ class SandboxesRouterTests(unittest.TestCase):
 
     def test_create_local_provider_forbidden_for_non_superuser(self):
         self.user.is_superuser = False
-        with patch.dict(os.environ, {"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
+        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
             response = self.client.post(
                 "/sandboxes/providers",
                 json={

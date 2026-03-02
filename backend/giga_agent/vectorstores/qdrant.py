@@ -15,6 +15,7 @@ from pathlib import Path
 from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.http import models as qmodels
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 
 
@@ -106,7 +107,9 @@ def qdrant_pool_size() -> int:
     Defaults to 20 (good baseline for 5–20 concurrent requests per process).
     """
     raw = (
-        os.getenv("GIGA_AGENT_QDRANT_POOL_SIZE") or os.getenv("QDRANT_POOL_SIZE") or ""
+        str(get_settings().giga_agent_qdrant_pool_size or "")
+        or os.getenv("QDRANT_POOL_SIZE")
+        or ""
     )
     return _parse_pool_size(raw) or 20
 

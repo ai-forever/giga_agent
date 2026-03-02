@@ -3,7 +3,7 @@ API Routes для Giga Agent.
 """
 
 from fastapi import APIRouter
-from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.conf import GIGA_AGENT_PREFIX_API
 
 from giga_agent.routes.agent import router as agent_router
 from giga_agent.routes.connectors import router as connectors_router
@@ -16,7 +16,7 @@ from giga_agent.routes.resource_permissions import router as resource_permission
 from giga_agent.routes.sandboxes import router as sandboxes_router
 from giga_agent.routes.search_engines import router as search_engines_router
 
-router = APIRouter(prefix=GIGA_PREFIX_API)
+router = APIRouter(prefix=GIGA_AGENT_PREFIX_API)
 router.include_router(agent_router)
 router.include_router(connectors_router)
 router.include_router(embeddings_router)

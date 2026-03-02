@@ -1,6 +1,5 @@
 import asyncio
 import mimetypes
-import os
 import secrets
 import shlex
 import time
@@ -14,6 +13,10 @@ from docker.errors import NotFound
 from docker.types import Ulimit
 from pydantic import Field, PrivateAttr
 
+from giga_agent.conf import (
+    get_local_docker_max_active_sandboxes_from_env,
+    get_settings,
+)
 from giga_agent.core.logging import get_logger
 from giga_agent.core.paths import ensure_giga_agent_dir
 from giga_agent.sandbox.base import (
@@ -31,45 +34,6 @@ JUPYTER_PORT = 8888
 BUCKET_PREFIX = "/bucket/"
 
 
-def _env_int(name: str, default: int | None) -> int | None:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return int(raw.strip())
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return float(raw.strip())
-    except ValueError:
-        return default
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    value = raw.strip().lower()
-    if value in {"1", "true", "yes", "on"}:
-        return True
-    if value in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _env_path(name: str) -> Path | None:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return None
-    return Path(raw).expanduser()
-
-
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(JupyterSandbox):
     image: str = Field(
@@ -83,47 +47,51 @@ class LocalDockerSandbox(JupyterSandbox):
     )
 
     memory_limit_mb: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB", 512) or 512,
+        default_factory=lambda: get_settings().giga_agent_local_docker_memory_limit_mb,
         description="Container memory hard limit in MB",
     )
     memory_reservation_mb: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB", 512) or 512,
+        default_factory=lambda: (
+            get_settings().giga_agent_local_docker_memory_reservation_mb
+        ),
         description="Container memory soft reservation in MB",
     )
     vcpu: float = Field(
-        default=_env_float("GIGA_AGENT_LOCAL_DOCKER_VCPU", 0.3),
+        default_factory=lambda: get_settings().giga_agent_local_docker_vcpu,
         description="Container CPU quota in vCPU units",
     )
     pids_limit: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT", 256) or 256,
+        default_factory=lambda: get_settings().giga_agent_local_docker_pids_limit,
         description="Maximum number of processes in container",
     )
     shm_size_mb: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_SHM_SIZE_MB", 128) or 128,
+        default_factory=lambda: get_settings().giga_agent_local_docker_shm_size_mb,
         description="Container /dev/shm size in MB",
     )
     nofile_soft: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_NOFILE_SOFT", 1024) or 1024,
+        default_factory=lambda: get_settings().giga_agent_local_docker_nofile_soft,
         description="Soft nofile ulimit for container",
     )
     nofile_hard: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_NOFILE_HARD", 4096) or 4096,
+        default_factory=lambda: get_settings().giga_agent_local_docker_nofile_hard,
         description="Hard nofile ulimit for container",
     )
     startup_timeout_sec: int = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_STARTUP_TIMEOUT_SEC", 20) or 20,
+        default_factory=lambda: get_settings().giga_agent_local_docker_startup_timeout_sec,
         description="Timeout in seconds to wait for Jupyter startup",
     )
     max_active_sandboxes: int | None = Field(
-        default=_env_int("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", 3),
+        default_factory=lambda: (
+            get_settings().giga_agent_local_docker_max_active_sandboxes
+        ),
         description="Maximum active local sandboxes for this provider",
     )
     enforce_readonly_rootfs: bool = Field(
-        default=_env_bool("GIGA_AGENT_LOCAL_DOCKER_READONLY_ROOTFS", False),
+        default_factory=lambda: get_settings().giga_agent_local_docker_readonly_rootfs,
         description="Run container with readonly root filesystem",
     )
     allow_network: bool = Field(
-        default=_env_bool("GIGA_AGENT_LOCAL_DOCKER_ALLOW_NETWORK", True),
+        default_factory=lambda: get_settings().giga_agent_local_docker_allow_network,
         description="Allow container network access",
     )
 
@@ -157,7 +125,7 @@ class LocalDockerSandbox(JupyterSandbox):
 
     def model_post_init(self, __context: Any) -> None:
         self._client = docker.from_env()
-        root_dir = _env_path("GIGA_AGENT_LOCAL_DOCKER_FILES_PATH")
+        root_dir = get_settings().giga_agent_local_docker_files_path
         if root_dir is None:
             root_dir = ensure_giga_agent_dir() / "sandboxes"
         self._sandbox_root_dir = root_dir
@@ -203,7 +171,7 @@ class LocalDockerSandbox(JupyterSandbox):
             raise ValueError("nofile_soft must be <= nofile_hard")
 
         if validated.get("max_active_sandboxes") is None:
-            env_limit = _env_int("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", None)
+            env_limit = get_local_docker_max_active_sandboxes_from_env()
             if env_limit is not None:
                 validated["max_active_sandboxes"] = env_limit
 
