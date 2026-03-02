@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -10,6 +11,7 @@ from sqlalchemy import (
     String,
     Uuid,
     UniqueConstraint,
+    delete,
     select,
 )
 from sqlalchemy.exc import IntegrityError
@@ -105,6 +107,13 @@ class FileResponse(FileBase):
         from_attributes = True
 
 
+@dataclass(frozen=True)
+class FileStorageRef:
+    owner_id: uuid.UUID
+    provider_id: uuid.UUID
+    sandbox_path: str
+
+
 # ============ Repository ============
 
 
@@ -133,6 +142,34 @@ class FileRepository:
         query = query.order_by(File.created_at.desc()).offset(skip).limit(limit)
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def list_storage_refs_by_provider(
+        self,
+        provider_id: uuid.UUID,
+    ) -> list[FileStorageRef]:
+        result = await self.db.execute(
+            select(File.owner_id, File.provider_id, File.sandbox_path).where(
+                File.provider_id == provider_id
+            )
+        )
+        return [
+            FileStorageRef(owner_id=owner_id, provider_id=provider_id, sandbox_path=sandbox_path)
+            for owner_id, provider_id, sandbox_path in result.all()
+        ]
+
+    async def list_storage_refs_by_owner(
+        self,
+        owner_id: uuid.UUID,
+    ) -> list[FileStorageRef]:
+        result = await self.db.execute(
+            select(File.owner_id, File.provider_id, File.sandbox_path).where(
+                File.owner_id == owner_id
+            )
+        )
+        return [
+            FileStorageRef(owner_id=owner_id, provider_id=provider_id, sandbox_path=sandbox_path)
+            for owner_id, provider_id, sandbox_path in result.all()
+        ]
 
     async def get_readable_for_user(
         self,
@@ -294,6 +331,32 @@ class FileRepository:
         )
         await self.db.delete(file)
         await self.db.commit()
+
+    async def delete_by_provider(self, provider_id: uuid.UUID) -> int:
+        result = await self.db.execute(select(File.id).where(File.provider_id == provider_id))
+        file_ids = [file_id for (file_id,) in result.all()]
+        if file_ids:
+            await ResourcePermissionRepository(self.db).revoke_all_for_resources(
+                resource_type="file",
+                resource_ids=file_ids,
+                no_commit=True,
+            )
+        deleted = await self.db.execute(delete(File).where(File.provider_id == provider_id))
+        await self.db.commit()
+        return int(deleted.rowcount or 0)
+
+    async def delete_by_owner(self, owner_id: uuid.UUID) -> int:
+        result = await self.db.execute(select(File.id).where(File.owner_id == owner_id))
+        file_ids = [file_id for (file_id,) in result.all()]
+        if file_ids:
+            await ResourcePermissionRepository(self.db).revoke_all_for_resources(
+                resource_type="file",
+                resource_ids=file_ids,
+                no_commit=True,
+            )
+        deleted = await self.db.execute(delete(File).where(File.owner_id == owner_id))
+        await self.db.commit()
+        return int(deleted.rowcount or 0)
 
     @staticmethod
     def to_response(file: File) -> FileResponse:

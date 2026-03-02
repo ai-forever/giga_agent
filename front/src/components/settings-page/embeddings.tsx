@@ -17,7 +17,6 @@ import ResourcePermissions from "./forms/resource-permissions";
 import {
   hasNonDefaultPermissions,
   permissionsEqual,
-  stableStringify,
   toPermissionsApiPayload,
 } from "./forms/resource-permissions-utils";
 
@@ -202,46 +201,23 @@ export const EmbeddingsSettings: React.FC = () => {
     if (saving) return;
     try {
       setSaving(true);
-      const nextType = data.embedding_type;
-      const nextConnectorId = data.connector_id;
-      const nextModelId = data.model_id;
-      const nextIsActive = data.is_active;
       const nextName = data.embedding_name ?? null;
-      const nextSettings = data.embedding_settings;
-      const payload: Record<string, unknown> = {
-        type: nextType,
-        connector_id: nextConnectorId,
-        model_id: nextModelId,
-        settings: nextSettings,
-        is_active: nextIsActive,
-        check_connection: data.check_connection,
-      };
-      if (data.embedding_name) {
-        payload.name = data.embedding_name;
-      }
 
       if (!isNewEmbedding && editingEmbedding) {
-        const hasResourceChanges =
-          editingEmbedding.type !== nextType ||
-          editingEmbedding.connector_id !== nextConnectorId ||
-          editingEmbedding.model_id !== nextModelId ||
-          (editingEmbedding.name || null) !== nextName ||
-          editingEmbedding.is_active !== nextIsActive ||
-          stableStringify(editingEmbedding.settings || {}) !==
-            stableStringify(nextSettings);
+        const hasNameChanges = (editingEmbedding.name || null) !== nextName;
         const hasPermissionsChanges =
           canManagePermissions &&
           !permissionsEqual(editPermissions, initialEditPermissions);
 
-        if (!hasResourceChanges && !hasPermissionsChanges) {
+        if (!hasNameChanges && !hasPermissionsChanges) {
           toast.info("Изменений нет");
           return;
         }
 
-        if (hasResourceChanges) {
+        if (hasNameChanges) {
           await apiClient.patch(
             `${API_AGENT_PREFIX}/embeddings/${editingEmbedding.id}`,
-            payload,
+            { name: nextName },
           );
         }
         if (hasPermissionsChanges) {
@@ -254,6 +230,17 @@ export const EmbeddingsSettings: React.FC = () => {
         toast.success("Embedding модель обновлена");
         handleCancelEdit();
       } else {
+        const payload: Record<string, unknown> = {
+          type: data.embedding_type,
+          connector_id: data.connector_id,
+          model_id: data.model_id,
+          settings: data.embedding_settings,
+          is_active: data.is_active,
+          check_connection: data.check_connection,
+        };
+        if (data.embedding_name) {
+          payload.name = data.embedding_name;
+        }
         if (
           canManagePermissions &&
           hasNonDefaultPermissions(createPermissions)

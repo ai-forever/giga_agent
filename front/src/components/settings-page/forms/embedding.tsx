@@ -238,7 +238,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   const [modelId, setModelId] = useState(embedding?.model_id || "");
   const [embeddingName, setEmbeddingName] = useState(embedding?.name || "");
   const [isActive, setIsActive] = useState(embedding?.is_active ?? true);
-  const [checkConnection, setCheckConnection] = useState(true);
+  const [checkConnection, setCheckConnection] = useState(
+    embedding ? false : true,
+  );
 
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
@@ -463,7 +465,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       embedding_name: embeddingName || undefined,
       embedding_settings: embeddingSettings,
       is_active: isActive,
-      check_connection: checkConnection,
+      check_connection: embedding ? false : checkConnection,
     };
 
     setSubmitting(true);
@@ -523,6 +525,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           value={selectedConnectorId}
           onValueChange={setSelectedConnectorId}
           disabled={
+            !!embedding ||
             submitting ||
             loadingConnectors ||
             !selectedEmbeddingType ||
@@ -563,7 +566,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           <Select
             value={modelId}
             onValueChange={setModelId}
-            disabled={submitting || loadingModels}
+            disabled={!!embedding || submitting || loadingModels}
           >
             <SelectTrigger id="embedding-model-id" className="w-full">
               <SelectValue placeholder="Выберите модель" />
@@ -582,7 +585,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
             placeholder="text-embedding-3-small, EmbeddingsGigaR, ..."
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
-            disabled={submitting}
+            disabled={!!embedding || submitting}
           />
         )}
         {loadingModels && (
@@ -611,24 +614,26 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           id="embedding-is-active"
           checked={isActive}
           onCheckedChange={setIsActive}
-          disabled={submitting}
+          disabled={!!embedding || submitting}
         />
       </div>
 
-      <div className="flex items-center justify-between rounded-md border border-border p-3">
-        <Label
-          htmlFor="embedding-check-connection"
-          className="cursor-pointer"
-        >
-          Проверять подключение
-        </Label>
-        <Switch
-          id="embedding-check-connection"
-          checked={checkConnection}
-          onCheckedChange={setCheckConnection}
-          disabled={submitting}
-        />
-      </div>
+      {!embedding && (
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <Label
+            htmlFor="embedding-check-connection"
+            className="cursor-pointer"
+          >
+            Проверять подключение
+          </Label>
+          <Switch
+            id="embedding-check-connection"
+            checked={checkConnection}
+            onCheckedChange={setCheckConnection}
+            disabled={submitting}
+          />
+        </div>
+      )}
 
       {selectedEmbeddingType && (
         <div className="space-y-2">
@@ -643,7 +648,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={setSettingsValues}
-              disabled={isSaveDisabled}
+              disabled={!!embedding || isSaveDisabled}
             />
           )}
         </div>

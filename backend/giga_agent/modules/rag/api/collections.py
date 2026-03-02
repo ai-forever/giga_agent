@@ -172,6 +172,8 @@ async def collections_delete(
         if not docs:
             break
         for d in docs:
+            if not d.sandbox_path:
+                continue
             await SandboxManager(db).delete_file_by_path_for_user(
                 user_id=collection.owner_id,
                 sandbox_path=d.sandbox_path,

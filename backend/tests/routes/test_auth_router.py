@@ -1285,13 +1285,88 @@ class AuthRouterTests(unittest.TestCase):
             "giga_agent.modules.auth.api._get_user_model_by_id",
             AsyncMock(return_value=target),
         ), patch(
+            "giga_agent.modules.auth.api._build_user_storage_cleanup_batches",
+            AsyncMock(return_value=([], [])),
+        ) as mocked_build_batches, patch(
+            "giga_agent.modules.auth.api._delete_user_related_resources",
+            AsyncMock(return_value=None),
+        ) as mocked_delete_related, patch(
             "giga_agent.modules.auth.api.UserRepository.delete",
             AsyncMock(return_value=None),
-        ) as mocked_delete:
+        ) as mocked_delete, patch(
+            "giga_agent.modules.auth.api.cleanup_storage_files_best_effort",
+            AsyncMock(return_value=None),
+        ) as mocked_cleanup:
             response = self.client.delete(f"/users/{target.id}")
 
         self.assertEqual(response.status_code, 204)
+        mocked_build_batches.assert_awaited_once_with(self.db, target.id)
+        mocked_delete_related.assert_awaited_once_with(
+            self.db,
+            target.id,
+            file_refs=[],
+        )
         mocked_delete.assert_awaited_once_with(target)
+        mocked_cleanup.assert_not_awaited()
+
+    def test_delete_user_schedules_cleanup_per_provider_batch(self):
+        target = types.SimpleNamespace(
+            id=uuid.uuid4(),
+            email="target2@example.com",
+            hashed_password="x",
+            is_active=True,
+            is_superuser=False,
+        )
+        provider_1 = uuid.uuid4()
+        provider_2 = uuid.uuid4()
+        owner_id = target.id
+
+        refs_batch_1 = [
+            types.SimpleNamespace(
+                owner_id=owner_id,
+                provider_id=provider_1,
+                sandbox_path="/bucket/u/a.txt",
+            )
+        ]
+        refs_batch_2 = [
+            types.SimpleNamespace(
+                owner_id=owner_id,
+                provider_id=provider_2,
+                sandbox_path="/bucket/u/b.txt",
+            )
+        ]
+        provider_snapshot_1 = types.SimpleNamespace(id=provider_1)
+        provider_snapshot_2 = types.SimpleNamespace(id=provider_2)
+        sandbox_refs = {str(owner_id): types.SimpleNamespace(provider_id=provider_1)}
+
+        with patch(
+            "giga_agent.modules.auth.api._get_user_model_by_id",
+            AsyncMock(return_value=target),
+        ), patch(
+            "giga_agent.modules.auth.api._build_user_storage_cleanup_batches",
+            AsyncMock(
+                return_value=(
+                    refs_batch_1 + refs_batch_2,
+                    [
+                        (refs_batch_1, provider_snapshot_1, sandbox_refs),
+                        (refs_batch_2, provider_snapshot_2, sandbox_refs),
+                    ],
+                )
+            ),
+        ), patch(
+            "giga_agent.modules.auth.api._delete_user_related_resources",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.UserRepository.delete",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.modules.auth.api.cleanup_storage_files_best_effort",
+            AsyncMock(return_value=None),
+        ) as mocked_cleanup:
+            response = self.client.delete(f"/users/{target.id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(mocked_cleanup.await_count, 2)
 
     def test_delete_user_returns_422_for_self_delete(self):
         response = self.client.delete(f"/users/{self.user.id}")

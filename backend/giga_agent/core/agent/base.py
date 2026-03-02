@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
 
@@ -109,6 +110,10 @@ class BaseAgent(BaseModel):
 
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
+            if not (os.getenv("GIGA_AGENT_SECRET_KEY") or "").strip():
+                raise Exception(
+                    "GIGA_AGENT_SECRET_KEY is not set. Please set env secret key."
+                )
             settings = get_settings()
             setup_cli_logging(settings.giga_agent_log_level)
             await self.run_startup_migrations()

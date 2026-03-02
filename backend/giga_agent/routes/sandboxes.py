@@ -17,7 +17,7 @@ import uuid
 from typing import Annotated, Any
 
 from cashews import cache
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,17 +25,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
 from giga_agent.models.users import User, UserRepository
+from giga_agent.models.file import FileRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
+from giga_agent.models.rag import RagDocumentsRepository
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxProviderCreate,
     SandboxProviderInstanceResponse,
+    SandboxProviderSnapshot,
+    SandboxSnapshot,
     SandboxProviderUpdate,
     SandboxProviderResponse,
     SandboxProviderRepository,
     SandboxRepository,
     SandboxStatus,
 )
+from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
 from giga_agent.sandbox.registry import LOCAL_DOCKER_PROVIDER, SandboxRegistry
 from giga_agent.sandbox.manager import (
     SandboxBusyError,
@@ -419,6 +424,7 @@ async def update_sandbox_provider(
 @router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_sandbox_provider(
     provider_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_active_user)],
     provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
 ):
@@ -430,11 +436,41 @@ async def delete_sandbox_provider(
     provider = await get_provider_with_write_check(
         provider_id, current_user.id, provider_repo
     )
+    file_repo = FileRepository(provider_repo.db)
+    file_refs = await file_repo.list_storage_refs_by_provider(provider.id)
+    await file_repo.delete_by_provider(provider.id)
+
+    docs_repo = RagDocumentsRepository(provider_repo.db)
+    await docs_repo.detach_by_sandbox_provider(sandbox_provider_id=provider.id)
+
+    sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
+    sandbox_repo = SandboxRepository(provider_repo.db)
+    for owner_id in {item.owner_id for item in file_refs}:
+        sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider.id)
+        if sandbox is not None:
+            pair = SandboxRepository.to_pair_snapshot(provider, sandbox)
+            sandbox_snapshots_by_owner[str(owner_id)] = pair.sandbox
     user = await provider_repo.db.get(User, provider.owner_id)
     if user is not None and user.sandbox_provider_id == provider.id:
         user.sandbox_provider_id = None
         await provider_repo.db.commit()
         await UserRepository.invalidate_cache(provider.owner_id)
 
+    provider_snapshot = SandboxProviderSnapshot(
+        id=provider.id,
+        owner_id=provider.owner_id,
+        type=provider.type,
+        name=provider.name,
+        settings=provider.settings or {},
+        idle_timeout=provider.idle_timeout,
+        is_active=provider.is_active,
+        updated_at=provider.updated_at,
+    )
     await provider_repo.delete(provider)
     await cache.delete_match(f"sandboxpair:owner:{provider.owner_id}:*")
+    background_tasks.add_task(
+        cleanup_storage_files_best_effort,
+        file_refs,
+        provider_snapshot=provider_snapshot,
+        sandbox_snapshots_by_owner=sandbox_snapshots_by_owner,
+    )

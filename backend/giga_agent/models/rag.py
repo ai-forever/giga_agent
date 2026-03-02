@@ -12,6 +12,7 @@ from sqlalchemy import (
     Uuid,
     delete,
     select,
+    update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -74,7 +75,6 @@ class RagCollection(Base):
 class RagDocument(Base):
     __tablename__ = "core_rag_documents"
 
-    # id is also used as `file_id` in chunk metadata and API.
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, index=True, default=uuid.uuid4
     )
@@ -99,7 +99,27 @@ class RagDocument(Base):
         index=True,
     )
     original_name: Mapped[str] = mapped_column(String(1024), nullable=False)
-    sandbox_path: Mapped[str] = mapped_column(String(2048), nullable=False)
+    file_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_files.id",
+            name="fk_core_rag_documents_file_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    sandbox_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_sandbox_providers.id",
+            name="fk_core_rag_documents_sandbox_provider_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    sandbox_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -379,19 +399,41 @@ class RagDocumentsRepository:
         collection_id: uuid.UUID,
         document_id: uuid.UUID,
         original_name: str,
-        sandbox_path: str,
+        sandbox_path: str | None,
+        file_id: uuid.UUID | None = None,
+        sandbox_provider_id: uuid.UUID | None = None,
     ) -> RagDocument:
         doc = RagDocument(
             id=document_id,
             owner_id=owner_id,
             collection_id=collection_id,
             original_name=original_name,
+            file_id=file_id,
+            sandbox_provider_id=sandbox_provider_id,
             sandbox_path=sandbox_path,
         )
         self.db.add(doc)
         await self.db.commit()
         await self.db.refresh(doc)
         return doc
+
+    async def detach_by_sandbox_provider(
+        self,
+        *,
+        sandbox_provider_id: uuid.UUID,
+    ) -> int:
+        stmt = (
+            update(RagDocument)
+            .where(RagDocument.sandbox_provider_id == sandbox_provider_id)
+            .values(
+                file_id=None,
+                sandbox_provider_id=None,
+                sandbox_path=None,
+            )
+        )
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return int(res.rowcount or 0)
 
     async def delete(
         self,

@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,6 +61,7 @@ const initialEditFormState: UserFormState = {
 
 const AdminUsersTab: React.FC = () => {
   const { user: currentUser } = useAuth();
+  const confirm = useConfirm();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -155,6 +157,19 @@ const AdminUsersTab: React.FC = () => {
   };
 
   const handleDeleteUser = async (id: string) => {
+    const targetUser = users.find((item) => item.id === id);
+    const targetUserLabel = targetUser?.email
+      ? `пользователя ${targetUser.email}`
+      : "этого пользователя";
+    const confirmed = await confirm({
+      title: "Удалить пользователя?",
+      description: `Вы уверены, что хотите удалить ${targetUserLabel}? Будут удалены связанные данные, включая файлы, чаты и прочее.`,
+      confirmText: "Удалить",
+      cancelText: "Отмена",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
     setDeletingUserId(id);
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/auth/users/${id}`);

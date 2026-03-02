@@ -142,7 +142,8 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
   useEffect(() => {
     const onRefresh = () => setThreadsRefreshTick((x) => x + 1);
     appEvents.addEventListener(THREADS_REFRESH_EVENT, onRefresh);
-    return () => appEvents.removeEventListener(THREADS_REFRESH_EVENT, onRefresh);
+    return () =>
+      appEvents.removeEventListener(THREADS_REFRESH_EVENT, onRefresh);
   }, []);
 
   useEffect(() => {
@@ -206,8 +207,9 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
         if (!hasLoadedThreadsOnceRef.current) {
           const next = new Map<string, string>();
           for (const t of result) {
-            const meta = (t as unknown as { metadata?: Record<string, unknown> })
-              .metadata;
+            const meta = (
+              t as unknown as { metadata?: Record<string, unknown> }
+            ).metadata;
             const rawTitle =
               typeof meta?.thread_title === "string"
                 ? meta.thread_title.trim()
@@ -242,10 +244,7 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
             rawTitle.length > 0;
 
           if (isNewThread || titleJustAppeared) {
-            const lastIdPart = t.thread_id
-              .split("/")
-              .filter(Boolean)
-              .at(-1);
+            const lastIdPart = t.thread_id.split("/").filter(Boolean).at(-1);
             const shortId = (lastIdPart ?? t.thread_id).slice(0, 4);
             const displayTitle =
               rawTitle.length > 0 ? rawTitle : `Новый чат - ${shortId}`;
@@ -331,7 +330,9 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
         const meta = (t as unknown as { metadata?: Record<string, unknown> })
           .metadata;
         const rawTitle =
-          typeof meta?.thread_title === "string" ? meta.thread_title.trim() : "";
+          typeof meta?.thread_title === "string"
+            ? meta.thread_title.trim()
+            : "";
         nextPrev.set(t.thread_id, rawTitle);
       }
       prevThreadsRef.current = nextPrev;
@@ -410,7 +411,8 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
   const [deleteThread, setDeleteThread] = useState<Thread | null>(null);
 
   const getThreadMeta = (t: Thread): Record<string, unknown> => {
-    const meta = (t as unknown as { metadata?: Record<string, unknown> }).metadata;
+    const meta = (t as unknown as { metadata?: Record<string, unknown> })
+      .metadata;
     return meta ?? {};
   };
 
@@ -788,7 +790,9 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
             <div className="text-sm text-destructive">{deleteError}</div>
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteSaving}>Отмена</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteSaving}>
+              Отмена
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={(e) => {
@@ -828,7 +832,7 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
         className={[
           "flex h-screen w-full mx-auto transition-[margin] duration-300 ease-in-out",
           "max-[900px]:max-h-[calc(100vh-75px)]",
-          settings.sideBarOpen ? "min-[900px]:ml-[250px]" : "min-[900px]:ml-0",
+          settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "min-[900px]:ml-0",
           "print:!ml-0",
         ].join(" ")}
       >

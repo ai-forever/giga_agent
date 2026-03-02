@@ -587,11 +587,76 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("not compatible", response.json()["detail"])
 
-    def test_deactivate_current_auto_clears_current(self):
-        self.skipTest("Редактирование эмбеддингов отключено")
+    def test_patch_embedding_updates_name(self):
+        embedding_id = uuid.uuid4()
+        existing = self._embedding_obj(embedding_id=embedding_id)
+        updated = self._embedding_obj(embedding_id=embedding_id)
+        updated.name = "updated-name"
 
-    def test_patch_settings_uses_current_embedding_type(self):
-        self.skipTest("Редактирование эмбеддингов отключено")
+        with patch(
+            "giga_agent.routes.embeddings._get_embedding_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/embeddings/{embedding_id}",
+                json={"name": "updated-name"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["name"], "updated-name")
+        mocked_update.assert_awaited_once_with(existing, name="updated-name")
+
+    def test_patch_embedding_allows_clearing_name_with_null(self):
+        embedding_id = uuid.uuid4()
+        existing = self._embedding_obj(embedding_id=embedding_id)
+        updated = self._embedding_obj(embedding_id=embedding_id)
+        updated.name = None
+
+        with patch(
+            "giga_agent.routes.embeddings._get_embedding_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/embeddings/{embedding_id}",
+                json={"name": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["name"])
+        mocked_update.assert_awaited_once_with(existing, name=None)
+
+    def test_patch_embedding_rejects_extra_fields(self):
+        embedding_id = uuid.uuid4()
+
+        response = self.client.patch(
+            f"/embeddings/{embedding_id}",
+            json={"name": "ok", "model_id": "not-allowed"},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
+    def test_patch_embedding_empty_payload_returns_current_embedding(self):
+        embedding_id = uuid.uuid4()
+        existing = self._embedding_obj(embedding_id=embedding_id)
+
+        with patch(
+            "giga_agent.routes.embeddings._get_embedding_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.update",
+            AsyncMock(return_value=existing),
+        ) as mocked_update:
+            response = self.client.patch(f"/embeddings/{embedding_id}", json={})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["name"], existing.name)
+        mocked_update.assert_not_awaited()
 
     def test_delete_current_auto_clears_current(self):
         embedding_id = uuid.uuid4()

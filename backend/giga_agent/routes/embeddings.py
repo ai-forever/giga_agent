@@ -19,6 +19,7 @@ from giga_agent.models.embedding import (
     Embedding,
     EmbeddingCreate,
     EmbeddingModelFetchError,
+    EmbeddingPatchRequest,
     EmbeddingRepository,
     EmbeddingResponse,
 )
@@ -517,6 +518,25 @@ async def get_embedding(
         not_found_detail="Embedding not found",
     )
     return EmbeddingRepository.to_response(embedding, can_edit=can_edit)
+
+
+@router.patch("/{embedding_id}", response_model=EmbeddingResponse)
+async def patch_embedding(
+    embedding_id: uuid.UUID,
+    data: EmbeddingPatchRequest,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    embedding_repo: Annotated[EmbeddingRepository, Depends(get_embedding_repository)],
+):
+    embedding = await _get_embedding_with_write_check(
+        embedding_id=embedding_id,
+        user_id=current_user.id,
+        embedding_repo=embedding_repo,
+    )
+
+    if "name" in data.model_fields_set:
+        embedding = await embedding_repo.update(embedding, name=data.name)
+
+    return EmbeddingRepository.to_response(embedding, can_edit=True)
 
 
 @router.delete("/{embedding_id}", status_code=status.HTTP_204_NO_CONTENT)

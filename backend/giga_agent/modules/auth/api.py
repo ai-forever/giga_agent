@@ -1,25 +1,34 @@
 import time
 import uuid
+from collections import defaultdict
 from datetime import timedelta
 from typing import Annotated, Awaitable, Callable
 
 from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
 from giga_agent.core.module import collect_module_secrets
+from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.embedding import EmbeddingRepository
 from giga_agent.models.group import GroupRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
-from giga_agent.models.sandbox import SandboxProviderRepository
+from giga_agent.models.rag import RagCollectionsRepository
+from giga_agent.models.sandbox import (
+    SandboxProviderRepository,
+    SandboxProviderSnapshot,
+    SandboxRepository,
+    SandboxSnapshot,
+)
 from giga_agent.models.search_engine import SearchEngineRepository
 from giga_agent.models.resource_permission import (
     PermissionGrantItem,
+    ResourcePermission,
     ResourcePermissionRepository,
 )
 from giga_agent.modules.auth import security
@@ -35,6 +44,8 @@ from giga_agent.models.users import (
     UserUpdate,
     AdminUserUpdate,
 )
+from giga_agent.models.file import FileRepository, FileStorageRef
+from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
 
 router = APIRouter(tags=["auth"])
 
@@ -348,6 +359,105 @@ async def _validate_llm_secret_references(
             llm_id,
             field_name=f"secrets.{secret_name}",
         )
+
+
+async def _delete_user_related_resources(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    file_refs: list[FileStorageRef],
+):
+    _ = file_refs
+    await FileRepository(db).delete_by_owner(user_id)
+
+    rag_repo = RagCollectionsRepository(db)
+    for collection in await rag_repo.list_by_owner(user_id):
+        await rag_repo.delete(owner_id=user_id, collection_id=collection.id)
+
+    sandbox_repo = SandboxRepository(db)
+    for sandbox in await sandbox_repo.get_by_owner(user_id):
+        await sandbox_repo.delete(sandbox)
+
+    provider_repo = SandboxProviderRepository(db)
+    for provider in await provider_repo.get_by_owner(user_id):
+        await provider_repo.delete(provider)
+
+    search_repo = SearchEngineRepository(db)
+    for engine in await search_repo.get_by_owner(user_id):
+        await search_repo.delete(engine)
+
+    image_repo = ImageGeneratorRepository(db)
+    for generator in await image_repo.get_by_owner(user_id):
+        await image_repo.delete(generator)
+
+    llm_repo = LLMRepository(db)
+    for llm in await llm_repo.get_by_owner(user_id):
+        await llm_repo.delete(llm)
+
+    embedding_repo = EmbeddingRepository(db)
+    for embedding in await embedding_repo.get_by_owner(user_id):
+        await embedding_repo.delete(embedding)
+
+    connector_repo = ConnectorRepository(db)
+    for connector in await connector_repo.get_by_owner(user_id):
+        await connector_repo.delete(connector)
+
+    group_repo = GroupRepository(db)
+    for group in await group_repo.list_all():
+        if group.owner_id == user_id:
+            await group_repo.delete(group)
+
+    await db.execute(
+        delete(ResourcePermission)
+        .where(ResourcePermission.owner_type == "user")
+        .where(ResourcePermission.owner_id == str(user_id))
+    )
+    await db.commit()
+    await UserRepository.invalidate_cache(user_id)
+    return
+
+
+async def _build_user_storage_cleanup_batches(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+):
+    file_refs = await FileRepository(db).list_storage_refs_by_owner(user_id)
+    refs_by_provider: dict[uuid.UUID, list[FileStorageRef]] = defaultdict(list)
+    for ref in file_refs:
+        refs_by_provider[ref.provider_id].append(ref)
+
+    provider_repo = SandboxProviderRepository(db)
+    sandbox_repo = SandboxRepository(db)
+    batches: list[
+        tuple[list[FileStorageRef], SandboxProviderSnapshot, dict[str, SandboxSnapshot]]
+    ] = []
+
+    for provider_id, provider_refs in refs_by_provider.items():
+        provider = await provider_repo.get_by_id(provider_id)
+        if provider is None:
+            continue
+
+        provider_snapshot = SandboxProviderSnapshot(
+            id=provider.id,
+            owner_id=provider.owner_id,
+            type=provider.type,
+            name=provider.name,
+            settings=provider.settings or {},
+            idle_timeout=provider.idle_timeout,
+            is_active=provider.is_active,
+            updated_at=provider.updated_at,
+        )
+        sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
+        for owner_id in {item.owner_id for item in provider_refs}:
+            sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider_id)
+            if sandbox is None:
+                continue
+            pair = SandboxRepository.to_pair_snapshot(provider, sandbox)
+            sandbox_snapshots_by_owner[str(owner_id)] = pair.sandbox
+
+        batches.append((provider_refs, provider_snapshot, sandbox_snapshots_by_owner))
+
+    return file_refs, batches
 
 
 # ============ Endpoints ============
@@ -680,6 +790,7 @@ async def patch_user_by_id(
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     db: Annotated[AsyncSession, Depends(get_session)],
@@ -693,5 +804,18 @@ async def delete_user(
         )
 
     db_user = await _get_user_model_by_id(db, user_id)
+    file_refs, cleanup_batches = await _build_user_storage_cleanup_batches(db, user_id)
+    await _delete_user_related_resources(
+        db,
+        user_id,
+        file_refs=file_refs,
+    )
 
     await user_repo.delete(db_user)
+    for refs, provider_snapshot, sandbox_snapshots_by_owner in cleanup_batches:
+        background_tasks.add_task(
+            cleanup_storage_files_best_effort,
+            refs,
+            provider_snapshot=provider_snapshot,
+            sandbox_snapshots_by_owner=sandbox_snapshots_by_owner,
+        )

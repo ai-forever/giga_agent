@@ -1,3 +1,4 @@
+import os
 import types
 import unittest
 from contextlib import asynccontextmanager
@@ -8,20 +9,28 @@ from giga_agent.core.agent.base import BaseAgent
 
 
 class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
+    def _build_agent(self) -> BaseAgent:
+        with patch.dict(
+            os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
+        ):
+            return BaseAgent(modules=[], tools=[])
+
     async def test_lifespan_runs_migrations_before_startup_hooks(self):
-        agent = BaseAgent(modules=[], tools=[])
+        agent = self._build_agent()
         call_order: list[str] = []
 
-        async def _run_migrations():
+        async def _run_migrations(*_args, **_kwargs):
             call_order.append("migrations")
 
-        async def _run_hooks():
+        async def _run_hooks(*_args, **_kwargs):
             call_order.append("hooks")
 
         with patch.object(
-            agent, "run_startup_migrations", AsyncMock(side_effect=_run_migrations)
+            BaseAgent,
+            "run_startup_migrations",
+            AsyncMock(side_effect=_run_migrations),
         ) as run_migrations, patch.object(
-            agent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
+            BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
         ) as run_hooks:
             async with agent.app.router.lifespan_context(agent.app):
                 pass
@@ -31,11 +40,13 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_order, ["migrations", "hooks"])
 
     async def test_lifespan_fails_fast_when_migrations_fail(self):
-        agent = BaseAgent(modules=[], tools=[])
+        agent = self._build_agent()
 
         with patch.object(
-            agent, "run_startup_migrations", AsyncMock(side_effect=RuntimeError("boom"))
-        ), patch.object(agent, "run_startup_hooks", AsyncMock()) as run_hooks:
+            BaseAgent,
+            "run_startup_migrations",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ), patch.object(BaseAgent, "run_startup_hooks", AsyncMock()) as run_hooks:
             with self.assertRaises(RuntimeError):
                 async with agent.app.router.lifespan_context(agent.app):
                     pass
@@ -43,9 +54,10 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
         run_hooks.assert_not_awaited()
 
     async def test_run_startup_migrations_respects_skip_flag(self):
-        agent = BaseAgent(modules=[], tools=[])
+        agent = self._build_agent()
         settings = types.SimpleNamespace(
             giga_agent_skip_startup_migrations=True,
+            giga_agent_runtime="local",
             giga_agent_startup_migrations_lock_key="startup:migrations:lock",
             giga_agent_startup_migrations_lock_ttl_sec=1800,
         )
@@ -61,9 +73,10 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
         to_thread.assert_not_awaited()
 
     async def test_run_startup_migrations_uses_lock_and_to_thread(self):
-        agent = BaseAgent(modules=[], tools=[])
+        agent = self._build_agent()
         settings = types.SimpleNamespace(
             giga_agent_skip_startup_migrations=False,
+            giga_agent_runtime="local",
             giga_agent_startup_migrations_lock_key="startup:migrations:lock",
             giga_agent_startup_migrations_lock_ttl_sec=1800,
         )

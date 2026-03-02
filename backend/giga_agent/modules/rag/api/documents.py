@@ -125,6 +125,8 @@ async def documents_create(
                 collection_id=collection_id,
                 document_id=file_uuid,
                 original_name=(metadata or {}).get("name") or file.filename or "document",
+                file_id=sandbox_file.id,
+                sandbox_provider_id=sandbox_file.provider_id,
                 sandbox_path=sandbox_file.sandbox_path,
             )
 
@@ -228,10 +230,13 @@ async def documents_list(
             collection_id=str(d.collection_id),
             content=None,
             metadata={
-                "file_id": str(d.id),
+                "file_id": str(d.file_id) if d.file_id else None,
                 "name": d.original_name,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
                 "sandbox_path": d.sandbox_path,
+                "sandbox_provider_id": (
+                    str(d.sandbox_provider_id) if d.sandbox_provider_id else None
+                ),
             },
             created_at=d.created_at.isoformat() if d.created_at else None,
             updated_at=d.updated_at.isoformat() if d.updated_at else None,
@@ -296,10 +301,11 @@ async def documents_delete(
     )
 
     # Best-effort delete file from sandbox storage (S3) + remove core_files metadata.
-    await SandboxManager(db).delete_file_by_path_for_user(
-        user_id=collection.owner_id,
-        sandbox_path=doc.sandbox_path,
-    )
+    if doc.sandbox_path:
+        await SandboxManager(db).delete_file_by_path_for_user(
+            user_id=collection.owner_id,
+            sandbox_path=doc.sandbox_path,
+        )
 
     ok = await RagDocumentsRepository(db).delete(
         owner_id=collection.owner_id,

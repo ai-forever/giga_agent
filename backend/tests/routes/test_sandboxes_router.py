@@ -260,6 +260,15 @@ class SandboxesRouterTests(unittest.TestCase):
             "giga_agent.routes.sandboxes.get_provider_with_write_check",
             AsyncMock(return_value=provider),
         ), patch(
+            "giga_agent.routes.sandboxes.FileRepository.list_storage_refs_by_provider",
+            AsyncMock(return_value=[]),
+        ), patch(
+            "giga_agent.routes.sandboxes.FileRepository.delete_by_provider",
+            AsyncMock(return_value=0),
+        ), patch(
+            "giga_agent.routes.sandboxes.RagDocumentsRepository.detach_by_sandbox_provider",
+            AsyncMock(return_value=0),
+        ), patch(
             "giga_agent.routes.sandboxes.SandboxProviderRepository.delete",
             AsyncMock(return_value=None),
         ), patch(
@@ -268,13 +277,20 @@ class SandboxesRouterTests(unittest.TestCase):
         ) as mocked_invalidate_cache, patch(
             "giga_agent.routes.sandboxes.cache.delete_match",
             AsyncMock(return_value=None),
-        ):
+        ), patch(
+            "giga_agent.routes.sandboxes.cleanup_storage_files_best_effort",
+            AsyncMock(return_value=None),
+        ) as mocked_cleanup:
             response = self.client.delete(f"/sandboxes/providers/{provider.id}")
 
         self.assertEqual(response.status_code, 204)
         self.assertIsNone(user_model.sandbox_provider_id)
         self.db.commit.assert_awaited()
         mocked_invalidate_cache.assert_awaited_once_with(self.user.id)
+        mocked_cleanup.assert_awaited_once()
+        cleanup_kwargs = mocked_cleanup.await_args.kwargs
+        self.assertIn("provider_snapshot", cleanup_kwargs)
+        self.assertIn("sandbox_snapshots_by_owner", cleanup_kwargs)
 
     def test_get_provider_sandboxes_returns_rows_with_owner_email_and_can_stop(self):
         provider = self._provider_obj()

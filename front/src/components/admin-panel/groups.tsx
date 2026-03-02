@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +31,7 @@ const initialFormState: GroupFormState = {
 };
 
 const AdminGroupsTab: React.FC = () => {
+  const confirm = useConfirm();
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [allUsers, setAllUsers] = useState<AdminUser[]>([]);
   const [membersByGroupId, setMembersByGroupId] = useState<
@@ -131,6 +133,17 @@ const AdminGroupsTab: React.FC = () => {
   };
 
   const handleDeleteGroup = async (groupId: string) => {
+    const group = groups.find((item) => item.id === groupId);
+    const groupLabel = group?.name ? `группу ${group.name}` : "эту группу";
+    const confirmed = await confirm({
+      title: "Удалить группу?",
+      description: `Вы уверены, что хотите удалить ${groupLabel}?`,
+      confirmText: "Удалить",
+      cancelText: "Отмена",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+
     setDeletingGroupId(groupId);
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/groups/${groupId}`);

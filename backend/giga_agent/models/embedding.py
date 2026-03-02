@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from cashews import cache
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError
 from sqlalchemy import String, DateTime, Uuid, ForeignKey, Integer, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,6 +87,12 @@ class EmbeddingBase(BaseModel):
 class EmbeddingCreate(EmbeddingBase):
     check_connection: bool = True
     permissions: ResourcePermissionsPayload | None = None
+
+
+class EmbeddingPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
 
 
 class EmbeddingResponse(EmbeddingBase):
@@ -339,7 +345,7 @@ class EmbeddingRepository(ACLResourceRepositoryMixin[Embedding]):
         **kwargs: Any,
     ) -> Embedding:
         for key, value in kwargs.items():
-            if hasattr(embedding, key) and value is not None:
+            if hasattr(embedding, key):
                 setattr(embedding, key, value)
         await self.db.commit()
         await self.db.refresh(embedding)
