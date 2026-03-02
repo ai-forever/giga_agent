@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 from functools import cached_property
 from typing import Any, ClassVar, Type
 
@@ -96,6 +97,14 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
     @abc.abstractmethod
     def _embeddings(self) -> Embeddings:
         raise NotImplementedError
+
+    async def check_connection(self) -> bool:
+        embeddings = self.embeddings
+        if hasattr(embeddings, "aembed_query"):
+            await embeddings.aembed_query("ping")
+        else:
+            await asyncio.to_thread(embeddings.embed_query, "ping")
+        return True
 
     @classmethod
     async def fetch_available_models(

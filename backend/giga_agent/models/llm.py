@@ -81,6 +81,7 @@ class LLMBase(BaseModel):
 
 
 class LLMCreate(LLMBase):
+    check_connection: bool = True
     permissions: ResourcePermissionsPayload | None = None
 
 
@@ -92,6 +93,7 @@ class LLMUpdate(BaseModel):
     parallel_calls: Optional[int] = None
     settings: Optional[LLMSettings] = None
     is_active: Optional[bool] = None
+    check_connection: bool = True
 
 
 class LLMResponse(LLMBase):

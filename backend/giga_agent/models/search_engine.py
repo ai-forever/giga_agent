@@ -62,6 +62,7 @@ class SearchEngineBase(BaseModel):
 
 
 class SearchEngineCreate(SearchEngineBase):
+    check_connection: bool = True
     permissions: ResourcePermissionsPayload | None = None
 
 

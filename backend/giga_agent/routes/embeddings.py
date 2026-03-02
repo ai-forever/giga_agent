@@ -119,6 +119,39 @@ async def _validate_settings(
         )
 
 
+async def _check_connection_or_http_error(
+    *,
+    runtime_cls: type,
+    connector: Connector,
+    model_id: str,
+    embedding_settings: dict[str, Any],
+) -> None:
+    try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            connector.type,
+            connector.settings or {},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Некорректные настройки коннектора для эмбеддингов",
+        ) from e
+
+    try:
+        runtime = runtime_cls(
+            connector=connector_runtime,
+            model_id=model_id,
+            vector_size=1,
+            **embedding_settings,
+        )
+        await runtime.check_connection()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Embedding connection check failed: {e}",
+        ) from e
+
+
 async def _probe_embedding_vector_size(
     *,
     embedding_type: str,
@@ -318,6 +351,13 @@ async def create_embedding(
         data.type,
         data.settings or {},
     )
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            connector=connector,
+            model_id=data.model_id,
+            embedding_settings=validated_settings,
+        )
 
     vector_size = await _probe_embedding_vector_size(
         embedding_type=data.type,

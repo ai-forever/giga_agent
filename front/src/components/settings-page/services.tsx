@@ -280,6 +280,7 @@ interface ConnectorEditorProps {
   settingsValues: Record<string, unknown>;
   settingsSchema: JsonSchema | null;
   isActive: boolean;
+  checkConnection: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
   saving: boolean;
@@ -288,6 +289,7 @@ interface ConnectorEditorProps {
   onConnectorNameChange: (name: string) => void;
   onSettingsChange: (settings: Record<string, unknown>) => void;
   onActiveChange: (active: boolean) => void;
+  onCheckConnectionChange: (enabled: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
   permissionsSection?: React.ReactNode;
@@ -301,6 +303,7 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
   settingsValues,
   settingsSchema,
   isActive,
+  checkConnection,
   loadingTypes,
   loadingSchema,
   saving,
@@ -309,6 +312,7 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
   onConnectorNameChange,
   onSettingsChange,
   onActiveChange,
+  onCheckConnectionChange,
   onSubmit,
   onCancel,
   permissionsSection,
@@ -409,6 +413,18 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <Label htmlFor="connector-check-connection">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="connector-check-connection"
+          checked={checkConnection}
+          onCheckedChange={onCheckConnectionChange}
+          disabled={saving}
+        />
+      </div>
+
       {permissionsSection}
 
       <div className="flex gap-2 pt-2">
@@ -450,6 +466,7 @@ export const ServicesSettings: React.FC = () => {
   );
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [isActive, setIsActive] = useState(true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
@@ -544,6 +561,7 @@ export const ServicesSettings: React.FC = () => {
     setSettingsValues({});
     setSettingsSchema(null);
     setIsActive(true);
+    setCheckConnection(true);
     setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
     setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
     setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
@@ -566,6 +584,7 @@ export const ServicesSettings: React.FC = () => {
     setConnectorName(connector.name || "");
     setSettingsValues((connector.settings || {}) as Record<string, unknown>);
     setIsActive(connector.is_active);
+    setCheckConnection(true);
 
     if (!canManagePermissions) {
       return;
@@ -649,6 +668,7 @@ export const ServicesSettings: React.FC = () => {
           name: trimmedName || null,
           settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
 
         if (isResourceChanged) {
@@ -672,6 +692,7 @@ export const ServicesSettings: React.FC = () => {
           type: selectedType,
           settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
 
         if (trimmedName) {
@@ -751,6 +772,7 @@ export const ServicesSettings: React.FC = () => {
             settingsValues={settingsValues}
             settingsSchema={settingsSchema}
             isActive={isActive}
+            checkConnection={checkConnection}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             saving={saving}
@@ -764,6 +786,7 @@ export const ServicesSettings: React.FC = () => {
             onConnectorNameChange={setConnectorName}
             onSettingsChange={setSettingsValues}
             onActiveChange={setIsActive}
+            onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
             permissionsSection={
@@ -810,6 +833,7 @@ export const ServicesSettings: React.FC = () => {
                 settingsValues={settingsValues}
                 settingsSchema={settingsSchema}
                 isActive={isActive}
+                checkConnection={checkConnection}
                 loadingTypes={loadingTypes}
                 loadingSchema={loadingSchema}
                 saving={saving}
@@ -820,6 +844,7 @@ export const ServicesSettings: React.FC = () => {
                 onConnectorNameChange={setConnectorName}
                 onSettingsChange={setSettingsValues}
                 onActiveChange={setIsActive}
+                onCheckConnectionChange={setCheckConnection}
                 onSubmit={handleSave}
                 onCancel={handleCancelEdit}
                 permissionsSection={

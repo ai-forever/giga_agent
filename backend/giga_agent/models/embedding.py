@@ -85,6 +85,7 @@ class EmbeddingBase(BaseModel):
 
 
 class EmbeddingCreate(EmbeddingBase):
+    check_connection: bool = True
     permissions: ResourcePermissionsPayload | None = None
 
 

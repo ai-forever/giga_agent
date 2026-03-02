@@ -145,6 +145,32 @@ def _validate_llm_connector_compatibility(
         )
 
 
+async def _check_connection_or_http_error(
+    *,
+    runtime_cls: type,
+    connector_type: str,
+    connector_settings: dict[str, Any],
+    model_id: str,
+    settings: dict[str, Any],
+) -> None:
+    try:
+        connector_runtime = await ConnectorRegistry.get_runtime(
+            connector_type,
+            connector_settings,
+        )
+        runtime = runtime_cls(
+            connector=connector_runtime,
+            model_id=model_id,
+            **settings,
+        )
+        await runtime.check_connection()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"LLM connection check failed: {e}",
+        ) from e
+
+
 @router.get("/types", response_model=list[str])
 async def get_llm_types(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
@@ -207,26 +233,24 @@ async def create_llm(
 
     raw_settings = data.settings.model_dump(exclude_none=True)
     try:
-        connector_runtime = await ConnectorRegistry.get_runtime(
-            connector.type,
-            connector.settings or {},
-        )
         validated_settings = await runtime_cls.validate_settings(raw_settings)
-        runtime = runtime_cls(
-            connector=connector_runtime,
-            model_id=data.model_id,
-            **validated_settings,
-        )
-        await runtime.check_connection()
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=e.errors(),
         )
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"LLM connection check failed: {e}",
+            detail=str(e),
+        ) from e
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            connector_type=connector.type,
+            connector_settings=connector.settings or {},
+            model_id=data.model_id,
+            settings=validated_settings,
         )
 
     llm = await llm_repo.create(
@@ -384,6 +408,11 @@ async def patch_llm(
         if "connector_id" in data.model_fields_set and data.connector_id is not None
         else llm.connector_id
     )
+    effective_model_id = (
+        data.model_id
+        if "model_id" in data.model_fields_set and data.model_id is not None
+        else llm.model_id
+    )
 
     runtime_cls = _resolve_llm_runtime(
         effective_type,
@@ -413,6 +442,7 @@ async def patch_llm(
     )
 
     update_data: dict[str, Any] = {}
+    effective_settings = llm.settings or {}
 
     if "type" in data.model_fields_set:
         if data.type is None:
@@ -448,7 +478,29 @@ async def patch_llm(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="settings must be an object when provided",
             )
-        update_data["settings"] = data.settings.model_dump(exclude_none=True)
+        raw_settings = data.settings.model_dump(exclude_none=True)
+        try:
+            effective_settings = await runtime_cls.validate_settings(raw_settings)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=e.errors(),
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            ) from e
+        update_data["settings"] = effective_settings
+
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            connector_type=connector.type,
+            connector_settings=connector.settings or {},
+            model_id=effective_model_id,
+            settings=effective_settings,
+        )
 
     if update_data:
         llm = await llm_repo.update(llm, **update_data)

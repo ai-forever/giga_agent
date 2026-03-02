@@ -3,7 +3,7 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
@@ -100,6 +100,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
             "giga_agent.routes.embeddings._validate_settings",
             AsyncMock(return_value={}),
         ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ), patch(
             "giga_agent.routes.embeddings._probe_embedding_vector_size",
             AsyncMock(return_value=1536),
         ), patch(
@@ -127,6 +130,90 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["type"], "openai")
         self.assertEqual(response.json()["connector_id"], str(connector.id))
 
+    def test_create_embedding_skips_connection_check_when_disabled(self):
+        connector = self._connector_obj()
+        created = self._embedding_obj(connector_id=connector.id)
+        user_model = types.SimpleNamespace(embedding_id=created.id)
+
+        with patch(
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._validate_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ) as mocked_check, patch(
+            "giga_agent.routes.embeddings._probe_embedding_vector_size",
+            AsyncMock(return_value=1536),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.to_response",
+            return_value=self._embedding_payload(created),
+        ), patch(
+            "giga_agent.routes.embeddings.get_user_model",
+            AsyncMock(return_value=user_model),
+        ):
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                    "check_connection": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_check.assert_not_awaited()
+
+    def test_create_embedding_returns_422_when_connection_check_fails(self):
+        connector = self._connector_obj()
+
+        with patch(
+            "giga_agent.routes.embeddings._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.embeddings.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.embeddings._validate_embedding_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.embeddings._validate_settings",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
+        ), patch(
+            "giga_agent.routes.embeddings.EmbeddingRepository.create",
+            AsyncMock(),
+        ) as mocked_create:
+            response = self.client.post(
+                "/embeddings",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "text-embedding-3-small",
+                    "settings": {},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+        mocked_create.assert_not_awaited()
+
     def test_create_embedding_allows_read_access_to_foreign_connector(self):
         connector = self._connector_obj()
         connector.owner_id = uuid.uuid4()
@@ -149,6 +236,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings._validate_settings",
             AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(return_value=None),
         ), patch(
             "giga_agent.routes.embeddings._probe_embedding_vector_size",
             AsyncMock(return_value=1536),
@@ -193,6 +283,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings._validate_settings",
             AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(return_value=None),
         ), patch(
             "giga_agent.routes.embeddings._probe_embedding_vector_size",
             AsyncMock(return_value=1536),
@@ -271,6 +364,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
             "giga_agent.routes.embeddings._validate_settings",
             AsyncMock(return_value={}),
         ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ), patch(
             "giga_agent.routes.embeddings._probe_embedding_vector_size",
             AsyncMock(return_value=1536),
         ), patch(
@@ -330,6 +426,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
         ), patch(
             "giga_agent.routes.embeddings._validate_settings",
             AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.routes.embeddings._check_connection_or_http_error",
+            AsyncMock(return_value=None),
         ), patch(
             "giga_agent.routes.embeddings._probe_embedding_vector_size",
             AsyncMock(return_value=1536),

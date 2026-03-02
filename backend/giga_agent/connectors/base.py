@@ -39,3 +39,6 @@ class BaseConnector(BaseModel, abc.ABC):
     def get_api_object(self) -> Any:
         """Build provider API object from self settings."""
         raise NotImplementedError
+
+    async def check_connection(self) -> bool:
+        return True

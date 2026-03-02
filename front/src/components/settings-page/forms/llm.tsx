@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -47,6 +48,7 @@ export interface LLMFormSubmitData {
   llm_name?: string;
   llm_settings: LLMSettings;
   is_active: boolean;
+  check_connection: boolean;
 }
 
 export const LLMForm: React.FC<LLMFormProps> = ({
@@ -70,6 +72,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const [modelId, setModelId] = useState(llm?.model_id || "");
   const [llmName, setLlmName] = useState(llm?.name || "");
   const [isActive, setIsActive] = useState(llm?.is_active ?? true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [temperature, setTemperature] = useState<number>(
@@ -286,6 +289,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         temperature,
       },
       is_active: isActive,
+      check_connection: checkConnection,
     };
 
     onSave(data);
@@ -413,6 +417,18 @@ export const LLMForm: React.FC<LLMFormProps> = ({
           placeholder="Мой GPT-4"
           value={llmName}
           onChange={(e) => setLlmName(e.target.value)}
+          disabled={saving}
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-md border border-border p-3">
+        <Label htmlFor="llm-check-connection" className="cursor-pointer">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="llm-check-connection"
+          checked={checkConnection}
+          onCheckedChange={setCheckConnection}
           disabled={saving}
         />
       </div>

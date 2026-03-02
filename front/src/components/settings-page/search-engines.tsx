@@ -292,6 +292,7 @@ interface SearchEngineFormProps {
   supportsConnectors: boolean;
   requiresConnector: boolean;
   isActive: boolean;
+  checkConnection: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
   loadingConnectors: boolean;
@@ -302,6 +303,7 @@ interface SearchEngineFormProps {
   onSettingsChange: (values: Record<string, unknown>) => void;
   onConnectorChange: (connectorId: string) => void;
   onActiveChange: (value: boolean) => void;
+  onCheckConnectionChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
   permissionsSection?: React.ReactNode;
@@ -319,6 +321,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   supportsConnectors,
   requiresConnector,
   isActive,
+  checkConnection,
   loadingTypes,
   loadingSchema,
   loadingConnectors,
@@ -329,6 +332,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   onSettingsChange,
   onConnectorChange,
   onActiveChange,
+  onCheckConnectionChange,
   onSubmit,
   onCancel,
   permissionsSection,
@@ -464,6 +468,18 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <Label htmlFor="search-engine-check-connection">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="search-engine-check-connection"
+          checked={checkConnection}
+          onCheckedChange={onCheckConnectionChange}
+          disabled={saving}
+        />
+      </div>
+
       {permissionsSection}
 
       <div className="flex gap-2 pt-2">
@@ -505,6 +521,7 @@ export const SearchEnginesSettings: React.FC = () => {
   );
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
@@ -649,6 +666,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setSettingsValues({});
     setSelectedConnectorId("");
     setIsActive(true);
+    setCheckConnection(true);
     setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
     setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
     setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
@@ -672,6 +690,7 @@ export const SearchEnginesSettings: React.FC = () => {
     setSettingsValues(engine.settings || {});
     setSelectedConnectorId(engine.connector_id || "");
     setIsActive(engine.is_active);
+    setCheckConnection(true);
 
     if (!canManagePermissions) {
       return;
@@ -760,6 +779,7 @@ export const SearchEnginesSettings: React.FC = () => {
           name: trimmedName || null,
           settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
         if (supportsConnectors) {
           payload.connector_id = selectedConnectorId || null;
@@ -784,6 +804,7 @@ export const SearchEnginesSettings: React.FC = () => {
           type: selectedType,
           settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
         if (trimmedName) {
           payload.name = trimmedName;
@@ -870,6 +891,7 @@ export const SearchEnginesSettings: React.FC = () => {
             supportsConnectors={supportsConnectors}
             requiresConnector={requiresConnector}
             isActive={isActive}
+            checkConnection={checkConnection}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             loadingConnectors={loadingConnectors}
@@ -884,6 +906,7 @@ export const SearchEnginesSettings: React.FC = () => {
             onSettingsChange={setSettingsValues}
             onConnectorChange={setSelectedConnectorId}
             onActiveChange={setIsActive}
+            onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
             permissionsSection={
@@ -939,6 +962,7 @@ export const SearchEnginesSettings: React.FC = () => {
                   supportsConnectors={supportsConnectors}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
+                  checkConnection={checkConnection}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
                   loadingConnectors={loadingConnectors}
@@ -951,6 +975,7 @@ export const SearchEnginesSettings: React.FC = () => {
                   onSettingsChange={setSettingsValues}
                   onConnectorChange={setSelectedConnectorId}
                   onActiveChange={setIsActive}
+                  onCheckConnectionChange={setCheckConnection}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
                   permissionsSection={

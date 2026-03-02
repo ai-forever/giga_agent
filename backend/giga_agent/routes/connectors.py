@@ -108,6 +108,21 @@ async def _validate_settings(
         )
 
 
+async def _check_connection_or_http_error(
+    *,
+    runtime_cls: type,
+    settings: dict[str, Any],
+) -> None:
+    try:
+        runtime = runtime_cls(**settings)
+        await runtime.check_connection()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Connector connection check failed: {e}",
+        ) from e
+
+
 async def _get_connector_with_write_check(
     *,
     connector_id: uuid.UUID,
@@ -253,8 +268,13 @@ async def create_connector(
     if data.permissions is not None:
         require_superuser(current_user)
 
-    _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            settings=validated_settings,
+        )
 
     connector = await connector_repo.create(
         owner_id=current_user.id,
@@ -344,9 +364,19 @@ async def patch_connector(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="settings must be an object when provided",
             )
-        update_data["settings"] = await _validate_settings(
+        validated_settings = await _validate_settings(
             effective_type, data.settings
         )
+        if data.check_connection:
+            runtime_cls = _resolve_runtime_cls(
+                effective_type,
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+            await _check_connection_or_http_error(
+                runtime_cls=runtime_cls,
+                settings=validated_settings,
+            )
+        update_data["settings"] = validated_settings
     elif "type" in data.model_fields_set:
         # If type changed and settings were not passed, revalidate existing settings with new runtime.
         update_data["settings"] = await _validate_settings(

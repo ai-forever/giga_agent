@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from langchain_openai import ChatOpenAI
+from openai import AsyncOpenAI
 from pydantic import Field
 
 from giga_agent.connectors.base import BaseConnector
@@ -59,3 +60,12 @@ class OpenAIConnector(BaseConnector):
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'openai'")
         return ChatOpenAI(model="gpt-4o-mini", **kwargs)
+
+    async def check_connection(self) -> bool:
+        kwargs = self.get_connection_kwargs()
+        if kwargs is None:
+            raise ValueError("Invalid connection settings for connector type 'openai'")
+
+        client = AsyncOpenAI(**kwargs, timeout=30.0)
+        await client.models.list()
+        return True

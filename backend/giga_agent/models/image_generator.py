@@ -62,6 +62,7 @@ class ImageGeneratorBase(BaseModel):
 
 
 class ImageGeneratorCreate(ImageGeneratorBase):
+    check_connection: bool = True
     permissions: ResourcePermissionsPayload | None = None
 
 

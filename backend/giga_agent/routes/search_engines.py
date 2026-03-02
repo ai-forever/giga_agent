@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.db import get_session
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.search_engine import (
@@ -43,6 +44,7 @@ class SearchEnginePatchRequest(BaseModel):
     settings: dict[str, Any] | None = None
     connector_id: uuid.UUID | None = None
     is_active: bool | None = None
+    check_connection: bool = True
 
 
 class SearchEngineTypeMeta(BaseModel):
@@ -131,6 +133,42 @@ async def _get_engine_with_write_check(
     )
 
 
+async def _check_connection_or_http_error(
+    *,
+    runtime_cls: type,
+    settings: dict[str, Any],
+    connector_id: uuid.UUID | None,
+    connector_repo: ConnectorRepository,
+) -> None:
+    connector_runtime = None
+    if connector_id is not None:
+        connector = await connector_repo.get_by_id(connector_id)
+        if connector is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Connector not found",
+            )
+        try:
+            connector_runtime = await ConnectorRegistry.get_runtime(
+                connector.type,
+                connector.settings or {},
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Search engine connection check failed: {e}",
+            ) from e
+
+    try:
+        runtime = runtime_cls(**settings, connector=connector_runtime)
+        await runtime.check_connection()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Search engine connection check failed: {e}",
+        ) from e
+
+
 @router.get("/types", response_model=list[str])
 async def get_engine_types(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
@@ -185,6 +223,13 @@ async def create_search_engine(
         connector_repo=connector_repo,
         require_owner=True,
     )
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            settings=validated_settings,
+            connector_id=validated_connector_id,
+            connector_repo=connector_repo,
+        )
 
     engine = await engine_repo.create(
         owner_id=current_user.id,
@@ -256,6 +301,7 @@ async def patch_search_engine(
 
     runtime_cls = _resolve_runtime_cls(engine.type, status_code=status.HTTP_400_BAD_REQUEST)
     update_data: dict[str, Any] = {}
+    effective_settings = engine.settings or {}
 
     if "name" in data.model_fields_set:
         update_data["name"] = data.name
@@ -266,7 +312,8 @@ async def patch_search_engine(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="settings must be an object when provided",
             )
-        update_data["settings"] = await _validate_settings(engine.type, data.settings)
+        effective_settings = await _validate_settings(engine.type, data.settings)
+        update_data["settings"] = effective_settings
 
     effective_connector_id = (
         data.connector_id
@@ -282,6 +329,14 @@ async def patch_search_engine(
     )
     if "connector_id" in data.model_fields_set:
         update_data["connector_id"] = validated_connector_id
+
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            settings=effective_settings,
+            connector_id=validated_connector_id,
+            connector_repo=connector_repo,
+        )
 
     is_deactivating_current = False
     if "is_active" in data.model_fields_set:

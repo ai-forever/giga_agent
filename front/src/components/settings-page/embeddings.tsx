@@ -208,6 +208,7 @@ export const EmbeddingsSettings: React.FC = () => {
         model_id: nextModelId,
         settings: nextSettings,
         is_active: nextIsActive,
+        check_connection: data.check_connection,
       };
       if (data.embedding_name) {
         payload.name = data.embedding_name;

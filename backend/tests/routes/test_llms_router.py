@@ -373,6 +373,59 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertIn("LLM connection check failed", response.json()["detail"])
         mocked_create.assert_not_awaited()
 
+    def test_create_llm_skips_connection_check_when_disabled(self):
+        connector = self._connector_obj()
+        created = self._llm_obj(connector_id=connector.id)
+
+        class _RuntimeStub:
+            @classmethod
+            async def validate_settings(cls, settings: dict) -> dict:
+                return settings
+
+            @classmethod
+            def supported_connector_types(cls):
+                return []
+
+        with patch(
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.llms._validate_llm_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.llms._resolve_llm_runtime",
+            return_value=_RuntimeStub,
+        ), patch(
+            "giga_agent.routes.llms._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ) as mocked_check, patch(
+            "giga_agent.routes.llms.LLMRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.llms.LLMRepository.to_response",
+            return_value=self._llm_payload(created),
+        ), patch(
+            "giga_agent.routes.llms.cache.delete_tags",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.post(
+                "/llms",
+                json={
+                    "type": "openai",
+                    "connector_id": str(connector.id),
+                    "model_id": "gpt-4o-mini",
+                    "settings": {},
+                    "is_active": True,
+                    "check_connection": False,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        mocked_check.assert_not_awaited()
+
     def test_models_route_not_shadowed_by_llm_id_route(self):
         connector = self._connector_obj()
         connector_runtime = types.SimpleNamespace(
@@ -598,9 +651,47 @@ class LLMsRouterTests(unittest.TestCase):
         ) as mocked_delete_tags:
             response = self.client.patch(
                 f"/llms/{llm_id}",
-                json={"connector_id": str(new_connector_id)},
+                json={"connector_id": str(new_connector_id), "check_connection": False},
             )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["connector_id"], str(new_connector_id))
         self.assertEqual(mocked_delete_tags.await_count, 2)
+
+    def test_patch_llm_returns_422_when_connection_check_fails(self):
+        llm_id = uuid.uuid4()
+        existing = self._llm_obj(llm_id=llm_id, llm_type="openai")
+        connector = self._connector_obj(connector_id=existing.connector_id)
+
+        with patch(
+            "giga_agent.routes.llms._get_llm_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.llms._validate_llm_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.llms._resolve_llm_runtime",
+            return_value=types.SimpleNamespace(
+                supported_connector_types=lambda: ["openai"],
+                validate_settings=AsyncMock(return_value={}),
+            ),
+        ), patch(
+            "giga_agent.routes.llms._check_connection_or_http_error",
+            AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
+        ), patch(
+            "giga_agent.routes.llms.LLMRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/llms/{llm_id}",
+                json={"name": "updated"},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        mocked_update.assert_not_awaited()

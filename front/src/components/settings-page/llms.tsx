@@ -181,6 +181,7 @@ export const LLMSettings: React.FC = () => {
         model_id: nextModelId,
         settings: nextSettings,
         is_active: nextIsActive,
+        check_connection: data.check_connection,
       };
       if (data.llm_name) {
         payload.name = data.llm_name;

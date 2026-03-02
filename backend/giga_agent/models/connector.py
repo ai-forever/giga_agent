@@ -51,6 +51,7 @@ class ConnectorBase(BaseModel):
 
 
 class ConnectorCreate(ConnectorBase):
+    check_connection: bool = True
     permissions: ResourcePermissionsPayload | None = None
 
 
@@ -58,6 +59,7 @@ class ConnectorUpdate(BaseModel):
     name: Optional[str] = None
     settings: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None
+    check_connection: bool = True
 
 
 class ConnectorResponse(ConnectorBase):

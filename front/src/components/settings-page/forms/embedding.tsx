@@ -212,6 +212,7 @@ export interface EmbeddingFormSubmitData {
   embedding_name?: string;
   embedding_settings: EmbeddingSettings;
   is_active: boolean;
+  check_connection: boolean;
 }
 
 export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
@@ -237,6 +238,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   const [modelId, setModelId] = useState(embedding?.model_id || "");
   const [embeddingName, setEmbeddingName] = useState(embedding?.name || "");
   const [isActive, setIsActive] = useState(embedding?.is_active ?? true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
@@ -461,6 +463,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       embedding_name: embeddingName || undefined,
       embedding_settings: embeddingSettings,
       is_active: isActive,
+      check_connection: checkConnection,
     };
 
     setSubmitting(true);
@@ -608,6 +611,21 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           id="embedding-is-active"
           checked={isActive}
           onCheckedChange={setIsActive}
+          disabled={submitting}
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-md border border-border p-3">
+        <Label
+          htmlFor="embedding-check-connection"
+          className="cursor-pointer"
+        >
+          Проверять подключение
+        </Label>
+        <Switch
+          id="embedding-check-connection"
+          checked={checkConnection}
+          onCheckedChange={setCheckConnection}
           disabled={submitting}
         />
       </div>

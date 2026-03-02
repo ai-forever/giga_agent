@@ -292,6 +292,7 @@ interface ImageGeneratorFormProps {
   filteredConnectors: ConnectorResponse[];
   requiresConnector: boolean;
   isActive: boolean;
+  checkConnection: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
   loadingConnectors: boolean;
@@ -302,6 +303,7 @@ interface ImageGeneratorFormProps {
   onSettingsChange: (values: Record<string, unknown>) => void;
   onConnectorChange: (connectorId: string) => void;
   onActiveChange: (value: boolean) => void;
+  onCheckConnectionChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
   permissionsSection?: React.ReactNode;
@@ -318,6 +320,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   filteredConnectors,
   requiresConnector,
   isActive,
+  checkConnection,
   loadingTypes,
   loadingSchema,
   loadingConnectors,
@@ -328,6 +331,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   onSettingsChange,
   onConnectorChange,
   onActiveChange,
+  onCheckConnectionChange,
   onSubmit,
   onCancel,
   permissionsSection,
@@ -457,6 +461,18 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <Label htmlFor="image-generator-check-connection">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="image-generator-check-connection"
+          checked={checkConnection}
+          onCheckedChange={onCheckConnectionChange}
+          disabled={saving}
+        />
+      </div>
+
       {permissionsSection}
 
       <div className="flex gap-2 pt-2">
@@ -502,6 +518,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
   );
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
@@ -645,6 +662,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSettingsValues({});
     setSelectedConnectorId("");
     setIsActive(true);
+    setCheckConnection(true);
     setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
     setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
     setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
@@ -668,6 +686,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSettingsValues(generator.settings || {});
     setSelectedConnectorId(generator.connector_id || "");
     setIsActive(generator.is_active);
+    setCheckConnection(true);
 
     if (!canManagePermissions) {
       return;
@@ -761,6 +780,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
           name: trimmedName || null,
           settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
 
         if (requiresConnector) {
@@ -786,6 +806,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
           type: selectedType,
           settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
 
         if (trimmedName) {
@@ -873,6 +894,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
             filteredConnectors={filteredConnectors}
             requiresConnector={requiresConnector}
             isActive={isActive}
+            checkConnection={checkConnection}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             loadingConnectors={loadingConnectors}
@@ -887,6 +909,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
             onSettingsChange={setSettingsValues}
             onConnectorChange={setSelectedConnectorId}
             onActiveChange={setIsActive}
+            onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
             permissionsSection={
@@ -941,6 +964,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   filteredConnectors={filteredConnectors}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
+                  checkConnection={checkConnection}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
                   loadingConnectors={loadingConnectors}
@@ -953,6 +977,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   onSettingsChange={setSettingsValues}
                   onConnectorChange={setSelectedConnectorId}
                   onActiveChange={setIsActive}
+                  onCheckConnectionChange={setCheckConnection}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
                   permissionsSection={

@@ -85,3 +85,12 @@ class GigaChatConnector(BaseConnector):
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'gigachat'")
         return GigaChat(model="GigaChat", **kwargs)
+
+    async def check_connection(self) -> bool:
+        kwargs = self.get_connection_kwargs()
+        if kwargs is None:
+            raise ValueError("Invalid connection settings for connector type 'gigachat'")
+
+        llm = GigaChat(**kwargs)
+        await llm.aget_models()
+        return True

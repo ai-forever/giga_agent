@@ -34,6 +34,9 @@ class TavilySearchEngine(BaseSearchEngine):
     async def validate_settings(cls, settings: dict) -> dict:
         return await super().validate_settings(settings)
 
+    async def check_connection(self) -> bool:
+        return True
+
     async def init(self) -> None:
         resolved_api_key = self._resolve_api_key()
         if not resolved_api_key:
