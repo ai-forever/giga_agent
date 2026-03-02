@@ -34,10 +34,11 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             external_id="ext-1",
         )
 
-    async def test_stop_transitional_runtime_stop_failure_sets_stopped(self):
+    async def test_stop_transitional_runtime_stop_failure_sets_stopped_if_runtime_down(self):
         sandbox = self._sandbox(status=SandboxStatus.STARTING)
         runtime = types.SimpleNamespace(
             stop=AsyncMock(side_effect=RuntimeError("daemon down")),
+            is_up=AsyncMock(return_value=False),
             get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
         )
         self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
@@ -67,6 +68,62 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             provider_id=sandbox.provider_id,
         )
 
+    async def test_stop_transitional_runtime_stop_failure_sets_error_if_runtime_still_up(self):
+        sandbox = self._sandbox(status=SandboxStatus.STARTING)
+        runtime = types.SimpleNamespace(
+            stop=AsyncMock(side_effect=RuntimeError("daemon down")),
+            is_up=AsyncMock(return_value=True),
+            get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
+        )
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+
+        with patch(
+            "giga_agent.sandbox.manager.lifecycle_service.SandboxRepository.cache_invalidate_pair",
+            AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(StorageOperationError):
+                await self.service._stop_unlocked(sandbox.id)
+
+        self.assertEqual(sandbox.status, SandboxStatus.ERROR)
+        statuses = [
+            call.args[1]
+            for call in self.service._sandbox_repo.set_status.await_args_list
+        ]
+        self.assertEqual(statuses, [SandboxStatus.STOPPING, SandboxStatus.ERROR])
+
+    async def test_stop_transitional_runtime_stop_failure_sets_error_if_probe_fails(self):
+        sandbox = self._sandbox(status=SandboxStatus.STARTING)
+        runtime = types.SimpleNamespace(
+            stop=AsyncMock(side_effect=RuntimeError("daemon down")),
+            is_up=AsyncMock(side_effect=RuntimeError("probe failed")),
+            get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
+        )
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+
+        with patch(
+            "giga_agent.sandbox.manager.lifecycle_service.SandboxRepository.cache_invalidate_pair",
+            AsyncMock(return_value=None),
+        ):
+            with self.assertRaises(StorageOperationError):
+                await self.service._stop_unlocked(sandbox.id)
+
+        self.assertEqual(sandbox.status, SandboxStatus.ERROR)
+        statuses = [
+            call.args[1]
+            for call in self.service._sandbox_repo.set_status.await_args_list
+        ]
+        self.assertEqual(statuses, [SandboxStatus.STOPPING, SandboxStatus.ERROR])
+
     async def test_stop_running_runtime_stop_failure_sets_error(self):
         sandbox = self._sandbox(status=SandboxStatus.RUNNING)
         runtime = types.SimpleNamespace(
@@ -77,7 +134,7 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             return_value=sandbox
         )
         self.service._runtime_factory = types.SimpleNamespace(
-            build=AsyncMock(return_value=runtime)
+            build=Mock(return_value=runtime)
         )
 
         with patch(

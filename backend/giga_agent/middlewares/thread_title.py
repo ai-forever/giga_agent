@@ -174,11 +174,10 @@ class ThreadTitleMiddleware(AgentMiddleware):
             llm = llm_runtime.llm
 
         title = await _generate_title(llm, first_message)
-        new_metadata = dict(metadata)
-        new_metadata["thread_title"] = title
+        metadata = {"thread_title": title}
         try:
             client = get_client()
-            await client.threads.update(thread_id, metadata=new_metadata)
+            await client.threads.update(thread_id, metadata=metadata)
         except Exception:
             return None
 

@@ -73,6 +73,8 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
     ) -> AsyncGenerator[Dict[str, Any], str]:
         if kernel_id is None:
             self._kernel_id = str(uuid.uuid4())
+        else:
+            self._kernel_id = kernel_id
         await self._ensure_kernel()
 
         # Connect to websocket

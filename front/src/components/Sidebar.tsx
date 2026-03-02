@@ -54,11 +54,10 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface SidebarProps {
-  children: React.ReactNode;
   onNewChat: () => void;
 }
 
-const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
+const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { settings, setSettings } = useSettings();
@@ -826,18 +825,6 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
           }}
         />
       </button>
-
-      {/* Main content */}
-      <div
-        className={[
-          "flex h-screen w-full mx-auto transition-[margin] duration-300 ease-in-out",
-          "max-[900px]:max-h-[calc(100vh-75px)]",
-          settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "min-[900px]:ml-0",
-          "print:!ml-0",
-        ].join(" ")}
-      >
-        {children}
-      </div>
     </>
   );
 };

@@ -481,7 +481,7 @@ async def python(
         async for _ in sandbox_runtime.run_code(secrets_code, kernel_id=kernel_id):
             pass
 
-    kernel_id = sandbox_runtime._kernel_id
+    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
 
     code_iter = sandbox_runtime.run_code(prepared_code, kernel_id=kernel_id)
     pending_input_reply: str | None = None
@@ -567,6 +567,7 @@ async def python(
         data = {
             "output": result,
         }
+    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
     return Command(
         update={
             "messages": [
@@ -661,7 +662,7 @@ async def shell(
             traceback_lines = chunk.get("traceback", [])
             clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
             outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
-    kernel_id = sandbox_runtime._kernel_id
+    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
 
     result = "\n".join(outputs).strip()
     data = {"output": result or "Команда выполнена успешно (нет вывода)."}

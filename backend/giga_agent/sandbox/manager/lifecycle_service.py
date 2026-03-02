@@ -204,20 +204,14 @@ class SandboxLifecycleService:
 
         except Exception as e:
             if initial_status in self._FORCED_STOP_FALLBACK_STATUSES:
-                logger.warning(
-                    "sandbox_stop_forced_fallback sandbox_id=%s initial_status=%s reason=%s",
-                    sandbox_id,
-                    initial_status,
-                    e,
+                fallback_stopped = await self._handle_forced_stop_fallback(
+                    sandbox=sandbox,
+                    provider=provider,
+                    initial_status=initial_status,
+                    reason=e,
                 )
-                runtime = self._runtime_factory.build(provider, sandbox)
-                self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
-                await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
-                await SandboxRepository.cache_invalidate_pair(
-                    owner_id=sandbox.owner_id,
-                    provider_id=sandbox.provider_id,
-                )
-                return sandbox
+                if fallback_stopped:
+                    return sandbox
 
             logger.error("Failed to stop sandbox %s: %s", sandbox_id, e)
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.ERROR)
@@ -230,6 +224,61 @@ class SandboxLifecycleService:
             ) from e
 
         return sandbox
+
+    async def _handle_forced_stop_fallback(
+        self,
+        *,
+        sandbox: Sandbox,
+        provider,
+        initial_status: SandboxStatus,
+        reason: Exception,
+    ) -> bool:
+        """
+        Conservative fallback for transitional states.
+        We mark STOPPED only when we can verify runtime is no longer up.
+        """
+        logger.warning(
+            "sandbox_stop_forced_fallback sandbox_id=%s initial_status=%s reason=%s",
+            sandbox.id,
+            initial_status,
+            reason,
+        )
+
+        runtime = self._runtime_factory.build(provider, sandbox)
+
+        try:
+            await runtime.stop()
+        except Exception as retry_error:
+            logger.warning(
+                "sandbox_stop_forced_fallback_retry_failed sandbox_id=%s reason=%s",
+                sandbox.id,
+                retry_error,
+            )
+
+        try:
+            still_up = await runtime.is_up()
+        except Exception as probe_error:
+            logger.error(
+                "sandbox_stop_forced_fallback_probe_failed sandbox_id=%s reason=%s",
+                sandbox.id,
+                probe_error,
+            )
+            return False
+
+        if still_up:
+            logger.error(
+                "sandbox_stop_forced_fallback_runtime_still_up sandbox_id=%s",
+                sandbox.id,
+            )
+            return False
+
+        self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
+        await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
+        await SandboxRepository.cache_invalidate_pair(
+            owner_id=sandbox.owner_id,
+            provider_id=sandbox.provider_id,
+        )
+        return True
 
     async def stop(self, sandbox_id: uuid.UUID) -> Sandbox:
         result = await self._with_lifecycle_lock(
