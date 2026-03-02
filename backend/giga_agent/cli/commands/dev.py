@@ -22,6 +22,22 @@ from ..types import LogLevel
 logger = get_logger(__name__)
 
 
+def _print_startup_banner(*, host: str, port: int) -> None:
+    url = f"http://{host}:{port}"
+    ascii_art = r"""
+   ____ _                _                    _   
+  / ___(_) __ _  __ _   / \   __ _  ___ _ __ | |_ 
+ | |  _| |/ _` |/ _` | / _ \ / _` |/ _ \ '_ \| __|
+ | |_| | | (_| | (_| |/ ___ \ (_| |  __/ | | | |_ 
+  \____|_|\__, |\__,_/_/   \_\__, |\___|_| |_|\__|
+          |___/              |___/                
+""".rstrip("\n")
+
+    typer.echo(ascii_art)
+    typer.secho(f"Open in browser: {url}", fg=typer.colors.BRIGHT_GREEN, bold=True)
+    typer.echo("Press Ctrl+C to stop.")
+
+
 def _terminate_process_group(proc: subprocess.Popen[object], *, force: bool) -> None:
     if proc.poll() is not None:
         return
@@ -209,7 +225,7 @@ def dev(
     auth_path = str(langgraph_runtime_config["auth_path"])
     http_config = dict(langgraph_runtime_config["http_config"])
 
-    logger.info(f"Open: http://{host}:{port}")
+    _print_startup_banner(host=host, port=port)
 
     if no_reload:
         # In-process execution is enough without reload and keeps unit tests simple.
