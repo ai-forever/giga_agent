@@ -61,7 +61,7 @@ class CLISubgraphsTests(unittest.TestCase):
             return_value=(graph, FastAPI()),
         ), patch(
             "giga_agent.cli.apply_migrations"
-        ), patch(
+        ) as apply_migrations, patch(
             "giga_agent.cli.asyncio.run"
         ), patch(
             "giga_agent.core.cache.setup_cache"
@@ -70,6 +70,7 @@ class CLISubgraphsTests(unittest.TestCase):
                 graph_and_app_path="giga_agent.agents.run:graph:app",
                 no_reload=True,
             )
+        apply_migrations.assert_not_called()
 
         self.assertEqual(
             captured["graphs"],
@@ -104,7 +105,7 @@ class CLISubgraphsTests(unittest.TestCase):
             return_value=(graph, FastAPI()),
         ) as load_graph_and_app, patch(
             "giga_agent.cli.apply_migrations"
-        ), patch(
+        ) as apply_migrations, patch(
             "giga_agent.cli.asyncio.run"
         ), patch(
             "giga_agent.core.cache.setup_cache"
@@ -112,6 +113,7 @@ class CLISubgraphsTests(unittest.TestCase):
             dev(no_reload=True)
 
         load_graph_and_app.assert_called_once_with("giga_agent.agents.run:graph:app")
+        apply_migrations.assert_not_called()
 
     def test_dev_fails_on_duplicate_subgraph_key(self):
         def _run_server(*args, **kwargs):
@@ -131,7 +133,7 @@ class CLISubgraphsTests(unittest.TestCase):
             return_value=(graph, FastAPI()),
         ), patch(
             "giga_agent.cli.apply_migrations"
-        ), patch(
+        ) as apply_migrations, patch(
             "giga_agent.cli.asyncio.run"
         ), patch(
             "giga_agent.core.cache.setup_cache"
@@ -143,3 +145,4 @@ class CLISubgraphsTests(unittest.TestCase):
                 )
 
         self.assertIn("Duplicate subgraph key 'landing'", str(exc.exception))
+        apply_migrations.assert_not_called()

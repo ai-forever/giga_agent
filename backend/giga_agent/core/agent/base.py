@@ -1,6 +1,8 @@
+import asyncio
 from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
 
+from cashews import cache
 from fastapi import FastAPI
 from giga_agent.conf import (
     GIGA_AGENT_PREFIX_API,
@@ -8,9 +10,11 @@ from giga_agent.conf import (
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
+    get_settings,
 )
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.core.migrations import apply_migrations
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
 from uuid import UUID
 
@@ -105,6 +109,7 @@ class BaseAgent(BaseModel):
 
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
+            await self.run_startup_migrations()
             await self.run_startup_hooks()
             if self._idle_sandbox_sweeper is not None:
                 self._idle_sandbox_sweeper.start()
@@ -221,6 +226,33 @@ class BaseAgent(BaseModel):
                         f"Error in startup hook for {module.__class__.__name__}: {e}"
                     )
                     pass
+
+    async def run_startup_migrations(self) -> None:
+        settings = get_settings()
+        if settings.giga_agent_skip_startup_migrations:
+            logger.info(
+                "Skipping startup migrations (GIGA_AGENT_SKIP_STARTUP_MIGRATIONS=1)."
+            )
+            return
+
+        lock_key = settings.giga_agent_startup_migrations_lock_key
+        lock_ttl_sec = settings.giga_agent_startup_migrations_lock_ttl_sec
+        if settings.giga_agent_runtime == "local":
+            logger.warning(
+                "Startup migration lock uses in-memory cache in local runtime; "
+                "it does not coordinate across multiple processes."
+            )
+        logger.info(
+            "Running startup migrations with lock key '%s' (ttl=%ss).",
+            lock_key,
+            lock_ttl_sec,
+        )
+        async with cache.lock(
+            lock_key,
+            expire=lock_ttl_sec,
+            wait=True,
+        ):
+            await asyncio.to_thread(apply_migrations, self)
 
     async def extend_task(
         self,

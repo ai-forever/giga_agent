@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     giga_agent_alembic_fileconfig: bool = Field(
         False, alias="GIGA_AGENT_ALEMBIC_FILECONFIG"
     )
+    giga_agent_skip_startup_migrations: bool = Field(
+        False, alias="GIGA_AGENT_SKIP_STARTUP_MIGRATIONS"
+    )
+    giga_agent_startup_migrations_lock_key: str = Field(
+        "startup:migrations:lock",
+        alias="GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY",
+    )
+    giga_agent_startup_migrations_lock_ttl_sec: int = Field(
+        1800,
+        alias="GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_TTL_SEC",
+    )
     giga_agent_log_format: str | None = Field(None, alias="GIGA_AGENT_LOG_FORMAT")
     giga_agent_log_json: bool = Field(False, alias="GIGA_AGENT_LOG_JSON")
 
@@ -194,6 +205,11 @@ class Settings(BaseSettings):
     def _min_idle_lock_ttl(cls, value: int) -> int:
         return max(value, 5)
 
+    @field_validator("giga_agent_startup_migrations_lock_ttl_sec", mode="after")
+    @classmethod
+    def _min_startup_migration_lock_ttl(cls, value: int) -> int:
+        return max(value, 5)
+
     @field_validator("giga_agent_sandbox_starting_ttl_sec", mode="after")
     @classmethod
     def _min_starting_ttl(cls, value: int) -> int:
@@ -243,3 +259,10 @@ GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC = (
     get_settings().giga_agent_sandbox_idle_sweeper_lock_ttl_sec
 )
 GIGA_AGENT_SANDBOX_STARTING_TTL_SEC = get_settings().giga_agent_sandbox_starting_ttl_sec
+GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
+GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY = (
+    get_settings().giga_agent_startup_migrations_lock_key
+)
+GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_TTL_SEC = (
+    get_settings().giga_agent_startup_migrations_lock_ttl_sec
+)

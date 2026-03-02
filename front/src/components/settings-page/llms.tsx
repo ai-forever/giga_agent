@@ -9,6 +9,7 @@ import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
 import {
   hasNonDefaultPermissions,
@@ -68,6 +69,7 @@ const LLMItem: React.FC<LLMItemProps> = ({
 
 export const LLMSettings: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
   const [loadingLLMs, setLoadingLLMs] = useState(false);
@@ -132,8 +134,13 @@ export const LLMSettings: React.FC = () => {
   const handleDeleteLLM = async (llmId: string) => {
     const llm = llmList.find((item) => item.id === llmId);
     if (!llm?.can_edit) return;
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить эту модель?")) return;
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить эту модель?",
+        variant: "destructive",
+      }))
+    )
+      return;
 
     try {
       setSaving(true);

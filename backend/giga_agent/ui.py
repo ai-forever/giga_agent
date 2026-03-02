@@ -24,6 +24,18 @@ def _resolve_ui_dir(app: FastAPI) -> Path | None:
             if (p / "dist" / "index.html").is_file():
                 return p / "dist"
 
+    # Local development fallback: if we're running from the monorepo checkout and
+    # `front/dist` exists, serve it directly to avoid requiring UI syncing into
+    # `giga_agent/ui_dist`.
+    try:
+        repo_root = Path(__file__).resolve().parents[2]
+        dev_dist = repo_root / "front" / "dist"
+        if (dev_dist / "index.html").is_file():
+            return dev_dist
+    except Exception:
+        # Best-effort only; never fail UI mount due to path probing.
+        pass
+
     # Try loading packaged UI via importlib.resources (works even when resources
     # are inside a zip/packed wheel). Keep the context alive for app lifetime.
     try:
@@ -32,15 +44,20 @@ def _resolve_ui_dir(app: FastAPI) -> Path | None:
         ui_root = None
 
     if ui_root is not None and ui_root.is_dir():
-        stack: ExitStack | None = getattr(app.state, "_ui_resources_stack", None)
-        if stack is None:
+        existing: ExitStack | None = getattr(app.state, "_ui_resources_stack", None)
+        if existing is not None:
+            ui_dir = Path(existing.enter_context(as_file(ui_root)))
+            if (ui_dir / "index.html").is_file():
+                return ui_dir
+        else:
+            # Only keep the resource extraction context alive if the UI is valid.
             stack = ExitStack()
-            app.state._ui_resources_stack = stack
-            app.add_event_handler("shutdown", stack.close)
-
-        ui_dir = Path(stack.enter_context(as_file(ui_root)))
-        if (ui_dir / "index.html").is_file():
-            return ui_dir
+            ui_dir = Path(stack.enter_context(as_file(ui_root)))
+            if (ui_dir / "index.html").is_file():
+                app.state._ui_resources_stack = stack
+                app.add_event_handler("shutdown", stack.close)
+                return ui_dir
+            stack.close()
 
     # Fallback for editable installs / local development layouts.
     packaged = Path(__file__).resolve().parent / "ui_dist"

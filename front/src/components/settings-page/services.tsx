@@ -17,6 +17,7 @@ import { ConnectorForm } from "./forms/provider";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ConnectorResponse,
@@ -450,6 +451,7 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
 
 export const ServicesSettings: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [connectorTypes, setConnectorTypes] = useState<ConnectorTypeMeta[]>([]);
@@ -621,8 +623,13 @@ export const ServicesSettings: React.FC = () => {
   const handleDelete = async (connectorId: string) => {
     const connector = connectors.find((item) => item.id === connectorId);
     if (!connector?.can_edit) return;
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот сервис?")) return;
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить этот сервис?",
+        variant: "destructive",
+      }))
+    )
+      return;
 
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/connectors/${connectorId}`);

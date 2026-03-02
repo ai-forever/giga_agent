@@ -10,35 +10,16 @@ import sys
 import threading
 import time
 from typing import Annotated
-import asyncio
 
 import typer
 
 from giga_agent.conf import reset_settings_cache
-from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
 from ._langgraph_config import build_langgraph_runtime_config
 from ..types import LogLevel
 
 logger = get_logger(__name__)
-
-
-async def run_startup_hooks(agent) -> None:
-    """
-    Runs on_startup for all modules.
-    """
-    logger.info("Running startup hooks...")
-    session_factory = await get_session_factory()
-    async with session_factory() as session:
-        for module in agent.all_modules:
-            try:
-                await module.on_startup(session)
-            except Exception as e:
-                logger.error(
-                    f"Error in startup hook for {module.__class__.__name__}: {e}"
-                )
-                pass
 
 
 def _terminate_process_group(proc: subprocess.Popen[object], *, force: bool) -> None:
@@ -164,7 +145,8 @@ def dev(
     ] = "http://localhost:3000",
 ) -> None:
     """
-    Development mode: apply migrations, run module startup hooks, then start server.
+    Development mode: start LangGraph dev server.
+    Migrations and startup hooks are executed by FastAPI lifespan.
     """
     try:
         from langgraph_api.cli import run_server  # type: ignore
@@ -221,8 +203,6 @@ def dev(
     langgraph_runtime_config = build_langgraph_runtime_config(graph_and_app_path)
     agent = langgraph_runtime_config["agent"]
     logger.info(f"Loaded agent with {len(agent.all_modules)} modules.")
-
-    cli.apply_migrations(agent)
 
     graphs = langgraph_runtime_config["graphs"]
     auth_path = str(langgraph_runtime_config["auth_path"])

@@ -31,6 +31,7 @@ import {
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
 import type { ResourcePermissionsDraft } from "./forms/types";
 import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
@@ -282,6 +283,7 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
 
 export const SandboxSettings: React.FC = () => {
   const { user, refreshUser } = useAuth();
+  const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [providerList, setProviderList] = useState<SandboxProviderResponse[]>(
     [],
@@ -459,10 +461,11 @@ export const SandboxSettings: React.FC = () => {
 
     if (
       user?.sandbox_provider_id &&
-      // eslint-disable-next-line no-restricted-globals
-      !confirm(
-        "Вы уверены, что хотите сменить sandbox? Могут возникнуть проблемы со старыми чатами",
-      )
+      !(await confirm({
+        variant: "destructive",
+        description:
+          "Вы уверены, что хотите сменить sandbox? Могут возникнуть проблемы со старыми чатами",
+      }))
     ) {
       return;
     }
@@ -493,10 +496,7 @@ export const SandboxSettings: React.FC = () => {
         idle_timeout: idleTimeout,
         is_active: isActive,
       };
-      if (
-        canManagePermissions &&
-        hasNonDefaultPermissions(createPermissions)
-      ) {
+      if (canManagePermissions && hasNonDefaultPermissions(createPermissions)) {
         payload.permissions = toPermissionsApiPayload(createPermissions);
       }
       await apiClient.post(`${API_AGENT_PREFIX}/sandboxes/providers`, payload);
@@ -567,8 +567,13 @@ export const SandboxSettings: React.FC = () => {
   const handleDelete = async (providerId: string) => {
     const provider = providerList.find((item) => item.id === providerId);
     if (!provider?.can_edit) return;
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены? Все sandbox'ы этого провайдера будут удалены."))
+    if (
+      !(await confirm({
+        description:
+          "Вы уверены? Все sandbox'ы этого провайдера будут удалены.",
+        variant: "destructive",
+      }))
+    )
       return;
 
     try {
@@ -816,7 +821,10 @@ export const SandboxSettings: React.FC = () => {
         </div>
       )}
 
-      <Dialog open={sandboxesModalOpen} onOpenChange={handleSandboxesModalChange}>
+      <Dialog
+        open={sandboxesModalOpen}
+        onOpenChange={handleSandboxesModalChange}
+      >
         <DialogContent className="sandboxes-modal w-[900px] min-h-0 max-h-[85vh] overflow-hidden sm:max-w-6xl grid-rows-[auto_1fr]">
           <DialogHeader>
             <DialogTitle>
@@ -866,7 +874,10 @@ export const SandboxSettings: React.FC = () => {
                     const owner = item.owner_email || item.owner_id;
                     return (
                       <TableRow key={item.id}>
-                        <TableCell className="max-w-[520px] truncate" title={owner}>
+                        <TableCell
+                          className="max-w-[520px] truncate"
+                          title={owner}
+                        >
                           {owner}
                         </TableCell>
                         <TableCell className="min-w-[240px]">

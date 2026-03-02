@@ -12,6 +12,7 @@ import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
 import {
   hasNonDefaultPermissions,
@@ -89,6 +90,7 @@ const EmbeddingItem: React.FC<EmbeddingItemProps> = ({
 
 export const EmbeddingsSettings: React.FC = () => {
   const { user, refreshUser } = useAuth();
+  const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [embeddingList, setEmbeddingList] = useState<EmbeddingResponse[]>([]);
   const [loadingEmbeddings, setLoadingEmbeddings] = useState(false);
@@ -155,8 +157,12 @@ export const EmbeddingsSettings: React.FC = () => {
   const handleDeleteEmbedding = async (embeddingId: string) => {
     const embedding = embeddingList.find((item) => item.id === embeddingId);
     if (!embedding?.can_edit) return;
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить эту embedding модель?"))
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить эту embedding модель?",
+        variant: "destructive",
+      }))
+    )
       return;
 
     try {
@@ -271,10 +277,10 @@ export const EmbeddingsSettings: React.FC = () => {
     if (saving || user?.embedding_id === embeddingId) return;
     if (
       user?.embedding_id &&
-      // eslint-disable-next-line no-restricted-globals
-      !confirm(
-        "Вы уверены, что хотите сменить эмбединги? Вы не сможете работать со старыми RAG-документами",
-      )
+      !(await confirm({
+        description:
+          "Вы уверены, что хотите сменить эмбединги? Вы не сможете работать со старыми RAG-документами",
+      }))
     ) {
       return;
     }

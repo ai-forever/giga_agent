@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { buildContentByPathUrl } from "@/components/attachments/file-utils.ts";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 
 interface DemoItemEditorProps {
   item: DemoItem;
@@ -41,6 +42,7 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
   const [message, setMessage] = useState("");
   const navigate = useNavigate();
   const { removeItem, updateItem } = useDemoItems();
+  const confirm = useConfirm();
 
   useEffect(() => {
     setMessage(item.json_data.message ? item.json_data.message : "");
@@ -58,11 +60,16 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
     }
   };
 
-  const handleDelete = () => {
-    // eslint-disable-next-line no-restricted-globals
-    if (confirm("Подтверждаете удаление?")) {
-      removeItem(item.id);
+  const handleDelete = async () => {
+    if (
+      !(await confirm({
+        description: "Подтверждаете удаление?",
+        variant: "destructive",
+      }))
+    ) {
+      return;
     }
+    removeItem(item.id);
   };
 
   const openLink = (url: string) => {

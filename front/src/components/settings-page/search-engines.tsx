@@ -16,6 +16,7 @@ import {
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ConnectorResponse,
@@ -505,6 +506,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
 
 export const SearchEnginesSettings: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [engineTypes, setEngineTypes] = useState<SearchEngineTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
@@ -726,8 +728,13 @@ export const SearchEnginesSettings: React.FC = () => {
   const handleDelete = async (engineId: string) => {
     const engine = engines.find((item) => item.id === engineId);
     if (!engine?.can_edit) return;
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить этот search engine?",
+        variant: "destructive",
+      }))
+    )
+      return;
 
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/search-engines/${engineId}`);

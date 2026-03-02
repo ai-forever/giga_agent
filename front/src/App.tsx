@@ -23,6 +23,7 @@ import { UserInfoProvider } from "@/components/providers/user-info.tsx";
 import { AuthProvider } from "@/components/providers/auth.tsx";
 import { ApiProvider } from "@/components/providers/api.tsx";
 import { ThemeProvider } from "@/components/providers/theme.tsx";
+import { ConfirmProvider } from "@/components/providers/confirm.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
@@ -162,31 +163,33 @@ const App: React.FC = () => {
     <BrowserRouter>
       <AuthProvider>
         <ThemeProvider>
-          <ApiProvider>
-            <DemoItemsProvider>
-              <Toaster />
-              <SettingsProvider>
-                <RagProvider>
-                  <UserInfoProvider>
-                    <Routes>
-                      <Route path="/login" element={<LoginPage />} />
-                      <Route path="/base" element={<BaseUrlRoute />} />
-                      <Route
-                        path="/*"
-                        element={
-                          <ProtectedRoute>
-                            <div className="flex h-auto w-full mx-auto print:h-auto">
-                              <InnerApp />
-                            </div>
-                          </ProtectedRoute>
-                        }
-                      />
-                    </Routes>
-                  </UserInfoProvider>
-                </RagProvider>
-              </SettingsProvider>
-            </DemoItemsProvider>
-          </ApiProvider>
+          <ConfirmProvider>
+            <ApiProvider>
+              <DemoItemsProvider>
+                <Toaster />
+                <SettingsProvider>
+                  <RagProvider>
+                    <UserInfoProvider>
+                      <Routes>
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/base" element={<BaseUrlRoute />} />
+                        <Route
+                          path="/*"
+                          element={
+                            <ProtectedRoute>
+                              <div className="flex h-auto w-full mx-auto print:h-auto">
+                                <InnerApp />
+                              </div>
+                            </ProtectedRoute>
+                          }
+                        />
+                      </Routes>
+                    </UserInfoProvider>
+                  </RagProvider>
+                </SettingsProvider>
+              </DemoItemsProvider>
+            </ApiProvider>
+          </ConfirmProvider>
         </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>

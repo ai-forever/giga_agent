@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  Loader2,
 } from "lucide-react";
 import LogoImage from "../assets/logo.png";
 import LogoWhiteImage from "../assets/logo-white.png";
@@ -63,6 +64,7 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
   const { settings, setSettings } = useSettings();
   const { isDark } = useTheme();
   const { user, logout, token } = useAuth();
+  const THREADS_PAGE_SIZE = 50;
 
   const activeThreadId = useMemo(() => {
     const match = location.pathname.match(/^\/threads\/([^/?#]+)/);
@@ -86,12 +88,17 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
+  const [threadsLoadingMore, setThreadsLoadingMore] = useState(false);
   const [threadsError, setThreadsError] = useState<string | null>(null);
+  const [threadsMoreError, setThreadsMoreError] = useState<string | null>(null);
+  const [threadsTotal, setThreadsTotal] = useState<number | null>(null);
+  const [threadsHasMore, setThreadsHasMore] = useState(false);
   const [threadsRefreshTick, setThreadsRefreshTick] = useState(0);
   const [typedTitles, setTypedTitles] = useState<Record<string, string>>({});
   const typingTimersRef = useRef<Record<string, number>>({});
   const prevThreadsRef = useRef<Map<string, string>>(new Map());
   const hasLoadedThreadsOnceRef = useRef(false);
+  const loadMoreControllerRef = useRef<AbortController | null>(null);
 
   const startTypingTitle = (threadId: string, fullTitle: string) => {
     const existingTimer = typingTimersRef.current[threadId];
@@ -127,6 +134,8 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
         window.clearInterval(id);
       }
       typingTimersRef.current = {};
+      loadMoreControllerRef.current?.abort();
+      loadMoreControllerRef.current = null;
     };
   }, []);
 
@@ -141,26 +150,58 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
     if (!langGraphClient) {
       setThreads([]);
       setThreadsError(null);
+      setThreadsMoreError(null);
+      setThreadsTotal(null);
+      setThreadsHasMore(false);
+      setThreadsLoadingMore(false);
+      loadMoreControllerRef.current?.abort();
+      loadMoreControllerRef.current = null;
       return;
     }
 
     const controller = new AbortController();
+    loadMoreControllerRef.current?.abort();
+    loadMoreControllerRef.current = null;
+    setThreadsLoadingMore(false);
     setThreadsLoading(true);
     setThreadsError(null);
+    setThreadsMoreError(null);
 
-    void langGraphClient.threads
-      .search({
-        select: ["thread_id", "metadata"],
-        metadata: {
-          graph_id: "giga_agent",
-        },
-        limit: 50,
-        offset: 0,
-        sortBy: "updated_at",
-        sortOrder: "desc",
-        signal: controller.signal,
-      })
-      .then((result) => {
+    const searchPromise = langGraphClient.threads.search({
+      select: ["thread_id", "metadata"],
+      metadata: {
+        graph_id: "giga_agent",
+      },
+      limit: THREADS_PAGE_SIZE,
+      offset: 0,
+      sortBy: "updated_at",
+      sortOrder: "desc",
+      signal: controller.signal,
+    });
+
+    const countPromise = langGraphClient.threads.count({
+      metadata: {
+        graph_id: "giga_agent",
+      },
+      signal: controller.signal,
+    });
+
+    void Promise.allSettled([searchPromise, countPromise])
+      .then((settled) => {
+        const searchSettled = settled[0];
+        const countSettled = settled[1];
+        if (searchSettled.status === "rejected") {
+          throw searchSettled.reason;
+        }
+
+        const result = searchSettled.value;
+        const total =
+          countSettled.status === "fulfilled" ? countSettled.value : null;
+
+        const hasMore =
+          total === null
+            ? result.length === THREADS_PAGE_SIZE
+            : result.length < total;
         // First successful load: show titles immediately (no typing animation).
         if (!hasLoadedThreadsOnceRef.current) {
           const next = new Map<string, string>();
@@ -176,6 +217,8 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
           prevThreadsRef.current = next;
           hasLoadedThreadsOnceRef.current = true;
           setThreads(result);
+          setThreadsTotal(total);
+          setThreadsHasMore(hasMore);
           return;
         }
 
@@ -212,6 +255,8 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
 
         prevThreadsRef.current = next;
         setThreads(result);
+        setThreadsTotal(total);
+        setThreadsHasMore(hasMore);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
@@ -219,6 +264,8 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
           err instanceof Error ? err.message : "Не удалось загрузить чаты";
         setThreadsError(message);
         setThreads([]);
+        setThreadsTotal(null);
+        setThreadsHasMore(false);
       })
       .finally(() => {
         if (controller.signal.aborted) return;
@@ -226,7 +273,85 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
       });
 
     return () => controller.abort();
-  }, [langGraphClient, settings.sideBarOpen, threadsRefreshTick]);
+  }, [
+    langGraphClient,
+    settings.sideBarOpen,
+    threadsRefreshTick,
+    THREADS_PAGE_SIZE,
+  ]);
+
+  const loadMoreThreads = async () => {
+    if (!langGraphClient) return;
+    if (threadsLoading || threadsLoadingMore) return;
+    if (!threadsHasMore) return;
+
+    const controller = new AbortController();
+    loadMoreControllerRef.current?.abort();
+    loadMoreControllerRef.current = controller;
+
+    setThreadsLoadingMore(true);
+    setThreadsMoreError(null);
+
+    try {
+      const offset = threads.length;
+      const result = await langGraphClient.threads.search({
+        select: ["thread_id", "metadata"],
+        metadata: {
+          graph_id: "giga_agent",
+        },
+        limit: THREADS_PAGE_SIZE,
+        offset,
+        sortBy: "updated_at",
+        sortOrder: "desc",
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted) return;
+
+      const existingIds = new Set(threads.map((t) => t.thread_id));
+      const toAdd = result.filter((t) => !existingIds.has(t.thread_id));
+
+      // Pagination append: never animate typing for older threads.
+      setThreads((prev) => [...prev, ...toAdd]);
+      setTypedTitles((prev) => {
+        const next = { ...prev };
+        for (const t of toAdd) {
+          const meta = (t as unknown as { metadata?: Record<string, unknown> })
+            .metadata;
+          const rawTitle =
+            typeof meta?.thread_title === "string"
+              ? meta.thread_title.trim()
+              : "";
+          if (rawTitle.length > 0) next[t.thread_id] = rawTitle;
+        }
+        return next;
+      });
+      const nextPrev = new Map(prevThreadsRef.current);
+      for (const t of toAdd) {
+        const meta = (t as unknown as { metadata?: Record<string, unknown> })
+          .metadata;
+        const rawTitle =
+          typeof meta?.thread_title === "string" ? meta.thread_title.trim() : "";
+        nextPrev.set(t.thread_id, rawTitle);
+      }
+      prevThreadsRef.current = nextPrev;
+
+      if (threadsTotal === null) {
+        // Fallback when total is unknown: stop only when page is short.
+        setThreadsHasMore(result.length === THREADS_PAGE_SIZE);
+      } else {
+        setThreadsHasMore(offset + result.length < threadsTotal);
+      }
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      const message =
+        err instanceof Error ? err.message : "Не удалось загрузить ещё чаты";
+      setThreadsMoreError(message);
+    } finally {
+      if (controller.signal.aborted) return;
+      setThreadsLoadingMore(false);
+    }
+  };
 
   // Получаем отображаемое имя пользователя (email обрезается)
   const displayName = user?.email
@@ -434,62 +559,93 @@ const SidebarComponent = ({ children, onNewChat }: SidebarProps) => {
                   ))}
                 </div>
               ) : (
-                threads.map((t) => {
-                  const fullTitle = getThreadTitle(t);
-                  const displayTitle = typedTitles[t.thread_id] ?? fullTitle;
-                  const isActive = activeThreadId === t.thread_id;
+                <>
+                  {threads.map((t) => {
+                    const fullTitle = getThreadTitle(t);
+                    const displayTitle = typedTitles[t.thread_id] ?? fullTitle;
+                    const isActive = activeThreadId === t.thread_id;
 
-                  return (
-                    <div
-                      key={t.thread_id}
-                      className={[
-                        "group px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors flex items-center gap-2",
-                        isActive
-                          ? "bg-accent text-accent-foreground border border-border"
-                          : "hover:bg-muted/50",
-                      ].join(" ")}
-                      onClick={() => handleOpenThread(t.thread_id)}
-                      title={t.thread_id}
-                      aria-current={isActive ? "page" : undefined}
-                    >
-                      <span className="flex-1 min-w-0 truncate">
-                        {displayTitle}
-                      </span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    return (
+                      <div
+                        key={t.thread_id}
+                        className={[
+                          "group px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors flex items-center gap-2",
+                          isActive
+                            ? "bg-accent text-accent-foreground border border-border"
+                            : "hover:bg-muted/50",
+                        ].join(" ")}
+                        onClick={() => handleOpenThread(t.thread_id)}
+                        title={t.thread_id}
+                        aria-current={isActive ? "page" : undefined}
+                      >
+                        <span className="flex-1 min-w-0 truncate">
+                          {displayTitle}
+                        </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label="Действия чата"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
                             onClick={(e) => e.stopPropagation()}
-                            aria-label="Действия чата"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <DropdownMenuItem
-                            onSelect={() => openRename(t)}
-                          >
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Переименовать
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onSelect={() => openDelete(t)}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Удалить
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuItem onSelect={() => openRename(t)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Переименовать
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => openDelete(t)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Удалить
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    );
+                  })}
+
+                  {threadsMoreError && (
+                    <div className="px-2 py-2 text-sm text-destructive">
+                      {threadsMoreError}
                     </div>
-                  );
-                })
+                  )}
+
+                  {!threadsLoading && !threadsError && threadsHasMore && (
+                    <div className="px-2 py-2">
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        disabled={threadsLoadingMore}
+                        onClick={() => void loadMoreThreads()}
+                      >
+                        {threadsLoadingMore ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Загрузка…
+                          </>
+                        ) : (
+                          "Загрузить ещё"
+                        )}
+                      </Button>
+                      {threadsTotal !== null && (
+                        <div className="mt-1 text-xs text-muted-foreground text-center">
+                          Показано {threads.length} из {threadsTotal}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

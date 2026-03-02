@@ -16,6 +16,7 @@ import {
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ImageGeneratorResponse,
@@ -498,6 +499,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
 
 export const ImageGeneratorsSettings: React.FC = () => {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [generatorTypes, setGeneratorTypes] = useState<
     ImageGeneratorTypeMeta[]
@@ -722,8 +724,12 @@ export const ImageGeneratorsSettings: React.FC = () => {
   const handleDelete = async (generatorId: string) => {
     const generator = generators.find((item) => item.id === generatorId);
     if (!generator?.can_edit) return;
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот image generator?"))
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить этот image generator?",
+        variant: "destructive",
+      }))
+    )
       return;
 
     try {
