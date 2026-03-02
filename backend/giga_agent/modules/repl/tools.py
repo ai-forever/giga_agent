@@ -19,13 +19,14 @@ from giga_agent.modules.repl.args_monkey_patch import _parse_input
 from langchain.tools import tool, ToolRuntime
 from langchain_core.tools import BaseTool
 from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 from pydantic import ValidationError, BaseModel, Field
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
-from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
+from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec, SandboxBusyError
 
 logger = get_logger(__name__)
 
@@ -445,10 +446,17 @@ async def python(
             session=session,
         )
         manager = SandboxManager(session)
-        sandbox_runtime = await manager.ensure_running_for_user(
-            user_id=owner_id,
-            provider_id=resolved.provider.id,
-        )
+        try:
+            sandbox_runtime = await manager.ensure_running_for_user(
+                user_id=owner_id,
+                provider_id=resolved.provider.id,
+            )
+        except SandboxBusyError as e:
+            raise ValueError(
+                "Ты не можешь выполнить код, так как в системе превышен лимит "
+                "виртуальных окружений. Скажи пользователю обратиться к "
+                "администратору!" + repr(e)
+            )
 
     if user is None:
         raise ValueError(f"User with id {user_id} not found")
@@ -468,14 +476,14 @@ async def python(
 
     # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)
     kernel_id = runtime.state.get("kernel_id")
-    if kernel_id:
-        sandbox_runtime._kernel_id = kernel_id
 
     if secrets_code is not None:
-        async for _ in sandbox_runtime.run_code(secrets_code):
+        async for _ in sandbox_runtime.run_code(secrets_code, kernel_id=kernel_id):
             pass
 
-    code_iter = sandbox_runtime.run_code(prepared_code)
+    kernel_id = sandbox_runtime._kernel_id
+
+    code_iter = sandbox_runtime.run_code(prepared_code, kernel_id=kernel_id)
     pending_input_reply: str | None = None
     while True:
         try:
@@ -559,16 +567,23 @@ async def python(
         data = {
             "output": result,
         }
-    return ToolMessage(
-        tool_call_id=runtime.tool_call_id,
-        content=json.dumps(
-            data,
-            ensure_ascii=False,
-        ),
-        additional_kwargs={
-            "tool_attachments": giga_attachments,
-            "tool_name": "python",
-        },
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    tool_call_id=runtime.tool_call_id,
+                    content=json.dumps(
+                        data,
+                        ensure_ascii=False,
+                    ),
+                    additional_kwargs={
+                        "tool_attachments": giga_attachments,
+                        "tool_name": "python",
+                    },
+                )
+            ],
+            "kernel_id": kernel_id,
+        }
     )
 
 
@@ -598,10 +613,17 @@ async def shell(
             session=session,
         )
         manager = SandboxManager(session)
-        sandbox_runtime = await manager.ensure_running_for_user(
-            user_id=owner_id,
-            provider_id=resolved.provider.id,
-        )
+        try:
+            sandbox_runtime = await manager.ensure_running_for_user(
+                user_id=owner_id,
+                provider_id=resolved.provider.id,
+            )
+        except SandboxBusyError as e:
+            raise ValueError(
+                "Ты не можешь выполнить код, так как в системе превышен лимит "
+                "виртуальных окружений. Скажи пользователю обратиться к "
+                "администратору!" + repr(e)
+            )
 
     command = command.strip()
     if not command:
@@ -613,14 +635,12 @@ async def shell(
         )
 
     kernel_id = runtime.state.get("kernel_id")
-    if kernel_id:
-        sandbox_runtime._kernel_id = kernel_id
 
     shell_code = f"!{command}" if "\n" not in command else f"%%bash\n{command}"
     outputs: list[str] = []
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
-    async for chunk in sandbox_runtime.run_code(shell_code):
+    async for chunk in sandbox_runtime.run_code(shell_code, kernel_id=kernel_id):
         chunk_type = chunk.get("type")
         if chunk_type in ("stdout", "stderr"):
             text = chunk.get("text", "")
@@ -641,12 +661,22 @@ async def shell(
             traceback_lines = chunk.get("traceback", [])
             clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
             outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
+    kernel_id = sandbox_runtime._kernel_id
 
     result = "\n".join(outputs).strip()
     data = {"output": result or "Команда выполнена успешно (нет вывода)."}
 
-    return ToolMessage(
-        tool_call_id=runtime.tool_call_id,
-        content=json.dumps(data, ensure_ascii=False),
-        additional_kwargs={"tool_name": "shell"},
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    tool_call_id=runtime.tool_call_id,
+                    content=json.dumps(data, ensure_ascii=False),
+                    additional_kwargs={
+                        "tool_name": "shell",
+                    },
+                )
+            ],
+            "kernel_id": kernel_id,
+        }
     )

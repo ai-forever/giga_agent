@@ -68,7 +68,11 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                 data = await r.json()
                 self._kernel_id = data["id"]
 
-    async def run_code(self, code: str) -> AsyncGenerator[Dict[str, Any], str]:
+    async def run_code(
+        self, code: str, kernel_id: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], str]:
+        if kernel_id is None:
+            self._kernel_id = str(uuid.uuid4())
         await self._ensure_kernel()
 
         # Connect to websocket

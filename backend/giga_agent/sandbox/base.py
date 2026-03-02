@@ -96,11 +96,6 @@ class BaseSandbox(BaseModel, ABC):
     def has_limit(self) -> bool:
         return self.has_limit_cls()
 
-    @classmethod
-    @override
-    def is_lc_serializable(cls) -> bool:
-        return True
-
     def get_connection_settings(self) -> dict:
         """
         Возвращает dict настроек, необходимых для повторного подключения
