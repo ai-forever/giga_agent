@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
-import { Input, SecretInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -17,9 +17,11 @@ import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
+import SchemaFields from "./forms/schema-fields";
 import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ConnectorResponse,
+  JsonSchema,
   SearchEngineResponse,
   SearchEngineTypeMeta,
   ResourcePermissionsDraft,
@@ -31,201 +33,9 @@ import {
   stableStringify,
   toPermissionsApiPayload,
 } from "./forms/resource-permissions-utils";
+import { compactObject } from "./forms/schema-fields-utils";
 
-interface JsonSchemaProperty {
-  type?: string;
-  title?: string;
-  description?: string;
-  default?: unknown;
-  anyOf?: { type?: string }[];
-}
-
-interface JsonSchema {
-  properties?: Record<string, JsonSchemaProperty>;
-  required?: string[];
-}
-
-type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
 type SearchEngineFormMode = "create" | "edit";
-
-function isSecretField(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("key") ||
-    lower.includes("secret") ||
-    lower.includes("password") ||
-    lower.includes("token")
-  );
-}
-
-function fieldLabel(name: string, property: JsonSchemaProperty): string {
-  if (property.title) return property.title;
-  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function isFieldRequired(name: string, schema: JsonSchema): boolean {
-  return schema.required?.includes(name) ?? false;
-}
-
-function resolvePropertyType(
-  property: JsonSchemaProperty,
-): SupportedPropertyType {
-  const directType = property.type;
-  if (
-    directType === "string" ||
-    directType === "number" ||
-    directType === "integer" ||
-    directType === "boolean"
-  ) {
-    return directType;
-  }
-
-  for (const option of property.anyOf || []) {
-    const optionType = option.type;
-    if (
-      optionType === "string" ||
-      optionType === "number" ||
-      optionType === "integer" ||
-      optionType === "boolean"
-    ) {
-      return optionType;
-    }
-  }
-
-  return "string";
-}
-
-function compactObject(
-  values: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value !== undefined),
-  );
-}
-
-interface SettingsFormProps {
-  schema: JsonSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-  disabled?: boolean;
-}
-
-const SettingsForm: React.FC<SettingsFormProps> = ({
-  schema,
-  values,
-  onChange,
-  disabled,
-}) => {
-  const entries = Object.entries(schema.properties || {});
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Для этого типа нет дополнительных настроек.
-      </p>
-    );
-  }
-
-  const setFieldValue = (name: string, value: unknown) => {
-    onChange({ ...values, [name]: value });
-  };
-
-  return (
-    <div className="space-y-4">
-      {entries.map(([name, property]) => {
-        const propertyType = resolvePropertyType(property);
-        const required = isFieldRequired(name, schema);
-        const rawValue = values[name] ?? property.default;
-
-        if (propertyType === "boolean") {
-          return (
-            <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`search-engine-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Switch
-                id={`search-engine-setting-${name}`}
-                checked={Boolean(rawValue)}
-                onCheckedChange={(checked) => setFieldValue(name, checked)}
-                disabled={disabled}
-              />
-            </div>
-          );
-        }
-
-        if (propertyType === "number" || propertyType === "integer") {
-          const value = typeof rawValue === "number" ? String(rawValue) : "";
-          return (
-            <div key={name} className="space-y-1.5">
-              <Label htmlFor={`search-engine-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Input
-                id={`search-engine-setting-${name}`}
-                type="number"
-                step={propertyType === "integer" ? 1 : "any"}
-                value={value}
-                placeholder={
-                  property.default !== undefined ? String(property.default) : ""
-                }
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (nextValue === "") {
-                    setFieldValue(name, undefined);
-                    return;
-                  }
-                  const parsed =
-                    propertyType === "integer"
-                      ? parseInt(nextValue, 10)
-                      : parseFloat(nextValue);
-                  setFieldValue(
-                    name,
-                    Number.isNaN(parsed) ? undefined : parsed,
-                  );
-                }}
-                disabled={disabled}
-              />
-              {property.description && (
-                <p className="text-xs text-muted-foreground">
-                  {property.description}
-                </p>
-              )}
-            </div>
-          );
-        }
-
-        const InputComponent = isSecretField(name) ? SecretInput : Input;
-        const value = typeof rawValue === "string" ? rawValue : "";
-
-        return (
-          <div key={name} className="space-y-1.5">
-            <Label htmlFor={`search-engine-setting-${name}`}>
-              {fieldLabel(name, property)}
-              {required && <span className="text-destructive ml-1">*</span>}
-            </Label>
-            <InputComponent
-              id={`search-engine-setting-${name}`}
-              value={value}
-              placeholder={
-                property.description ||
-                (property.default !== undefined ? String(property.default) : "")
-              }
-              onChange={(e) => setFieldValue(name, e.target.value || undefined)}
-              disabled={disabled}
-            />
-            {property.description && (
-              <p className="text-xs text-muted-foreground">
-                {property.description}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 interface SearchEngineItemProps {
   engine: SearchEngineResponse;
@@ -398,11 +208,12 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
               Загрузка настроек...
             </div>
           ) : (
-            <SettingsForm
+            <SchemaFields
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={onSettingsChange}
               disabled={saving}
+              idPrefix="search-engine-setting"
             />
           )}
         </div>

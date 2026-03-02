@@ -47,6 +47,23 @@ test-cov:
 	uv run pytest --cov=giga_agent --cov-report=html
 
 # =============================================================================
+# UI (frontend bundle sync)
+# =============================================================================
+
+UI_DIST_SRC=../front/dist
+UI_DIST_DST=giga_agent/ui_dist
+
+# Sync built frontend (`front/dist`) into the python package (`giga_agent/ui_dist`)
+ui-sync:
+	@test -d "$(UI_DIST_SRC)" || (echo "Missing $(UI_DIST_SRC). Build frontend first (e.g. in ../front: npm ci && npm run build)." && exit 1)
+	@mkdir -p "$(UI_DIST_DST)"
+	@rsync -a --delete "$(UI_DIST_SRC)/" "$(UI_DIST_DST)/"
+
+# Remove packaged UI bundle from the python package tree
+ui-clean:
+	@rm -rf "$(UI_DIST_DST)"
+
+# =============================================================================
 # Development
 # =============================================================================
 

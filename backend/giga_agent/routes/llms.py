@@ -193,6 +193,19 @@ async def get_llm_types_meta(
     ]
 
 
+@router.get("/types/{llm_type}/settings-schema", response_model=dict[str, Any])
+async def get_llm_settings_schema(
+    llm_type: str,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+):
+    _ = current_user
+    runtime_cls = _resolve_llm_runtime_by_type(
+        llm_type,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+    )
+    return runtime_cls.settings_schema().model_json_schema()
+
+
 @router.post("", response_model=LLMResponse, status_code=status.HTTP_201_CREATED)
 async def create_llm(
     data: LLMCreate,
@@ -337,6 +350,7 @@ async def get_available_models_by_connector(
             f"Failed to fetch models from llm '{e.llm_type}': {e.detail}"
         ),
         get_runtime=ConnectorRegistry.get_runtime,
+        runtime_type=llm_type,
     )
 
 
@@ -370,6 +384,7 @@ async def fetch_available_models(
             f"Failed to fetch models from llm '{e.llm_type}': {e.detail}"
         ),
         get_runtime=ConnectorRegistry.get_runtime,
+        runtime_type=data.llm_type,
     )
 
 

@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     )
 
     giga_agent_local_sandbox_enabled: bool = Field(
-        False, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
+        True, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
     )
     giga_agent_local_docker_memory_limit_mb: int = Field(
         512, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
@@ -170,7 +170,9 @@ class Settings(BaseSettings):
         cleaned = value.strip()
         return cleaned or None
 
-    @field_validator("giga_agent_project_root", "giga_agent_local_docker_files_path", mode="after")
+    @field_validator(
+        "giga_agent_project_root", "giga_agent_local_docker_files_path", mode="after"
+    )
     @classmethod
     def _expand_paths(cls, value: Path | None) -> Path | None:
         if value is None:

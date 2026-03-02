@@ -467,6 +467,7 @@ async def get_available_models_by_connector(
         ),
         connector_runtime_error_message="Некорректные настройки коннектора для эмбеддингов",
         get_runtime=ConnectorRegistry.get_runtime,
+        runtime_type=embedding_type,
     )
 
 
@@ -502,6 +503,7 @@ async def fetch_available_models(
         ),
         connector_runtime_error_message="Некорректные настройки коннектора для эмбеддингов",
         get_runtime=ConnectorRegistry.get_runtime,
+        runtime_type=data.embedding_type,
     )
 
 

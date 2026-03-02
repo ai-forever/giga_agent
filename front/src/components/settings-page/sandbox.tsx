@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, Trash2, Pencil, Save, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
-import { Input, SecretInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -32,8 +32,9 @@ import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
+import SchemaFields from "./forms/schema-fields";
 import ResourcePermissions from "./forms/resource-permissions";
-import type { ResourcePermissionsDraft } from "./forms/types";
+import type { JsonSchema, ResourcePermissionsDraft } from "./forms/types";
 import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
 import {
   hasNonDefaultPermissions,
@@ -66,46 +67,6 @@ interface SandboxInstanceResponse {
   can_stop: boolean;
 }
 
-interface JsonSchemaProperty {
-  type?: string;
-  title?: string;
-  description?: string;
-  default?: unknown;
-  anyOf?: { type: string }[];
-}
-
-interface JsonSchema {
-  properties?: Record<string, JsonSchemaProperty>;
-  required?: string[];
-  title?: string;
-}
-
-function isSecretField(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("key") ||
-    lower.includes("secret") ||
-    lower.includes("password") ||
-    lower.includes("token")
-  );
-}
-
-function fieldLabel(name: string, property: JsonSchemaProperty): string {
-  if (property.title) return property.title;
-  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function isFieldRequired(name: string, schema: JsonSchema): boolean {
-  return schema.required?.includes(name) ?? false;
-}
-
-function isNullable(property: JsonSchemaProperty): boolean {
-  if (property.anyOf) {
-    return property.anyOf.some((t) => t.type === "null");
-  }
-  return false;
-}
-
 function formatDateTime(value?: string | null): string {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -116,89 +77,6 @@ function formatDateTime(value?: string | null): string {
   }).format(parsed);
 }
 
-interface SettingsFormProps {
-  schema: JsonSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-  disabled?: boolean;
-}
-
-const SettingsForm: React.FC<SettingsFormProps> = ({
-  schema,
-  values,
-  onChange,
-  disabled,
-}) => {
-  if (!schema.properties) return null;
-
-  const entries = Object.entries(schema.properties);
-
-  const handleFieldChange = (name: string, value: string) => {
-    onChange({ ...values, [name]: value || undefined });
-  };
-
-  const s3Fields = entries.filter(
-    ([name]) => name.startsWith("s3_") || name.startsWith("aws_"),
-  );
-  const otherFields = entries.filter(
-    ([name]) => !name.startsWith("s3_") && !name.startsWith("aws_"),
-  );
-
-  const renderField = ([name, property]: [string, JsonSchemaProperty]) => {
-    const required = isFieldRequired(name, schema);
-    const secret = isSecretField(name);
-    const nullable = isNullable(property);
-    const value =
-      (values[name] as string) ?? (property.default as string) ?? "";
-    const InputComponent = secret ? SecretInput : Input;
-
-    return (
-      <div key={name} className="space-y-1.5">
-        <Label htmlFor={`setting-${name}`}>
-          {fieldLabel(name, property)}
-          {required && <span className="text-destructive ml-1">*</span>}
-          {!required && nullable && (
-            <span className="text-muted-foreground ml-1 text-xs font-normal">
-              (опционально)
-            </span>
-          )}
-        </Label>
-        <InputComponent
-          id={`setting-${name}`}
-          placeholder={
-            property.description ||
-            (property.default !== undefined ? String(property.default) : "")
-          }
-          value={value}
-          onChange={(e) => handleFieldChange(name, e.target.value)}
-          disabled={disabled}
-        />
-        {property.description && (
-          <p className="text-xs text-muted-foreground">
-            {property.description}
-          </p>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className="space-y-4">
-      {otherFields.map(renderField)}
-
-      {s3Fields.length > 0 && (
-        <div className="space-y-4 pt-2">
-          <div className="flex items-center gap-2">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">S3 Storage</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-          {s3Fields.map(renderField)}
-        </div>
-      )}
-    </div>
-  );
-};
 
 interface ProviderCardProps {
   provider: SandboxProviderResponse;
@@ -745,11 +623,26 @@ export const SandboxSettings: React.FC = () => {
           )}
 
           {settingsSchema && !loadingSchema && (
-            <SettingsForm
+            <SchemaFields
               schema={settingsSchema}
               values={settingsValues}
               onChange={setSettingsValues}
               disabled={saving}
+              idPrefix="setting"
+              groups={[
+                {
+                  id: "main",
+                  match: (name) =>
+                    !name.startsWith("s3_") && !name.startsWith("aws_"),
+                },
+                {
+                  id: "s3",
+                  title: "S3 Storage",
+                  separator: true,
+                  match: (name) =>
+                    name.startsWith("s3_") || name.startsWith("aws_"),
+                },
+              ]}
             />
           )}
 

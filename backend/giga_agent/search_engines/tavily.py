@@ -20,7 +20,7 @@ class TavilySearchEngine(BaseSearchEngine):
         default="basic",
         description="Search depth preset (e.g. basic/advanced)",
     )
-    max_results: int = Field(default=5, ge=1, description="Max results per query123213")
+    max_results: int = Field(default=5, ge=1, description="Max results per query")
     topic: str | None = Field(default=None, description="Optional topic hint")
 
     _api_key: str | None = PrivateAttr(default=None)

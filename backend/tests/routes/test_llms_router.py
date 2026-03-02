@@ -426,6 +426,60 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         mocked_check.assert_not_awaited()
 
+    def test_get_llm_settings_schema_success(self):
+        schema_payload = {
+            "type": "object",
+            "properties": {"temperature": {"type": "number"}},
+        }
+
+        class _SchemaStub:
+            @classmethod
+            def model_json_schema(cls):
+                return schema_payload
+
+        class _RuntimeStub:
+            @classmethod
+            def settings_schema(cls):
+                return _SchemaStub
+
+        with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+            return_value=_RuntimeStub,
+        ) as mocked_resolve:
+            response = self.client.get("/llms/types/openai/settings-schema")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), schema_payload)
+        self.assertEqual(mocked_resolve.call_args.args[0], "openai")
+
+    def test_get_llm_settings_schema_returns_422_for_unknown_type(self):
+        response = self.client.get("/llms/types/unknown-runtime/settings-schema")
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("Unknown llm type", response.json()["detail"])
+
+    def test_settings_schema_route_not_shadowed_by_llm_id_route(self):
+        schema_payload = {"type": "object", "properties": {}}
+
+        class _SchemaStub:
+            @classmethod
+            def model_json_schema(cls):
+                return schema_payload
+
+        class _RuntimeStub:
+            @classmethod
+            def settings_schema(cls):
+                return _SchemaStub
+
+        with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+            return_value=_RuntimeStub,
+        ):
+            response = self.client.get("/llms/types/gigachat/settings-schema")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), schema_payload)
+
     def test_models_route_not_shadowed_by_llm_id_route(self):
         connector = self._connector_obj()
         connector_runtime = types.SimpleNamespace(

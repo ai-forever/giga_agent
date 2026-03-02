@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
-import { Input, SecretInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -19,13 +19,13 @@ import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
+import SchemaFields from "./forms/schema-fields";
 import type {
   ConnectorResponse,
   ConnectorSettings,
   ConnectorType,
   ConnectorTypeMeta,
   JsonSchema,
-  JsonSchemaProperty,
   ResourcePermissionsDraft,
 } from "./forms/types";
 import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
@@ -35,192 +35,12 @@ import {
   stableStringify,
   toPermissionsApiPayload,
 } from "./forms/resource-permissions-utils";
+import { compactObject } from "./forms/schema-fields-utils";
 
 type FormMode = "create" | "edit";
-type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
 
 const MANAGED_CONNECTOR_TYPES: ConnectorType[] = ["openai", "gigachat"];
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
-
-function compactObject(
-  values: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value !== undefined),
-  );
-}
-
-function isSecretField(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("key") ||
-    lower.includes("secret") ||
-    lower.includes("password") ||
-    lower.includes("token") ||
-    lower.includes("credential")
-  );
-}
-
-function fieldLabel(name: string, property: JsonSchemaProperty): string {
-  if (property.title) return property.title;
-  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function isFieldRequired(name: string, schema: JsonSchema): boolean {
-  return schema.required?.includes(name) ?? false;
-}
-
-function resolvePropertyType(
-  property: JsonSchemaProperty,
-): SupportedPropertyType {
-  const directType = property.type;
-  if (
-    directType === "string" ||
-    directType === "number" ||
-    directType === "integer" ||
-    directType === "boolean"
-  ) {
-    return directType;
-  }
-
-  for (const option of property.anyOf || []) {
-    const optionType = option.type;
-    if (
-      optionType === "string" ||
-      optionType === "number" ||
-      optionType === "integer" ||
-      optionType === "boolean"
-    ) {
-      return optionType;
-    }
-  }
-
-  return "string";
-}
-
-interface DynamicSettingsFormProps {
-  schema: JsonSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-  disabled?: boolean;
-}
-
-const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
-  schema,
-  values,
-  onChange,
-  disabled,
-}) => {
-  const entries = Object.entries(schema.properties || {});
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Для этого типа нет дополнительных настроек.
-      </p>
-    );
-  }
-
-  const setFieldValue = (name: string, value: unknown) => {
-    onChange({ ...values, [name]: value });
-  };
-
-  return (
-    <div className="space-y-4">
-      {entries.map(([name, property]) => {
-        const propertyType = resolvePropertyType(property);
-        const required = isFieldRequired(name, schema);
-        const rawValue = values[name] ?? property.default;
-
-        if (propertyType === "boolean") {
-          return (
-            <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`connector-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Switch
-                id={`connector-setting-${name}`}
-                checked={Boolean(rawValue)}
-                onCheckedChange={(checked) => setFieldValue(name, checked)}
-                disabled={disabled}
-              />
-            </div>
-          );
-        }
-
-        if (propertyType === "number" || propertyType === "integer") {
-          const value = typeof rawValue === "number" ? String(rawValue) : "";
-          return (
-            <div key={name} className="space-y-1.5">
-              <Label htmlFor={`connector-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Input
-                id={`connector-setting-${name}`}
-                type="number"
-                step={propertyType === "integer" ? 1 : "any"}
-                value={value}
-                placeholder={
-                  property.default !== undefined ? String(property.default) : ""
-                }
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (nextValue === "") {
-                    setFieldValue(name, undefined);
-                    return;
-                  }
-                  const parsed =
-                    propertyType === "integer"
-                      ? parseInt(nextValue, 10)
-                      : parseFloat(nextValue);
-                  setFieldValue(
-                    name,
-                    Number.isNaN(parsed) ? undefined : parsed,
-                  );
-                }}
-                disabled={disabled}
-              />
-              {property.description && (
-                <p className="text-xs text-muted-foreground">
-                  {property.description}
-                </p>
-              )}
-            </div>
-          );
-        }
-
-        const InputComponent = isSecretField(name) ? SecretInput : Input;
-        const value = typeof rawValue === "string" ? rawValue : "";
-
-        return (
-          <div key={name} className="space-y-1.5">
-            <Label htmlFor={`connector-setting-${name}`}>
-              {fieldLabel(name, property)}
-              {required && <span className="text-destructive ml-1">*</span>}
-            </Label>
-            <InputComponent
-              id={`connector-setting-${name}`}
-              value={value}
-              placeholder={
-                property.description ||
-                (property.default !== undefined ? String(property.default) : "")
-              }
-              onChange={(e) => setFieldValue(name, e.target.value || undefined)}
-              disabled={disabled}
-            />
-            {property.description && (
-              <p className="text-xs text-muted-foreground">
-                {property.description}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 interface ConnectorItemProps {
   connector: ConnectorResponse;
@@ -394,11 +214,12 @@ const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
               Загрузка настроек...
             </div>
           ) : (
-            <DynamicSettingsForm
+            <SchemaFields
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={onSettingsChange}
               disabled={saving}
+              idPrefix="connector-setting"
             />
           )}
         </div>

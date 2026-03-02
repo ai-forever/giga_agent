@@ -20,6 +20,7 @@ export interface ConnectorSettings {
 }
 
 export interface LLMSettings {
+  [key: string]: unknown;
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
@@ -86,7 +87,14 @@ export interface JsonSchemaProperty {
   title?: string;
   description?: string;
   default?: unknown;
-  anyOf?: { type?: string }[];
+  enum?: Array<string | number | boolean | null>;
+  oneOf?: { const?: unknown; title?: string; type?: string }[];
+  anyOf?: {
+    type?: string;
+    const?: unknown;
+    title?: string;
+    enum?: unknown[];
+  }[];
 }
 
 export interface JsonSchema {
