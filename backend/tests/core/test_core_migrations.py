@@ -8,7 +8,8 @@ from giga_agent.core.migrations import apply_migrations
 class CoreMigrationsTests(unittest.TestCase):
     def test_apply_migrations_uses_custom_target(self):
         agent = types.SimpleNamespace(all_modules=[])
-        alembic_cfg = object()
+        alembic_cfg = Mock()
+        alembic_cfg.set_section_config = Mock(return_value=None)
 
         with patch(
             "giga_agent.core.migrations._get_core_models_migration_path",
@@ -35,6 +36,7 @@ class CoreMigrationsTests(unittest.TestCase):
     def test_apply_migrations_uses_heads_by_default(self):
         agent = types.SimpleNamespace(all_modules=[])
         alembic_cfg = Mock()
+        alembic_cfg.set_section_config = Mock(return_value=None)
 
         with patch(
             "giga_agent.core.migrations._get_core_models_migration_path",

@@ -83,15 +83,6 @@ class CLISubgraphsTests(unittest.TestCase):
             captured["http"],
             {
                 "app": "giga_agent.agents.run:app",
-                "cors": {
-                    "allow_origins": [],
-                    "allow_methods": ["*"],
-                    "allow_headers": ["*"],
-                    "allow_credentials": True,
-                    "allow_origin_regex": ".*",
-                    "expose_headers": [],
-                    "max_age": 600,
-                },
             },
         )
 

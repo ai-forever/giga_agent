@@ -10,46 +10,49 @@ from giga_agent.core.agent.base import BaseAgent
 
 class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
     def _build_agent(self) -> BaseAgent:
+        return BaseAgent(modules=[], tools=[])
+
+    async def test_lifespan_runs_migrations_before_startup_hooks(self):
         with patch.dict(
             os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
         ):
-            return BaseAgent(modules=[], tools=[])
+            agent = self._build_agent()
+            call_order: list[str] = []
 
-    async def test_lifespan_runs_migrations_before_startup_hooks(self):
-        agent = self._build_agent()
-        call_order: list[str] = []
+            async def _run_migrations(*_args, **_kwargs):
+                call_order.append("migrations")
 
-        async def _run_migrations(*_args, **_kwargs):
-            call_order.append("migrations")
+            async def _run_hooks(*_args, **_kwargs):
+                call_order.append("hooks")
 
-        async def _run_hooks(*_args, **_kwargs):
-            call_order.append("hooks")
+            with patch.object(
+                BaseAgent,
+                "run_startup_migrations",
+                AsyncMock(side_effect=_run_migrations),
+            ) as run_migrations, patch.object(
+                BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
+            ) as run_hooks:
+                async with agent.app.router.lifespan_context(agent.app):
+                    pass
 
-        with patch.object(
-            BaseAgent,
-            "run_startup_migrations",
-            AsyncMock(side_effect=_run_migrations),
-        ) as run_migrations, patch.object(
-            BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
-        ) as run_hooks:
-            async with agent.app.router.lifespan_context(agent.app):
-                pass
-
-        run_migrations.assert_awaited_once()
-        run_hooks.assert_awaited_once()
-        self.assertEqual(call_order, ["migrations", "hooks"])
+            run_migrations.assert_awaited_once()
+            run_hooks.assert_awaited_once()
+            self.assertEqual(call_order, ["migrations", "hooks"])
 
     async def test_lifespan_fails_fast_when_migrations_fail(self):
         agent = self._build_agent()
 
-        with patch.object(
-            BaseAgent,
-            "run_startup_migrations",
-            AsyncMock(side_effect=RuntimeError("boom")),
-        ), patch.object(BaseAgent, "run_startup_hooks", AsyncMock()) as run_hooks:
-            with self.assertRaises(RuntimeError):
-                async with agent.app.router.lifespan_context(agent.app):
-                    pass
+        with patch.dict(
+            os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
+        ):
+            with patch.object(
+                BaseAgent,
+                "run_startup_migrations",
+                AsyncMock(side_effect=RuntimeError("boom")),
+            ), patch.object(BaseAgent, "run_startup_hooks", AsyncMock()) as run_hooks:
+                with self.assertRaises(RuntimeError):
+                    async with agent.app.router.lifespan_context(agent.app):
+                        pass
 
         run_hooks.assert_not_awaited()
 

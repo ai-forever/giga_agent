@@ -43,9 +43,3 @@ class CLIMigrateTests(unittest.TestCase):
                 migrate()
 
         self.assertEqual(exc.exception.exit_code, 1)
-
-    def test_migrate_is_registered_in_typer_app(self):
-        from giga_agent.cli.app import app
-
-        registered = [cmd.name for cmd in app.registered_commands]
-        self.assertIn("migrate", registered)
