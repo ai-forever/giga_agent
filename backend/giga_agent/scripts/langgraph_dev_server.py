@@ -75,7 +75,7 @@ def main() -> int:
     host = settings.giga_agent_langgraph_dev_host
     port = settings.giga_agent_langgraph_dev_port
     reload_enabled = settings.giga_agent_langgraph_dev_reload
-    log_level = settings.giga_agent_langgraph_dev_log_level
+    log_level = settings.giga_agent_log_level
 
     graphs_json = settings.giga_agent_langgraph_dev_graphs_json
     auth_path = settings.giga_agent_langgraph_dev_auth_path

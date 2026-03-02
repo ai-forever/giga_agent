@@ -61,7 +61,7 @@ def _run_langgraph_server_in_subprocess(
     env["GIGA_AGENT_LANGGRAPH_DEV_AUTH_PATH"] = auth_path
     env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_APP"] = str(http_config.get("app", ""))
     env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_CONFIG_JSON"] = json.dumps(http_config)
-    env["GIGA_AGENT_LANGGRAPH_DEV_LOG_LEVEL"] = log_level
+    env["GIGA_AGENT_LOG_LEVEL"] = log_level
     from giga_agent.conf import GIGA_AGENT_UI
 
     if GIGA_AGENT_UI:
@@ -182,6 +182,7 @@ def dev(
         )
 
     setup_cli_logging(log_level.value.upper())
+    os.environ.setdefault("GIGA_AGENT_LOG_LEVEL", log_level.value)
 
     from giga_agent.core.paths import ensure_giga_agent_dir
 

@@ -37,3 +37,13 @@ class ConfSettingsTests(unittest.TestCase):
         with self._patched_env({"GIGA_AGENT_SECRET_KEY": "second"}, clear=True):
             settings = get_settings()
             self.assertEqual(settings.giga_agent_secret_key, "second")
+
+    def test_reads_giga_agent_log_level(self):
+        with self._patched_env({"GIGA_AGENT_LOG_LEVEL": "debug"}, clear=True):
+            settings = get_settings()
+            self.assertEqual(settings.giga_agent_log_level, "DEBUG")
+
+    def test_uses_default_log_level(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertEqual(settings.giga_agent_log_level, "INFO")

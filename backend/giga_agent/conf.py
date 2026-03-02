@@ -68,9 +68,7 @@ class Settings(BaseSettings):
     giga_agent_langgraph_dev_reload: bool = Field(
         True, alias="GIGA_AGENT_LANGGRAPH_DEV_RELOAD"
     )
-    giga_agent_langgraph_dev_log_level: str = Field(
-        "INFO", alias="GIGA_AGENT_LANGGRAPH_DEV_LOG_LEVEL"
-    )
+    giga_agent_log_level: str = Field("INFO", alias="GIGA_AGENT_LOG_LEVEL")
     giga_agent_langgraph_dev_graphs_json: str = Field(
         "{}", alias="GIGA_AGENT_LANGGRAPH_DEV_GRAPHS_JSON"
     )
@@ -187,7 +185,7 @@ class Settings(BaseSettings):
             cleaned += "/"
         return cleaned
 
-    @field_validator("giga_agent_langgraph_dev_log_level", mode="after")
+    @field_validator("giga_agent_log_level", mode="after")
     @classmethod
     def _normalize_log_level(cls, value: str) -> str:
         return (value or "INFO").upper()

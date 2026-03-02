@@ -13,7 +13,7 @@ from giga_agent.conf import (
     get_settings,
 )
 from giga_agent.core.db import get_session_factory
-from giga_agent.core.logging import get_logger
+from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.migrations import apply_migrations
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
 from uuid import UUID
@@ -109,6 +109,8 @@ class BaseAgent(BaseModel):
 
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
+            settings = get_settings()
+            setup_cli_logging(settings.giga_agent_log_level)
             await self.run_startup_migrations()
             await self.run_startup_hooks()
             if self._idle_sandbox_sweeper is not None:
@@ -139,7 +141,8 @@ class BaseAgent(BaseModel):
 
             if module.get_api_router():
                 self._app.include_router(
-                    module.get_api_router(), prefix=f"{GIGA_AGENT_PREFIX_API}/{module.id}"
+                    module.get_api_router(),
+                    prefix=f"{GIGA_AGENT_PREFIX_API}/{module.id}",
                 )
 
         # Собираем middleware из модулей
