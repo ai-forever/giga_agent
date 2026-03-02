@@ -27,7 +27,9 @@ All services are orchestrated via `docker-compose.yml` (production) and `docker-
 
 - `.docker.env` must exist in the repo root before `make build_dev` / `make up_dev`. Copy from `env_examples/openai/.docker.env.example` or `env_examples/gigachat/.docker.env.example` and fill in API keys.
 - Run `make init_files` once to copy mock data into `files/`.
-- An LLM API key (`OPENAI_API_KEY` or `GIGACHAT_CREDENTIALS`) is required for the agent to respond to chat messages. Without it, the UI loads and accepts messages but returns an error.
+- GigaChat auth supports two modes: `GIGACHAT_CREDENTIALS` (OAuth token) OR `GIGACHAT_USER` + `GIGACHAT_PASSWORD` (basic auth). Both work; set the same creds for `MAIN_GIGACHAT_*` vars too.
+- If using `GIGACHAT_BASE_URL`, set it in `.docker.env` as well as `MAIN_GIGACHAT_BASE_URL`.
+- Without a valid LLM key, the UI loads and accepts messages but returns an error.
 
 ### Lint / Format / Build
 
