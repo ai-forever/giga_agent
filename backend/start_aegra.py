@@ -17,7 +17,7 @@ DEFAULT_POSTGRES_URL: Final[str] = (
 os.environ["DATABASE_URL"] = (
     "postgresql+asyncpg://postgres:postgres@localhost:5433/postgres"
 )
-os.environ["GIGA_AGENT_UI_PREFIX"] = "/ui"
+os.environ["GIGA_AGENT_UI"] = "0"
 os.environ["REDIS_URL"] = "redis://localhost:6379"
 os.environ["AEGRA_CONFIG"] = "langgraph.json"
 os.environ["AUTH_TYPE"] = "custom"

@@ -10,7 +10,12 @@ networks:
 
 services:
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: deployments/local/Dockerfile.frontend-nginx
+      args:
+        VITE_MCP_PROXY_URL: /proxy
+        VITE_LOG_LEVEL: info
     depends_on:
       giga-agent:
         condition: service_started
@@ -18,8 +23,6 @@ services:
       - giga-agent-net
     ports:
       - "8123:80"
-    volumes:
-      - ./deployments/local/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
 
   langgraph-redis:
     image: redis:6
@@ -92,7 +95,7 @@ services:
       MEM0_DIR: /tmp/.mem0
       AEGRA_CONFIG: /app/config/langgraph.json
       AUTH_TYPE: custom
-      GIGA_AGENT_UI_PREFIX: /ui
+      GIGA_AGENT_UI: "0"
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
       REDIS_URI: redis://langgraph-redis:6379
       REDIS_URL: redis://langgraph-redis:6379
@@ -101,8 +104,9 @@ services:
       GIGA_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:postgres@giga-agent-postgres:5432/postgres
       QDRANT_URL: http://qdrant:6333
       GIGA_AGENT_LANGGRAPH_API_URL: http://giga-agent:8000
-      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       GIGA_AGENT_PROJECT_ROOT: /.giga_agent
+      GIGA_AGENT_SECRET_KEY: ${GIGA_AGENT_SECRET_KEY:-local-dev-secret}
     volumes:
       - ./backend/langgraph.json:/app/config/langgraph.json:ro
       - ./deployments/aegra-startup.sh:/app/deployments/aegra-startup.sh:ro

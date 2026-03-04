@@ -10,21 +10,24 @@ networks:
 
 services:
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: deployments/local/Dockerfile.frontend-nginx
+      args:
+        VITE_MCP_PROXY_URL: /proxy
+        VITE_LOG_LEVEL: debug
     depends_on:
       giga-agent:
         condition: service_started
     networks:
-      - giga-agent-net-dev
+      - giga-agent-net
     ports:
       - "8123:80"
-    volumes:
-      - ./deployments/local/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
 
   langgraph-redis:
     image: redis:6
     networks:
-      - giga-agent-net-dev
+      - giga-agent-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -34,7 +37,7 @@ services:
   langgraph-postgres:
     image: postgres:16
     networks:
-      - giga-agent-net-dev
+      - giga-agent-net
     environment:
       POSTGRES_DB: aegra
       POSTGRES_USER: postgres
@@ -51,7 +54,7 @@ services:
   giga-agent-postgres:
     image: postgres:16
     networks:
-      - giga-agent-net-dev
+      - giga-agent-net
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
@@ -68,7 +71,7 @@ services:
   qdrant:
     image: qdrant/qdrant
     networks:
-      - giga-agent-net-dev
+      - giga-agent-net
     volumes:
       - ./qdrant_storage:/qdrant/storage
 
@@ -84,7 +87,7 @@ services:
       giga-agent-postgres:
         condition: service_healthy
     networks:
-      - giga-agent-net-dev
+      - giga-agent-net
     environment:
       HOME: /tmp
       MEM0_DIR: /tmp/.mem0
@@ -92,7 +95,7 @@ services:
       PYTHONPATH: /app/backend
       AEGRA_CONFIG: /app/backend/langgraph.json
       AUTH_TYPE: custom
-      GIGA_AGENT_UI_PREFIX: /ui
+      GIGA_AGENT_UI: "0"
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net-dev}
       REDIS_URI: redis://langgraph-redis:6379
       REDIS_URL: redis://langgraph-redis:6379
