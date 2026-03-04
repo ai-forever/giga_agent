@@ -42,9 +42,8 @@ async def create_meme(task: str, runtime: ToolRuntime):
 
     """
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
-    from langgraph_sdk import get_client
 
-    client = get_client()
+    client = get_client(runtime.config)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(
