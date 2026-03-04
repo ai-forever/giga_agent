@@ -85,7 +85,6 @@ services:
         condition: service_healthy
     env_file:
       - ./.env
-      - ./backend/.env
     networks:
       - giga-agent-net
     environment:
