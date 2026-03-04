@@ -172,7 +172,12 @@ const DemoChat = ({
               />
             )}
           </MessageList>
-          <InputArea thread={thread} />
+          <InputArea
+            thread={
+              // @ts-ignore
+              thread
+            }
+          />
         </div>
         <DemoToolBar isFinished={isFinished} onContinue={handleContinueDemo} />
       </div>
