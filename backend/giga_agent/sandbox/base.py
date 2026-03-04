@@ -44,6 +44,8 @@ class BaseSandbox(BaseModel, ABC):
     """Абстрактный базовый класс для виртуальных окружений."""
 
     max_active_sandboxes: int | None = None
+    sandbox_id: uuid.UUID | None = None
+    provider_id: uuid.UUID | None = None
 
     # Поля, управляемые системой (менеджером/БД), а НЕ пользовательскими settings.
     # Подклассы могут расширять через: _runtime_fields = BaseSandbox._runtime_fields | {"my_field"}
@@ -52,6 +54,8 @@ class BaseSandbox(BaseModel, ABC):
         "headers",  # внутренний для JupyterSandbox
         "idle_timeout",  # из SandboxProvider.idle_timeout (DB column)
         "external_id",  # из Sandbox.external_id (DB column)
+        "sandbox_id",  # из Sandbox.id (DB column)
+        "provider_id",  # из Sandbox.provider_id (DB column)
     }
 
     @classmethod

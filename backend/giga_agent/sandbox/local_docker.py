@@ -8,6 +8,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
+import aiofiles
+import aiofiles.os
 import docker
 from docker.errors import NotFound
 from docker.types import Ulimit
@@ -90,10 +92,6 @@ class LocalDockerSandbox(JupyterSandbox):
         default_factory=lambda: get_settings().giga_agent_local_docker_readonly_rootfs,
         description="Run container with readonly root filesystem",
     )
-    allow_network: bool = Field(
-        default_factory=lambda: get_settings().giga_agent_local_docker_allow_network,
-        description="Allow container network access",
-    )
 
     external_id: Optional[str] = Field(
         default=None,
@@ -123,6 +121,30 @@ class LocalDockerSandbox(JupyterSandbox):
     _container: Any = PrivateAttr(default=None)
     _sandbox_root_dir: Path = PrivateAttr(default_factory=Path)
 
+    def _docker_network(self) -> str | None:
+        return get_settings().giga_agent_docker_network
+
+    def _container_name(self) -> str:
+        if self.sandbox_id is None:
+            raise RuntimeError("sandbox_id is required for docker network mode")
+        return f"giga-sandbox-{self.sandbox_id}"
+
+    def _internal_base_url(self) -> str:
+        return f"http://{self._container_name()}:{JUPYTER_PORT}"
+
+    @staticmethod
+    def _get_env_value(container: Any, key: str) -> str | None:
+        try:
+            env = (container.attrs.get("Config") or {}).get("Env") or []
+        except Exception:
+            return None
+        for item in env:
+            if not isinstance(item, str):
+                continue
+            if item.startswith(f"{key}="):
+                return item.split("=", 1)[1]
+        return None
+
     def model_post_init(self, __context: Any) -> None:
         self._client = docker.from_env()
         root_dir = get_settings().giga_agent_local_docker_files_path
@@ -131,17 +153,20 @@ class LocalDockerSandbox(JupyterSandbox):
         self._sandbox_root_dir = root_dir
         if self.jupyter_token:
             self._token = self.jupyter_token
+        if self._docker_network() and not self.base_url and self.sandbox_id is not None:
+            self.base_url = self._internal_base_url()
 
     @classmethod
     def has_limit_cls(cls) -> bool:
         return True
 
     def get_connection_settings(self) -> dict:
-        return {
+        settings: dict[str, Any] = {
             "external_id": self.external_id,
             "jupyter_token": self._token,
             "host_port": self.host_port,
         }
+        return {k: v for k, v in settings.items() if v is not None}
 
     @classmethod
     async def validate_settings(cls, settings: dict) -> dict:
@@ -204,11 +229,46 @@ class LocalDockerSandbox(JupyterSandbox):
         if self.owner_id is None:
             raise RuntimeError("owner_id is required for local_docker runtime")
 
-        self._token = secrets.token_urlsafe(13)
-        self.jupyter_token = self._token
+        docker_network = self._docker_network()
+
+        if docker_network:
+            self.base_url = self._internal_base_url()
+            container_name = self._container_name()
+            try:
+                existing = self._client.containers.get(container_name)
+            except NotFound:
+                existing = None
+
+            if existing is not None:
+                existing.reload()
+                token = (
+                    self.jupyter_token
+                    or getattr(self, "_token", None)
+                    or self._get_env_value(existing, "JUPYTER_TOKEN")
+                )
+                if token:
+                    self._token = token
+                    self.jupyter_token = token
+
+                self._container = existing
+                self.external_id = existing.id
+
+                if await super().is_up():
+                    return
+
+                try:
+                    existing.remove(force=True)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"Existing sandbox container '{container_name}' is unhealthy "
+                        f"and could not be removed: {e}"
+                    ) from e
 
         user_root = self._user_root_dir(self.owner_id)
         user_root.mkdir(parents=True, exist_ok=True)
+
+        self._token = secrets.token_urlsafe(13)
+        self.jupyter_token = self._token
 
         envs = {
             "JUPYTER_TOKEN": self._token,
@@ -216,18 +276,33 @@ class LocalDockerSandbox(JupyterSandbox):
             "IPYTHONDIR": "/tmp/ipython",
             "MATPLOTLIBRC": "/tmp/matplotlibrc",
         }
-        docker_path = str(
-            Path("/Users/mikelarg/PycharmProjects/giga_agent")
-            / str(user_root).lstrip("\/")
-        )
+        settings = get_settings()
+        bind_source = user_root
+        if settings.giga_agent_host_project_path is not None:
+            giga_dir = ensure_giga_agent_dir()
+            try:
+                rel_under_giga_dir = user_root.relative_to(giga_dir)
+            except ValueError as e:
+                raise ValueError(
+                    "GIGA_AGENT_HOST_PROJECT_PATH is set, so local sandbox files must "
+                    "be stored under `.giga_agent` to be mappable to the host project "
+                    f"path. Got sandbox_path='{user_root}', giga_agent_dir='{giga_dir}'. "
+                    "Use default location under `.giga_agent` or adjust "
+                    "GIGA_AGENT_LOCAL_DOCKER_FILES_PATH to be inside `.giga_agent`."
+                ) from e
+
+            bind_source = (
+                settings.giga_agent_host_project_path
+                / ".giga_agent"
+                / rel_under_giga_dir
+            )
         run_kwargs: dict[str, Any] = {
             "command": "sleep infinity",
             "detach": True,
             "remove": True,
             "environment": envs,
-            "ports": {f"{JUPYTER_PORT}/tcp": None},
             "volumes": {
-                str(user_root): {"bind": BUCKET_PREFIX.rstrip("/"), "mode": "rw"}
+                str(bind_source): {"bind": BUCKET_PREFIX.rstrip("/"), "mode": "rw"}
             },
             "nano_cpus": int(self.vcpu * 1_000_000_000),
             "mem_limit": f"{self.memory_limit_mb}m",
@@ -239,8 +314,11 @@ class LocalDockerSandbox(JupyterSandbox):
             ],
             "read_only": self.enforce_readonly_rootfs,
         }
-        if not self.allow_network:
-            run_kwargs["network_mode"] = "none"
+        if docker_network:
+            run_kwargs["name"] = self._container_name()
+            run_kwargs["network"] = docker_network
+        else:
+            run_kwargs["ports"] = {f"{JUPYTER_PORT}/tcp": None}
         if self.enforce_readonly_rootfs:
             run_kwargs["tmpfs"] = {
                 "/tmp": "rw,exec,nosuid,size=512m",
@@ -259,13 +337,17 @@ class LocalDockerSandbox(JupyterSandbox):
 
         self.external_id = self._container.id
         self._container.reload()
-        ports = self._container.attrs["NetworkSettings"]["Ports"]
-        binding = ports.get(f"{JUPYTER_PORT}/tcp")
-        if not binding:
-            raise RuntimeError(f"Could not find mapped port for {JUPYTER_PORT}")
+        if docker_network:
+            self.host_port = None
+            self.base_url = self._internal_base_url()
+        else:
+            ports = self._container.attrs["NetworkSettings"]["Ports"]
+            binding = ports.get(f"{JUPYTER_PORT}/tcp")
+            if not binding:
+                raise RuntimeError(f"Could not find mapped port for {JUPYTER_PORT}")
 
-        self.host_port = int(binding[0]["HostPort"])
-        self.base_url = f"http://localhost:{self.host_port}"
+            self.host_port = int(binding[0]["HostPort"])
+            self.base_url = f"http://localhost:{self.host_port}"
 
         cmd = (
             f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
@@ -311,6 +393,12 @@ class LocalDockerSandbox(JupyterSandbox):
             self._container = None
 
     async def is_up(self) -> bool:
+        if (
+            not self.base_url
+            and self._docker_network()
+            and self.sandbox_id is not None
+        ):
+            self.base_url = self._internal_base_url()
         if not self.base_url and self.host_port:
             self.base_url = f"http://localhost:{self.host_port}"
         if not self.base_url and self.external_id:
@@ -329,7 +417,8 @@ class LocalDockerSandbox(JupyterSandbox):
         rel_path = self._validate_relative_file_name(file_name)
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        async with aiofiles.open(target, "wb") as f:
+            await f.write(content)
         return f"{BUCKET_PREFIX}{rel_path.as_posix()}"
 
     def requires_running_for_upload(self) -> bool:
@@ -355,7 +444,8 @@ class LocalDockerSandbox(JupyterSandbox):
                     content_length=size,
                 )
 
-            data = local_path.read_bytes()
+            async with aiofiles.open(local_path, "rb") as f:
+                data = await f.read()
             return ContentResult(data=data, media_type=media_type, inline=inline)
 
         await self._ensure_container_connected()
@@ -384,8 +474,10 @@ class LocalDockerSandbox(JupyterSandbox):
     async def delete_file(self, sandbox_path: str) -> None:
         if self._is_bucket_path(sandbox_path):
             local_path = self._local_path_from_bucket_path(sandbox_path)
-            if local_path.exists():
-                local_path.unlink()
+            try:
+                await aiofiles.os.remove(local_path)
+            except FileNotFoundError:
+                pass
             return
 
         await self._ensure_container_connected()
@@ -410,9 +502,9 @@ class LocalDockerSandbox(JupyterSandbox):
     async def _stream_local_file(
         self, path: Path, chunk_size: int = 1024 * 1024
     ) -> AsyncIterator[bytes]:
-        with path.open("rb") as f:
+        async with aiofiles.open(path, "rb") as f:
             while True:
-                chunk = f.read(chunk_size)
+                chunk = await f.read(chunk_size)
                 if not chunk:
                     break
                 yield chunk

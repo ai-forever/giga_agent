@@ -4,12 +4,18 @@ volumes:
   giga-agent-data:
     driver: local
 
+networks:
+  giga-agent-net:
+    name: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
+
 services:
   nginx:
     image: nginx:1.27-alpine
     depends_on:
       giga-agent:
         condition: service_started
+    networks:
+      - giga-agent-net
     ports:
       - "8123:80"
     volumes:
@@ -17,6 +23,8 @@ services:
 
   langgraph-redis:
     image: redis:6
+    networks:
+      - giga-agent-net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -25,6 +33,8 @@ services:
 
   langgraph-postgres:
     image: postgres:16
+    networks:
+      - giga-agent-net
     environment:
       POSTGRES_DB: aegra
       POSTGRES_USER: postgres
@@ -40,6 +50,8 @@ services:
 
   giga-agent-postgres:
     image: postgres:16
+    networks:
+      - giga-agent-net
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
@@ -55,6 +67,8 @@ services:
 
   qdrant:
     image: qdrant/qdrant
+    networks:
+      - giga-agent-net
     volumes:
       - ./qdrant_storage:/qdrant/storage
 
@@ -72,12 +86,15 @@ services:
     env_file:
       - ./.env
       - ./backend/.env
+    networks:
+      - giga-agent-net
     environment:
       HOME: /tmp
       MEM0_DIR: /tmp/.mem0
       AEGRA_CONFIG: /app/config/langgraph.json
       AUTH_TYPE: custom
       GIGA_AGENT_UI_PREFIX: /ui
+      GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
       REDIS_URI: redis://langgraph-redis:6379
       REDIS_URL: redis://langgraph-redis:6379
       POSTGRES_URI: postgres://postgres:postgres@langgraph-postgres:5432/aegra?sslmode=disable

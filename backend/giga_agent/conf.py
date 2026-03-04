@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",
         alias="GIGA_AGENT_PROJECT_ROOT",
+    )
+    giga_agent_host_project_path: Path | None = Field(
+        None,
+        alias="GIGA_AGENT_HOST_PROJECT_PATH",
+        validation_alias=AliasChoices(
+            "GIGA_AGENT_HOST_PROJECT_PATH",
+            "GIGA_AGENT_HOSt_PROJECT_PATH",
+        ),
+    )
+    giga_agent_docker_network: str | None = Field(
+        None,
+        alias="GIGA_AGENT_DOCKER_NETWORK",
     )
     giga_agent_host: str | None = Field(None, alias="GIGA_AGENT_HOST")
     giga_agent_port: str | None = Field(None, alias="GIGA_AGENT_PORT")
@@ -124,9 +136,6 @@ class Settings(BaseSettings):
     giga_agent_local_docker_readonly_rootfs: bool = Field(
         False, alias="GIGA_AGENT_LOCAL_DOCKER_READONLY_ROOTFS"
     )
-    giga_agent_local_docker_allow_network: bool = Field(
-        True, alias="GIGA_AGENT_LOCAL_DOCKER_ALLOW_NETWORK"
-    )
     giga_agent_local_docker_files_path: Path | None = Field(
         None, alias="GIGA_AGENT_LOCAL_DOCKER_FILES_PATH"
     )
@@ -178,8 +187,19 @@ class Settings(BaseSettings):
         cleaned = value.strip()
         return cleaned or None
 
+    @field_validator("giga_agent_docker_network", mode="after")
+    @classmethod
+    def _normalize_docker_network(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
     @field_validator(
-        "giga_agent_project_root", "giga_agent_local_docker_files_path", mode="after"
+        "giga_agent_project_root",
+        "giga_agent_host_project_path",
+        "giga_agent_local_docker_files_path",
+        mode="after",
     )
     @classmethod
     def _expand_paths(cls, value: Path | None) -> Path | None:
