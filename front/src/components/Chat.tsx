@@ -91,10 +91,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
         <div className="flex max-w-[900px] mx-auto h-full flex-col flex-1 bg-card text-card-foreground rounded-lg overflow-hidden shadow-lg dark:shadow-2xl max-[900px]:shadow-none print:overflow-visible print:shadow-none dark:print:shadow-none">
           <MessageList messages={stableMessages ?? []} thread={thread} />
           <InputArea
-            thread={
-              // @ts-ignore
-              thread
-            }
+            // @ts-ignore
+            thread={thread}
           />
         </div>
       </div>
