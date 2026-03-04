@@ -1,4 +1,4 @@
-FROM mikelarg/aegra:0.0.8
+FROM mikelarg/aegra:0.0.9
 
 USER root
 
