@@ -9,7 +9,11 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from giga_agent.conf import GIGA_AGENT_FRONTEND_DIR, GIGA_AGENT_PREFIX_API
+from giga_agent.conf import (
+    GIGA_AGENT_FRONTEND_DIR,
+    GIGA_AGENT_PREFIX_API,
+    GIGA_AGENT_UI_PREFIX,
+)
 
 
 def _resolve_ui_dir(app: FastAPI) -> Path | None:
@@ -55,7 +59,6 @@ def _resolve_ui_dir(app: FastAPI) -> Path | None:
             ui_dir = Path(stack.enter_context(as_file(ui_root)))
             if (ui_dir / "index.html").is_file():
                 app.state._ui_resources_stack = stack
-                app.add_event_handler("shutdown", stack.close)
                 return ui_dir
             stack.close()
 
@@ -79,24 +82,44 @@ def mount_ui(app: FastAPI) -> None:
 
     index = ui_dir / "index.html"
     assets_dir = ui_dir / "assets"
-    reserved_prefixes = {
-        GIGA_AGENT_PREFIX_API.lstrip("/"),
-        "docs",
-        "redoc",
-    }
-    reserved_exact = {"openapi.json"}
+    ui_prefix = GIGA_AGENT_UI_PREFIX
+    # Reserved paths only matter when UI is mounted at root ("/") and would
+    # otherwise swallow API/docs routes.
+    reserved_prefixes = (
+        {
+            GIGA_AGENT_PREFIX_API.lstrip("/"),
+            "docs",
+            "redoc",
+        }
+        if not ui_prefix
+        else set()
+    )
+    reserved_exact = {"openapi.json"} if not ui_prefix else set()
 
     if assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="ui-assets")
+        assets_mount = f"{ui_prefix}/assets" if ui_prefix else "/assets"
+        app.mount(assets_mount, StaticFiles(directory=assets_dir), name="ui-assets")
 
-    @app.get("/", include_in_schema=False)
     def _ui_root():
         return FileResponse(index)
 
-    @app.get("/{path:path}", include_in_schema=False)
+    root_paths = []
+    if ui_prefix:
+        root_paths.extend([ui_prefix, f"{ui_prefix}/"])
+    else:
+        root_paths.append("/")
+    for root_path in dict.fromkeys(root_paths):
+        app.get(root_path, include_in_schema=False)(_ui_root)
+
+    spa_path = f"{ui_prefix}/{{path:path}}" if ui_prefix else "/{path:path}"
+
+    @app.get(spa_path, include_in_schema=False)
     def _ui_spa(path: str):
-        if path in reserved_exact or any(
-            path == prefix or path.startswith(f"{prefix}/") for prefix in reserved_prefixes
+        if reserved_exact and path in reserved_exact:
+            raise HTTPException(status_code=404)
+        if reserved_prefixes and any(
+            path == prefix or path.startswith(f"{prefix}/")
+            for prefix in reserved_prefixes
         ):
             raise HTTPException(status_code=404)
         if path:

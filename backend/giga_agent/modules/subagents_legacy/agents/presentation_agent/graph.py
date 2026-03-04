@@ -7,7 +7,6 @@ from langchain_core.tools import tool
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph_sdk import get_client
 
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
@@ -25,6 +24,7 @@ from giga_agent.modules.subagents_legacy.agents.presentation_agent.nodes.slides 
 )
 from giga_agent.modules.subagents_legacy.runtime import with_auth_from_runtime
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
+from giga_agent.utils.langgraph_sdk import get_client
 from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(PresentationState, ConfigSchema)
@@ -55,7 +55,7 @@ async def generate_presentation(
         presentation_task: Описание презентации
 
     """
-    client = get_client()
+    client = get_client(runtime.config)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(

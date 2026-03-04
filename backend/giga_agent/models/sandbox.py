@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Any
 
@@ -628,12 +628,19 @@ class SandboxRepository:
             .where(Sandbox.last_activity_at.isnot(None))
         )
         sandboxes = result.scalars().all()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         return [
             s
             for s in sandboxes
-            if (now - s.last_activity_at).total_seconds()
+            if (
+                now
+                - (
+                    s.last_activity_at.replace(tzinfo=timezone.utc)
+                    if s.last_activity_at.tzinfo is None
+                    else s.last_activity_at.astimezone(timezone.utc)
+                )
+            ).total_seconds()
             > s.provider.idle_timeout
         ]
 
@@ -686,7 +693,7 @@ class SandboxRepository:
         """Обновить время последней активности."""
         sandbox = await self.get_by_id(sandbox_id)
         if sandbox:
-            sandbox.last_activity_at = datetime.utcnow()
+            sandbox.last_activity_at = datetime.now(timezone.utc)
             await self.db.commit()
 
     async def set_status(
@@ -696,7 +703,7 @@ class SandboxRepository:
     ) -> Sandbox:
         """Обновить статус sandbox'а с автоматическим проставлением timestamps."""
         sandbox.status = status
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if status == SandboxStatus.RUNNING:
             sandbox.started_at = now

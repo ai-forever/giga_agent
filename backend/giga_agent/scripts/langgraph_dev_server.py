@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from pathlib import Path
 
 import uvicorn
 
@@ -63,6 +64,38 @@ def _patch_uvicorn_log_suppression(*, desired_level: str) -> None:
     uvicorn.run = _uvicorn_run_with_suppression
 
 
+def _build_reload_excludes() -> list[str]:
+    """
+    Build reload excludes for uvicorn watchfiles.
+
+    Uvicorn treats excludes that exist as directories specially (exclude_dirs) and compares
+    them against absolute changed-path parents. Relative directory paths won't match, and
+    non-existent absolute paths can be misclassified as glob patterns (which can raise
+    NotImplementedError in Python's Path.match for absolute patterns).
+    """
+    cwd = Path.cwd()
+
+    candidates = [
+        cwd / ".giga_agent",
+        cwd / ".langgraph_api",
+    ]
+
+    excludes: list[str] = []
+    seen: set[str] = set()
+    for p in candidates:
+        try:
+            if not p.is_dir():
+                continue
+            resolved = str(p.resolve())
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        excludes.append(resolved)
+    return excludes
+
+
 def main() -> int:
     try:
         from langgraph_api.cli import run_server  # type: ignore
@@ -109,12 +142,14 @@ def main() -> int:
 
     setup_cli_logging(log_level)
     _patch_uvicorn_log_suppression(desired_level=log_level)
+    reload_excludes = _build_reload_excludes()
 
     run_server(
         host,
         port,
         reload_enabled,
         graphs,
+        reload_excludes=reload_excludes,
         auth={"path": auth_path},
         http=http_config,
         allow_blocking=True,

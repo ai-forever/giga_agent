@@ -87,7 +87,7 @@ def _preload_models() -> dict[str, Any]:
     return preloaded
 
 
-_PRELOADED_SENTIMENT_MODELS: dict[str, Any] = _preload_models()
+# _PRELOADED_SENTIMENT_MODELS: dict[str, Any] = _preload_models()
 
 
 async def _resolve_user_embeddings(

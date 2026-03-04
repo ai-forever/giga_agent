@@ -216,7 +216,10 @@ class LocalDockerSandbox(JupyterSandbox):
             "IPYTHONDIR": "/tmp/ipython",
             "MATPLOTLIBRC": "/tmp/matplotlibrc",
         }
-
+        docker_path = str(
+            Path("/Users/mikelarg/PycharmProjects/giga_agent")
+            / str(user_root).lstrip("\/")
+        )
         run_kwargs: dict[str, Any] = {
             "command": "sleep infinity",
             "detach": True,

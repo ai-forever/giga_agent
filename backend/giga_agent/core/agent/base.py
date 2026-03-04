@@ -7,6 +7,8 @@ from cashews import cache
 from fastapi import FastAPI
 from giga_agent.conf import (
     GIGA_AGENT_PREFIX_API,
+    GIGA_AGENT_UI,
+    GIGA_AGENT_UI_PREFIX,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
@@ -125,6 +127,9 @@ class BaseAgent(BaseModel):
             finally:
                 if self._idle_sandbox_sweeper is not None:
                     await self._idle_sandbox_sweeper.stop()
+                stack = getattr(_app.state, "_ui_resources_stack", None)
+                if stack is not None:
+                    stack.close()
                 await shutdown_qdrant_client()
 
         self._app = FastAPI(lifespan=_lifespan)
@@ -133,6 +138,12 @@ class BaseAgent(BaseModel):
 
         # Подключаем core routes
         self._app.include_router(api_router)
+
+        # If UI is enabled and a UI prefix is specified, mount UI endpoints into this app.
+        if GIGA_AGENT_UI and GIGA_AGENT_UI_PREFIX:
+            from giga_agent.ui import mount_ui
+
+            mount_ui(self._app)
 
         # Re-initialize modules through add_module to ensure validation and route registration
         default_modules = tuple(self.get_modules())

@@ -6,14 +6,13 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
-from langgraph_sdk import get_client
 
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
 from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository
-
+from giga_agent.utils.langgraph_sdk import get_client
 
 _TITLE_MAX_LEN = 80
 _MESSAGE_MAX_LEN = 1200
@@ -176,7 +175,7 @@ class ThreadTitleMiddleware(AgentMiddleware):
         title = await _generate_title(llm, first_message)
         metadata = {"thread_title": title}
         try:
-            client = get_client()
+            client = get_client(config)
             await client.threads.update(thread_id, metadata=metadata)
         except Exception:
             return None

@@ -7,7 +7,7 @@ name = "giga-agent"
 version = "0.1.0"
 description = "Modular Agent Framework"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
     { name = "Mikhail Murtazin", email = "murtazkorpaz@gmail.com" }
@@ -33,7 +33,7 @@ dependencies = [
     "bcrypt>=4.0.0",
     "pyjwt>=2.8.0",
     "python-multipart>=0.0.9",
-    "langgraph-api==0.7.28",
+    "langgraph-api==0.7.63",
     "langchain-openai>=1.1.6",
     "langchain-tavily>=0.2.11",
     "langchain-gigachat-lc1>=0.4.0b4",

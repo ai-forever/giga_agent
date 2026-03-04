@@ -8,7 +8,8 @@ from langgraph.config import RunnableConfig
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph_sdk import get_client
+
+from giga_agent.utils.langgraph_sdk import get_client
 
 warnings.filterwarnings(
     "ignore",
@@ -217,9 +218,9 @@ graph = workflow.compile()
 
 @tool
 async def podcast_generate(
+    runtime: ToolRuntime,
     url: str | None = None,
     use_messages: bool | None = None,
-    runtime: ToolRuntime = None,
 ):
     """Создает подкаст исходя из ссылки пользователя или вашей с ним переписки
     Тебе обязательно нужно указать либо url,
@@ -254,7 +255,7 @@ async def podcast_generate(
     if url:
         input_["url"] = url
 
-    client = get_client()
+    client = get_client(runtime.config)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     state = {}

@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 import os
 from pathlib import Path
+from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     giga_agent_prefix_api: str = Field("/agent", alias="GIGA_AGENT_PREFIX_API")
     giga_agent_frontend_dir: str | None = Field(None, alias="GIGA_AGENT_FRONTEND_DIR")
     giga_agent_ui: bool = Field(True, alias="GIGA_AGENT_UI")
+    giga_agent_ui_prefix: Optional[str] = Field(None, alias="GIGA_AGENT_UI_PREFIX")
 
     giga_agent_runtime: str = Field("local", alias="GIGA_AGENT_RUNTIME")
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
@@ -50,10 +52,16 @@ class Settings(BaseSettings):
         "admin@example.com",
         alias="GIGA_AGENT_ADMIN_EMAIL",
     )
-    giga_agent_admin_password: str = Field("admin", alias="GIGA_AGENT_ADMIN_PASSWORD")
-    giga_agent_secret_key: str = Field(
-        "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7",
+    giga_agent_admin_password: str = Field(
+        "giga_agent_admin", alias="GIGA_AGENT_ADMIN_PASSWORD"
+    )
+    giga_agent_secret_key: Optional[str] = Field(
+        None,
         alias="GIGA_AGENT_SECRET_KEY",
+    )
+
+    giga_agent_langgraph_api_url: str | None = Field(
+        None, alias="GIGA_AGENT_LANGGRAPH_API_URL"
     )
 
     giga_agent_langgraph_dev_uvicorn_app: str | None = Field(
@@ -245,6 +253,7 @@ GIGA_AGENT_PREFIX_API = get_settings().giga_agent_prefix_api
 GIGA_PREFIX_API = GIGA_AGENT_PREFIX_API
 GIGA_AGENT_FRONTEND_DIR = get_settings().giga_agent_frontend_dir
 GIGA_AGENT_UI = get_settings().giga_agent_ui
+GIGA_AGENT_UI_PREFIX = get_settings().giga_agent_ui_prefix
 
 GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED = (
     get_settings().giga_agent_sandbox_idle_sweeper_enabled

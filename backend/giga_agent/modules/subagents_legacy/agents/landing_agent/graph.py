@@ -12,7 +12,6 @@ from langchain_core.tools import tool
 from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph_sdk import get_client
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.file import FileResponse
@@ -44,6 +43,7 @@ from giga_agent.modules.subagents_legacy.runtime import (
     with_auth_from_runtime,
 )
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
+from giga_agent.utils.langgraph_sdk import get_client
 from giga_agent.utils.messages import filter_tool_messages
 
 
@@ -150,7 +150,7 @@ async def create_landing(
         нужно продолжить работу над веб-страницей
 
     """
-    client = get_client()
+    client = get_client(runtime.config)
     if not thread_id:
         thread = await client.threads.create()
         thread_id = thread["thread_id"]

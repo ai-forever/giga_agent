@@ -807,9 +807,8 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       </AlertDialog>
 
       {/* Opener button */}
-      <button
-        className="fixed top-5 left-5 z-[200] bg-transparent border-0 cursor-pointer flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden"
-        onClick={toggle}
+      <div
+        className="fixed top-5 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden"
       >
         <div
           className="h-10 bg-cover transition-[width] duration-300 ease-in-out"
@@ -819,12 +818,13 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           }}
         />
         <ChevronRight
+        onClick={toggle}
           style={{
             transform: settings.sideBarOpen ? "rotate(180deg)" : "rotate(0)",
-            marginLeft: "0.3rem",
+            marginLeft: "0.5rem",
           }}
         />
-      </button>
+      </div>
     </>
   );
 };
