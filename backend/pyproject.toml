@@ -40,7 +40,7 @@ dependencies = [
     "e2b>=2.13.2",
     "aioboto3>=15.5.0",
     "cashews[redis]>=7.0.0",
-    "deepagents==0.0.5",
+    "deepagents==0.4.0",
     "pydub>=0.25.1",
     "pillow>=12.1.1",
     "markdownify>=1.2.2",
@@ -58,6 +58,7 @@ dependencies = [
     "mem0ai>=0.1.115",
     "scikit-learn==1.6.1",
     "aiofiles>=25.1.0",
+    "redis==7.2.1",
 ]
 
 [project.scripts]
