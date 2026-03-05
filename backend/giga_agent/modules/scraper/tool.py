@@ -120,8 +120,9 @@ async def _resolve_fast_llm(runtime: ToolRuntime):
         llm_context = await LLMRepository.get_cached_or_db(llm_id, session=session)
         llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
     parallel_calls = max(1, int(llm_context.parallel_calls)) if llm_context else 1
+    llm = await llm_runtime.get_llm()
     return (
-        llm_runtime.llm.bind(top_p=0.3).with_config(tags=["nostream"]),
+        llm.bind(top_p=0.3).with_config(tags=["nostream"]),
         parallel_calls,
     )
 

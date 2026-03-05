@@ -145,7 +145,8 @@ async def predict_sentiments(
             f"Доступные sentiment модели: {available}."
         )
 
-    embs = await embedding_runtime.embeddings.aembed_documents(texts)
+    embeddings = await embedding_runtime.get_embeddings()
+    embs = await embeddings.aembed_documents(texts)
     matrix = np.vstack(embs).astype("float32")
     labels = probs_to_labels(clf.predict_proba(matrix), clf.classes_)
     return [str(label) for label in labels]
@@ -168,5 +169,6 @@ async def get_embeddings(
         raise ValueError("tool_runtime is required for get_embeddings.")
 
     embedding_runtime, _ = await _resolve_user_embeddings(tool_runtime)
-    embs = await embedding_runtime.embeddings.aembed_documents(texts)
+    embeddings = await embedding_runtime.get_embeddings()
+    embs = await embeddings.aembed_documents(texts)
     return [list(map(float, row)) for row in embs]

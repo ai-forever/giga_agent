@@ -170,7 +170,7 @@ class ThreadTitleMiddleware(AgentMiddleware):
                 return None
 
             llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-            llm = llm_runtime.llm
+            llm = await llm_runtime.get_llm()
 
         title = await _generate_title(llm, first_message)
         metadata = {"thread_title": title}

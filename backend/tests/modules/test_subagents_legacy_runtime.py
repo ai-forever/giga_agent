@@ -49,7 +49,7 @@ class SubagentsLegacyRuntimeTests(unittest.IsolatedAsyncioTestCase):
             image_generator_id=uuid.uuid4(),
         )
         session = object()
-        llm_runtime = types.SimpleNamespace(llm="llm")
+        llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value="llm"))
 
         with patch(
             "giga_agent.modules.subagents_legacy.runtime.LLMManager.resolve_by_id",

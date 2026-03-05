@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import abc
 import base64
-from functools import cached_property
 from typing import Any, ClassVar, Type
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from pydantic import BaseModel, ConfigDict, create_model
+from pydantic import BaseModel, ConfigDict, PrivateAttr, create_model
 
 from giga_agent.connectors.base import BaseConnector
 
@@ -40,6 +39,8 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         "connector",
         "model_id",
     }
+
+    _llm_instance: BaseChatModel | None = PrivateAttr(default=None)
 
     @classmethod
     @abc.abstractmethod
@@ -77,16 +78,29 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
     def _settings_payload(self) -> dict[str, Any]:
         return self.model_dump(exclude=self._runtime_fields, exclude_none=True)
 
-    @cached_property
-    def llm(self) -> BaseChatModel:
-        return self._llm()
+    async def get_llm(self) -> BaseChatModel:
+        """
+        Async-friendly access to the underlying LLM.
+
+        Default implementation caches the created model inside the runtime instance.
+        Providers with concurrency-sensitive initialization may override `get_llm()`
+        to add their own locking.
+        """
+        llm = self._llm_instance
+        if llm is not None:
+            return llm
+
+        llm = await self._create_llm()
+        self._llm_instance = llm
+        return llm
 
     @abc.abstractmethod
-    def _llm(self) -> BaseChatModel:
+    async def _create_llm(self) -> BaseChatModel:
         raise NotImplementedError
 
     async def check_connection(self) -> None:
-        await self.llm.ainvoke("ping")
+        llm = await self.get_llm()
+        await llm.ainvoke("ping")
 
     def can_analyze_image(self) -> bool:
         return True
@@ -100,7 +114,8 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
     ) -> str:
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         image_url = f"data:{mime_type};base64,{image_b64}"
-        response = await self.llm.ainvoke(
+        llm = await self.get_llm()
+        response = await llm.ainvoke(
             [
                 HumanMessage(
                     content=[

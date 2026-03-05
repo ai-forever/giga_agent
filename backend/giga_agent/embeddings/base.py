@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import abc
 import asyncio
-from functools import cached_property
 from typing import Any, ClassVar, Type
 
 from langchain_core.embeddings import Embeddings
-from pydantic import BaseModel, ConfigDict, create_model
+from pydantic import BaseModel, ConfigDict, PrivateAttr, create_model
 
 from giga_agent.connectors.base import BaseConnector
 
@@ -53,6 +52,8 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
         "vector_size",
     }
 
+    _embeddings_instance: Embeddings | None = PrivateAttr(default=None)
+
     @classmethod
     @abc.abstractmethod
     def supported_connector_types(cls) -> list[str]:
@@ -90,16 +91,20 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
         # Для runtime (build client) нужны ВСЕ embedding settings, включая скрытые.
         return self.model_dump(exclude=self._runtime_fields, exclude_none=True)
 
-    @cached_property
-    def embeddings(self) -> Embeddings:
-        return self._embeddings()
+    async def get_embeddings(self) -> Embeddings:
+        embeddings = self._embeddings_instance
+        if embeddings is not None:
+            return embeddings
+        embeddings = await self._create_embeddings()
+        self._embeddings_instance = embeddings
+        return embeddings
 
     @abc.abstractmethod
-    def _embeddings(self) -> Embeddings:
+    async def _create_embeddings(self) -> Embeddings:
         raise NotImplementedError
 
     async def check_connection(self) -> bool:
-        embeddings = self.embeddings
+        embeddings = await self.get_embeddings()
         if hasattr(embeddings, "aembed_query"):
             await embeddings.aembed_query("ping")
         else:

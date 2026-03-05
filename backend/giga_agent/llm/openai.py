@@ -43,7 +43,7 @@ class OpenAIRuntime(BaseLLMRuntime):
         except Exception as e:
             raise ModelFetchError("openai", str(e)) from e
 
-    def _llm(self) -> ChatOpenAI:
+    async def _create_llm(self) -> ChatOpenAI:
         connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
             raise ValueError(

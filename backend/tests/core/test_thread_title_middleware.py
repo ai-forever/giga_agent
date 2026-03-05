@@ -64,7 +64,7 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         llm.with_config = Mock(return_value=llm)
-        llm_runtime = types.SimpleNamespace(llm=llm)
+        llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
         @asynccontextmanager
         async def _session_context():
@@ -121,7 +121,7 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             ainvoke=AsyncMock(return_value=AIMessage(content="Выбор ноутбука"))
         )
         llm.with_config = Mock(return_value=llm)
-        llm_runtime = types.SimpleNamespace(llm=llm)
+        llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
         @asynccontextmanager
         async def _session_context():

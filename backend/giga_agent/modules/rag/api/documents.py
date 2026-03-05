@@ -93,7 +93,7 @@ async def documents_create(
             raise HTTPException(status_code=403, detail="Access denied")
 
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
-    embeddings = runtime.embeddings
+    embeddings = await runtime.get_embeddings()
     vector_size = int(runtime.vector_size)
     qdrant_client = get_qdrant_client()
     qdrant_collection = await resolve_qdrant_collection(
@@ -343,7 +343,7 @@ async def documents_search(
         raise HTTPException(status_code=404, detail="Collection not found")
 
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
-    embeddings = runtime.embeddings
+    embeddings = await runtime.get_embeddings()
     query_vector = (
         await embeddings.aembed_query(search_query.query)
         if hasattr(embeddings, "aembed_query")

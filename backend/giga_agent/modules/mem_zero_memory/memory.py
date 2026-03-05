@@ -98,11 +98,11 @@ async def _get_memory_for_user_with_embedding_id(
         embedding_id,
         session=session,
     )
-    embeddings = embedding_runtime.embeddings
+    embeddings = await embedding_runtime.get_embeddings()
     vector_size = int(embedding_runtime.vector_size)
 
     llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-    llm = llm_runtime.llm
+    llm = await llm_runtime.get_llm()
 
     collection_name = _mem0_collection_name_for_embedding(embedding_id)
     already_ensured = False

@@ -182,7 +182,7 @@ async def _probe_embedding_vector_size(
         vector_size=1,
         **embedding_settings,
     )
-    embeddings = runtime.embeddings
+    embeddings = await runtime.get_embeddings()
 
     try:
         if hasattr(embeddings, "aembed_query"):

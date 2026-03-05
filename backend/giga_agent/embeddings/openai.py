@@ -24,7 +24,7 @@ class OpenAIEmbeddingRuntime(BaseEmbeddingRuntime):
     def supported_connector_types(cls) -> list[str]:
         return ["openai"]
 
-    def _embeddings(self) -> OpenAIEmbeddings:
+    async def _create_embeddings(self) -> OpenAIEmbeddings:
         connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
             raise ValueError("Invalid connection settings for OpenAI embedding runtime")

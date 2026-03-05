@@ -489,7 +489,7 @@ def create_graph(
                 raise ValueError("User has no default LLM configured")
 
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
-            llm = llm_runtime.llm
+            llm = await llm_runtime.get_llm()
 
         if state["messages"] and state["messages"][-1].type == "human":
             last_message = state["messages"][-1]

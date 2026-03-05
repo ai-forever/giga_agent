@@ -32,7 +32,7 @@ async def _resolve_user_llm(tool_runtime: ToolRuntime):
             )
 
         llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-        return llm_runtime.llm
+        return await llm_runtime.get_llm()
 
 
 async def summarize(
