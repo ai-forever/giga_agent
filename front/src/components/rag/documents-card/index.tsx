@@ -204,11 +204,9 @@ export function DocumentsCard({
       <CardHeader className="flex w-full items-center justify-between">
         <div className="flex flex-col gap-2">
           <CardTitle>
-            Документы коллекции {getCollectionName(selectedCollection?.name)}
+            Документы папки {getCollectionName(selectedCollection?.name)}
           </CardTitle>
-          <CardDescription>
-            Управляйте документами в этой коллекции
-          </CardDescription>
+          <CardDescription>Управляйте документами в этой папке</CardDescription>
         </div>
       </CardHeader>
       <CardContent>

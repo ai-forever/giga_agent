@@ -20,6 +20,7 @@ export interface ConnectorSettings {
 }
 
 export interface LLMSettings {
+  [key: string]: unknown;
   temperature?: number;
   max_tokens?: number;
   top_p?: number;
@@ -29,6 +30,7 @@ export interface LLMSettings {
 export interface ConnectorResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: ConnectorSettings;
@@ -40,6 +42,7 @@ export interface ConnectorResponse {
 export interface LLMResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   connector_id: string;
   model_id: string;
@@ -84,7 +87,14 @@ export interface JsonSchemaProperty {
   title?: string;
   description?: string;
   default?: unknown;
-  anyOf?: { type?: string }[];
+  enum?: Array<string | number | boolean | null>;
+  oneOf?: { const?: unknown; title?: string; type?: string }[];
+  anyOf?: {
+    type?: string;
+    const?: unknown;
+    title?: string;
+    enum?: unknown[];
+  }[];
 }
 
 export interface JsonSchema {
@@ -106,6 +116,7 @@ export type EmbeddingSettings = Record<string, unknown>;
 export interface EmbeddingResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   connector_id: string;
   model_id: string;
@@ -119,6 +130,7 @@ export interface EmbeddingResponse {
 export interface ImageGeneratorResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: Record<string, unknown>;
@@ -137,6 +149,7 @@ export interface ImageGeneratorTypeMeta {
 export interface SearchEngineResponse {
   id: string;
   owner_id: string;
+  can_edit: boolean;
   type: string;
   name: string | null;
   settings: Record<string, unknown>;
@@ -151,3 +164,24 @@ export interface SearchEngineTypeMeta {
   supported_connector_types: string[];
   requires_connector: boolean;
 }
+
+export type PermissionResourceType =
+  | "connector"
+  | "llm"
+  | "embedding"
+  | "image_generator"
+  | "search_engine"
+  | "sandbox"
+  | "rag_collection";
+
+export interface ResourcePermissionsDraft {
+  read_user_ids: string[];
+  read_group_ids: string[];
+  public_read: boolean;
+}
+
+export const EMPTY_RESOURCE_PERMISSIONS: ResourcePermissionsDraft = {
+  read_user_ids: [],
+  read_group_ids: [],
+  public_read: false,
+};

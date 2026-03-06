@@ -35,8 +35,12 @@ class RagDocumentsRouterTests(unittest.TestCase):
         embedding_id = uuid.uuid4()
 
         collections_repo = Mock()
-        collections_repo.get_by_id = AsyncMock(
-            return_value=types.SimpleNamespace(id=collection_id, embedding_id=embedding_id)
+        collections_repo.get_by_id_any = AsyncMock(
+            return_value=types.SimpleNamespace(
+                id=collection_id,
+                embedding_id=embedding_id,
+                owner_id=self.user.id,
+            )
         )
 
         docs_repo = Mock()
@@ -100,8 +104,12 @@ class RagDocumentsRouterTests(unittest.TestCase):
         embedding_id = uuid.uuid4()
 
         collections_repo = Mock()
-        collections_repo.get_by_id = AsyncMock(
-            return_value=types.SimpleNamespace(id=collection_id, embedding_id=embedding_id)
+        collections_repo.get_by_id_any = AsyncMock(
+            return_value=types.SimpleNamespace(
+                id=collection_id,
+                embedding_id=embedding_id,
+                owner_id=self.user.id,
+            )
         )
 
         docs_repo = Mock()
@@ -136,4 +144,3 @@ class RagDocumentsRouterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

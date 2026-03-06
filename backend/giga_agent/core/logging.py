@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging as stdlib_logging
-import os
 import sys
 
 import structlog
+from giga_agent.conf import get_settings
 
 
 _SUPPRESSED_LOGGER_PREFIXES: tuple[str, ...] = ("langgraph_runtime_inmem",)
@@ -45,10 +45,11 @@ def _resolve_log_format() -> str:
     """
     Returns: "pretty" | "json"
     """
-    fmt = (os.getenv("GIGA_AGENT_LOG_FORMAT") or "").strip().lower()
+    settings = get_settings()
+    fmt = (settings.giga_agent_log_format or "").strip().lower()
     if fmt in {"json", "pretty"}:
         return fmt
-    if _is_truthy(os.getenv("GIGA_AGENT_LOG_JSON")):
+    if settings.giga_agent_log_json:
         return "json"
     return "pretty"
 
@@ -132,4 +133,3 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
-

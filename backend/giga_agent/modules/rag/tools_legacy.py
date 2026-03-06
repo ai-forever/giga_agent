@@ -57,7 +57,7 @@ async def get_documents(
             collection.embedding_id,
             session=session,
         )
-        embeddings = runtime.embeddings
+        embeddings = await runtime.get_embeddings()
 
     qdrant_client = get_qdrant_client()
     try:

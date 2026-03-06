@@ -4,61 +4,62 @@ import importlib
 import inspect
 import json
 import os
+import secrets
 import signal
 import subprocess
 import sys
 import threading
 import time
 from typing import Annotated
-import asyncio
 
 import typer
 
-from giga_agent.core.db import get_session_factory
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
+from ._langgraph_config import build_langgraph_runtime_config
 from ..types import LogLevel
 
 logger = get_logger(__name__)
 
-
-async def run_startup_hooks(agent) -> None:
-    """
-    Runs on_startup for all modules.
-    """
-    logger.info("Running startup hooks...")
-    session_factory = await get_session_factory()
-    async with session_factory() as session:
-        for module in agent.all_modules:
-            try:
-                await module.on_startup(session)
-            except Exception as e:
-                logger.error(
-                    f"Error in startup hook for {module.__class__.__name__}: {e}"
-                )
-                pass
+_SECRET_KEY_ENV = "GIGA_AGENT_SECRET_KEY"
+_DEV_SECRET_KEY_FILE = ".secret_key"
 
 
-def _collect_run_server_graphs(
-    *, agent, base_graph_name: str, base_graph_target: str
-) -> dict[str, str]:
-    # Import lazily to avoid package import cycles.
-    cli = importlib.import_module("giga_agent.cli")
+def _ensure_dev_secret_key_env() -> None:
+    existing_secret = (os.getenv(_SECRET_KEY_ENV) or "").strip()
+    if existing_secret:
+        return
 
-    graphs: dict[str, str] = {base_graph_name: base_graph_target}
+    from giga_agent.core.paths import ensure_giga_agent_dir
 
-    for module in agent.all_modules:
-        module_subgraphs = module.get_subgraphs()
-        for key, value in module_subgraphs.items():
-            if key in graphs:
-                raise cli.CLIException(
-                    "Duplicate subgraph key "
-                    f"'{key}' from module '{module.id}'. "
-                    f"Key is already used by target '{graphs[key]}'."
-                )
-            graphs[key] = value
+    project_root = ensure_giga_agent_dir()
+    secret_key_path = project_root / _DEV_SECRET_KEY_FILE
+    if secret_key_path.exists():
+        file_secret = secret_key_path.read_text(encoding="utf-8").strip()
+        if file_secret:
+            os.environ[_SECRET_KEY_ENV] = file_secret
+            return
 
-    return graphs
+    generated_secret = secrets.token_hex(32)
+    secret_key_path.write_text(f"{generated_secret}\n", encoding="utf-8")
+    os.environ[_SECRET_KEY_ENV] = generated_secret
+
+
+def _print_startup_banner(*, host: str, port: int) -> None:
+    url = f"http://{host}:{port}"
+    ascii_art = r"""
+   ____ _                _                    _   
+  / ___(_) __ _  __ _   / \   __ _  ___ _ __ | |_ 
+ | |  _| |/ _` |/ _` | / _ \ / _` |/ _ \ '_ \| __|
+ | |_| | | (_| | (_| |/ ___ \ (_| |  __/ | | | |_ 
+  \____|_|\__, |\__,_/_/   \_\__, |\___|_| |_|\__|
+          |___/              |___/                
+""".rstrip("\n")
+
+    typer.echo(ascii_art)
+    typer.secho(f"Open in browser: {url}", fg=typer.colors.BRIGHT_GREEN, bold=True)
+    typer.echo("Press Ctrl+C to stop.")
 
 
 def _terminate_process_group(proc: subprocess.Popen[object], *, force: bool) -> None:
@@ -100,7 +101,7 @@ def _run_langgraph_server_in_subprocess(
     env["GIGA_AGENT_LANGGRAPH_DEV_AUTH_PATH"] = auth_path
     env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_APP"] = str(http_config.get("app", ""))
     env["GIGA_AGENT_LANGGRAPH_DEV_HTTP_CONFIG_JSON"] = json.dumps(http_config)
-    env["GIGA_AGENT_LANGGRAPH_DEV_LOG_LEVEL"] = log_level
+    env["GIGA_AGENT_LOG_LEVEL"] = log_level
     from giga_agent.conf import GIGA_AGENT_UI
 
     if GIGA_AGENT_UI:
@@ -184,7 +185,8 @@ def dev(
     ] = "http://localhost:3000",
 ) -> None:
     """
-    Development mode: apply migrations, run module startup hooks, then start server.
+    Development mode: start LangGraph dev server.
+    Migrations and startup hooks are executed by FastAPI lifespan.
     """
     try:
         from langgraph_api.cli import run_server  # type: ignore
@@ -220,14 +222,17 @@ def dev(
         )
 
     setup_cli_logging(log_level.value.upper())
+    os.environ.setdefault("GIGA_AGENT_LOG_LEVEL", log_level.value)
 
     from giga_agent.core.paths import ensure_giga_agent_dir
 
     ensure_giga_agent_dir()
+    _ensure_dev_secret_key_env()
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
     os.environ.setdefault("GIGA_AGENT_HOST", f"http://{str(host)}")
     os.environ.setdefault("GIGA_AGENT_PORT", str(port))
+    reset_settings_cache()
 
     from giga_agent.core.cache import setup_cache
 
@@ -237,52 +242,20 @@ def dev(
     cli = importlib.import_module("giga_agent.cli")
 
     logger.info(f"Loading agent from {graph_and_app_path}...")
-    graph, _fast_api_app = cli.load_graph_and_app_from_string(graph_and_app_path)
-    agent = graph.giga_agent
-    logger.info(f"Loaded agent with {len(agent.modules)} modules.")
+    langgraph_runtime_config = build_langgraph_runtime_config(graph_and_app_path)
+    agent = langgraph_runtime_config["agent"]
+    logger.info(f"Loaded agent with {len(agent.all_modules)} modules.")
 
-    cli.apply_migrations(agent)
+    graphs = langgraph_runtime_config["graphs"]
+    auth_path = str(langgraph_runtime_config["auth_path"])
+    http_config = dict(langgraph_runtime_config["http_config"])
 
-    from ..utils.imports import _parse_import_string
-
-    path_part, graph_var, app_var = _parse_import_string(
-        graph_and_app_path,
-        expected_parts=3,
-        format_hint=(
-            "'filepath:graph_var:app_var' " "(e.g., giga_agent.agents.run:graph:app)"
-        ),
-    )
-
-    graphs = _collect_run_server_graphs(
-        agent=agent,
-        base_graph_name="giga_agent",
-        base_graph_target=f"{path_part}:{graph_var}",
-    )
-
-    auth_path = "giga_agent.modules.auth.langgraph_auth:auth"
-    cors_config = {
-        "allow_origins": [],
-        "allow_methods": ["*"],
-        "allow_headers": ["*"],
-        "allow_credentials": True,
-        "allow_origin_regex": ".*",
-        "expose_headers": [],
-        "max_age": 600,
-    }
-    from giga_agent.conf import GIGA_AGENT_UI
-
-    http_config: dict[str, object] = {
-        "cors": cors_config,
-        "app": f"{path_part}:{app_var}",
-    }
-    if not GIGA_AGENT_UI:
-        # When UI wrapper is disabled, let LangGraph mount itself under /api.
-        http_config["mount_prefix"] = "/api/"
-
-    logger.info(f"Open: http://{host}:{port}")
+    _print_startup_banner(host=host, port=port)
 
     if no_reload:
         # In-process execution is enough without reload and keeps unit tests simple.
+        from giga_agent.conf import GIGA_AGENT_UI
+
         if GIGA_AGENT_UI:
             import uvicorn
 

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
+from pathlib import Path
 
 import uvicorn
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
 logger = get_logger(__name__)
@@ -44,7 +45,7 @@ def _patch_uvicorn_log_suppression(*, desired_level: str) -> None:
     def _uvicorn_run_with_suppression(*args, **kwargs):
         # Allow overriding the ASGI app target while still using LangGraph's
         # environment patching and server bootstrap logic.
-        override_app = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_UVICORN_APP")
+        override_app = get_settings().giga_agent_langgraph_dev_uvicorn_app
         if override_app:
             args = (override_app, *args[1:])
 
@@ -63,6 +64,38 @@ def _patch_uvicorn_log_suppression(*, desired_level: str) -> None:
     uvicorn.run = _uvicorn_run_with_suppression
 
 
+def _build_reload_excludes() -> list[str]:
+    """
+    Build reload excludes for uvicorn watchfiles.
+
+    Uvicorn treats excludes that exist as directories specially (exclude_dirs) and compares
+    them against absolute changed-path parents. Relative directory paths won't match, and
+    non-existent absolute paths can be misclassified as glob patterns (which can raise
+    NotImplementedError in Python's Path.match for absolute patterns).
+    """
+    cwd = Path.cwd()
+
+    candidates = [
+        cwd / ".giga_agent",
+        cwd / ".langgraph_api",
+    ]
+
+    excludes: list[str] = []
+    seen: set[str] = set()
+    for p in candidates:
+        try:
+            if not p.is_dir():
+                continue
+            resolved = str(p.resolve())
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        excludes.append(resolved)
+    return excludes
+
+
 def main() -> int:
     try:
         from langgraph_api.cli import run_server  # type: ignore
@@ -71,15 +104,16 @@ def main() -> int:
         print(f"Could not import langgraph_api.cli.run_server: {e}", file=sys.stderr)
         return 1
 
-    host = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_HOST", "127.0.0.1")
-    port = int(os.getenv("GIGA_AGENT_LANGGRAPH_DEV_PORT", "9090"))
-    reload_enabled = _is_truthy_env(os.getenv("GIGA_AGENT_LANGGRAPH_DEV_RELOAD", "1"))
-    log_level = (os.getenv("GIGA_AGENT_LANGGRAPH_DEV_LOG_LEVEL") or "INFO").upper()
+    settings = get_settings()
+    host = settings.giga_agent_langgraph_dev_host
+    port = settings.giga_agent_langgraph_dev_port
+    reload_enabled = settings.giga_agent_langgraph_dev_reload
+    log_level = settings.giga_agent_log_level
 
-    graphs_json = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_GRAPHS_JSON") or "{}"
-    auth_path = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_AUTH_PATH") or ""
-    http_app = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_HTTP_APP") or ""
-    http_config_json = os.getenv("GIGA_AGENT_LANGGRAPH_DEV_HTTP_CONFIG_JSON")
+    graphs_json = settings.giga_agent_langgraph_dev_graphs_json
+    auth_path = settings.giga_agent_langgraph_dev_auth_path
+    http_app = settings.giga_agent_langgraph_dev_http_app
+    http_config_json = settings.giga_agent_langgraph_dev_http_config_json
 
     try:
         graphs = json.loads(graphs_json)
@@ -108,12 +142,14 @@ def main() -> int:
 
     setup_cli_logging(log_level)
     _patch_uvicorn_log_suppression(desired_level=log_level)
+    reload_excludes = _build_reload_excludes()
 
     run_server(
         host,
         port,
         reload_enabled,
         graphs,
+        reload_excludes=reload_excludes,
         auth={"path": auth_path},
         http=http_config,
         allow_blocking=True,

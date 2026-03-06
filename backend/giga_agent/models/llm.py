@@ -11,7 +11,12 @@ from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
 from giga_agent.llm.base import AvailableModel, ModelFetchError
+from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.connector import Connector  # noqa: F401
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 # Ensure runtimes are registered.
 import giga_agent.connectors  # noqa: F401
@@ -76,7 +81,8 @@ class LLMBase(BaseModel):
 
 
 class LLMCreate(LLMBase):
-    pass
+    check_connection: bool = True
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class LLMUpdate(BaseModel):
@@ -87,11 +93,13 @@ class LLMUpdate(BaseModel):
     parallel_calls: Optional[int] = None
     settings: Optional[LLMSettings] = None
     is_active: Optional[bool] = None
+    check_connection: bool = True
 
 
 class LLMResponse(LLMBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -110,8 +118,10 @@ class LLMContext(BaseModel):
     is_active: bool
 
 
-class LLMRepository:
+class LLMRepository(ACLResourceRepositoryMixin[LLM]):
     """Repository for LLM records and cacheable LLM config context."""
+    resource_model = LLM
+    resource_type = "llm"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -206,6 +216,86 @@ class LLMRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[LLM]:
+        rows = await self.list_readable_with_edit_for_user(
+            user_id=user_id,
+            only_active=only_active,
+            user_group_ids=user_group_ids,
+        )
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        llm_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[LLM, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            llm_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id_readable(
+        self,
+        llm_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> LLM | None:
+        row = await self.get_by_id_with_access_for_user(
+            llm_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        llm, can_read, _ = row
+        if not can_read:
+            return None
+        return llm
+
+    async def get_by_id_writable(
+        self,
+        llm_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> LLM | None:
+        row = await self.get_by_id_with_access_for_user(
+            llm_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        llm, _, can_edit = row
+        if not can_edit:
+            return None
+        return llm
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="llm",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
     async def get_by_connector(
         self,
         connector_id: uuid.UUID,
@@ -260,6 +350,11 @@ class LLMRepository:
 
     async def delete(self, llm: LLM) -> None:
         llm_id = llm.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="llm",
+            resource_id=llm_id,
+            no_commit=True,
+        )
         await self.db.delete(llm)
         await self.db.commit()
         await self.invalidate_cache(llm_id)
@@ -273,5 +368,11 @@ class LLMRepository:
         return await self.get_by_id_context(llm_id, use_cache=use_cache)
 
     @staticmethod
-    def to_response(llm: LLM) -> LLMResponse:
-        return LLMResponse.model_validate(llm)
+    def to_response(
+        llm: LLM,
+        *,
+        can_edit: bool = False,
+    ) -> LLMResponse:
+        response = LLMResponse.model_validate(llm)
+        response.can_edit = can_edit
+        return response

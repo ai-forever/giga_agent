@@ -36,10 +36,10 @@ export function DeleteCollectionAlert({
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Удалить коллекцию</AlertDialogTitle>
+          <AlertDialogTitle>Удалить папку</AlertDialogTitle>
           <AlertDialogDescription>
-            Вы уверены, что хотите удалить коллекцию "{collection.name}"? Это
-            также удалит все связанные документы.
+            Вы уверены, что хотите удалить папку "{collection.name}"? Это также
+            удалит все связанные документы.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -8,6 +8,7 @@ import base64
 import httpx
 from pydantic import Field, PrivateAttr
 
+from giga_agent.connectors.gigachat_token_cache import get_gigachat_access_token_cached
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.core.logging import get_logger
@@ -47,8 +48,10 @@ class GigaChatImageGen(BaseImageGenerator):
                 "Provide a compatible gigachat connector."
             )
 
-        token_data = await gigachat_client.aget_token()
-        self._token = token_data.access_token
+        self._token = await get_gigachat_access_token_cached(
+            connector,
+            api_object=api_object,
+        )
 
         base_url = getattr(getattr(gigachat_client, "_client", None), "base_url", None)
         if base_url is None:
@@ -97,6 +100,7 @@ class GigaChatImageGen(BaseImageGenerator):
         }
 
         attempt = 0
+        refreshed = False
         while True:
             attempt += 1
             resp = await self._client.post(
@@ -104,6 +108,16 @@ class GigaChatImageGen(BaseImageGenerator):
                 json=payload,
                 headers=headers,
             )
+
+            if resp.status_code in {401, 403} and not refreshed:
+                refreshed = True
+                connector = self.require_supported_connector()
+                self._token = await get_gigachat_access_token_cached(
+                    connector,
+                    force_refresh=True,
+                )
+                headers["Authorization"] = f"Bearer {self._token}"
+                continue
 
             if resp.status_code == 451:
                 raise CensorException(

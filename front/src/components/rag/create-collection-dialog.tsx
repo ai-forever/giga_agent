@@ -58,8 +58,8 @@ export function CreateCollectionDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Создать новую коллекцию</DialogTitle>
-          <DialogDescription>Введите название коллекции</DialogDescription>
+          <DialogTitle>Создать новую папку</DialogTitle>
+          <DialogDescription>Введите название папки</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">

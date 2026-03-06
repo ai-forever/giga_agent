@@ -8,6 +8,8 @@ from pydantic import Field, PrivateAttr
 from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.sandbox.mixins.code import CodeMixin
 
+WS_MAX_SIZE = 32 * 1024 * 1024
+
 
 class JupyterSandbox(BaseSandbox, CodeMixin):
     base_url: str = Field(..., description="Base URL of the Jupyter server")
@@ -68,14 +70,24 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                 data = await r.json()
                 self._kernel_id = data["id"]
 
-    async def run_code(self, code: str) -> AsyncGenerator[Dict[str, Any], str]:
+    async def run_code(
+        self, code: str, kernel_id: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], str]:
+        if kernel_id is None:
+            self._kernel_id = str(uuid.uuid4())
+        else:
+            self._kernel_id = kernel_id
         await self._ensure_kernel()
 
         # Connect to websocket
         ws_url = self.base_url.replace("http", "ws")
         url = f"{ws_url}/api/kernels/{self._kernel_id}/channels?token={self._token}"
 
-        async with websockets.connect(url, additional_headers=self.headers) as ws:
+        async with websockets.connect(
+            url,
+            additional_headers=self.headers,
+            max_size=WS_MAX_SIZE,
+        ) as ws:
             msg_id = uuid.uuid4().hex
 
             msg = {

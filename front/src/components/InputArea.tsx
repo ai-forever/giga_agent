@@ -15,6 +15,7 @@ import {
   Brain,
   Files,
   Cog,
+  Printer,
 } from "lucide-react";
 import { useSettings } from "./Settings.tsx";
 import { useFileUpload, UploadedFile } from "../hooks/useFileUploads";
@@ -38,6 +39,7 @@ import Spinner from "./Spinner.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,7 +66,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const [isMCPLoading, setIsMCPLoading] = useState(false);
 
   const { collections, activeCollections } = useRagContext();
-  const { settings } = useSettings();
+  const { settings, setSettings } = useSettings();
   const { user } = useAuth();
   const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
     useUserInfo();
@@ -128,14 +130,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         },
       );
     },
-    [
-      thread,
-      selected,
-      clear,
-      mcpToolsPayload,
-      enabledCollections,
-      user,
-    ],
+    [thread, selected, clear, mcpToolsPayload, enabledCollections, user],
   );
   const handleContinueThread = useCallback(
     async (data: any) => {
@@ -298,7 +293,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                 <Settings2 />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={3}>
+            <DropdownMenuContent className="input-dropdown" align="start" sideOffset={3}>
               <DropdownMenuItem onSelect={openContextModal}>
                 <Brain className={"size-5"} />
                 <span>Контекст</span>
@@ -309,7 +304,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={openCollectionsModal}>
                 <Files className={"size-5"} />
-                <span>Знания</span>
+                <span>Документы</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => window.print()}>
+                <Printer className={"size-5"} />
+                <span>Печать</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -337,71 +336,86 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           disabled={thread?.isLoading || isMCPLoading}
           className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
         />
-        {thread?.interrupt &&
-        thread?.interrupt.value &&
-        ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
-        (!settings.autoApprove ||
-          thread.interrupt.value.type === "tool_call") ? (
-          <>
-            {isMCPLoading ? (
-              <div className="w-9 h-9 flex items-center justify-center">
-                <Spinner size="16" />
-              </div>
-            ) : (
-              <>
-                <motion.div layout className="flex items-center gap-2">
-                  <motion.button
-                    layout
-                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                    onClick={() => handleContinue("comment")}
-                    disabled={thread.isLoading || isMCPLoading}
-                    title="Отменить выполнение"
-                    className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
-                  >
-                    <X />
-                  </motion.button>
-                  <AnimatePresence mode="popLayout">
-                    {!message.trim() && (
-                      <motion.button
-                        key="approve-btn"
-                        layout
-                        initial={{ x: 24, scale: 1, opacity: 1 }}
-                        animate={{ x: 0, scale: 1, opacity: 1 }}
-                        exit={{ x: 24, scale: 1, opacity: 1 }}
-                        transition={{
-                          type: "spring",
-                          stiffness: 500,
-                          damping: 35,
-                        }}
-                        onClick={() => handleContinue("approve")}
-                        disabled={thread.isLoading || isMCPLoading}
-                        title="Подтвердить выполнение"
-                        className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-67"
-                      >
-                        <Check />
-                      </motion.button>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              </>
-            )}
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={
-              thread?.isLoading ||
-              isMCPLoading ||
-              !message.trim() ||
-              isUploading
-            }
-            title="Отправить"
-            className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-          >
-            <Send />
-          </button>
-        )}
+        <div className="flex flex-col items-end gap-1">
+          {thread?.interrupt &&
+          thread?.interrupt.value &&
+          ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+          (!settings.autoApprove ||
+            thread.interrupt.value.type === "tool_call") ? (
+            <>
+              {isMCPLoading ? (
+                <div className="w-9 h-9 flex items-center justify-center">
+                  <Spinner size="16" />
+                </div>
+              ) : (
+                <>
+                  <motion.div layout className="flex items-center gap-2">
+                    <motion.button
+                      layout
+                      transition={{
+                        type: "spring",
+                        stiffness: 500,
+                        damping: 35,
+                      }}
+                      onClick={() => handleContinue("comment")}
+                      disabled={thread.isLoading || isMCPLoading}
+                      title="Отменить выполнение"
+                      className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
+                    >
+                      <X />
+                    </motion.button>
+                    <AnimatePresence mode="popLayout">
+                      {!message.trim() && (
+                        <motion.button
+                          key="approve-btn"
+                          layout
+                          initial={{ x: 24, scale: 1, opacity: 1 }}
+                          animate={{ x: 0, scale: 1, opacity: 1 }}
+                          exit={{ x: 24, scale: 1, opacity: 1 }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 500,
+                            damping: 35,
+                          }}
+                          onClick={() => handleContinue("approve")}
+                          disabled={thread.isLoading || isMCPLoading}
+                          title="Подтвердить выполнение"
+                          className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-67"
+                        >
+                          <Check />
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                </>
+              )}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={
+                thread?.isLoading ||
+                isMCPLoading ||
+                !message.trim() ||
+                isUploading
+              }
+              title="Отправить"
+              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+            >
+              <Send />
+            </button>
+          )}
+        </div>
+        <label className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none">
+            <span>Автономность</span>
+            <Switch
+              checked={settings.autoApprove ?? false}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, autoApprove: checked }))
+              }
+            />
+          </label>
       </div>
 
       {uploads.length > 0 && (

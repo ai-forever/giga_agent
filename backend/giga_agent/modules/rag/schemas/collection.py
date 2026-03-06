@@ -35,6 +35,10 @@ class CollectionResponse(BaseModel):
         ..., description="The unique identifier of the collection."
     )
     name: str = Field(..., description="The name of the collection.")
+    can_edit: bool = Field(
+        default=False,
+        description="Whether current user can edit this collection.",
+    )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Metadata associated with the collection."
     )

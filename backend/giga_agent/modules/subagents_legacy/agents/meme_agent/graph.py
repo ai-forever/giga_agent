@@ -7,7 +7,6 @@ from langchain_core.tools import tool
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
-from langgraph_sdk import get_client
 
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.meme_agent.config import (
@@ -18,8 +17,8 @@ from giga_agent.modules.subagents_legacy.agents.meme_agent.nodes.images import (
     image_node,
 )
 from giga_agent.modules.subagents_legacy.agents.meme_agent.nodes.text import text_node
-from giga_agent.modules.subagents_legacy.runtime import with_auth_from_runtime
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
+from giga_agent.utils.langgraph_sdk import get_client
 from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(MemeState, ConfigSchema)
@@ -43,7 +42,8 @@ async def create_meme(task: str, runtime: ToolRuntime):
 
     """
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
-    client = get_client()
+
+    client = get_client(runtime.config)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(

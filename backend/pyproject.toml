@@ -40,7 +40,7 @@ dependencies = [
     "e2b>=2.13.2",
     "aioboto3>=15.5.0",
     "cashews[redis]>=7.0.0",
-    "deepagents==0.0.5",
+    "deepagents==0.4.0",
     "pydub>=0.25.1",
     "pillow>=12.1.1",
     "markdownify>=1.2.2",
@@ -57,16 +57,22 @@ dependencies = [
     "langchain-qdrant>=1.1.0",
     "mem0ai>=0.1.115",
     "scikit-learn==1.6.1",
+    "aiofiles>=25.1.0",
+    "redis==7.2.1",
 ]
 
 [project.scripts]
 giga_agent = "giga_agent.cli:app"
 
+[tool.hatch.build.force-include]
+"giga_agent/alembic.ini" = "giga_agent/alembic.ini"
+"giga_agent/migrations/script.py.mako" = "giga_agent/migrations/script.py.mako"
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["giga_agent"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"../front/dist" = "giga_agent/ui_dist"
 
 [tool.hatch.build.targets.sdist.force-include]
 "../front/dist" = "giga_agent/ui_dist"

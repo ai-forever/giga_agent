@@ -88,45 +88,6 @@ def generate_repl_tools_description(repl_tools: List[Coroutine], tools: List[Bas
 """
 
 
-class ReplMiddleware(AgentMiddleware):
-    """
-    Middleware для REPL модуля.
-
-    Перед запуском агента поднимает sandbox пользователя,
-    создаёт Jupyter kernel и сохраняет kernel_id в state.
-    """
-
-    async def before_agent(
-        self, state: AgentState, runtime: Runtime[Context], config: RunnableConfig
-    ) -> dict[str, Any] | None:
-        user_id = config["configurable"]["langgraph_auth_user"]["identity"]
-        owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-        current_kernel_id = state.get("kernel_id")
-        need_sandbox = current_kernel_id is None
-        if not need_sandbox:
-            return {}
-
-        factory = await get_session_factory()
-        async with factory() as session:
-            manager = SandboxManager(session)
-            sandbox_runtime = await manager.ensure_running_for_user(owner_id)
-
-        # Важно: если kernel_id уже есть в state, синхронизируем его с runtime,
-        # иначе secrets могут загрузиться в другой (новосозданный) kernel.
-        if current_kernel_id:
-            sandbox_runtime._kernel_id = current_kernel_id
-        else:
-            # Создаём/восстанавливаем Jupyter kernel и фиксируем kernel_id в state
-            await sandbox_runtime._ensure_kernel()
-            current_kernel_id = sandbox_runtime._kernel_id
-            logger.info(
-                f"Sandbox ready for user {owner_id}, kernel_id={current_kernel_id}"
-            )
-
-        return {"kernel_id": current_kernel_id} if current_kernel_id else {}
-
-
 class ReplModule(BaseModule):
     """
     Модуль REPL для выполнения Python кода.
@@ -156,6 +117,3 @@ class ReplModule(BaseModule):
                 self._repl_tools, await agent.get_tools(user)
             )
         )
-
-    def get_middleware(self) -> AgentMiddleware:
-        return ReplMiddleware()

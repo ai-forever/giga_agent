@@ -99,14 +99,14 @@ async def gen_image(
     async with factory() as session:
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(
-            owner_id=owner_id,
+            user_id=owner_id,
             files=upload_files,
         )
 
-    if not uploaded:
+    if not uploaded.files:
         raise RuntimeError("Не удалось загрузить сгенерированное изображение в sandbox.")
 
-    file = uploaded[0]
+    file = uploaded.files[0]
     sandbox_path = file.sandbox_path
 
     render_hint = (

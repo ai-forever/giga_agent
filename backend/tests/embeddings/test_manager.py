@@ -76,7 +76,7 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["openai"]
 
-            def _embeddings(self):
+            async def _create_embeddings(self):
                 if self.model_id != "text-embedding-3-small":
                     raise AssertionError("unexpected model_id")
                 if self.connector.get_connection_kwargs() != {
@@ -109,7 +109,7 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resolved.vector_size, 512)
             self.assertIsInstance(resolved.connector, OpenAIConnector)
 
-            client = resolved.embeddings
+            client = await resolved.get_embeddings()
             self.assertIs(client, built_embeddings)
 
     async def test_resolve_raises_when_connector_is_incompatible(self):

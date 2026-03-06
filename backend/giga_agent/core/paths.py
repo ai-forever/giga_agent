@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import os
 from functools import cache
 from pathlib import Path
 
+from giga_agent.conf import get_settings
+
 
 def giga_agent_dir() -> Path:
-    return os.getenv("GIGA_AGENT_PROJECT_ROOT", Path.cwd() / ".giga_agent")
+    return get_settings().giga_agent_project_root
 
 
 @cache

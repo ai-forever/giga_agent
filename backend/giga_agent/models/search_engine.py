@@ -10,6 +10,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 
 class SearchEngine(Base):
@@ -57,7 +62,8 @@ class SearchEngineBase(BaseModel):
 
 
 class SearchEngineCreate(SearchEngineBase):
-    pass
+    check_connection: bool = True
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class SearchEngineUpdate(BaseModel):
@@ -71,6 +77,7 @@ class SearchEngineUpdate(BaseModel):
 class SearchEngineResponse(SearchEngineBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -78,8 +85,10 @@ class SearchEngineResponse(SearchEngineBase):
         from_attributes = True
 
 
-class SearchEngineRepository:
+class SearchEngineRepository(ACLResourceRepositoryMixin[SearchEngine]):
     """Repository for search engines."""
+    resource_model = SearchEngine
+    resource_type = "search_engine"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -155,6 +164,86 @@ class SearchEngineRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[SearchEngine]:
+        rows = await self.list_readable_with_edit_for_user(
+            user_id=user_id,
+            only_active=only_active,
+            user_group_ids=user_group_ids,
+        )
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        engine_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[SearchEngine, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            engine_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id_readable(
+        self,
+        engine_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SearchEngine | None:
+        row = await self.get_by_id_with_access_for_user(
+            engine_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        engine, can_read, _ = row
+        if not can_read:
+            return None
+        return engine
+
+    async def get_by_id_writable(
+        self,
+        engine_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SearchEngine | None:
+        row = await self.get_by_id_with_access_for_user(
+            engine_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        engine, _, can_edit = row
+        if not can_edit:
+            return None
+        return engine
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="search_engine",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
     async def get_by_owner_and_type(
         self,
         owner_id: uuid.UUID,
@@ -221,10 +310,21 @@ class SearchEngineRepository:
 
     async def delete(self, engine: SearchEngine) -> None:
         engine_id = engine.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="search_engine",
+            resource_id=engine_id,
+            no_commit=True,
+        )
         await self.db.delete(engine)
         await self.db.commit()
         await self.invalidate_cache(engine_id)
 
     @staticmethod
-    def to_response(engine: SearchEngine) -> SearchEngineResponse:
-        return SearchEngineResponse.model_validate(engine)
+    def to_response(
+        engine: SearchEngine,
+        *,
+        can_edit: bool = False,
+    ) -> SearchEngineResponse:
+        response = SearchEngineResponse.model_validate(engine)
+        response.can_edit = can_edit
+        return response

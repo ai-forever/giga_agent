@@ -1,7 +1,7 @@
 import os
 import uuid
-from urllib.parse import quote
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -16,16 +16,18 @@ from fastapi import (
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.core.db import get_session
 from giga_agent.models.file import File as FileModel, FileRepository, FileResponse, FileType
 from giga_agent.models.users import User
-from giga_agent.sandbox.base import (
-    FileReadResult,
-    RedirectResult,
-    StreamResult,
+from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.sandbox.base import FileReadResult, RedirectResult, StreamResult
+from giga_agent.sandbox.manager import (
+    FileAccessError,
+    FileNotFoundForUserError,
+    ProviderNotFoundError,
+    SandboxManager,
+    StorageOperationError,
 )
-from giga_agent.sandbox.manager import SandboxManager
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -94,17 +96,17 @@ async def upload_file(
     manager = SandboxManager(db)
     try:
         created = await manager.upload_file_for_user(
-            owner_id=current_user.id,
+            user_id=current_user.id,
             file_name=effective_file_name,
             content=content,
             file_type=effective_file_type,
         )
-    except ValueError as e:
+    except ProviderNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    except RuntimeError as e:
+    except StorageOperationError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
@@ -124,8 +126,8 @@ async def list_files(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
 ):
-    files = await repo.get_by_owner(
-        owner_id=current_user.id,
+    files = await repo.get_readable_for_user(
+        user_id=current_user.id,
         provider_id=provider_id,
         skip=skip,
         limit=limit,
@@ -143,21 +145,31 @@ async def read_file_content(
         description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
     ),
 ):
+    repo = FileRepository(db)
+    readable_file = await repo.get_by_id_readable(
+        file_id,
+        user_id=current_user.id,
+    )
+    if readable_file is None:
+        existing = await repo.get_by_id(file_id)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     manager = SandboxManager(db)
     try:
         file, result = await manager.read_file_for_user(
-            owner_id=current_user.id,
+            user_id=readable_file.owner_id,
             file_id=file_id,
         )
-    except ValueError as e:
+    except FileNotFoundForUserError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except PermissionError as e:
+    except FileAccessError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except RuntimeError as e:
+    except StorageOperationError as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
         ) from e
 
     return _build_file_response(file, result, redirect_result=redirect_result)
@@ -173,21 +185,31 @@ async def read_file_content_by_path(
         description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
     ),
 ):
+    repo = FileRepository(db)
+    readable_file = await repo.get_by_path_readable(
+        user_id=current_user.id,
+        sandbox_path=path,
+    )
+    if readable_file is None:
+        existing = await repo.get_by_path_any_owner(sandbox_path=path)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     manager = SandboxManager(db)
     try:
-        file, result = await manager.read_file_by_path_for_user(
-            owner_id=current_user.id,
-            sandbox_path=path,
+        file, result = await manager.read_file_for_user(
+            user_id=readable_file.owner_id,
+            file_id=readable_file.id,
         )
-    except ValueError as e:
+    except FileNotFoundForUserError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except PermissionError as e:
+    except FileAccessError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except RuntimeError as e:
+    except StorageOperationError as e:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
         ) from e
 
     return _build_file_response(file, result, redirect_result=redirect_result)
@@ -212,11 +234,18 @@ def _build_file_response(
             url=result.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )
 
-    file_name = (file.original_name or "").strip() or os.path.basename(file.sandbox_path.rstrip("/")) or "download.bin"
+    file_name = (
+        (file.original_name or "").strip()
+        or os.path.basename(file.sandbox_path.rstrip("/"))
+        or "download.bin"
+    )
     file_name = file_name.replace('"', "")
     disposition = "inline" if result.inline else "attachment"
     headers: dict[str, str] = {
-        "Content-Disposition": f"{disposition}; filename=\"{file_name}\"; filename*=UTF-8''{quote(file_name)}",
+        "Content-Disposition": (
+            f"{disposition}; filename=\"{file_name}\"; "
+            f"filename*=UTF-8''{quote(file_name)}"
+        ),
     }
 
     if isinstance(result, StreamResult):
@@ -243,8 +272,13 @@ async def delete_file(
 ):
     manager = SandboxManager(db)
     try:
-        await manager.delete_file_for_user(owner_id=current_user.id, file_id=file_id)
-    except ValueError as e:
+        await manager.delete_file_for_user(user_id=current_user.id, file_id=file_id)
+    except FileNotFoundForUserError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    except PermissionError as e:
+    except FileAccessError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except StorageOperationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e

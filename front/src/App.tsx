@@ -1,8 +1,9 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useCallback, useRef, useState, useEffect } from "react";
 import Chat from "./components/Chat";
-import { SettingsProvider } from "./components/Settings.tsx";
+import { SettingsProvider, useSettings } from "./components/Settings.tsx";
 import {
   BrowserRouter,
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -22,11 +23,13 @@ import { UserInfoProvider } from "@/components/providers/user-info.tsx";
 import { AuthProvider } from "@/components/providers/auth.tsx";
 import { ApiProvider } from "@/components/providers/api.tsx";
 import { ThemeProvider } from "@/components/providers/theme.tsx";
+import { ConfirmProvider } from "@/components/providers/confirm.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
+import AdminPanelPage from "@/components/admin-panel";
 import { API_BASE_URL_KEY } from "@/lib/api-client";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
@@ -72,7 +75,7 @@ const InnerApp: React.FC = () => {
   const { demoItemsLoaded } = useDemoItems();
   // Можно использовать булево или просто число-счётчик
   const [reloadKey, setReloadKey] = useState(0);
-  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+  const currentThreadIdRef = useRef<string | null>(null);
   const currentThreadRef = useRef<UseStream<GraphState> | null>(null);
 
   useEffect(() => {
@@ -82,35 +85,57 @@ const InnerApp: React.FC = () => {
     prevPathRef.current = location.pathname;
   }, [location.pathname]);
 
-  // эта функция будет прокидываться в SidebarComponent
-  const handleNavigateAndReload = () => {
+  // эта функция будет прокидываться в Sidebar
+  const handleNavigateAndReload = useCallback(() => {
     // переключаем флаг, чтобы сделать новый key у соседнего компонента
     setReloadKey((prev) => prev + 1);
     if (currentThreadRef.current) {
       currentThreadRef.current.stop();
     }
-  };
+  }, []);
 
-  const handleThreadIdChange = (threadId: string) => {
-    setCurrentThreadId(threadId);
-  };
+  const handleThreadIdChange = useCallback((threadId: string) => {
+    currentThreadIdRef.current = threadId;
+  }, []);
 
-  const handleThreadReady = (thread: UseStream<GraphState>) => {
+  const handleThreadReady = useCallback((thread: UseStream<GraphState>) => {
     currentThreadRef.current = thread;
-  };
+  }, []);
   if (!demoItemsLoaded) {
     return null;
   }
+
   return (
-    <Sidebar onNewChat={handleNavigateAndReload}>
+    <>
+      <Sidebar onNewChat={handleNavigateAndReload} />
+      <MainContent>
+        <AppRoutes
+          reloadKey={reloadKey}
+          onNavigateAndReload={handleNavigateAndReload}
+          onThreadIdChange={handleThreadIdChange}
+          onThreadReady={handleThreadReady}
+        />
+      </MainContent>
+    </>
+  );
+};
+
+const AppRoutes: React.FC<{
+  reloadKey: number;
+  onNavigateAndReload: () => void;
+  onThreadIdChange: (threadId: string) => void;
+  onThreadReady: (thread: UseStream<GraphState>) => void;
+}> = React.memo(
+  ({ reloadKey, onNavigateAndReload, onThreadIdChange, onThreadReady }) => {
+    return (
       <Routes>
         <Route
           path="/"
           element={
             <Chat
               key={reloadKey}
-              onThreadIdChange={handleThreadIdChange}
-              onThreadReady={handleThreadReady}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
             />
           }
         />
@@ -119,8 +144,8 @@ const InnerApp: React.FC = () => {
           element={
             <Chat
               key={reloadKey}
-              onThreadIdChange={handleThreadIdChange}
-              onThreadReady={handleThreadReady}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
             />
           }
         />
@@ -129,9 +154,9 @@ const InnerApp: React.FC = () => {
           element={
             <DemoChat
               key={reloadKey}
-              onContinue={handleNavigateAndReload}
-              onThreadIdChange={handleThreadIdChange}
-              onThreadReady={handleThreadReady}
+              onContinue={onNavigateAndReload}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
             />
           }
         />
@@ -139,42 +164,73 @@ const InnerApp: React.FC = () => {
         <Route path="/rag" element={<RAGInterface />} />
         <Route path="/memories" element={<MemoriesPage />} />
         <Route path="/demo/settings" element={<DemoSettings />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
+        <Route path="/settings/:tab" element={<SettingsPage />} />
+        <Route
+          path="/admin-panel"
+          element={<Navigate to="/admin-panel/users" replace />}
+        />
+        <Route path="/admin-panel/users" element={<AdminPanelPage />} />
+        <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
       </Routes>
-    </Sidebar>
-  );
-};
+    );
+  },
+);
+
+AppRoutes.displayName = "AppRoutes";
+
+const MainContent: React.FC<{ children: React.ReactNode }> = React.memo(
+  ({ children }) => {
+    const { settings } = useSettings();
+    return (
+      <div
+        className={[
+          "flex h-screen w-full mx-auto transition-[margin] duration-300 ease-in-out",
+          "max-[900px]:max-h-[calc(100vh-75px)]",
+          settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "min-[900px]:ml-0",
+          "print:!ml-0",
+        ].join(" ")}
+      >
+        {children}
+      </div>
+    );
+  },
+);
+
+MainContent.displayName = "MainContent";
 
 const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
         <ThemeProvider>
-          <ApiProvider>
-            <DemoItemsProvider>
-              <Toaster />
-              <SettingsProvider>
-                <RagProvider>
-                  <UserInfoProvider>
-                    <Routes>
-                      <Route path="/login" element={<LoginPage />} />
-                      <Route path="/base" element={<BaseUrlRoute />} />
-                      <Route
-                        path="/*"
-                        element={
-                          <ProtectedRoute>
-                            <div className="flex h-auto w-full mx-auto print:h-auto">
-                              <InnerApp />
-                            </div>
-                          </ProtectedRoute>
-                        }
-                      />
-                    </Routes>
-                  </UserInfoProvider>
-                </RagProvider>
-              </SettingsProvider>
-            </DemoItemsProvider>
-          </ApiProvider>
+          <ConfirmProvider>
+            <ApiProvider>
+              <DemoItemsProvider>
+                <Toaster />
+                <SettingsProvider>
+                  <RagProvider>
+                    <UserInfoProvider>
+                      <Routes>
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/base" element={<BaseUrlRoute />} />
+                        <Route
+                          path="/*"
+                          element={
+                            <ProtectedRoute>
+                              <div className="flex h-auto w-full mx-auto print:h-auto">
+                                <InnerApp />
+                              </div>
+                            </ProtectedRoute>
+                          }
+                        />
+                      </Routes>
+                    </UserInfoProvider>
+                  </RagProvider>
+                </SettingsProvider>
+              </DemoItemsProvider>
+            </ApiProvider>
+          </ConfirmProvider>
         </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>

@@ -1,5 +1,4 @@
 import asyncio
-import os
 from typing import Any, AsyncGenerator, Optional
 from sqlalchemy import JSON
 from sqlalchemy.orm import DeclarativeBase
@@ -10,6 +9,7 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     AsyncEngine,
 )
+from giga_agent.conf import get_settings
 
 
 class Base(DeclarativeBase):
@@ -88,10 +88,11 @@ def get_db_url() -> str:
     """
     Determines database URL based on environment.
     """
-    runtime = os.getenv("GIGA_AGENT_RUNTIME", "local")
+    settings = get_settings()
+    runtime = settings.giga_agent_runtime
 
     if runtime == "local":
-        explicit = (os.getenv("DATABASE_URL") or "").strip()
+        explicit = (settings.giga_agent_database_url or "").strip()
         if explicit:
             return explicit
 
@@ -101,8 +102,11 @@ def get_db_url() -> str:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite+aiosqlite:///{db_path}"
 
-    # For docker/production, expect DATABASE_URL
-    return os.getenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/dbname")
+    # For docker/production, expect DB URL in settings/env.
+    return (
+        settings.giga_agent_database_url
+        or "postgresql+asyncpg://user:pass@localhost/dbname"
+    )
 
 
 _engine: Optional[AsyncEngine] = None

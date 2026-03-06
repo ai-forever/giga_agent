@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Any
 
@@ -19,6 +19,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, joinedload
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 SANDBOXPAIR_CACHE_TTL = "60s"
 
@@ -162,7 +167,7 @@ class SandboxProviderCreate(SandboxProviderBase):
     SandboxRegistry.validate_settings(type, settings).
     """
 
-    pass
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class SandboxProviderUpdate(BaseModel):
@@ -175,6 +180,7 @@ class SandboxProviderUpdate(BaseModel):
 class SandboxProviderResponse(SandboxProviderBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -218,6 +224,17 @@ class SandboxResponse(SandboxBase):
         from_attributes = True
 
 
+class SandboxProviderInstanceResponse(BaseModel):
+    id: uuid.UUID
+    provider_id: uuid.UUID
+    owner_id: uuid.UUID
+    owner_email: str | None = None
+    status: str
+    started_at: datetime | None = None
+    stopped_at: datetime | None = None
+    can_stop: bool = False
+
+
 class SandboxProviderSnapshot(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
@@ -247,8 +264,10 @@ class SandboxPairSnapshot(BaseModel):
 # ============ Repository ============
 
 
-class SandboxProviderRepository:
+class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
     """Repository для работы с провайдерами песочниц."""
+    resource_model = SandboxProvider
+    resource_type = "sandbox"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -274,6 +293,86 @@ class SandboxProviderRepository:
         query = query.order_by(SandboxProvider.created_at.desc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[SandboxProvider]:
+        rows = await self.list_readable_with_edit_for_user(
+            user_id=user_id,
+            only_active=only_active,
+            user_group_ids=user_group_ids,
+        )
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        provider_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[SandboxProvider, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            provider_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id_readable(
+        self,
+        provider_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SandboxProvider | None:
+        row = await self.get_by_id_with_access_for_user(
+            provider_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        provider, can_read, _ = row
+        if not can_read:
+            return None
+        return provider
+
+    async def get_by_id_writable(
+        self,
+        provider_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> SandboxProvider | None:
+        row = await self.get_by_id_with_access_for_user(
+            provider_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        provider, _, can_edit = row
+        if not can_edit:
+            return None
+        return provider
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="sandbox",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
 
     async def get_by_owner_and_type(
         self,
@@ -326,13 +425,24 @@ class SandboxProviderRepository:
 
     async def delete(self, provider: SandboxProvider) -> None:
         """Удалить провайдера и все связанные sandbox'ы."""
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="sandbox",
+            resource_id=provider.id,
+            no_commit=True,
+        )
         await self.db.delete(provider)
         await self.db.commit()
 
     @staticmethod
-    def to_response(provider: SandboxProvider) -> SandboxProviderResponse:
+    def to_response(
+        provider: SandboxProvider,
+        *,
+        can_edit: bool = False,
+    ) -> SandboxProviderResponse:
         """Преобразовать в Pydantic response."""
-        return SandboxProviderResponse.model_validate(provider)
+        response = SandboxProviderResponse.model_validate(provider)
+        response.can_edit = can_edit
+        return response
 
 
 class SandboxRepository:
@@ -479,6 +589,33 @@ class SandboxRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_by_provider_and_id(
+        self,
+        provider_id: uuid.UUID,
+        sandbox_id: uuid.UUID,
+    ) -> Sandbox | None:
+        """Получить sandbox по ID в рамках провайдера."""
+        result = await self.db.execute(
+            select(Sandbox)
+            .where(Sandbox.provider_id == provider_id)
+            .where(Sandbox.id == sandbox_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def count_by_provider_and_statuses(
+        self,
+        provider_id: uuid.UUID,
+        statuses: list[SandboxStatus],
+    ) -> int:
+        if not statuses:
+            return 0
+        result = await self.db.execute(
+            select(func.count(Sandbox.id))
+            .where(Sandbox.provider_id == provider_id)
+            .where(Sandbox.status.in_(statuses))
+        )
+        return int(result.scalar_one() or 0)
+
     async def get_idle_sandboxes(self) -> list[Sandbox]:
         """
         Найти все запущенные sandbox'ы, превысившие idle timeout.
@@ -491,14 +628,36 @@ class SandboxRepository:
             .where(Sandbox.last_activity_at.isnot(None))
         )
         sandboxes = result.scalars().all()
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         return [
             s
             for s in sandboxes
-            if (now - s.last_activity_at).total_seconds()
+            if (
+                now
+                - (
+                    s.last_activity_at.replace(tzinfo=timezone.utc)
+                    if s.last_activity_at.tzinfo is None
+                    else s.last_activity_at.astimezone(timezone.utc)
+                )
+            ).total_seconds()
             > s.provider.idle_timeout
         ]
+
+    async def get_stale_starting_sandboxes(
+        self,
+        *,
+        stale_before: datetime,
+    ) -> list[Sandbox]:
+        """Найти sandbox'ы в STARTING, которые застряли дольше заданного TTL."""
+        result = await self.db.execute(
+            select(Sandbox)
+            .options(joinedload(Sandbox.provider))
+            .where(Sandbox.status == SandboxStatus.STARTING)
+            .where(Sandbox.updated_at.isnot(None))
+            .where(Sandbox.updated_at < stale_before)
+        )
+        return result.scalars().all()
 
     async def create(
         self,
@@ -534,7 +693,7 @@ class SandboxRepository:
         """Обновить время последней активности."""
         sandbox = await self.get_by_id(sandbox_id)
         if sandbox:
-            sandbox.last_activity_at = datetime.utcnow()
+            sandbox.last_activity_at = datetime.now(timezone.utc)
             await self.db.commit()
 
     async def set_status(
@@ -544,7 +703,7 @@ class SandboxRepository:
     ) -> Sandbox:
         """Обновить статус sandbox'а с автоматическим проставлением timestamps."""
         sandbox.status = status
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if status == SandboxStatus.RUNNING:
             sandbox.started_at = now

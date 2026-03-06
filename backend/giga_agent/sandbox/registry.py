@@ -2,10 +2,12 @@ from typing import Type
 
 from pydantic import BaseModel
 
+from giga_agent.conf import get_settings
 from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.core.logging import get_logger
 
 logger = get_logger(__name__)
+LOCAL_DOCKER_PROVIDER = "local_docker"
 
 
 class SandboxRegistry:
@@ -28,6 +30,12 @@ class SandboxRegistry:
     """
 
     _registry: dict[str, Type[BaseSandbox]] = {}
+
+    @classmethod
+    def is_provider_enabled(cls, provider_type: str) -> bool:
+        if provider_type != LOCAL_DOCKER_PROVIDER:
+            return True
+        return get_settings().giga_agent_local_sandbox_enabled
 
     @classmethod
     def register(cls, provider_type: str):
@@ -56,7 +64,7 @@ class SandboxRegistry:
 
         :raises ValueError: Если провайдер не зарегистрирован.
         """
-        if provider_type not in cls._registry:
+        if provider_type not in cls._registry or not cls.is_provider_enabled(provider_type):
             raise ValueError(
                 f"Unknown sandbox provider: '{provider_type}'. "
                 f"Available: {cls.available_types()}"
@@ -94,9 +102,13 @@ class SandboxRegistry:
     @classmethod
     def available_types(cls) -> list[str]:
         """Список зарегистрированных типов провайдеров."""
-        return list(cls._registry.keys())
+        return [
+            provider_type
+            for provider_type in cls._registry.keys()
+            if cls.is_provider_enabled(provider_type)
+        ]
 
     @classmethod
     def is_registered(cls, provider_type: str) -> bool:
         """Проверить, зарегистрирован ли провайдер."""
-        return provider_type in cls._registry
+        return provider_type in cls._registry and cls.is_provider_enabled(provider_type)

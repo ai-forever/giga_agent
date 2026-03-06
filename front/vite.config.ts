@@ -4,6 +4,7 @@ import compression from "vite-plugin-compression";
 import path from "path";
 import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
+import { constants as zlibConstants } from "zlib";
 
 export default defineConfig(({ mode }) => {
   const __filename = fileURLToPath(import.meta.url);
@@ -23,10 +24,24 @@ export default defineConfig(({ mode }) => {
       compression({
         algorithm: "gzip",
         ext: ".gz",
-        // включаем .map
-        filter: /\.(js|mjs|json|css|map)$/i,
+        filter: /\.(js|mjs|json|css|html|svg)$/i,
         threshold: 1024, // сжимать файлы больше 1КБ
         deleteOriginFile: false,
+        compressionOptions: {
+          level: 9,
+        },
+      }),
+      compression({
+        algorithm: "brotliCompress",
+        ext: ".br",
+        filter: /\.(js|mjs|json|css|html|svg)$/i,
+        threshold: 1024,
+        deleteOriginFile: false,
+        compressionOptions: {
+          params: {
+            [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+          },
+        },
       }),
     ],
     resolve: {
@@ -51,6 +66,36 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       sourcemap: false,
+      target: "es2020",
+      minify: "terser",
+      modulePreload: {
+        polyfill: false,
+      },
+      terserOptions: {
+        compress: {
+          passes: 2,
+          drop_console: true,
+          drop_debugger: true,
+        },
+        format: {
+          comments: false,
+        },
+      },
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return;
+            if (id.includes("plotly.js") || id.includes("react-plotly.js")) {
+              return "plotly";
+            }
+            if (id.includes("react-syntax-highlighter")) return "syntax";
+            if (id.includes("katex")) return "katex";
+            if (id.includes("@langchain")) return "langchain";
+            if (id.includes("@radix-ui")) return "radix";
+            if (id.includes("framer-motion")) return "motion";
+          },
+        },
+      },
     },
   };
 });

@@ -1,3 +1,4 @@
 local.db
 .cursor
 dist
+giga_agent/ui_dist

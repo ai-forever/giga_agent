@@ -156,7 +156,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [hotel["point"]["lon"], hotel["point"]["lat"]],
-                "icon": "/public/hotel.svg",
+                "icon": "/hotel.svg",
                 "userData": {"text": hotel["name"]},
             },
         )
@@ -166,7 +166,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [food["point"]["lon"], food["point"]["lat"]],
-                "icon": "/public/food.svg",
+                "icon": "/food.svg",
                 "userData": {"text": food["name"]},
             },
         )
@@ -176,7 +176,7 @@ async def city_explore(city: str, runtime: ToolRuntime):
         markers.append(
             {
                 "coordinates": [attraction["point"]["lon"], attraction["point"]["lat"]],
-                "icon": "/public/bust.svg",
+                "icon": "/bust.svg",
                 "userData": {"text": attraction["name"]},
             },
         )

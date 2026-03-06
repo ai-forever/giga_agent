@@ -79,6 +79,7 @@ async def collections_create(
     return CollectionResponse(
         uuid=str(created.id),
         name=created.name,
+        can_edit=True,
         metadata=created.metadata_ or {},
     )
 
@@ -89,9 +90,16 @@ async def collections_list(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Lists all available collections (name and UUID)."""
+    repo = RagCollectionsRepository(db)
+    rows = await repo.list_readable_with_edit_for_user(user_id=current_user.id)
     return [
-        CollectionResponse(uuid=str(c.id), name=c.name, metadata=c.metadata_ or {})
-        for c in await RagCollectionsRepository(db).list_by_owner(current_user.id)
+        CollectionResponse(
+            uuid=str(collection.id),
+            name=collection.name,
+            can_edit=can_edit,
+            metadata=collection.metadata_ or {},
+        )
+        for collection, can_edit in rows
     ]
 
 
@@ -102,18 +110,26 @@ async def collections_get(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Retrieves details (name and UUID) of a specific collection."""
-    collection = await RagCollectionsRepository(db).get_by_id(
-        owner_id=current_user.id,
+    repo = RagCollectionsRepository(db)
+    row = await repo.get_by_id_with_access_for_user(
+        user_id=current_user.id,
         collection_id=collection_id,
     )
-    if collection is None:
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Collection '{collection_id}' not found",
         )
+    collection, can_read, can_edit = row
+    if not can_read:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
     return CollectionResponse(
         uuid=str(collection.id),
         name=collection.name,
+        can_edit=can_edit,
         metadata=collection.metadata_ or {},
     )
 
@@ -126,14 +142,20 @@ async def collections_delete(
 ):
     """Deletes a specific collection by id."""
     repo = RagCollectionsRepository(db)
-    collection = await repo.get_by_id(
-        owner_id=current_user.id,
+    row = await repo.get_by_id_with_access_for_user(
+        user_id=current_user.id,
         collection_id=collection_id,
     )
-    if collection is None:
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Collection '{collection_id}' not found",
+        )
+    collection, _, can_edit = row
+    if not can_edit:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
         )
 
     # Best-effort delete all files from sandbox storage (S3) + remove core_files metadata.
@@ -142,7 +164,7 @@ async def collections_delete(
     limit = 200
     while True:
         docs = await docs_repo.list_by_collection(
-            owner_id=current_user.id,
+            owner_id=collection.owner_id,
             collection_id=collection_id,
             limit=limit,
             offset=offset,
@@ -150,8 +172,10 @@ async def collections_delete(
         if not docs:
             break
         for d in docs:
+            if not d.sandbox_path:
+                continue
             await SandboxManager(db).delete_file_by_path_for_user(
-                owner_id=current_user.id,
+                user_id=collection.owner_id,
                 sandbox_path=d.sandbox_path,
             )
         offset += len(docs)
@@ -165,14 +189,14 @@ async def collections_delete(
         collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
         vector_size=vector_size,
     )
-    qfilter = build_filter(owner_id=current_user.id, collection_id=collection_id)
+    qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection_id)
     await delete_by_filter(
         client=qdrant_client,
         collection_name=qdrant_collection,
         query_filter=qfilter,
     )
 
-    await repo.delete(owner_id=current_user.id, collection_id=collection_id)
+    await repo.delete(owner_id=collection.owner_id, collection_id=collection_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -184,8 +208,24 @@ async def collections_update(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Updates a specific collection's name and/or metadata."""
+    repo = RagCollectionsRepository(db)
+    row = await repo.get_by_id_with_access_for_user(
+        user_id=current_user.id,
+        collection_id=collection_id,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Collection '{collection_id}' not found",
+        )
+    collection, _, can_edit = row
+    if not can_edit:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
     updated_collection = await RagCollectionsRepository(db).update(
-        owner_id=current_user.id,
+        owner_id=collection.owner_id,
         collection_id=collection_id,
         name=collection_data.name,
         metadata=collection_data.metadata,
@@ -200,5 +240,6 @@ async def collections_update(
     return CollectionResponse(
         uuid=str(updated_collection.id),
         name=updated_collection.name,
+        can_edit=True,
         metadata=updated_collection.metadata_ or {},
     )

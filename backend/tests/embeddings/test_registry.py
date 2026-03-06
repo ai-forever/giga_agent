@@ -34,7 +34,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["openai"]
 
-            def _embeddings(self):
+            async def _create_embeddings(self):
                 return object()
 
         models = await _RuntimeStub.fetch_available_models(
@@ -42,7 +42,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(models, [])
 
-    def test_openai_embeddings_instance_builder(self):
+    async def test_openai_embeddings_instance_builder(self):
         connector = OpenAIConnector(
             api_key="sk-test",
             base_url="https://api.openai.com/v1",
@@ -58,7 +58,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
                 dimensions=512,
                 chunk_size=256,
             )
-            _ = runtime.embeddings
+            await runtime.get_embeddings()
 
         mocked.assert_called_once_with(
             model="text-embedding-3-small",
@@ -80,7 +80,10 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("giga_agent.embeddings.gigachat.GigaChat", return_value=mock_llm):
+        with patch(
+            "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
+            AsyncMock(return_value="tok"),
+        ), patch("giga_agent.embeddings.gigachat.GigaChat", return_value=mock_llm):
             models = await GigaChatEmbeddingRuntime.fetch_available_models(
                 connector=GigaChatConnector(
                     gigachat_api_type="prod",
@@ -90,7 +93,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item.id for item in models], ["EmbeddingsGigaR", "GigaChat"])
 
-    def test_gigachat_embeddings_instance_builder(self):
+    async def test_gigachat_embeddings_instance_builder(self):
         connector = GigaChatConnector(
             gigachat_api_type="prod",
             gigachat_credentials="token",
@@ -99,14 +102,17 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "giga_agent.embeddings.gigachat.GigaChatEmbeddings",
             return_value=object(),
-        ) as mocked:
+        ) as mocked, patch(
+            "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
+            AsyncMock(return_value="tok"),
+        ):
             runtime = GigaChatEmbeddingRuntime(
                 connector=connector,
                 model_id="EmbeddingsGigaR",
                 vector_size=1024,
                 timeout=40.0,
             )
-            _ = runtime.embeddings
+            await runtime.get_embeddings()
 
         mocked.assert_called_once_with(
             model="EmbeddingsGigaR",
@@ -114,4 +120,5 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             scope="GIGACHAT_API_PERS",
             verify_ssl_certs=False,
             timeout=40.0,
+            access_token="tok",
         )

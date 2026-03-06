@@ -20,7 +20,7 @@ class TavilySearchEngine(BaseSearchEngine):
         default="basic",
         description="Search depth preset (e.g. basic/advanced)",
     )
-    max_results: int = Field(default=5, ge=1, description="Max results per query123213")
+    max_results: int = Field(default=5, ge=1, description="Max results per query")
     topic: str | None = Field(default=None, description="Optional topic hint")
 
     _api_key: str | None = PrivateAttr(default=None)
@@ -33,6 +33,9 @@ class TavilySearchEngine(BaseSearchEngine):
     @classmethod
     async def validate_settings(cls, settings: dict) -> dict:
         return await super().validate_settings(settings)
+
+    async def check_connection(self) -> bool:
+        return True
 
     async def init(self) -> None:
         resolved_api_key = self._resolve_api_key()

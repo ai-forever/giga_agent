@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { dracula } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Message } from "@langchain/langgraph-sdk";
 import Spinner from "./Spinner.tsx";
 import { ChevronRight } from "lucide-react";

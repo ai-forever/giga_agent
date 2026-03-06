@@ -3,18 +3,20 @@ API Routes для Giga Agent.
 """
 
 from fastapi import APIRouter
-from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.conf import GIGA_AGENT_PREFIX_API
 
 from giga_agent.routes.agent import router as agent_router
 from giga_agent.routes.connectors import router as connectors_router
 from giga_agent.routes.embeddings import router as embeddings_router
 from giga_agent.routes.files import router as files_router
 from giga_agent.routes.generators import router as generators_router
+from giga_agent.routes.groups import router as groups_router
 from giga_agent.routes.llms import router as llms_router
+from giga_agent.routes.resource_permissions import router as resource_permissions_router
 from giga_agent.routes.sandboxes import router as sandboxes_router
 from giga_agent.routes.search_engines import router as search_engines_router
 
-router = APIRouter(prefix=GIGA_PREFIX_API)
+router = APIRouter(prefix=GIGA_AGENT_PREFIX_API)
 router.include_router(agent_router)
 router.include_router(connectors_router)
 router.include_router(embeddings_router)
@@ -23,6 +25,8 @@ router.include_router(sandboxes_router)
 router.include_router(files_router)
 router.include_router(generators_router)
 router.include_router(search_engines_router)
+router.include_router(groups_router)
+router.include_router(resource_permissions_router)
 
 __all__ = [
     "router",
@@ -34,4 +38,6 @@ __all__ = [
     "files_router",
     "generators_router",
     "search_engines_router",
+    "groups_router",
+    "resource_permissions_router",
 ]

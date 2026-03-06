@@ -94,6 +94,22 @@ from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )
+from giga_agent.models.group import (
+    Group,
+    GroupMember,
+    GroupBase,
+    GroupCreate,
+    GroupUpdate,
+    GroupResponse,
+    GroupMemberAddRequest,
+    GroupIdsByUserResponse,
+    GroupRepository,
+)
+from giga_agent.models.resource_permission import (
+    ResourcePermission,
+    ResourcePermissionsPayload,
+    ResourcePermissionRepository,
+)
 
 __all__ = [
     # Users
@@ -175,4 +191,18 @@ __all__ = [
     "RagDocument",
     "RagCollectionsRepository",
     "RagDocumentsRepository",
+    # Groups
+    "Group",
+    "GroupMember",
+    "GroupBase",
+    "GroupCreate",
+    "GroupUpdate",
+    "GroupResponse",
+    "GroupMemberAddRequest",
+    "GroupIdsByUserResponse",
+    "GroupRepository",
+    # Resource permissions
+    "ResourcePermission",
+    "ResourcePermissionsPayload",
+    "ResourcePermissionRepository",
 ]

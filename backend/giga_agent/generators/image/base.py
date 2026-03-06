@@ -50,6 +50,11 @@ class BaseImageGenerator(BaseModel, abc.ABC):
         """Подготовка ресурсов перед генерацией (токены, клиенты и т.д.)."""
         self._initialized = True
 
+    async def check_connection(self) -> bool:
+        await self.init()
+        await self.generate_image("ping", 256, 256)
+        return True
+
     async def generate_image(
         self,
         prompt: str,

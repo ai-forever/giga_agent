@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from giga_agent.core.db import Base
 from giga_agent.models.file import FileRepository
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.sandbox import SandboxProvider
 from giga_agent.models.users import User
 
@@ -178,3 +179,36 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertIsNotNone(found)
             self.assertEqual(found.id, created.id)
+
+    async def test_delete_cleans_resource_permissions(self) -> None:
+        owner = await self._create_user("u7@example.com")
+        viewer = await self._create_user("u8@example.com")
+        provider = await self._create_provider(owner.id, "e2b")
+
+        async with self.session_factory() as session:
+            repo = FileRepository(session)
+            created = await repo.create(
+                owner_id=owner.id,
+                provider_id=provider.id,
+                sandbox_path="/to/delete-acl.txt",
+                original_name="to_delete_acl.txt",
+                file_type="text",
+                size=10,
+            )
+            self.assertIsNotNone(created)
+            permissions = ResourcePermissionRepository(session)
+            await permissions.grant_permission(
+                resource_type="file",
+                resource_id=created.id,
+                owner_type="user",
+                owner_id=viewer.id,
+                permission="read",
+            )
+
+            await repo.delete(created)
+            acl = await permissions.list_permissions_for_resource(
+                resource_type="file",
+                resource_id=created.id,
+            )
+
+        self.assertEqual(acl, [])

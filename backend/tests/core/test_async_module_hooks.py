@@ -1,3 +1,4 @@
+import os
 import types
 import unittest
 import uuid
@@ -44,7 +45,10 @@ class _AsyncHooksModule(BaseModule):
 class AsyncModuleHooksTests(unittest.IsolatedAsyncioTestCase):
     async def test_base_agent_calls_module_hooks(self):
         module = _AsyncHooksModule()
-        agent = BaseAgent(modules=[module], tools=[])
+        with patch.dict(
+            os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
+        ):
+            agent = BaseAgent(modules=[module], tools=[])
         user = types.SimpleNamespace(settings={})
 
         tools = await agent.get_tools(user)

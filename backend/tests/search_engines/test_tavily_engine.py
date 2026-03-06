@@ -71,3 +71,8 @@ class TavilySearchEngineTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(ValueError):
                 await TavilySearchEngine().init()
+
+    async def test_check_connection_returns_true(self):
+        engine = TavilySearchEngine()
+        result = await engine.check_connection()
+        self.assertTrue(result)

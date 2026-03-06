@@ -1,10 +1,12 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import giga_agent.connectors  # noqa: F401
+from giga_agent.connectors.gigachat import GigaChatConnector
 from giga_agent.connectors.openai import OpenAIConnector
 from giga_agent.connectors.registry import ConnectorRegistry
+from giga_agent.connectors.tavily import TavilyConnector
 
 
 class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
@@ -52,3 +54,72 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(runtime, OpenAIConnector)
         self.assertEqual(runtime.api_key, "sk-test")
         self.assertEqual(runtime.base_url, "https://api.openai.com/v1")
+
+    async def test_openai_check_connection_uses_models_list(self):
+        connector = OpenAIConnector(api_key="sk-test", base_url="https://api.openai.com/v1")
+        mock_client = AsyncMock()
+        mock_client.models.list = AsyncMock(return_value=[])
+        with patch(
+            "giga_agent.connectors.openai.AsyncOpenAI",
+            return_value=mock_client,
+        ) as mocked_client:
+            result = await connector.check_connection()
+
+        self.assertTrue(result)
+        mocked_client.assert_called_once()
+        mock_client.models.list.assert_awaited_once()
+
+    async def test_gigachat_check_connection_uses_aget_models(self):
+        connector = GigaChatConnector(gigachat_api_type="prod")
+        mock_llm = AsyncMock()
+        mock_llm.aget_models = AsyncMock(return_value=[])
+        with patch(
+            "giga_agent.connectors.gigachat.GigaChat",
+            return_value=mock_llm,
+        ) as mocked_llm:
+            result = await connector.check_connection()
+
+        self.assertTrue(result)
+        mocked_llm.assert_called_once()
+        mock_llm.aget_models.assert_awaited_once()
+
+    async def test_tavily_check_connection_uses_usage_endpoint(self):
+        connector = TavilyConnector(api_key="tvly-test")
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = Mock(return_value=None)
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        with patch(
+            "giga_agent.connectors.tavily.httpx.AsyncClient",
+            return_value=mock_client,
+        ) as mocked_client:
+            result = await connector.check_connection()
+
+        self.assertTrue(result)
+        mocked_client.assert_called_once_with(timeout=30.0)
+        mock_client.get.assert_awaited_once_with(
+            "https://api.tavily.com/usage",
+            headers={"Authorization": "Bearer tvly-test"},
+        )
+        mock_response.raise_for_status.assert_called_once()
+
+    async def test_tavily_check_connection_maps_401_to_value_error(self):
+        connector = TavilyConnector(api_key="tvly-test")
+        mock_response = Mock()
+        mock_response.status_code = 401
+        mock_response.raise_for_status = Mock(return_value=None)
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        with patch(
+            "giga_agent.connectors.tavily.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                await connector.check_connection()
+
+        self.assertIn("unauthorized (401)", str(ctx.exception))

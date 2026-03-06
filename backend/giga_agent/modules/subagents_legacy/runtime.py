@@ -94,7 +94,7 @@ async def resolve_user_llm(
     if llm_id is None:
         raise ValueError("У пользователя не выбран llm_id")
     runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-    return runtime.llm
+    return await runtime.get_llm()
 
 
 async def resolve_user_search_engine(

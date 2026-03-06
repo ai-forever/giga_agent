@@ -39,10 +39,10 @@ const CollectionsModal: React.FC<CollectionsModalProps> = ({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-full max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Знания</DialogTitle>
+          <DialogTitle>Документы</DialogTitle>
           <DialogDescription>
-            Активируйте коллекции из Базы Знаний, которые агент сможет
-            использовать в своей работе
+            Активируйте папки документов, которые агент сможет использовать в
+            своей работе
           </DialogDescription>
         </DialogHeader>
 
@@ -50,12 +50,12 @@ const CollectionsModal: React.FC<CollectionsModalProps> = ({
           <div className="space-y-4">
             {collectionsLoading && (
               <div className="text-sm text-muted-foreground">
-                Загрузка коллекций…
+                Загрузка папок…
               </div>
             )}
             {!collectionsLoading && collections.length === 0 && (
               <div className="text-sm text-muted-foreground">
-                Коллекции не найдены.
+                Папки не найдены.
               </div>
             )}
             {!collectionsLoading &&
@@ -82,7 +82,7 @@ const CollectionsModal: React.FC<CollectionsModalProps> = ({
                         onCheckedChange={(checked) =>
                           handleToggle(c.uuid, Boolean(checked))
                         }
-                        aria-label={`Включить коллекцию ${c.name}`}
+                        aria-label={`Включить папку ${c.name}`}
                       />
                     </div>
                   </div>

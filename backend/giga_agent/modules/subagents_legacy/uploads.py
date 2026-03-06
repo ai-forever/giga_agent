@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from typing import Any, TypedDict
 from urllib.parse import urlencode
 
-from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.conf import GIGA_PREFIX_API, get_settings
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 
@@ -26,8 +25,9 @@ class LegacyUploadFileSpec(TypedDict):
 
 
 def build_file_content_by_path_api() -> str:
-    host = os.environ.get("GIGA_AGENT_HOST", "").strip().rstrip("/")
-    port = os.environ.get("GIGA_AGENT_PORT", "").strip()
+    settings = get_settings()
+    host = (settings.giga_agent_host or "").strip().rstrip("/")
+    port = (settings.giga_agent_port or "").strip()
 
     if host and port:
         base = f"{host}:{port}"
@@ -89,11 +89,11 @@ async def upload_files_for_owner(
     async with factory() as session:
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(
-            owner_id=owner_id,
+            user_id=owner_id,
             files=upload_files,
         )
 
-    return [FileResponse.model_validate(item) for item in uploaded]
+    return [FileResponse.model_validate(item) for item in uploaded.files]
 
 
 def build_tool_message(

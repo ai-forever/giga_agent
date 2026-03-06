@@ -11,7 +11,7 @@ export default function EmptyCollectionsState() {
   const { createCollection, setSelectedCollection } = useRagContext();
 
   const handleSubmit = async (name: string, description: string) => {
-    const loadingToast = toast.loading("Создание коллекции", {
+    const loadingToast = toast.loading("Создание папки", {
       richColors: true,
     });
     const newCollection = await createCollection(name, {
@@ -20,13 +20,13 @@ export default function EmptyCollectionsState() {
     toast.dismiss(loadingToast);
     if (newCollection) {
       setOpen(false);
-      toast.success("Коллекция успешно создана", {
+      toast.success("Папка успешно создана", {
         richColors: true,
       });
       setSelectedCollection(newCollection);
     } else {
       toast.warning(
-        `Коллекция с названием '${name}' не может быть создана (скорее всего уже существует).`,
+        `Папка с названием '${name}' не может быть создана (скорее всего уже существует).`,
         {
           duration: 5000,
           richColors: true,
@@ -44,11 +44,11 @@ export default function EmptyCollectionsState() {
 
         <div className="max-w-md space-y-2">
           <h3 className="text-xl font-semibold tracking-tight">
-            Коллекций пока нет
+            Папок пока нет
           </h3>
           <p className="text-muted-foreground">
-            Коллекции помогают собрать документы и ресурсы в базу знаний.
-            Создайте первую коллекцию, чтобы начать.
+            Папки помогают собрать документы и ресурсы в базу знаний. Создайте
+            первую папку, чтобы начать.
           </p>
         </div>
 
@@ -59,7 +59,7 @@ export default function EmptyCollectionsState() {
           trigger={
             <Button size="lg" className="mt-4 gap-2">
               <FolderPlus className="h-4 w-4" />
-              Создать новую коллекцию
+              Создать новую папку
             </Button>
           }
         />

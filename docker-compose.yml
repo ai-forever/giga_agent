@@ -1,0 +1,116 @@
+volumes:
+  langgraph-data:
+    driver: local
+  giga-agent-data:
+    driver: local
+
+networks:
+  giga-agent-net:
+    name: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
+
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: deployments/local/Dockerfile.frontend-nginx
+      args:
+        VITE_MCP_PROXY_URL: /proxy
+        VITE_LOG_LEVEL: info
+    depends_on:
+      giga-agent:
+        condition: service_started
+    networks:
+      - giga-agent-net
+    ports:
+      - "8123:80"
+
+  langgraph-redis:
+    image: redis:6
+    networks:
+      - giga-agent-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 1s
+      retries: 5
+
+  langgraph-postgres:
+    image: postgres:16
+    networks:
+      - giga-agent-net
+    environment:
+      POSTGRES_DB: aegra
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - langgraph-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      start_period: 10s
+      timeout: 1s
+      retries: 5
+      interval: 5s
+
+  giga-agent-postgres:
+    image: postgres:16
+    networks:
+      - giga-agent-net
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - giga-agent-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      start_period: 10s
+      timeout: 1s
+      retries: 5
+      interval: 5s
+
+  qdrant:
+    image: qdrant/qdrant
+    networks:
+      - giga-agent-net
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  giga-agent:
+    build:
+      context: .
+      dockerfile: deployments/local/Dockerfile
+    depends_on:
+      langgraph-redis:
+        condition: service_healthy
+      langgraph-postgres:
+        condition: service_healthy
+      giga-agent-postgres:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    networks:
+      - giga-agent-net
+    environment:
+      HOME: /tmp
+      MEM0_DIR: /tmp/.mem0
+      AEGRA_CONFIG: /app/config/langgraph.json
+      AUTH_TYPE: custom
+      GIGA_AGENT_UI: "0"
+      GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
+      REDIS_URI: redis://langgraph-redis:6379
+      REDIS_URL: redis://langgraph-redis:6379
+      POSTGRES_URI: postgres://postgres:postgres@langgraph-postgres:5432/aegra?sslmode=disable
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@langgraph-postgres:5432/aegra
+      GIGA_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:postgres@giga-agent-postgres:5432/postgres
+      QDRANT_URL: http://qdrant:6333
+      GIGA_AGENT_LANGGRAPH_API_URL: http://giga-agent:8000
+      DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
+      GIGA_AGENT_PROJECT_ROOT: /.giga_agent
+      GIGA_AGENT_SECRET_KEY: ${GIGA_AGENT_SECRET_KEY:-local-dev-secret}
+    volumes:
+      - ./backend/langgraph.json:/app/config/langgraph.json:ro
+      - ./deployments/aegra-startup.sh:/app/deployments/aegra-startup.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./.giga_agent:/.giga_agent
+    command: ["sh", "/app/deployments/aegra-startup.sh"]
+

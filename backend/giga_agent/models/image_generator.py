@@ -10,6 +10,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 
 class ImageGenerator(Base):
@@ -57,7 +62,8 @@ class ImageGeneratorBase(BaseModel):
 
 
 class ImageGeneratorCreate(ImageGeneratorBase):
-    pass
+    check_connection: bool = True
+    permissions: ResourcePermissionsPayload | None = None
 
 
 class ImageGeneratorUpdate(BaseModel):
@@ -71,6 +77,7 @@ class ImageGeneratorUpdate(BaseModel):
 class ImageGeneratorResponse(ImageGeneratorBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -78,8 +85,10 @@ class ImageGeneratorResponse(ImageGeneratorBase):
         from_attributes = True
 
 
-class ImageGeneratorRepository:
+class ImageGeneratorRepository(ACLResourceRepositoryMixin[ImageGenerator]):
     """Repository for image generators."""
+    resource_model = ImageGenerator
+    resource_type = "image_generator"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -155,6 +164,86 @@ class ImageGeneratorRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[ImageGenerator]:
+        rows = await self.list_readable_with_edit_for_user(
+            user_id=user_id,
+            only_active=only_active,
+            user_group_ids=user_group_ids,
+        )
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        generator_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[ImageGenerator, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            generator_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id_readable(
+        self,
+        generator_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> ImageGenerator | None:
+        row = await self.get_by_id_with_access_for_user(
+            generator_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        generator, can_read, _ = row
+        if not can_read:
+            return None
+        return generator
+
+    async def get_by_id_writable(
+        self,
+        generator_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> ImageGenerator | None:
+        row = await self.get_by_id_with_access_for_user(
+            generator_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        generator, _, can_edit = row
+        if not can_edit:
+            return None
+        return generator
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="image_generator",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
     async def get_by_owner_and_type(
         self,
         owner_id: uuid.UUID,
@@ -223,10 +312,21 @@ class ImageGeneratorRepository:
 
     async def delete(self, generator: ImageGenerator) -> None:
         generator_id = generator.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="image_generator",
+            resource_id=generator_id,
+            no_commit=True,
+        )
         await self.db.delete(generator)
         await self.db.commit()
         await self.invalidate_cache(generator_id)
 
     @staticmethod
-    def to_response(generator: ImageGenerator) -> ImageGeneratorResponse:
-        return ImageGeneratorResponse.model_validate(generator)
+    def to_response(
+        generator: ImageGenerator,
+        *,
+        can_edit: bool = False,
+    ) -> ImageGeneratorResponse:
+        response = ImageGeneratorResponse.model_validate(generator)
+        response.can_edit = can_edit
+        return response

@@ -10,18 +10,23 @@ from langgraph.runtime import Runtime
 
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.db import get_session_factory
+from giga_agent.core.events import event_bus
 from giga_agent.core.module import BaseModule
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 from giga_agent.modules.mem_zero_memory.memory import (
     MemZeroEmbeddingsNotConfigured,
     format_memories,
     get_memory_for_user,
+    migrate_user_memories_for_embedding_change,
 )
 from giga_agent.core.logging import get_logger
 
 logger = get_logger(__name__)
+_MEM0_EMBEDDING_SUBSCRIBED = False
+_MEM0_EMBEDDING_SUBSCRIBE_LOCK = asyncio.Lock()
 
 
 async def _background_save_memory(
@@ -54,6 +59,37 @@ async def _background_save_memory(
         return
     except Exception:
         logger.exception("Failed to save mem0 memory in background")
+
+
+async def _background_migrate_memories(
+    *,
+    user_id: uuid.UUID,
+    old_embedding_id: uuid.UUID | None,
+    new_embedding_id: uuid.UUID | None,
+) -> None:
+    try:
+        await migrate_user_memories_for_embedding_change(
+            user_id=user_id,
+            old_embedding_id=old_embedding_id,
+            new_embedding_id=new_embedding_id,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to migrate mem0 memories after embedding change",
+            user_id=str(user_id),
+            old_embedding_id=str(old_embedding_id) if old_embedding_id else None,
+            new_embedding_id=str(new_embedding_id) if new_embedding_id else None,
+        )
+
+
+async def _on_user_embedding_changed(event: UserEmbeddingChangedEvent) -> None:
+    asyncio.create_task(
+        _background_migrate_memories(
+            user_id=event.user_id,
+            old_embedding_id=event.old_embedding_id,
+            new_embedding_id=event.new_embedding_id,
+        )
+    )
 
 
 class MemZeroMiddleware(AgentMiddleware):
@@ -92,6 +128,15 @@ class MemZeroModule(BaseModule):
         from giga_agent.modules.mem_zero_memory.api import router
 
         return router
+
+    async def on_startup(self, session) -> None:
+        _ = session
+        global _MEM0_EMBEDDING_SUBSCRIBED
+        async with _MEM0_EMBEDDING_SUBSCRIBE_LOCK:
+            if _MEM0_EMBEDDING_SUBSCRIBED:
+                return
+            event_bus.subscribe(UserEmbeddingChangedEvent, _on_user_embedding_changed)
+            _MEM0_EMBEDDING_SUBSCRIBED = True
 
     async def extend_task(
         self,

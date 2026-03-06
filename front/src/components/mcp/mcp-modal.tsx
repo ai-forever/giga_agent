@@ -74,7 +74,7 @@ const resolveUrlForTransport = (rawUrl: string): string => {
     const proxyUrl = MCP_PROXY_URL
       ? MCP_PROXY_URL
       : `${window.location.protocol}//${window.location.host}/proxy/`;
-    return `${proxyUrl}${rawUrl}`;
+    return `${rawUrl}`;
   } catch {
     // Если URL некорректный — возвращаем как есть
     return rawUrl;

@@ -52,7 +52,7 @@ export function DocumentsTable({
       <TableHeader>
         <TableRow>
           <TableHead>Название документа</TableHead>
-          <TableHead>Коллекция</TableHead>
+          <TableHead>Папка</TableHead>
           <TableHead>Дата загрузки</TableHead>
           <TableHead className="text-right">Действия</TableHead>
         </TableRow>
@@ -64,7 +64,7 @@ export function DocumentsTable({
               colSpan={4}
               className="text-muted-foreground text-center"
             >
-              В этой коллекции нет документов.
+              В этой папке нет документов.
             </TableCell>
           </TableRow>
         ) : (

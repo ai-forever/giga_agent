@@ -5,16 +5,23 @@ from unittest.mock import AsyncMock
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.file import FileRepository
+from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.sandbox import SandboxProvider
 from giga_agent.models.users import User
 from giga_agent.sandbox.base import ContentResult
-from giga_agent.sandbox.manager import SandboxManager
+from giga_agent.sandbox.manager import (
+    FileAccessError,
+    ProviderNotFoundError,
+    SandboxManager,
+)
 
 
 class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
+        setup_cache()
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:")
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.engine.begin() as conn:
@@ -55,6 +62,12 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             session.add(provider)
             await session.commit()
             await session.refresh(provider)
+
+            user = await session.get(User, owner_id)
+            if user is not None and user.sandbox_provider_id is None:
+                user.sandbox_provider_id = provider.id
+                await session.commit()
+
             return provider
 
     async def test_upload_file_for_user_creates_db_record(self):
@@ -67,11 +80,11 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.session_factory() as session:
             manager = SandboxManager(session)
-            manager._build_runtime = lambda provider, sandbox: runtime  # type: ignore[method-assign]
-            manager.ensure_running_for_user = AsyncMock()
+            manager._runtime_factory.build = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+            manager._lifecycle.ensure_running_for_user = AsyncMock()
 
             file = await manager.upload_file_for_user(
-                owner_id=user.id,
+                user_id=user.id,
                 file_name="report.txt",
                 content=b"data",
                 file_type="text",
@@ -88,7 +101,32 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 file_name="report.txt",
                 content=b"data",
             )
-            manager.ensure_running_for_user.assert_not_awaited()
+            manager._lifecycle.ensure_running_for_user.assert_not_awaited()
+
+    async def test_resolve_provider_raises_when_user_sandbox_provider_not_configured(self):
+        user = await self._create_user("m1b@example.com")
+
+        async with self.session_factory() as session:
+            manager = SandboxManager(session)
+            with self.assertRaisesRegex(
+                ProviderNotFoundError,
+                "sandbox provider is not configured",
+            ):
+                await manager._resolve_provider(user_id=user.id, provider_id=None)
+
+    async def test_resolve_provider_uses_user_sandbox_provider_id(self):
+        user = await self._create_user("m1c@example.com")
+        provider = await self._create_provider(user.id)
+
+        async with self.session_factory() as session:
+            user_in_db = await session.get(User, user.id)
+            assert user_in_db is not None
+            user_in_db.sandbox_provider_id = provider.id
+            await session.commit()
+
+            manager = SandboxManager(session)
+            resolved = await manager._resolve_provider(user_id=user.id, provider_id=None)
+            self.assertEqual(resolved.id, provider.id)
 
     async def test_read_file_for_user_dispatches_to_runtime(self):
         user = await self._create_user("m2@example.com")
@@ -110,11 +148,11 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             content = ContentResult(data=b"abc")
             runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=content))
             runtime.requires_running_for_read = lambda path: False
-            manager._build_runtime = lambda provider, sandbox: runtime  # type: ignore[method-assign]
-            manager.ensure_running_for_user = AsyncMock()
+            manager._runtime_factory.build = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+            manager._lifecycle.ensure_running_for_user = AsyncMock()
 
             fetched, result = await manager.read_file_for_user(
-                owner_id=user.id,
+                user_id=user.id,
                 file_id=file.id,
             )
 
@@ -122,7 +160,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(result, ContentResult)
             self.assertEqual(result.data, b"abc")
             runtime.read_file.assert_awaited_once_with(file.sandbox_path)
-            manager.ensure_running_for_user.assert_not_awaited()
+            manager._lifecycle.ensure_running_for_user.assert_not_awaited()
 
     async def test_read_file_for_user_uses_running_sandbox_for_internal_path(self):
         user = await self._create_user("m2b@example.com")
@@ -147,19 +185,19 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             hot_runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=content))
 
             manager = SandboxManager(session)
-            manager._build_runtime = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
-            manager.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
+            manager._runtime_factory.build = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
+            manager._lifecycle.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
 
             fetched, result = await manager.read_file_for_user(
-                owner_id=user.id,
+                user_id=user.id,
                 file_id=file.id,
             )
 
             self.assertEqual(fetched.id, file.id)
             self.assertIsInstance(result, ContentResult)
             self.assertEqual(result.data, b"abc")
-            manager.ensure_running_for_user.assert_awaited_once_with(
-                owner_id=user.id,
+            manager._lifecycle.ensure_running_for_user.assert_awaited_once_with(
+                user_id=user.id,
                 provider_id=provider.id,
             )
             hot_runtime.read_file.assert_awaited_once_with(file.sandbox_path)
@@ -182,8 +220,8 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(file)
 
             manager = SandboxManager(session)
-            with self.assertRaises(PermissionError):
-                await manager.read_file_for_user(owner_id=foreign.id, file_id=file.id)
+            with self.assertRaises(FileAccessError):
+                await manager.read_file_for_user(user_id=foreign.id, file_id=file.id)
 
     async def test_read_file_by_path_for_user_dispatches(self):
         user = await self._create_user("m5@example.com")
@@ -203,18 +241,18 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
             manager = SandboxManager(session)
             content = ContentResult(data=b"by-path")
-            manager.read_file_for_user = AsyncMock(return_value=(file, content))
+            manager._files.read_file_for_user = AsyncMock(return_value=(file, content))
 
             fetched, result = await manager.read_file_by_path_for_user(
-                owner_id=user.id,
+                user_id=user.id,
                 sandbox_path="/home/user/bucket/giga_agent/u/by-path.txt",
             )
 
             self.assertEqual(fetched.id, file.id)
             self.assertIsInstance(result, ContentResult)
             self.assertEqual(result.data, b"by-path")
-            manager.read_file_for_user.assert_awaited_once_with(
-                owner_id=user.id,
+            manager._files.read_file_for_user.assert_awaited_once_with(
+                user_id=user.id,
                 file_id=file.id,
             )
 
@@ -235,11 +273,11 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.session_factory() as session:
             manager = SandboxManager(session)
-            manager._build_runtime = lambda provider, sandbox: runtime  # type: ignore[method-assign]
-            manager.ensure_running_for_user = AsyncMock()
+            manager._runtime_factory.build = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+            manager._lifecycle.ensure_running_for_user = AsyncMock()
 
-            files = await manager.upload_files_for_user(
-                owner_id=user.id,
+            result = await manager.upload_files_for_user(
+                user_id=user.id,
                 files=[
                     {
                         "file_name": "thread-1/first.png",
@@ -263,8 +301,10 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                     },
                 ],
             )
+            files = result.files
 
             self.assertEqual(len(files), 4)
+            self.assertEqual(result.errors, [])
             self.assertEqual([f.file_type for f in files], ["image", "audio", "video", "plotly_graph"])
             self.assertEqual(
                 [f.sandbox_path for f in files],
@@ -281,12 +321,13 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual([f.size for f in files], [3, 3, 3, 2])
             self.assertEqual(runtime.upload_file.await_count, 4)
-            manager.ensure_running_for_user.assert_not_awaited()
+            manager._lifecycle.ensure_running_for_user.assert_not_awaited()
             for call in runtime.upload_file.await_args_list:
                 self.assertEqual(call.kwargs["owner_id"], user.id)
 
     async def test_delete_file_for_user_deletes_from_storage_best_effort_and_removes_db_record(self):
         user = await self._create_user("m7@example.com")
+        viewer = await self._create_user("m7_viewer@example.com")
         provider = await self._create_provider(user.id)
 
         async with self.session_factory() as session:
@@ -300,6 +341,14 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 size=1,
             )
             self.assertIsNotNone(file)
+            permissions = ResourcePermissionRepository(session)
+            await permissions.grant_permission(
+                resource_type="file",
+                resource_id=file.id,
+                owner_type="user",
+                owner_id=viewer.id,
+                permission="read",
+            )
 
             runtime = types.SimpleNamespace(
                 delete_file=AsyncMock(return_value=None),
@@ -307,14 +356,21 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             )
 
             manager = SandboxManager(session)
-            manager._build_runtime = lambda provider, sandbox: runtime  # type: ignore[method-assign]
-            manager.ensure_running_for_user = AsyncMock()
+            manager._runtime_factory.build = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+            manager._lifecycle.ensure_running_for_user = AsyncMock()
 
-            await manager.delete_file_for_user(owner_id=user.id, file_id=file.id)
+            await manager.delete_file_for_user(user_id=user.id, file_id=file.id)
 
             runtime.delete_file.assert_awaited_once_with(file.sandbox_path)
-            manager.ensure_running_for_user.assert_not_awaited()
+            manager._lifecycle.ensure_running_for_user.assert_not_awaited()
             self.assertIsNone(await repo.get_by_id(file.id))
+            self.assertEqual(
+                await permissions.list_permissions_for_resource(
+                    resource_type="file",
+                    resource_id=file.id,
+                ),
+                [],
+            )
 
     async def test_delete_file_for_user_uses_running_sandbox_when_required(self):
         user = await self._create_user("m8@example.com")
@@ -338,13 +394,13 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             hot_runtime = types.SimpleNamespace(delete_file=AsyncMock(return_value=None))
 
             manager = SandboxManager(session)
-            manager._build_runtime = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
-            manager.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
+            manager._runtime_factory.build = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
+            manager._lifecycle.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
 
-            await manager.delete_file_for_user(owner_id=user.id, file_id=file.id)
+            await manager.delete_file_for_user(user_id=user.id, file_id=file.id)
 
-            manager.ensure_running_for_user.assert_awaited_once_with(
-                owner_id=user.id,
+            manager._lifecycle.ensure_running_for_user.assert_awaited_once_with(
+                user_id=user.id,
                 provider_id=provider.id,
             )
             hot_runtime.delete_file.assert_awaited_once_with(file.sandbox_path)

@@ -1,10 +1,23 @@
+import asyncio
+import os
 from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
 
+from cashews import cache
 from fastapi import FastAPI
-from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.conf import (
+    GIGA_AGENT_PREFIX_API,
+    GIGA_AGENT_UI,
+    GIGA_AGENT_UI_PREFIX,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
+    GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
+    get_settings,
+)
 from giga_agent.core.db import get_session_factory
-from giga_agent.core.logging import get_logger
+from giga_agent.core.logging import get_logger, setup_cli_logging
+from giga_agent.core.migrations import apply_migrations
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
 from uuid import UUID
 
@@ -13,11 +26,13 @@ from giga_agent.core.module import BaseModule
 from langchain_core.tools import BaseTool
 
 from giga_agent.middlewares.tool_result import ToolResultMiddleware
+from giga_agent.middlewares.thread_title import ThreadTitleMiddleware
 from giga_agent.models.users import UserShort
 from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import router as api_router
+from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 
 NOTES_PROMPT = """
 ====
@@ -48,9 +63,22 @@ class BaseAgent(BaseModel):
         default_factory=dict
     )
     _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
+    _idle_sandbox_sweeper: IdleSandboxSweeper | None = PrivateAttr(default=None)
 
     def get_modules(self) -> list[BaseModule]:
         return []
+
+    def __check_for_unique_ids(self):
+        module_ids = [m.id for m in self.all_modules]
+        unique_ids = set(module_ids)
+        if len(module_ids) != len(unique_ids):
+            for mid in module_ids:
+                if module_ids.count(mid) > 1:
+                    raise ValueError(
+                        f"Agent cannot have multiple modules with the same id: '{mid}'"
+                    )
+            raise ValueError("Agent cannot have multiple modules with the same id")
+        return unique_ids
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "modules":
@@ -59,17 +87,12 @@ class BaseAgent(BaseModel):
         old_modules = getattr(self, "modules", None)
         super().__setattr__(name, value)
 
-        module_ids = [m.id for m in self.modules]
-        unique_ids = set(module_ids)
-        if len(module_ids) != len(unique_ids):
+        try:
+            unique_ids = self.__check_for_unique_ids()
+        except ValueError as e:
             if old_modules is not None:
                 super().__setattr__("modules", old_modules)
-            for mid in module_ids:
-                if module_ids.count(mid) > 1:
-                    raise ValueError(
-                        f"Agent cannot have multiple modules with the same id: '{mid}'"
-                    )
-            raise ValueError("Agent cannot have multiple modules with the same id")
+            raise e
 
         if hasattr(self, "_module_ids"):
             self._module_ids = unique_ids
@@ -89,16 +112,38 @@ class BaseAgent(BaseModel):
 
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
+            if not (os.getenv("GIGA_AGENT_SECRET_KEY") or "").strip():
+                raise Exception(
+                    "GIGA_AGENT_SECRET_KEY is not set. Please set env secret key."
+                )
+            settings = get_settings()
+            setup_cli_logging(settings.giga_agent_log_level)
+            await self.run_startup_migrations()
             await self.run_startup_hooks()
-            yield
-            await shutdown_qdrant_client()
+            if self._idle_sandbox_sweeper is not None:
+                self._idle_sandbox_sweeper.start()
+            try:
+                yield
+            finally:
+                if self._idle_sandbox_sweeper is not None:
+                    await self._idle_sandbox_sweeper.stop()
+                stack = getattr(_app.state, "_ui_resources_stack", None)
+                if stack is not None:
+                    stack.close()
+                await shutdown_qdrant_client()
 
         self._app = FastAPI(lifespan=_lifespan)
         self._app.state.agent = self
-        api_router.prefix = GIGA_PREFIX_API
+        api_router.prefix = GIGA_AGENT_PREFIX_API
 
         # Подключаем core routes
         self._app.include_router(api_router)
+
+        # If UI is enabled and a UI prefix is specified, mount UI endpoints into this app.
+        if GIGA_AGENT_UI and GIGA_AGENT_UI_PREFIX:
+            from giga_agent.ui import mount_ui
+
+            mount_ui(self._app)
 
         # Re-initialize modules through add_module to ensure validation and route registration
         default_modules = tuple(self.get_modules())
@@ -112,18 +157,27 @@ class BaseAgent(BaseModel):
 
             if module.get_api_router():
                 self._app.include_router(
-                    module.get_api_router(), prefix=f"{GIGA_PREFIX_API}/{module.id}"
+                    module.get_api_router(),
+                    prefix=f"{GIGA_AGENT_PREFIX_API}/{module.id}",
                 )
 
         # Собираем middleware из модулей
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
+            ThreadTitleMiddleware(),
             ToolResultMiddleware(),
             *module_middlewares,
         ]
 
         self._graph = create_graph(self, middleware=all_middleware)
         setattr(self.graph, "giga_agent", self)
+        self.__check_for_unique_ids()
+        self._idle_sandbox_sweeper = IdleSandboxSweeper(
+            interval_sec=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
+            lock_key=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
+            lock_ttl_sec=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
+            enabled=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
+        )
 
     @property
     def app(self) -> FastAPI:
@@ -191,6 +245,33 @@ class BaseAgent(BaseModel):
                         f"Error in startup hook for {module.__class__.__name__}: {e}"
                     )
                     pass
+
+    async def run_startup_migrations(self) -> None:
+        settings = get_settings()
+        if settings.giga_agent_skip_startup_migrations:
+            logger.info(
+                "Skipping startup migrations (GIGA_AGENT_SKIP_STARTUP_MIGRATIONS=1)."
+            )
+            return
+
+        lock_key = settings.giga_agent_startup_migrations_lock_key
+        lock_ttl_sec = settings.giga_agent_startup_migrations_lock_ttl_sec
+        if settings.giga_agent_runtime == "local":
+            logger.warning(
+                "Startup migration lock uses in-memory cache in local runtime; "
+                "it does not coordinate across multiple processes."
+            )
+        logger.info(
+            "Running startup migrations with lock key '%s' (ttl=%ss).",
+            lock_key,
+            lock_ttl_sec,
+        )
+        async with cache.lock(
+            lock_key,
+            expire=lock_ttl_sec,
+            wait=True,
+        ):
+            await asyncio.to_thread(apply_migrations, self)
 
     async def extend_task(
         self,

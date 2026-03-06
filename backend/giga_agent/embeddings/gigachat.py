@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain_gigachat import GigaChat, GigaChatEmbeddings
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from giga_agent.connectors.base import BaseConnector
+from giga_agent.connectors.gigachat_token_cache import get_gigachat_access_token_cached
 from giga_agent.embeddings.base import (
     AvailableEmbeddingModel,
     BaseEmbeddingRuntime,
@@ -20,9 +22,29 @@ from giga_agent.embeddings.registry import EmbeddingRegistry
 class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
     timeout: float | None = Field(default=None, gt=0)
 
+    _embeddings_lock: asyncio.Lock | None = PrivateAttr(default=None)
+
+    def model_post_init(self, __context) -> None:
+        self._embeddings_lock = asyncio.Lock()
+
     @classmethod
     def supported_connector_types(cls) -> list[str]:
         return ["gigachat"]
+
+    async def get_embeddings(self) -> GigaChatEmbeddings:
+        embeddings = self._embeddings_instance
+        if embeddings is not None:
+            return embeddings
+
+        if self._embeddings_lock is None:
+            self._embeddings_lock = asyncio.Lock()
+
+        async with self._embeddings_lock:
+            embeddings = self._embeddings_instance
+            if embeddings is None:
+                embeddings = await self._create_embeddings()
+                self._embeddings_instance = embeddings
+            return embeddings
 
     @classmethod
     async def fetch_available_models(
@@ -35,7 +57,8 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
             return []
 
         try:
-            llm = GigaChat(**kwargs)
+            token = await get_gigachat_access_token_cached(connector)
+            llm = GigaChat(**kwargs, access_token=token)
             models = [
                 AvailableEmbeddingModel(
                     id=model.id_,
@@ -49,10 +72,11 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
         except Exception as e:
             raise EmbeddingModelFetchError("gigachat", str(e)) from e
 
-    def _embeddings(self) -> GigaChatEmbeddings:
+    async def _create_embeddings(self) -> GigaChatEmbeddings:
         connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
             raise ValueError("Invalid connection settings for GigaChat embedding runtime")
+        token = await get_gigachat_access_token_cached(self.connector)
         settings = self._settings_payload()
         client_kwargs: dict[str, Any] = {
             "model": self.model_id,
@@ -63,6 +87,7 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
             "password": connection_kwargs.get("password"),
             "verify_ssl_certs": connection_kwargs.get("verify_ssl_certs"),
             "timeout": settings.get("timeout"),
+            "access_token": token,
         }
 
         extra = settings.get("extra")

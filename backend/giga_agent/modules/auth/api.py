@@ -1,24 +1,40 @@
 import time
 import uuid
+from collections import defaultdict
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Awaitable, Callable
 
+from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
 from giga_agent.core.module import collect_module_secrets
+from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.embedding import EmbeddingRepository
+from giga_agent.models.group import GroupRepository
 from giga_agent.models.image_generator import ImageGeneratorRepository
 from giga_agent.models.llm import LLMRepository
+from giga_agent.models.rag import RagCollectionsRepository
+from giga_agent.models.sandbox import (
+    SandboxProviderRepository,
+    SandboxProviderSnapshot,
+    SandboxRepository,
+    SandboxSnapshot,
+)
 from giga_agent.models.search_engine import SearchEngineRepository
+from giga_agent.models.resource_permission import (
+    PermissionGrantItem,
+    ResourcePermission,
+    ResourcePermissionRepository,
+)
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.core.events import event_bus
-from giga_agent.modules.auth.events import UserCreatedEvent
+from giga_agent.modules.auth.events import UserCreatedEvent, UserEmbeddingChangedEvent
 from giga_agent.models.users import (
     User,
     UserShort,
@@ -26,7 +42,10 @@ from giga_agent.models.users import (
     UserResponse,
     UserCreate,
     UserUpdate,
+    AdminUserUpdate,
 )
+from giga_agent.models.file import FileRepository, FileStorageRef
+from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
 
 router = APIRouter(tags=["auth"])
 
@@ -118,87 +137,199 @@ async def _get_user_model_by_id(
 def _invalid_reference_error(field_name: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail=f"Invalid value for {field_name}: record must exist, belong to user, and be active",
+        detail=(
+            f"Invalid value for {field_name}: record must exist, be owned by user "
+            "or readable by user, and be active"
+        ),
     )
+
+
+def require_superuser(current_user: UserShort) -> None:
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
+def _collect_runtime_grant_targets_from_user_model(
+    user_model: User,
+) -> set[tuple[str, uuid.UUID]]:
+    targets: set[tuple[str, uuid.UUID]] = set()
+    llm_ids = {item for item in [user_model.llm_id, user_model.fast_llm_id] if item}
+    for llm_id in llm_ids:
+        targets.add(("llm", llm_id))
+
+    runtime_refs: list[tuple[str, uuid.UUID | None]] = [
+        ("embedding", user_model.embedding_id),
+        ("image_generator", user_model.image_generator_id),
+        ("search_engine", user_model.search_engine_id),
+        ("sandbox", user_model.sandbox_provider_id),
+    ]
+    for resource_type, resource_id in runtime_refs:
+        if resource_id is not None:
+            targets.add((resource_type, resource_id))
+    return targets
+
+
+async def _collect_runtime_grant_targets_from_module_secrets(
+    *,
+    request: Request,
+    secrets: dict,
+) -> set[tuple[str, uuid.UUID]]:
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return set()
+
+    targets: set[tuple[str, uuid.UUID]] = set()
+    for secret_meta in collect_module_secrets(agent.all_modules):
+        secret_name = secret_meta["name"]
+        secret_type = secret_meta.get("type") or "pass"
+        if secret_type != "llm_id":
+            continue
+
+        raw_value = secrets.get(secret_name)
+        if raw_value is None:
+            continue
+        value = str(raw_value).strip()
+        if not value:
+            continue
+        try:
+            llm_id = uuid.UUID(value)
+        except ValueError:
+            continue
+        targets.add(("llm", llm_id))
+
+    return targets
+
+
+async def _validate(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    resource_type: str,
+    resource_id: uuid.UUID,
+    field_name: str,
+    loader: Callable[[uuid.UUID], Awaitable[object | None]],
+) -> None:
+    resource = await loader(resource_id)
+    if resource is None:
+        raise _invalid_reference_error(field_name)
+
+    owner_id = getattr(resource, "owner_id", None)
+    is_active = getattr(resource, "is_active", False)
+    if owner_id is None or not is_active:
+        raise _invalid_reference_error(field_name)
+
+    if owner_id == user_id:
+        return
+
+    has_read_access = await ResourcePermissionRepository(db).has_access(
+        user_id=user_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        permission="read",
+    )
+    if not has_read_access:
+        raise _invalid_reference_error(field_name)
 
 
 async def _validate_llm_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     llm_id: uuid.UUID,
+    field_name: str = "llm_id",
 ) -> None:
-    llm = await LLMRepository.get_cached_or_db(
-        llm_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="llm",
+        resource_id=llm_id,
+        field_name=field_name,
+        loader=lambda resource_id: LLMRepository.get_cached_or_db(resource_id, session=db),
     )
-    if llm is None or llm.owner_id != owner_id or not llm.is_active:
-        raise _invalid_reference_error("llm_id")
-
-
-async def _validate_fast_llm_id(
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    fast_llm_id: uuid.UUID,
-) -> None:
-    llm = await LLMRepository.get_cached_or_db(
-        fast_llm_id,
-        session=db,
-    )
-    if llm is None or llm.owner_id != owner_id or not llm.is_active:
-        raise _invalid_reference_error("fast_llm_id")
 
 
 async def _validate_embedding_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     embedding_id: uuid.UUID,
 ) -> None:
-    embedding = await EmbeddingRepository.get_cached_or_db(
-        embedding_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="embedding",
+        resource_id=embedding_id,
+        field_name="embedding_id",
+        loader=lambda resource_id: EmbeddingRepository.get_cached_or_db(
+            resource_id,
+            session=db,
+        ),
     )
-    if embedding is None or embedding.owner_id != owner_id or not embedding.is_active:
-        raise _invalid_reference_error("embedding_id")
 
 
 async def _validate_image_generator_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     image_generator_id: uuid.UUID,
 ) -> None:
-    generator = await ImageGeneratorRepository.get_cached_or_db(
-        image_generator_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="image_generator",
+        resource_id=image_generator_id,
+        field_name="image_generator_id",
+        loader=lambda resource_id: ImageGeneratorRepository.get_cached_or_db(
+            resource_id,
+            session=db,
+        ),
     )
-    if generator is None or generator.owner_id != owner_id or not generator.is_active:
-        raise _invalid_reference_error("image_generator_id")
 
 
 async def _validate_search_engine_id(
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     search_engine_id: uuid.UUID,
 ) -> None:
-    engine = await SearchEngineRepository.get_cached_or_db(
-        search_engine_id,
-        session=db,
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="search_engine",
+        resource_id=search_engine_id,
+        field_name="search_engine_id",
+        loader=lambda resource_id: SearchEngineRepository.get_cached_or_db(
+            resource_id,
+            session=db,
+        ),
     )
-    if engine is None or engine.owner_id != owner_id or not engine.is_active:
-        raise _invalid_reference_error("search_engine_id")
+
+
+async def _validate_sandbox_provider_id(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    sandbox_provider_id: uuid.UUID,
+) -> None:
+    await _validate(
+        db=db,
+        user_id=user_id,
+        resource_type="sandbox",
+        resource_id=sandbox_provider_id,
+        field_name="sandbox_provider_id",
+        loader=lambda resource_id: SandboxProviderRepository(db).get_by_id(resource_id),
+    )
 
 
 async def _validate_llm_secret_references(
     *,
     request: Request,
     db: AsyncSession,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     merged_secrets: dict,
 ) -> None:
     agent = getattr(request.app.state, "agent", None)
     if agent is None:
         return
 
-    for secret_meta in collect_module_secrets(agent.modules):
+    for secret_meta in collect_module_secrets(agent.all_modules):
         if secret_meta["type"] != "llm_id":
             continue
 
@@ -222,23 +353,111 @@ async def _validate_llm_secret_references(
                 ),
             )
 
-        try:
-            await _validate_llm_id(db, owner_id, llm_id)
-        except HTTPException as exc:
-            if exc.status_code != status.HTTP_422_UNPROCESSABLE_ENTITY:
-                raise
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Invalid value for secrets.{secret_name}: record must exist, "
-                    "belong to user, and be active"
-                ),
-            )
+        await _validate_llm_id(
+            db,
+            user_id,
+            llm_id,
+            field_name=f"secrets.{secret_name}",
+        )
 
 
-@router.get("/tt")
-async def get_tt():
-    return {"test": "test"}
+async def _delete_user_related_resources(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    file_refs: list[FileStorageRef],
+):
+    _ = file_refs
+    await FileRepository(db).delete_by_owner(user_id)
+
+    rag_repo = RagCollectionsRepository(db)
+    for collection in await rag_repo.list_by_owner(user_id):
+        await rag_repo.delete(owner_id=user_id, collection_id=collection.id)
+
+    sandbox_repo = SandboxRepository(db)
+    for sandbox in await sandbox_repo.get_by_owner(user_id):
+        await sandbox_repo.delete(sandbox)
+
+    provider_repo = SandboxProviderRepository(db)
+    for provider in await provider_repo.get_by_owner(user_id):
+        await provider_repo.delete(provider)
+
+    search_repo = SearchEngineRepository(db)
+    for engine in await search_repo.get_by_owner(user_id):
+        await search_repo.delete(engine)
+
+    image_repo = ImageGeneratorRepository(db)
+    for generator in await image_repo.get_by_owner(user_id):
+        await image_repo.delete(generator)
+
+    llm_repo = LLMRepository(db)
+    for llm in await llm_repo.get_by_owner(user_id):
+        await llm_repo.delete(llm)
+
+    embedding_repo = EmbeddingRepository(db)
+    for embedding in await embedding_repo.get_by_owner(user_id):
+        await embedding_repo.delete(embedding)
+
+    connector_repo = ConnectorRepository(db)
+    for connector in await connector_repo.get_by_owner(user_id):
+        await connector_repo.delete(connector)
+
+    group_repo = GroupRepository(db)
+    for group in await group_repo.list_all():
+        if group.owner_id == user_id:
+            await group_repo.delete(group)
+
+    await db.execute(
+        delete(ResourcePermission)
+        .where(ResourcePermission.owner_type == "user")
+        .where(ResourcePermission.owner_id == str(user_id))
+    )
+    await db.commit()
+    await UserRepository.invalidate_cache(user_id)
+    return
+
+
+async def _build_user_storage_cleanup_batches(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+):
+    file_refs = await FileRepository(db).list_storage_refs_by_owner(user_id)
+    refs_by_provider: dict[uuid.UUID, list[FileStorageRef]] = defaultdict(list)
+    for ref in file_refs:
+        refs_by_provider[ref.provider_id].append(ref)
+
+    provider_repo = SandboxProviderRepository(db)
+    sandbox_repo = SandboxRepository(db)
+    batches: list[
+        tuple[list[FileStorageRef], SandboxProviderSnapshot, dict[str, SandboxSnapshot]]
+    ] = []
+
+    for provider_id, provider_refs in refs_by_provider.items():
+        provider = await provider_repo.get_by_id(provider_id)
+        if provider is None:
+            continue
+
+        provider_snapshot = SandboxProviderSnapshot(
+            id=provider.id,
+            owner_id=provider.owner_id,
+            type=provider.type,
+            name=provider.name,
+            settings=provider.settings or {},
+            idle_timeout=provider.idle_timeout,
+            is_active=provider.is_active,
+            updated_at=provider.updated_at,
+        )
+        sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
+        for owner_id in {item.owner_id for item in provider_refs}:
+            sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider_id)
+            if sandbox is None:
+                continue
+            pair = SandboxRepository.to_pair_snapshot(provider, sandbox)
+            sandbox_snapshots_by_owner[str(owner_id)] = pair.sandbox
+
+        batches.append((provider_refs, provider_snapshot, sandbox_snapshots_by_owner))
+
+    return file_refs, batches
 
 
 # ============ Endpoints ============
@@ -295,6 +514,16 @@ async def read_users_me(
     return current_user
 
 
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+):
+    require_superuser(current_user)
+    users = await user_repo.get_all()
+    return [UserRepository.to_response(user) for user in users]
+
+
 @router.patch("/users/me", response_model=UserShort)
 async def update_user(
     body: UserUpdate,
@@ -307,6 +536,7 @@ async def update_user(
         return current_user
 
     user = await _get_user_model_by_id(db, current_user.id)
+    old_embedding_id = user.embedding_id
 
     if "settings" in body.model_fields_set:
         if body.settings is None:
@@ -329,7 +559,7 @@ async def update_user(
         await _validate_llm_secret_references(
             request=request,
             db=db,
-            owner_id=current_user.id,
+            user_id=current_user.id,
             merged_secrets=merged_secrets,
         )
         user.secrets = merged_secrets
@@ -341,7 +571,12 @@ async def update_user(
 
     if "fast_llm_id" in body.model_fields_set:
         if body.fast_llm_id is not None:
-            await _validate_fast_llm_id(db, current_user.id, body.fast_llm_id)
+            await _validate_llm_id(
+                db,
+                current_user.id,
+                body.fast_llm_id,
+                field_name="fast_llm_id",
+            )
         user.fast_llm_id = body.fast_llm_id
 
     if "embedding_id" in body.model_fields_set:
@@ -363,32 +598,224 @@ async def update_user(
             await _validate_search_engine_id(db, current_user.id, body.search_engine_id)
         user.search_engine_id = body.search_engine_id
 
+    if "sandbox_provider_id" in body.model_fields_set:
+        if body.sandbox_provider_id is not None:
+            await _validate_sandbox_provider_id(
+                db,
+                current_user.id,
+                body.sandbox_provider_id,
+            )
+        user.sandbox_provider_id = body.sandbox_provider_id
+        await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+
     await db.commit()
     await db.refresh(user)
     await UserRepository.invalidate_cache(user.id)
+    if old_embedding_id != user.embedding_id:
+        await event_bus.publish(
+            UserEmbeddingChangedEvent(
+                user_id=user.id,
+                old_embedding_id=old_embedding_id,
+                new_embedding_id=user.embedding_id,
+            )
+        )
     return UserRepository.to_short(user)
 
 
 @router.post("/users", response_model=UserResponse)
 async def create_user(
+    request: Request,
     user: UserCreate,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
 ):
+    require_superuser(current_user)
+
     if await user_repo.exists_by_email(user.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed_password = security.get_password_hash(user.password)
+    normalized_group_ids = list(dict.fromkeys(user.group_ids))
+    group_repo = GroupRepository(db)
 
-    db_user = await user_repo.create(
-        email=user.email,
-        hashed_password=hashed_password,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        is_active=user.is_active,
-        is_superuser=user.is_superuser,
-    )
+    if normalized_group_ids:
+        existing_group_ids = set(
+            await group_repo.get_existing_group_ids(normalized_group_ids)
+        )
+        missing_group_ids = [
+            group_id
+            for group_id in normalized_group_ids
+            if group_id not in existing_group_ids
+        ]
+        if missing_group_ids:
+            missing_group_ids_str = ", ".join(
+                str(group_id) for group_id in missing_group_ids
+            )
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Groups not found: {missing_group_ids_str}",
+            )
+
+    try:
+        db_user = await user_repo.create(
+            email=user.email,
+            hashed_password=hashed_password,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            is_active=user.is_active,
+            is_superuser=user.is_superuser,
+            commit=False,
+        )
+
+        if user.copy_owner_runtime_ids:
+            owner_model = await _get_user_model_by_id(db, current_user.id)
+            db_user.llm_id = owner_model.llm_id
+            db_user.fast_llm_id = owner_model.fast_llm_id
+            db_user.embedding_id = owner_model.embedding_id
+            db_user.image_generator_id = owner_model.image_generator_id
+            db_user.search_engine_id = owner_model.search_engine_id
+            db_user.sandbox_provider_id = owner_model.sandbox_provider_id
+
+            grant_targets = _collect_runtime_grant_targets_from_user_model(owner_model)
+
+            if user.copy_owner_module_secrets:
+                db_user.secrets = dict(owner_model.secrets or {})
+                grant_targets.update(
+                    await _collect_runtime_grant_targets_from_module_secrets(
+                        request=request,
+                        secrets=db_user.secrets,
+                    )
+                )
+
+            if grant_targets:
+                grants = [
+                    PermissionGrantItem(
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        owner_type="user",
+                        owner_id=db_user.id,
+                        permission="read",
+                    )
+                    for resource_type, resource_id in sorted(
+                        grant_targets,
+                        key=lambda item: (item[0], str(item[1])),
+                    )
+                ]
+                await ResourcePermissionRepository(db).grant_permissions(
+                    items=grants,
+                    no_commit=True,
+                )
+
+        for group_id in normalized_group_ids:
+            await group_repo.add_users(group_id, [db_user.id], commit=False)
+        await db.commit()
+        await db.refresh(db_user)
+    except Exception:
+        await db.rollback()
+        raise
 
     await event_bus.publish(UserCreatedEvent(user_id=db_user.id, email=db_user.email))
 
     return db_user
+
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+async def patch_user_by_id(
+    user_id: uuid.UUID,
+    body: AdminUserUpdate,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+):
+    require_superuser(current_user)
+
+    user = await _get_user_model_by_id(db, user_id)
+
+    if user_id == current_user.id and (
+        "is_active" in body.model_fields_set or "is_superuser" in body.model_fields_set
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot change is_active or is_superuser for current user",
+        )
+
+    if "email" in body.model_fields_set:
+        if body.email is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="email must not be null",
+            )
+        if body.email != user.email and await user_repo.exists_by_email(body.email):
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = body.email
+
+    if "password" in body.model_fields_set:
+        password = (body.password or "").strip()
+        if not password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="password must not be empty",
+            )
+        user.hashed_password = security.get_password_hash(password)
+
+    if "first_name" in body.model_fields_set:
+        user.first_name = body.first_name
+
+    if "last_name" in body.model_fields_set:
+        user.last_name = body.last_name
+
+    if "is_active" in body.model_fields_set:
+        if body.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null",
+            )
+        user.is_active = body.is_active
+
+    if "is_superuser" in body.model_fields_set:
+        if body.is_superuser is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_superuser must not be null",
+            )
+        user.is_superuser = body.is_superuser
+
+    await db.commit()
+    await db.refresh(user)
+    await UserRepository.invalidate_cache(user.id)
+    return UserRepository.to_response(user)
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+):
+    require_superuser(current_user)
+
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Cannot delete current user",
+        )
+
+    db_user = await _get_user_model_by_id(db, user_id)
+    file_refs, cleanup_batches = await _build_user_storage_cleanup_batches(db, user_id)
+    await _delete_user_related_resources(
+        db,
+        user_id,
+        file_refs=file_refs,
+    )
+
+    await user_repo.delete(db_user)
+    for refs, provider_snapshot, sandbox_snapshots_by_owner in cleanup_batches:
+        background_tasks.add_task(
+            cleanup_storage_files_best_effort,
+            refs,
+            provider_snapshot=provider_snapshot,
+            sandbox_snapshots_by_owner=sandbox_snapshots_by_owner,
+        )

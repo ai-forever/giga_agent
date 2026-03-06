@@ -1,5 +1,4 @@
-import React from "react";
-import Graph from "./Graph.tsx";
+import React, { Suspense } from "react";
 import Text from "./Text.tsx";
 import HTMLPage from "./HTMLPage.tsx";
 import Image from "./Image.tsx";
@@ -11,6 +10,8 @@ import {
   inferAttachmentTypeFromPath,
   resolveAttachmentPath,
 } from "./file-utils.ts";
+
+const Graph = React.lazy(() => import("./Graph.tsx"));
 
 interface MessageAttachmentProps {
   path: string;
@@ -33,7 +34,21 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({
   }
 
   if (effectiveType === "plotly_graph") {
-    return <Graph path={effectivePath} alt={alt} id={effectivePath} />;
+    return (
+      <Suspense
+        fallback={
+          <div
+            style={{
+              width: "100%",
+              paddingTop: "56.25%",
+              backgroundColor: "#2d2d2d",
+            }}
+          />
+        }
+      >
+        <Graph path={effectivePath} alt={alt} id={effectivePath} />
+      </Suspense>
+    );
   } else if (effectiveType === "text") {
     return <Text path={effectivePath} alt={alt} id={effectivePath} />;
   } else if (effectiveType === "html") {

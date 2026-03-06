@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
-import { Input, SecretInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -15,207 +15,27 @@ import {
 } from "@/components/ui/select";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
+import SchemaFields from "./forms/schema-fields";
+import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ImageGeneratorResponse,
   ImageGeneratorTypeMeta,
   ConnectorResponse,
+  JsonSchema,
+  ResourcePermissionsDraft,
 } from "./forms/types";
-
-interface JsonSchemaProperty {
-  type?: string;
-  title?: string;
-  description?: string;
-  default?: unknown;
-  anyOf?: { type?: string }[];
-}
-
-interface JsonSchema {
-  properties?: Record<string, JsonSchemaProperty>;
-  required?: string[];
-}
-
-type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
+import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
+import {
+  hasNonDefaultPermissions,
+  permissionsEqual,
+  stableStringify,
+  toPermissionsApiPayload,
+} from "./forms/resource-permissions-utils";
+import { compactObject } from "./forms/schema-fields-utils";
 
 type GeneratorFormMode = "create" | "edit";
-
-function isSecretField(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("key") ||
-    lower.includes("secret") ||
-    lower.includes("password") ||
-    lower.includes("token")
-  );
-}
-
-function fieldLabel(name: string, property: JsonSchemaProperty): string {
-  if (property.title) return property.title;
-  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function isFieldRequired(name: string, schema: JsonSchema): boolean {
-  return schema.required?.includes(name) ?? false;
-}
-
-function resolvePropertyType(
-  property: JsonSchemaProperty,
-): SupportedPropertyType {
-  const directType = property.type;
-  if (
-    directType === "string" ||
-    directType === "number" ||
-    directType === "integer" ||
-    directType === "boolean"
-  ) {
-    return directType;
-  }
-
-  for (const option of property.anyOf || []) {
-    const optionType = option.type;
-    if (
-      optionType === "string" ||
-      optionType === "number" ||
-      optionType === "integer" ||
-      optionType === "boolean"
-    ) {
-      return optionType;
-    }
-  }
-
-  return "string";
-}
-
-function compactObject(
-  values: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value !== undefined),
-  );
-}
-
-interface SettingsFormProps {
-  schema: JsonSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-  disabled?: boolean;
-}
-
-const SettingsForm: React.FC<SettingsFormProps> = ({
-  schema,
-  values,
-  onChange,
-  disabled,
-}) => {
-  const entries = Object.entries(schema.properties || {});
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Для этого типа нет дополнительных настроек.
-      </p>
-    );
-  }
-
-  const setFieldValue = (name: string, value: unknown) => {
-    onChange({ ...values, [name]: value });
-  };
-
-  return (
-    <div className="space-y-4">
-      {entries.map(([name, property]) => {
-        const propertyType = resolvePropertyType(property);
-        const required = isFieldRequired(name, schema);
-        const rawValue = values[name] ?? property.default;
-
-        if (propertyType === "boolean") {
-          return (
-            <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`image-gen-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Switch
-                id={`image-gen-setting-${name}`}
-                checked={Boolean(rawValue)}
-                onCheckedChange={(checked) => setFieldValue(name, checked)}
-                disabled={disabled}
-              />
-            </div>
-          );
-        }
-
-        if (propertyType === "number" || propertyType === "integer") {
-          const value = typeof rawValue === "number" ? String(rawValue) : "";
-          return (
-            <div key={name} className="space-y-1.5">
-              <Label htmlFor={`image-gen-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Input
-                id={`image-gen-setting-${name}`}
-                type="number"
-                step={propertyType === "integer" ? 1 : "any"}
-                value={value}
-                placeholder={
-                  property.default !== undefined ? String(property.default) : ""
-                }
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (nextValue === "") {
-                    setFieldValue(name, undefined);
-                    return;
-                  }
-                  const parsed =
-                    propertyType === "integer"
-                      ? parseInt(nextValue, 10)
-                      : parseFloat(nextValue);
-                  setFieldValue(
-                    name,
-                    Number.isNaN(parsed) ? undefined : parsed,
-                  );
-                }}
-                disabled={disabled}
-              />
-              {property.description && (
-                <p className="text-xs text-muted-foreground">
-                  {property.description}
-                </p>
-              )}
-            </div>
-          );
-        }
-
-        const InputComponent = isSecretField(name) ? SecretInput : Input;
-        const value = typeof rawValue === "string" ? rawValue : "";
-
-        return (
-          <div key={name} className="space-y-1.5">
-            <Label htmlFor={`image-gen-setting-${name}`}>
-              {fieldLabel(name, property)}
-              {required && <span className="text-destructive ml-1">*</span>}
-            </Label>
-            <InputComponent
-              id={`image-gen-setting-${name}`}
-              value={value}
-              placeholder={
-                property.description ||
-                (property.default !== undefined ? String(property.default) : "")
-              }
-              onChange={(e) => setFieldValue(name, e.target.value || undefined)}
-              disabled={disabled}
-            />
-            {property.description && (
-              <p className="text-xs text-muted-foreground">
-                {property.description}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 interface ImageGeneratorItemProps {
   generator: ImageGeneratorResponse;
@@ -246,22 +66,26 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
         <Badge variant={generator.is_active ? "default" : "secondary"}>
           {generator.is_active ? "Активен" : "Неактивен"}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(generator.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(generator.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {generator.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(generator.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(generator.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -278,6 +102,7 @@ interface ImageGeneratorFormProps {
   filteredConnectors: ConnectorResponse[];
   requiresConnector: boolean;
   isActive: boolean;
+  checkConnection: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
   loadingConnectors: boolean;
@@ -288,8 +113,10 @@ interface ImageGeneratorFormProps {
   onSettingsChange: (values: Record<string, unknown>) => void;
   onConnectorChange: (connectorId: string) => void;
   onActiveChange: (value: boolean) => void;
+  onCheckConnectionChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  permissionsSection?: React.ReactNode;
 }
 
 const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
@@ -303,6 +130,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   filteredConnectors,
   requiresConnector,
   isActive,
+  checkConnection,
   loadingTypes,
   loadingSchema,
   loadingConnectors,
@@ -313,8 +141,10 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   onSettingsChange,
   onConnectorChange,
   onActiveChange,
+  onCheckConnectionChange,
   onSubmit,
   onCancel,
+  permissionsSection,
 }) => {
   return (
     <div className="space-y-5">
@@ -376,11 +206,12 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
               Загрузка настроек...
             </div>
           ) : (
-            <SettingsForm
+            <SchemaFields
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={onSettingsChange}
               disabled={saving}
+              idPrefix="image-gen-setting"
             />
           )}
         </div>
@@ -441,6 +272,20 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <Label htmlFor="image-generator-check-connection">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="image-generator-check-connection"
+          checked={checkConnection}
+          onCheckedChange={onCheckConnectionChange}
+          disabled={saving}
+        />
+      </div>
+
+      {permissionsSection}
+
       <div className="flex gap-2 pt-2">
         <Button onClick={onSubmit} disabled={submitDisabled}>
           {saving ? (
@@ -463,6 +308,9 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
 };
 
 export const ImageGeneratorsSettings: React.FC = () => {
+  const { user } = useAuth();
+  const confirm = useConfirm();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [generatorTypes, setGeneratorTypes] = useState<
     ImageGeneratorTypeMeta[]
   >([]);
@@ -482,12 +330,20 @@ export const ImageGeneratorsSettings: React.FC = () => {
   );
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingGenerators, setLoadingGenerators] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [createPermissions, setCreatePermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [editPermissions, setEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [initialEditPermissions, setInitialEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const fetchGeneratorTypes = useCallback(async () => {
     setLoadingTypes(true);
@@ -618,6 +474,11 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSettingsValues({});
     setSelectedConnectorId("");
     setIsActive(true);
+    setCheckConnection(true);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setLoadingPermissions(false);
   }, []);
 
   const handleCreateNew = () => {
@@ -628,7 +489,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
   const handleStartEdit = (generatorId: string) => {
     const generator = generators.find((item) => item.id === generatorId);
-    if (!generator) return;
+    if (!generator || !generator.can_edit) return;
 
     setIsCreatingNew(false);
     setEditingGeneratorId(generatorId);
@@ -637,6 +498,27 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSettingsValues(generator.settings || {});
     setSelectedConnectorId(generator.connector_id || "");
     setIsActive(generator.is_active);
+    setCheckConnection(true);
+
+    if (!canManagePermissions) {
+      return;
+    }
+    setLoadingPermissions(true);
+    void apiClient
+      .get<ResourcePermissionsDraft>(
+        `${API_AGENT_PREFIX}/resource-permissions/image_generator/${generatorId}`,
+      )
+      .then((permissions) => {
+        setEditPermissions(permissions);
+        setInitialEditPermissions(permissions);
+      })
+      .catch(() => {
+        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      })
+      .finally(() => {
+        setLoadingPermissions(false);
+      });
   };
 
   const handleCancelCreate = () => {
@@ -650,8 +532,14 @@ export const ImageGeneratorsSettings: React.FC = () => {
   };
 
   const handleDelete = async (generatorId: string) => {
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот image generator?"))
+    const generator = generators.find((item) => item.id === generatorId);
+    if (!generator?.can_edit) return;
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить этот image generator?",
+        variant: "destructive",
+      }))
+    )
       return;
 
     try {
@@ -680,29 +568,61 @@ export const ImageGeneratorsSettings: React.FC = () => {
     setSaving(true);
     try {
       const trimmedName = generatorName.trim();
+      const compactedSettings = compactObject(settingsValues);
 
       if (editingGeneratorId) {
+        const currentGenerator = generators.find(
+          (item) => item.id === editingGeneratorId,
+        );
+        if (!currentGenerator) return;
+
+        const isResourceChanged =
+          (currentGenerator.name || null) !== (trimmedName || null) ||
+          currentGenerator.is_active !== isActive ||
+          (currentGenerator.connector_id || null) !==
+            (requiresConnector ? selectedConnectorId : null) ||
+          stableStringify(currentGenerator.settings || {}) !==
+            stableStringify(compactedSettings);
+        const isPermissionsChanged =
+          canManagePermissions &&
+          !permissionsEqual(editPermissions, initialEditPermissions);
+
+        if (!isResourceChanged && !isPermissionsChanged) {
+          toast.info("Изменений нет");
+          return;
+        }
+
         const payload: Record<string, unknown> = {
           name: trimmedName || null,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
 
         if (requiresConnector) {
           payload.connector_id = selectedConnectorId;
         }
 
-        await apiClient.patch<ImageGeneratorResponse>(
-          `${API_AGENT_PREFIX}/generators/image/${editingGeneratorId}`,
-          payload,
-        );
+        if (isResourceChanged) {
+          await apiClient.patch<ImageGeneratorResponse>(
+            `${API_AGENT_PREFIX}/generators/image/${editingGeneratorId}`,
+            payload,
+          );
+        }
+        if (isPermissionsChanged) {
+          await apiClient.put(
+            `${API_AGENT_PREFIX}/resource-permissions/image_generator/${editingGeneratorId}`,
+            toPermissionsApiPayload(editPermissions),
+          );
+        }
         toast.success("Image generator обновлен");
         handleCancelEdit();
       } else {
         const payload: Record<string, unknown> = {
           type: selectedType,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
 
         if (trimmedName) {
@@ -711,6 +631,12 @@ export const ImageGeneratorsSettings: React.FC = () => {
 
         if (requiresConnector) {
           payload.connector_id = selectedConnectorId;
+        }
+        if (
+          canManagePermissions &&
+          hasNonDefaultPermissions(createPermissions)
+        ) {
+          payload.permissions = toPermissionsApiPayload(createPermissions);
         }
 
         await apiClient.post<ImageGeneratorResponse>(
@@ -733,6 +659,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
   const isSaveDisabled =
     saving ||
     loadingSchema ||
+    (Boolean(editingGeneratorId) && canManagePermissions && loadingPermissions) ||
     !selectedType ||
     (requiresConnector &&
       (!selectedConnectorId || filteredConnectors.length === 0));
@@ -760,7 +687,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
       </div>
 
       {isCreatingNew && (
-        <div className="border border-border rounded-lg p-4 bg-muted/30">
+        <div className="border border-border rounded-lg p-4 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новый image generator</h3>
             <Button
@@ -783,6 +710,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
             filteredConnectors={filteredConnectors}
             requiresConnector={requiresConnector}
             isActive={isActive}
+            checkConnection={checkConnection}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             loadingConnectors={loadingConnectors}
@@ -797,8 +725,21 @@ export const ImageGeneratorsSettings: React.FC = () => {
             onSettingsChange={setSettingsValues}
             onConnectorChange={setSelectedConnectorId}
             onActiveChange={setIsActive}
+            onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
+            permissionsSection={
+              canManagePermissions ? (
+                <ResourcePermissions
+                  mode="create"
+                  resourceType="image_generator"
+                  value={createPermissions}
+                  onChange={setCreatePermissions}
+                  canManage={canManagePermissions}
+                  disabled={saving}
+                />
+              ) : undefined
+            }
           />
         </div>
       )}
@@ -813,7 +754,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
             return (
               <div
                 key={generator.id}
-                className="border border-border rounded-lg p-4 bg-muted/30"
+                className="border border-border rounded-lg p-4 bg-muted/20"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-medium">
@@ -839,6 +780,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   filteredConnectors={filteredConnectors}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
+                  checkConnection={checkConnection}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
                   loadingConnectors={loadingConnectors}
@@ -851,8 +793,22 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   onSettingsChange={setSettingsValues}
                   onConnectorChange={setSelectedConnectorId}
                   onActiveChange={setIsActive}
+                  onCheckConnectionChange={setCheckConnection}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
+                  permissionsSection={
+                    canManagePermissions ? (
+                      <ResourcePermissions
+                        mode="edit"
+                        resourceType="image_generator"
+                        resourceId={editingGeneratorId ?? undefined}
+                        value={editPermissions}
+                        onChange={setEditPermissions}
+                        canManage={canManagePermissions}
+                        disabled={saving || loadingPermissions}
+                      />
+                    ) : undefined
+                  }
                 />
               </div>
             );

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
-import { Input, SecretInput } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -15,206 +15,27 @@ import {
 } from "@/components/ui/select";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
+import { useConfirm } from "@/components/providers/confirm.tsx";
+import SchemaFields from "./forms/schema-fields";
+import ResourcePermissions from "./forms/resource-permissions";
 import type {
   ConnectorResponse,
+  JsonSchema,
   SearchEngineResponse,
   SearchEngineTypeMeta,
+  ResourcePermissionsDraft,
 } from "./forms/types";
+import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
+import {
+  hasNonDefaultPermissions,
+  permissionsEqual,
+  stableStringify,
+  toPermissionsApiPayload,
+} from "./forms/resource-permissions-utils";
+import { compactObject } from "./forms/schema-fields-utils";
 
-interface JsonSchemaProperty {
-  type?: string;
-  title?: string;
-  description?: string;
-  default?: unknown;
-  anyOf?: { type?: string }[];
-}
-
-interface JsonSchema {
-  properties?: Record<string, JsonSchemaProperty>;
-  required?: string[];
-}
-
-type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
 type SearchEngineFormMode = "create" | "edit";
-
-function isSecretField(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("key") ||
-    lower.includes("secret") ||
-    lower.includes("password") ||
-    lower.includes("token")
-  );
-}
-
-function fieldLabel(name: string, property: JsonSchemaProperty): string {
-  if (property.title) return property.title;
-  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function isFieldRequired(name: string, schema: JsonSchema): boolean {
-  return schema.required?.includes(name) ?? false;
-}
-
-function resolvePropertyType(
-  property: JsonSchemaProperty,
-): SupportedPropertyType {
-  const directType = property.type;
-  if (
-    directType === "string" ||
-    directType === "number" ||
-    directType === "integer" ||
-    directType === "boolean"
-  ) {
-    return directType;
-  }
-
-  for (const option of property.anyOf || []) {
-    const optionType = option.type;
-    if (
-      optionType === "string" ||
-      optionType === "number" ||
-      optionType === "integer" ||
-      optionType === "boolean"
-    ) {
-      return optionType;
-    }
-  }
-
-  return "string";
-}
-
-function compactObject(
-  values: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value !== undefined),
-  );
-}
-
-interface SettingsFormProps {
-  schema: JsonSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-  disabled?: boolean;
-}
-
-const SettingsForm: React.FC<SettingsFormProps> = ({
-  schema,
-  values,
-  onChange,
-  disabled,
-}) => {
-  const entries = Object.entries(schema.properties || {});
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Для этого типа нет дополнительных настроек.
-      </p>
-    );
-  }
-
-  const setFieldValue = (name: string, value: unknown) => {
-    onChange({ ...values, [name]: value });
-  };
-
-  return (
-    <div className="space-y-4">
-      {entries.map(([name, property]) => {
-        const propertyType = resolvePropertyType(property);
-        const required = isFieldRequired(name, schema);
-        const rawValue = values[name] ?? property.default;
-
-        if (propertyType === "boolean") {
-          return (
-            <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`search-engine-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Switch
-                id={`search-engine-setting-${name}`}
-                checked={Boolean(rawValue)}
-                onCheckedChange={(checked) => setFieldValue(name, checked)}
-                disabled={disabled}
-              />
-            </div>
-          );
-        }
-
-        if (propertyType === "number" || propertyType === "integer") {
-          const value = typeof rawValue === "number" ? String(rawValue) : "";
-          return (
-            <div key={name} className="space-y-1.5">
-              <Label htmlFor={`search-engine-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Input
-                id={`search-engine-setting-${name}`}
-                type="number"
-                step={propertyType === "integer" ? 1 : "any"}
-                value={value}
-                placeholder={
-                  property.default !== undefined ? String(property.default) : ""
-                }
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (nextValue === "") {
-                    setFieldValue(name, undefined);
-                    return;
-                  }
-                  const parsed =
-                    propertyType === "integer"
-                      ? parseInt(nextValue, 10)
-                      : parseFloat(nextValue);
-                  setFieldValue(
-                    name,
-                    Number.isNaN(parsed) ? undefined : parsed,
-                  );
-                }}
-                disabled={disabled}
-              />
-              {property.description && (
-                <p className="text-xs text-muted-foreground">
-                  {property.description}
-                </p>
-              )}
-            </div>
-          );
-        }
-
-        const InputComponent = isSecretField(name) ? SecretInput : Input;
-        const value = typeof rawValue === "string" ? rawValue : "";
-
-        return (
-          <div key={name} className="space-y-1.5">
-            <Label htmlFor={`search-engine-setting-${name}`}>
-              {fieldLabel(name, property)}
-              {required && <span className="text-destructive ml-1">*</span>}
-            </Label>
-            <InputComponent
-              id={`search-engine-setting-${name}`}
-              value={value}
-              placeholder={
-                property.description ||
-                (property.default !== undefined ? String(property.default) : "")
-              }
-              onChange={(e) => setFieldValue(name, e.target.value || undefined)}
-              disabled={disabled}
-            />
-            {property.description && (
-              <p className="text-xs text-muted-foreground">
-                {property.description}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 interface SearchEngineItemProps {
   engine: SearchEngineResponse;
@@ -245,22 +66,26 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
         <Badge variant={engine.is_active ? "default" : "secondary"}>
           {engine.is_active ? "Активен" : "Неактивен"}
         </Badge>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onEdit(engine.id)}
-          disabled={disabled}
-        >
-          <Pencil className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onDelete(engine.id)}
-          disabled={disabled}
-        >
-          <Trash2 className="size-4 text-destructive" />
-        </Button>
+        {engine.can_edit && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onEdit(engine.id)}
+              disabled={disabled}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onDelete(engine.id)}
+              disabled={disabled}
+            >
+              <Trash2 className="size-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -278,6 +103,7 @@ interface SearchEngineFormProps {
   supportsConnectors: boolean;
   requiresConnector: boolean;
   isActive: boolean;
+  checkConnection: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
   loadingConnectors: boolean;
@@ -288,8 +114,10 @@ interface SearchEngineFormProps {
   onSettingsChange: (values: Record<string, unknown>) => void;
   onConnectorChange: (connectorId: string) => void;
   onActiveChange: (value: boolean) => void;
+  onCheckConnectionChange: (value: boolean) => void;
   onSubmit: () => void;
   onCancel: () => void;
+  permissionsSection?: React.ReactNode;
 }
 
 const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
@@ -304,6 +132,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   supportsConnectors,
   requiresConnector,
   isActive,
+  checkConnection,
   loadingTypes,
   loadingSchema,
   loadingConnectors,
@@ -314,8 +143,10 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   onSettingsChange,
   onConnectorChange,
   onActiveChange,
+  onCheckConnectionChange,
   onSubmit,
   onCancel,
+  permissionsSection,
 }) => {
   return (
     <div className="space-y-5">
@@ -377,11 +208,12 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
               Загрузка настроек...
             </div>
           ) : (
-            <SettingsForm
+            <SchemaFields
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={onSettingsChange}
               disabled={saving}
+              idPrefix="search-engine-setting"
             />
           )}
         </div>
@@ -448,6 +280,20 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <Label htmlFor="search-engine-check-connection">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="search-engine-check-connection"
+          checked={checkConnection}
+          onCheckedChange={onCheckConnectionChange}
+          disabled={saving}
+        />
+      </div>
+
+      {permissionsSection}
+
       <div className="flex gap-2 pt-2">
         <Button onClick={onSubmit} disabled={submitDisabled}>
           {saving ? (
@@ -470,6 +316,9 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
 };
 
 export const SearchEnginesSettings: React.FC = () => {
+  const { user } = useAuth();
+  const confirm = useConfirm();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [engineTypes, setEngineTypes] = useState<SearchEngineTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
   const [engines, setEngines] = useState<SearchEngineResponse[]>([]);
@@ -485,12 +334,20 @@ export const SearchEnginesSettings: React.FC = () => {
   );
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingEngines, setLoadingEngines] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadingPermissions, setLoadingPermissions] = useState(false);
+  const [createPermissions, setCreatePermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [editPermissions, setEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
+  const [initialEditPermissions, setInitialEditPermissions] =
+    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const fetchEngineTypes = useCallback(async () => {
     setLoadingTypes(true);
@@ -622,6 +479,11 @@ export const SearchEnginesSettings: React.FC = () => {
     setSettingsValues({});
     setSelectedConnectorId("");
     setIsActive(true);
+    setCheckConnection(true);
+    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+    setLoadingPermissions(false);
   }, []);
 
   const handleCreateNew = () => {
@@ -632,7 +494,7 @@ export const SearchEnginesSettings: React.FC = () => {
 
   const handleStartEdit = (engineId: string) => {
     const engine = engines.find((item) => item.id === engineId);
-    if (!engine) return;
+    if (!engine || !engine.can_edit) return;
 
     setIsCreatingNew(false);
     setEditingEngineId(engineId);
@@ -641,6 +503,27 @@ export const SearchEnginesSettings: React.FC = () => {
     setSettingsValues(engine.settings || {});
     setSelectedConnectorId(engine.connector_id || "");
     setIsActive(engine.is_active);
+    setCheckConnection(true);
+
+    if (!canManagePermissions) {
+      return;
+    }
+    setLoadingPermissions(true);
+    void apiClient
+      .get<ResourcePermissionsDraft>(
+        `${API_AGENT_PREFIX}/resource-permissions/search_engine/${engineId}`,
+      )
+      .then((permissions) => {
+        setEditPermissions(permissions);
+        setInitialEditPermissions(permissions);
+      })
+      .catch(() => {
+        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
+      })
+      .finally(() => {
+        setLoadingPermissions(false);
+      });
   };
 
   const handleCancelCreate = () => {
@@ -654,8 +537,15 @@ export const SearchEnginesSettings: React.FC = () => {
   };
 
   const handleDelete = async (engineId: string) => {
-    // eslint-disable-next-line no-restricted-globals
-    if (!confirm("Вы уверены, что хотите удалить этот search engine?")) return;
+    const engine = engines.find((item) => item.id === engineId);
+    if (!engine?.can_edit) return;
+    if (
+      !(await confirm({
+        description: "Вы уверены, что хотите удалить этот search engine?",
+        variant: "destructive",
+      }))
+    )
+      return;
 
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/search-engines/${engineId}`);
@@ -681,34 +571,70 @@ export const SearchEnginesSettings: React.FC = () => {
     setSaving(true);
     try {
       const trimmedName = engineName.trim();
+      const compactedSettings = compactObject(settingsValues);
 
       if (editingEngineId) {
+        const currentEngine = engines.find((item) => item.id === editingEngineId);
+        if (!currentEngine) return;
+
+        const isResourceChanged =
+          (currentEngine.name || null) !== (trimmedName || null) ||
+          currentEngine.is_active !== isActive ||
+          (currentEngine.connector_id || null) !==
+            (supportsConnectors ? selectedConnectorId || null : null) ||
+          stableStringify(currentEngine.settings || {}) !==
+            stableStringify(compactedSettings);
+        const isPermissionsChanged =
+          canManagePermissions &&
+          !permissionsEqual(editPermissions, initialEditPermissions);
+
+        if (!isResourceChanged && !isPermissionsChanged) {
+          toast.info("Изменений нет");
+          return;
+        }
+
         const payload: Record<string, unknown> = {
           name: trimmedName || null,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
         if (supportsConnectors) {
           payload.connector_id = selectedConnectorId || null;
         }
 
-        await apiClient.patch<SearchEngineResponse>(
-          `${API_AGENT_PREFIX}/search-engines/${editingEngineId}`,
-          payload,
-        );
+        if (isResourceChanged) {
+          await apiClient.patch<SearchEngineResponse>(
+            `${API_AGENT_PREFIX}/search-engines/${editingEngineId}`,
+            payload,
+          );
+        }
+        if (isPermissionsChanged) {
+          await apiClient.put(
+            `${API_AGENT_PREFIX}/resource-permissions/search_engine/${editingEngineId}`,
+            toPermissionsApiPayload(editPermissions),
+          );
+        }
         toast.success("Search engine обновлен");
         handleCancelEdit();
       } else {
         const payload: Record<string, unknown> = {
           type: selectedType,
-          settings: compactObject(settingsValues),
+          settings: compactedSettings,
           is_active: isActive,
+          check_connection: checkConnection,
         };
         if (trimmedName) {
           payload.name = trimmedName;
         }
         if (supportsConnectors && selectedConnectorId) {
           payload.connector_id = selectedConnectorId;
+        }
+        if (
+          canManagePermissions &&
+          hasNonDefaultPermissions(createPermissions)
+        ) {
+          payload.permissions = toPermissionsApiPayload(createPermissions);
         }
 
         await apiClient.post<SearchEngineResponse>(
@@ -731,6 +657,7 @@ export const SearchEnginesSettings: React.FC = () => {
   const isSaveDisabled =
     saving ||
     loadingSchema ||
+    (Boolean(editingEngineId) && canManagePermissions && loadingPermissions) ||
     !selectedType ||
     (requiresConnector &&
       (!selectedConnectorId || filteredConnectors.length === 0));
@@ -758,7 +685,7 @@ export const SearchEnginesSettings: React.FC = () => {
       </div>
 
       {isCreatingNew && (
-        <div className="border border-border rounded-lg p-4 bg-muted/30">
+        <div className="border border-border rounded-lg p-4 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новый search engine</h3>
             <Button
@@ -782,6 +709,7 @@ export const SearchEnginesSettings: React.FC = () => {
             supportsConnectors={supportsConnectors}
             requiresConnector={requiresConnector}
             isActive={isActive}
+            checkConnection={checkConnection}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             loadingConnectors={loadingConnectors}
@@ -796,8 +724,21 @@ export const SearchEnginesSettings: React.FC = () => {
             onSettingsChange={setSettingsValues}
             onConnectorChange={setSelectedConnectorId}
             onActiveChange={setIsActive}
+            onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
             onCancel={handleCancelCreate}
+            permissionsSection={
+              canManagePermissions ? (
+                <ResourcePermissions
+                  mode="create"
+                  resourceType="search_engine"
+                  value={createPermissions}
+                  onChange={setCreatePermissions}
+                  canManage={canManagePermissions}
+                  disabled={saving}
+                />
+              ) : undefined
+            }
           />
         </div>
       )}
@@ -812,7 +753,7 @@ export const SearchEnginesSettings: React.FC = () => {
             return (
               <div
                 key={engine.id}
-                className="border border-border rounded-lg p-4 bg-muted/30"
+                className="border border-border rounded-lg p-4 bg-muted/20"
               >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-medium">
@@ -839,6 +780,7 @@ export const SearchEnginesSettings: React.FC = () => {
                   supportsConnectors={supportsConnectors}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
+                  checkConnection={checkConnection}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
                   loadingConnectors={loadingConnectors}
@@ -851,8 +793,22 @@ export const SearchEnginesSettings: React.FC = () => {
                   onSettingsChange={setSettingsValues}
                   onConnectorChange={setSelectedConnectorId}
                   onActiveChange={setIsActive}
+                  onCheckConnectionChange={setCheckConnection}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
+                  permissionsSection={
+                    canManagePermissions ? (
+                      <ResourcePermissions
+                        mode="edit"
+                        resourceType="search_engine"
+                        resourceId={editingEngineId ?? undefined}
+                        value={editPermissions}
+                        onChange={setEditPermissions}
+                        canManage={canManagePermissions}
+                        disabled={saving || loadingPermissions}
+                      />
+                    ) : undefined
+                  }
                 />
               </div>
             );

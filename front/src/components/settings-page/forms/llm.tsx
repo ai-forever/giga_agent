@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -28,15 +29,19 @@ import type {
   LLMSettings,
   LLMResponse,
   LLMTypeMeta,
+  JsonSchema,
 } from "./types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import SchemaFields from "./schema-fields";
+import { compactObject } from "./schema-fields-utils";
 
 interface LLMFormProps {
   llm?: LLMResponse;
   onSave: (data: LLMFormSubmitData) => void;
   onCancel: () => void;
   saving?: boolean;
+  permissionsSection?: React.ReactNode;
 }
 
 export interface LLMFormSubmitData {
@@ -46,6 +51,7 @@ export interface LLMFormSubmitData {
   llm_name?: string;
   llm_settings: LLMSettings;
   is_active: boolean;
+  check_connection: boolean;
 }
 
 export const LLMForm: React.FC<LLMFormProps> = ({
@@ -53,6 +59,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   onSave,
   onCancel,
   saving = false,
+  permissionsSection,
 }) => {
   const [llmTypes, setLlmTypes] = useState<LLMTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
@@ -68,6 +75,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const [modelId, setModelId] = useState(llm?.model_id || "");
   const [llmName, setLlmName] = useState(llm?.name || "");
   const [isActive, setIsActive] = useState(llm?.is_active ?? true);
+  const [checkConnection, setCheckConnection] = useState(true);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [temperature, setTemperature] = useState<number>(
@@ -76,10 +84,15 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   const [tempInput, setTempInput] = useState<string>(
     String(llm?.settings?.temperature ?? 0.7),
   );
+  const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
+  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
+    (llm?.settings as Record<string, unknown>) || {},
+  );
 
   const [loadingLLMTypes, setLoadingLLMTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [loadingSchema, setLoadingSchema] = useState(false);
   const [llmTypesLoaded, setLlmTypesLoaded] = useState(false);
   const [connectorsLoaded, setConnectorsLoaded] = useState(false);
 
@@ -105,6 +118,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         supportedConnectorTypes.includes((connector.type || "").toLowerCase()),
       ),
     [connectors, supportedConnectorTypes],
+  );
+  const usesDynamicSettings = !["openai", "gigachat"].includes(
+    selectedLLMType.toLowerCase(),
   );
 
   const fetchLLMTypes = useCallback(async () => {
@@ -179,6 +195,46 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   }, [fetchLLMTypes, fetchConnectors]);
 
   useEffect(() => {
+    if (!selectedLLMType || !usesDynamicSettings) {
+      setSettingsSchema(null);
+      setLoadingSchema(false);
+      if (!llm) {
+        setSettingsValues({});
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSchema(true);
+    setSettingsSchema(null);
+
+    const run = async () => {
+      try {
+        const schema = await apiClient.get<JsonSchema>(
+          `${API_AGENT_PREFIX}/llms/types/${selectedLLMType}/settings-schema`,
+        );
+        if (!cancelled) {
+          setSettingsSchema(schema);
+        }
+      } catch {
+        if (!cancelled) {
+          setSettingsSchema(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingSchema(false);
+        }
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedLLMType, usesDynamicSettings, llm]);
+
+  useEffect(() => {
     if (!selectedConnectorId) {
       setAvailableModels([]);
       setLoadingModels(false);
@@ -239,6 +295,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     prevModelsKeyRef.current = null;
     setLoadingModels(false);
     setModelId("");
+    setSettingsValues({});
   };
 
   const handleTemperatureSliderChange = (values: number[]) => {
@@ -280,10 +337,13 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       connector_id: selectedConnectorId,
       model_id: modelId,
       llm_name: llmName || undefined,
-      llm_settings: {
-        temperature,
-      },
+      llm_settings: usesDynamicSettings
+        ? (compactObject(settingsValues) as LLMSettings)
+        : {
+            temperature,
+          },
       is_active: isActive,
+      check_connection: checkConnection,
     };
 
     onSave(data);
@@ -296,7 +356,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     !modelId ||
     loadingLLMTypes ||
     loadingConnectors ||
-    loadingModels;
+    loadingModels ||
+    loadingSchema;
 
   return (
     <div className="space-y-6">
@@ -415,48 +476,84 @@ export const LLMForm: React.FC<LLMFormProps> = ({
         />
       </div>
 
-      <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-        <CollapsibleTrigger asChild>
-          <button className="flex items-center gap-2 w-full py-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <div className="flex-1 h-px bg-border" />
-            <span className="flex items-center gap-1">
-              Дополнительные настройки
-              <ChevronDown
-                className={`size-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
-              />
-            </span>
-            <div className="flex-1 h-px bg-border" />
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-4 pt-4">
-          <div className="space-y-3">
-            <Label>Температура</Label>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <Slider
-                  value={[temperature]}
-                  onValueChange={handleTemperatureSliderChange}
+      <div className="flex items-center justify-between rounded-md border border-border p-3">
+        <Label htmlFor="llm-check-connection" className="cursor-pointer">
+          Проверять подключение
+        </Label>
+        <Switch
+          id="llm-check-connection"
+          checked={checkConnection}
+          onCheckedChange={setCheckConnection}
+          disabled={saving}
+        />
+      </div>
+
+      {!usesDynamicSettings && (
+        <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-2 w-full py-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <div className="flex-1 h-px bg-border" />
+              <span className="flex items-center gap-1">
+                Дополнительные настройки
+                <ChevronDown
+                  className={`size-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+                />
+              </span>
+              <div className="flex-1 h-px bg-border" />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-4 pt-4">
+            <div className="space-y-3">
+              <Label>Температура</Label>
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <Slider
+                    value={[temperature]}
+                    onValueChange={handleTemperatureSliderChange}
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    disabled={saving}
+                  />
+                </div>
+                <Input
+                  type="number"
+                  className="w-20"
                   min={0}
                   max={1}
                   step={0.01}
+                  value={tempInput}
+                  onChange={handleTemperatureInputChange}
+                  onBlur={handleTemperatureInputBlur}
                   disabled={saving}
                 />
               </div>
-              <Input
-                type="number"
-                className="w-20"
-                min={0}
-                max={1}
-                step={0.01}
-                value={tempInput}
-                onChange={handleTemperatureInputChange}
-                onBlur={handleTemperatureInputBlur}
-                disabled={saving}
-              />
             </div>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {usesDynamicSettings && selectedLLMType && (
+        <div className="space-y-2">
+          <Label>Настройки LLM</Label>
+          {loadingSchema ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Загрузка настроек...
+            </div>
+          ) : (
+            <SchemaFields
+              schema={settingsSchema || {}}
+              values={settingsValues}
+              onChange={setSettingsValues}
+              disabled={saving}
+              idPrefix="llm-setting"
+            />
+          )}
+        </div>
+      )}
+
+      {permissionsSection}
 
       <div className="flex gap-2 pt-4">
         <Button onClick={handleSubmit} disabled={isSaveDisabled}>

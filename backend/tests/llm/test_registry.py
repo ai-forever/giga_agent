@@ -55,7 +55,10 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-        with patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm):
+        with patch(
+            "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
+            AsyncMock(return_value="tok"),
+        ), patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm):
             connector = GigaChatConnector(
                 gigachat_api_type="prod",
                 gigachat_credentials="token",

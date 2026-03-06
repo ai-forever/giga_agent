@@ -67,7 +67,7 @@ async def _read_file_bytes(
     factory = await get_session_factory()
     async with factory() as session:
         _, result = await SandboxManager(session).read_file_by_path_for_user(
-            owner_id=owner_id,
+            user_id=owner_id,
             sandbox_path=image_path,
         )
 

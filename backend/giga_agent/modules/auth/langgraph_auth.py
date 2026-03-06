@@ -18,7 +18,8 @@ async def get_current_user(authorization: str | None) -> Auth.types.MinimalUserD
         raise Auth.exceptions.HTTPException(
             status_code=401, detail="Could not validate credentials"
         )
-
+    if isinstance(authorization, dict):
+        authorization = authorization["authorization"]
     try:
         scheme, token = authorization.split()
     except ValueError:
@@ -55,16 +56,39 @@ async def get_current_user(authorization: str | None) -> Auth.types.MinimalUserD
         )
     if not user.is_active:
         raise Auth.exceptions.HTTPException(status_code=401, detail="Inactive user")
-
     return {
         "identity": str(user.id),
+        # "display_name": "Jane Doe",
+        # "permissions": ["read", "write"],
+        "token": token,
+        "is_authenticated": True,
     }
 
 
 @auth.on.threads.create
 async def inject_team_id(ctx, value):
     """Inject team_id into thread metadata."""
-    if "metadata" not in value:
+    if "metadata" not in value or value["metadata"] is None:
         value["metadata"] = {}
-    value["metadata"]["user_id"] = ctx.user["identity"]
+    if isinstance(ctx.user, dict):
+        value["metadata"]["user_id"] = ctx.user["identity"]
+    else:
+        value["metadata"]["user_id"] = ctx.user.identity
     return value  # Return modified value
+
+
+@auth.on
+async def add_owner(
+    ctx: Auth.types.AuthContext,  # Contains info about the current user
+    value: dict,  # The resource being created/accessed
+):
+    filters = {
+        "user_id": (
+            ctx.user["identity"] if isinstance(ctx.user, dict) else ctx.user.identity
+        )
+    }
+    metadata = value.setdefault("metadata", {})
+    metadata.update(filters)
+
+    # Only let users see their own resources
+    return filters

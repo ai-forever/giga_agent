@@ -34,6 +34,11 @@ class BaseSearchEngine(BaseModel, abc.ABC):
     async def init(self) -> None:
         self._initialized = True
 
+    async def check_connection(self) -> bool:
+        await self.init()
+        await self.search(["ping"])
+        return True
+
     async def search(self, queries: list[str]) -> list[dict[str, Any]]:
         if not self._initialized:
             raise RuntimeError(

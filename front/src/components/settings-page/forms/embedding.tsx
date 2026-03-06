@@ -24,184 +24,18 @@ import type {
   EmbeddingTypeMeta,
   AvailableEmbeddingModel,
   JsonSchema,
-  JsonSchemaProperty,
 } from "./types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import SchemaFields from "./schema-fields";
+import { compactObject } from "./schema-fields-utils";
 
-type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
-
-function compactObject(
-  values: Record<string, unknown>,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value !== undefined),
-  );
-}
-
-function fieldLabel(name: string, property: JsonSchemaProperty): string {
-  if (property.title) return property.title;
-  return name.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function isFieldRequired(name: string, schema: JsonSchema): boolean {
-  return schema.required?.includes(name) ?? false;
-}
-
-function resolvePropertyType(
-  property: JsonSchemaProperty,
-): SupportedPropertyType {
-  const directType = property.type;
-  if (
-    directType === "string" ||
-    directType === "number" ||
-    directType === "integer" ||
-    directType === "boolean"
-  ) {
-    return directType;
-  }
-
-  for (const option of property.anyOf || []) {
-    const optionType = option.type;
-    if (
-      optionType === "string" ||
-      optionType === "number" ||
-      optionType === "integer" ||
-      optionType === "boolean"
-    ) {
-      return optionType;
-    }
-  }
-
-  return "string";
-}
-
-interface DynamicSettingsFormProps {
-  schema: JsonSchema;
-  values: Record<string, unknown>;
-  onChange: (values: Record<string, unknown>) => void;
-  disabled?: boolean;
-}
-
-const DynamicSettingsForm: React.FC<DynamicSettingsFormProps> = ({
-  schema,
-  values,
-  onChange,
-  disabled,
-}) => {
-  const entries = Object.entries(schema.properties || {});
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Для этого типа нет дополнительных настроек.
-      </p>
-    );
-  }
-
-  const setFieldValue = (name: string, value: unknown) => {
-    onChange({ ...values, [name]: value });
-  };
-
-  return (
-    <div className="space-y-4">
-      {entries.map(([name, property]) => {
-        const propertyType = resolvePropertyType(property);
-        const required = isFieldRequired(name, schema);
-        const rawValue = values[name] ?? property.default;
-
-        if (propertyType === "boolean") {
-          return (
-            <div key={name} className="flex items-center justify-between">
-              <Label htmlFor={`embedding-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Switch
-                id={`embedding-setting-${name}`}
-                checked={Boolean(rawValue)}
-                onCheckedChange={(checked) => setFieldValue(name, checked)}
-                disabled={disabled}
-              />
-            </div>
-          );
-        }
-
-        if (propertyType === "number" || propertyType === "integer") {
-          const value = typeof rawValue === "number" ? String(rawValue) : "";
-          return (
-            <div key={name} className="space-y-1.5">
-              <Label htmlFor={`embedding-setting-${name}`}>
-                {fieldLabel(name, property)}
-                {required && <span className="text-destructive ml-1">*</span>}
-              </Label>
-              <Input
-                id={`embedding-setting-${name}`}
-                type="number"
-                step={propertyType === "integer" ? 1 : "any"}
-                value={value}
-                placeholder={
-                  property.default !== undefined ? String(property.default) : ""
-                }
-                onChange={(e) => {
-                  const nextValue = e.target.value;
-                  if (nextValue === "") {
-                    setFieldValue(name, undefined);
-                    return;
-                  }
-                  const parsed =
-                    propertyType === "integer"
-                      ? parseInt(nextValue, 10)
-                      : parseFloat(nextValue);
-                  setFieldValue(
-                    name,
-                    Number.isNaN(parsed) ? undefined : parsed,
-                  );
-                }}
-                disabled={disabled}
-              />
-              {property.description && (
-                <p className="text-xs text-muted-foreground">
-                  {property.description}
-                </p>
-              )}
-            </div>
-          );
-        }
-
-        const value = typeof rawValue === "string" ? rawValue : "";
-        return (
-          <div key={name} className="space-y-1.5">
-            <Label htmlFor={`embedding-setting-${name}`}>
-              {fieldLabel(name, property)}
-              {required && <span className="text-destructive ml-1">*</span>}
-            </Label>
-            <Input
-              id={`embedding-setting-${name}`}
-              value={value}
-              placeholder={
-                property.description ||
-                (property.default !== undefined ? String(property.default) : "")
-              }
-              onChange={(e) => setFieldValue(name, e.target.value || undefined)}
-              disabled={disabled}
-            />
-            {property.description && (
-              <p className="text-xs text-muted-foreground">
-                {property.description}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 interface EmbeddingFormProps {
   embedding?: EmbeddingResponse;
   onSave: (data: EmbeddingFormSubmitData) => void | Promise<void>;
   onCancel: () => void;
+  permissionsSection?: React.ReactNode;
 }
 
 export interface EmbeddingFormSubmitData {
@@ -211,12 +45,14 @@ export interface EmbeddingFormSubmitData {
   embedding_name?: string;
   embedding_settings: EmbeddingSettings;
   is_active: boolean;
+  check_connection: boolean;
 }
 
 export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   embedding,
   onSave,
   onCancel,
+  permissionsSection,
 }) => {
   const [submitting, setSubmitting] = useState(false);
   const [embeddingTypes, setEmbeddingTypes] = useState<EmbeddingTypeMeta[]>([]);
@@ -235,6 +71,9 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   const [modelId, setModelId] = useState(embedding?.model_id || "");
   const [embeddingName, setEmbeddingName] = useState(embedding?.name || "");
   const [isActive, setIsActive] = useState(embedding?.is_active ?? true);
+  const [checkConnection, setCheckConnection] = useState(
+    embedding ? false : true,
+  );
 
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
   const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
@@ -459,6 +298,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       embedding_name: embeddingName || undefined,
       embedding_settings: embeddingSettings,
       is_active: isActive,
+      check_connection: embedding ? false : checkConnection,
     };
 
     setSubmitting(true);
@@ -518,6 +358,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           value={selectedConnectorId}
           onValueChange={setSelectedConnectorId}
           disabled={
+            !!embedding ||
             submitting ||
             loadingConnectors ||
             !selectedEmbeddingType ||
@@ -558,7 +399,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           <Select
             value={modelId}
             onValueChange={setModelId}
-            disabled={submitting || loadingModels}
+            disabled={!!embedding || submitting || loadingModels}
           >
             <SelectTrigger id="embedding-model-id" className="w-full">
               <SelectValue placeholder="Выберите модель" />
@@ -577,7 +418,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
             placeholder="text-embedding-3-small, EmbeddingsGigaR, ..."
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
-            disabled={submitting}
+            disabled={!!embedding || submitting}
           />
         )}
         {loadingModels && (
@@ -606,9 +447,26 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
           id="embedding-is-active"
           checked={isActive}
           onCheckedChange={setIsActive}
-          disabled={submitting}
+          disabled={!!embedding || submitting}
         />
       </div>
+
+      {!embedding && (
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <Label
+            htmlFor="embedding-check-connection"
+            className="cursor-pointer"
+          >
+            Проверять подключение
+          </Label>
+          <Switch
+            id="embedding-check-connection"
+            checked={checkConnection}
+            onCheckedChange={setCheckConnection}
+            disabled={submitting}
+          />
+        </div>
+      )}
 
       {selectedEmbeddingType && (
         <div className="space-y-2">
@@ -619,15 +477,18 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
               Загрузка настроек...
             </div>
           ) : (
-            <DynamicSettingsForm
+            <SchemaFields
               schema={settingsSchema || {}}
               values={settingsValues}
               onChange={setSettingsValues}
-              disabled={isSaveDisabled}
+              disabled={!!embedding || isSaveDisabled}
+              idPrefix="embedding-setting"
             />
           )}
         </div>
       )}
+
+      {permissionsSection}
 
       <div className="flex gap-2 pt-4">
         <Button onClick={handleSubmit} disabled={isSaveDisabled}>

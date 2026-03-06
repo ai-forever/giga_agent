@@ -8,6 +8,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from giga_agent.conf import get_settings
 
 # config - это объект конфигурации Alembic
 config = context.config
@@ -20,12 +21,7 @@ if config.config_file_name is not None:
     already_configured = any(
         getattr(h, "_giga_agent_cli_handler", False) for h in root.handlers
     )
-    force_file_config = os.getenv("GIGA_AGENT_ALEMBIC_FILECONFIG", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    force_file_config = get_settings().giga_agent_alembic_fileconfig
     if force_file_config or not already_configured:
         # IMPORTANT: keep app loggers alive; Alembic's default disables them.
         fileConfig(config.config_file_name, disable_existing_loggers=False)
@@ -34,10 +30,10 @@ if config.config_file_name is not None:
 # ДИНАМИЧЕСКИЙ URL БД
 # ----------------------------------------------------------------------
 # Приоритет:
-# 1. Переменная окружения DATABASE_URL
+# 1. Переменная окружения GIGA_AGENT_DATABASE_URL
 # 2. Значение из alembic.ini
 section = config.get_section(config.config_ini_section)
-db_url = os.getenv("DATABASE_URL", section.get("sqlalchemy.url"))
+db_url = get_settings().giga_agent_database_url or section.get("sqlalchemy.url")
 
 # Фоллбек для локальной разработки
 if not db_url:

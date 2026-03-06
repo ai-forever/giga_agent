@@ -32,7 +32,7 @@ class _BaseRuntimeStub(BaseLLMRuntime):
         _ = connector
         return []
 
-    def _llm(self):
+    async def _create_llm(self):
         return self.__class__._llm_stub
 
 
@@ -72,7 +72,7 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="analysis")),
         )
         runtime = GigaChatRuntime(connector=_ConnectorStub(), model_id="giga")
-        with patch.object(GigaChatRuntime, "_llm", return_value=llm_stub):
+        with patch.object(GigaChatRuntime, "get_llm", AsyncMock(return_value=llm_stub)):
             result = await runtime.analyze_image(
                 prompt="describe image",
                 image_bytes=b"raw-image",

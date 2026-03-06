@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 from alembic import command as alembic_command
 
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_db_url
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
@@ -33,6 +34,7 @@ def alembic(
         uv run giga_agent alembic --agent-path giga_agent.agents.run:agent upgrade heads
     """
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    reset_settings_cache()
     setup_cli_logging("INFO")
 
     argv = list(ctx.args or [])

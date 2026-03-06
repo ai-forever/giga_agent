@@ -8,7 +8,6 @@ from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.ui import push_ui_message
 from langgraph.types import Command, interrupt
-from langgraph_sdk import get_client
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
@@ -25,6 +24,7 @@ from giga_agent.modules.subagents_legacy.uploads import (
     resolve_upload_prefix,
     upload_files_for_runtime_user,
 )
+from giga_agent.utils.langgraph_sdk import get_client
 
 
 class LeanGraphState(TypedDict):
@@ -530,7 +530,7 @@ async def lean_canvas(
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_runtime(runtime, session=session)
-    client = get_client()
+    client = get_client(runtime.config)
     thread = await client.threads.create()
     thread_id = thread["thread_id"]
     push_ui_message(

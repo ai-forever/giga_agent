@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ import joblib
 import numpy as np
 from langchain.tools import ToolRuntime
 
+from giga_agent.core.logging import get_logger
 from giga_agent.core.db import get_session_factory
 from giga_agent.embeddings.base import BaseEmbeddingRuntime
 from giga_agent.embeddings.manager import EmbeddingManager
@@ -16,6 +18,8 @@ from giga_agent.models.users import UserRepository
 _MODELS_DIR = Path(__file__).resolve().parent / "models"
 _MODEL_PREFIX = "sentiment_"
 _MODEL_SUFFIX = ".joblib"
+
+logger = get_logger(__name__)
 
 
 def _validate_texts(texts: list[str]) -> None:
@@ -43,15 +47,47 @@ def _preload_models() -> dict[str, Any]:
     preloaded: dict[str, Any] = {}
     if not _MODELS_DIR.exists():
         return preloaded
-    for model_path in _MODELS_DIR.glob(f"{_MODEL_PREFIX}*{_MODEL_SUFFIX}"):
+    paths = sorted(_MODELS_DIR.glob(f"{_MODEL_PREFIX}*{_MODEL_SUFFIX}"))
+    if not paths:
+        return preloaded
+
+    logger.info(
+        "Preloading sentiment models",
+        dir=str(_MODELS_DIR),
+        total=len(paths),
+    )
+    for idx, model_path in enumerate(paths, start=1):
         key = _build_model_key(model_path)
         if key is None:
             continue
-        preloaded[key] = joblib.load(model_path)
+        started = time.monotonic()
+        logger.info(
+            "Loading sentiment model",
+            key=key,
+            path=str(model_path),
+            progress=f"{idx}/{len(paths)}",
+        )
+        try:
+            preloaded[key] = joblib.load(model_path)
+        except Exception:
+            logger.exception(
+                "Failed to load sentiment model",
+                key=key,
+                path=str(model_path),
+            )
+            raise
+        else:
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            logger.info(
+                "Loaded sentiment model",
+                key=key,
+                elapsed_ms=elapsed_ms,
+                progress=f"{idx}/{len(paths)}",
+            )
     return preloaded
 
 
-_PRELOADED_SENTIMENT_MODELS: dict[str, Any] = _preload_models()
+# _PRELOADED_SENTIMENT_MODELS: dict[str, Any] = _preload_models()
 
 
 async def _resolve_user_embeddings(
@@ -109,7 +145,8 @@ async def predict_sentiments(
             f"Доступные sentiment модели: {available}."
         )
 
-    embs = await embedding_runtime.embeddings.aembed_documents(texts)
+    embeddings = await embedding_runtime.get_embeddings()
+    embs = await embeddings.aembed_documents(texts)
     matrix = np.vstack(embs).astype("float32")
     labels = probs_to_labels(clf.predict_proba(matrix), clf.classes_)
     return [str(label) for label in labels]
@@ -132,5 +169,6 @@ async def get_embeddings(
         raise ValueError("tool_runtime is required for get_embeddings.")
 
     embedding_runtime, _ = await _resolve_user_embeddings(tool_runtime)
-    embs = await embedding_runtime.embeddings.aembed_documents(texts)
+    embeddings = await embedding_runtime.get_embeddings()
+    embs = await embeddings.aembed_documents(texts)
     return [list(map(float, row)) for row in embs]

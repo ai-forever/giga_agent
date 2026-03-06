@@ -43,6 +43,10 @@ FileReadResult = RedirectResult | ContentResult | StreamResult
 class BaseSandbox(BaseModel, ABC):
     """Абстрактный базовый класс для виртуальных окружений."""
 
+    max_active_sandboxes: int | None = None
+    sandbox_id: uuid.UUID | None = None
+    provider_id: uuid.UUID | None = None
+
     # Поля, управляемые системой (менеджером/БД), а НЕ пользовательскими settings.
     # Подклассы могут расширять через: _runtime_fields = BaseSandbox._runtime_fields | {"my_field"}
     _runtime_fields: ClassVar[set[str]] = {
@@ -50,6 +54,8 @@ class BaseSandbox(BaseModel, ABC):
         "headers",  # внутренний для JupyterSandbox
         "idle_timeout",  # из SandboxProvider.idle_timeout (DB column)
         "external_id",  # из Sandbox.external_id (DB column)
+        "sandbox_id",  # из Sandbox.id (DB column)
+        "provider_id",  # из Sandbox.provider_id (DB column)
     }
 
     @classmethod
@@ -63,6 +69,8 @@ class BaseSandbox(BaseModel, ABC):
         fields = {}
         for name, field_info in cls.model_fields.items():
             if name in cls._runtime_fields:
+                continue
+            if name == "max_active_sandboxes" and not cls.has_limit_cls():
                 continue
             # Сохраняем тип и default/description из оригинального FieldInfo
             fields[name] = (field_info.annotation, field_info)
@@ -86,9 +94,11 @@ class BaseSandbox(BaseModel, ABC):
         return schema(**settings).model_dump(exclude_none=True)
 
     @classmethod
-    @override
-    def is_lc_serializable(cls) -> bool:
-        return True
+    def has_limit_cls(cls) -> bool:
+        return False
+
+    def has_limit(self) -> bool:
+        return self.has_limit_cls()
 
     def get_connection_settings(self) -> dict:
         """

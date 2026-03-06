@@ -7,9 +7,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.db import get_session
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.search_engine import (
@@ -18,8 +18,17 @@ from giga_agent.models.search_engine import (
     SearchEngineRepository,
     SearchEngineResponse,
 )
-from giga_agent.models.users import User, UserRepository, UserShort
-from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.models.resource_permission import ResourcePermissionRepository
+from giga_agent.models.users import UserShort
+from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.routes._shared.access import (
+    fetch_resource_with_access_check,
+    fetch_resource_with_read_and_edit,
+)
+from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.users import (
+    clear_user_current_link_if_matches,
+)
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure providers are registered.
@@ -35,6 +44,7 @@ class SearchEnginePatchRequest(BaseModel):
     settings: dict[str, Any] | None = None
     connector_id: uuid.UUID | None = None
     is_active: bool | None = None
+    check_connection: bool = True
 
 
 class SearchEngineTypeMeta(BaseModel):
@@ -91,104 +101,72 @@ async def _validate_settings(
 
 async def _validate_connector_link(
     *,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     connector_id: uuid.UUID | None,
     supported_connector_types: list[str],
     connector_repo: ConnectorRepository,
+    require_owner: bool = True,
 ) -> uuid.UUID | None:
-    normalized_supported = [t.lower() for t in supported_connector_types]
-
-    if not normalized_supported:
-        if connector_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="This search engine type does not support connector_id.",
-            )
-        return None
-
-    if connector_id is None:
-        return None
-
-    connector = await connector_repo.get_by_id(connector_id)
-    if connector is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Connector not found",
-        )
-    if connector.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    if not connector.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Connector must be active",
-        )
-
-    connector_type = (connector.type or "").lower()
-    if connector_type not in normalized_supported:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"Connector type '{connector_type}' is not supported by this "
-                f"search engine. Supported: {normalized_supported}"
-            ),
-        )
-
-    return connector_id
+    return await validate_connector_link(
+        user_id=user_id,
+        connector_id=connector_id,
+        supported_connector_types=supported_connector_types,
+        connector_repo=connector_repo,
+        resource_label="search engine",
+        require_owner=require_owner,
+        require_when_supported=False,
+    )
 
 
-async def _get_engine_with_owner_check(
+async def _get_engine_with_write_check(
     *,
     engine_id: uuid.UUID,
-    owner_id: uuid.UUID,
+    user_id: uuid.UUID,
     engine_repo: SearchEngineRepository,
 ) -> SearchEngine:
-    engine = await engine_repo.get_by_id(engine_id)
-    if engine is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Search engine not found",
-        )
-    if engine.owner_id != owner_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
-    return engine
+    return await fetch_resource_with_access_check(
+        resource_id=engine_id,
+        user_id=user_id,
+        repository=engine_repo,
+        not_found_detail="Search engine not found",
+        require_edit=True,
+    )
 
 
-async def _get_user_model(
+async def _check_connection_or_http_error(
     *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-) -> User:
-    result = await db.execute(select(User).where(User.id == owner_id))
-    user = result.scalar_one_or_none()
-    if user is None:
+    runtime_cls: type,
+    settings: dict[str, Any],
+    connector_id: uuid.UUID | None,
+    connector_repo: ConnectorRepository,
+) -> None:
+    connector_runtime = None
+    if connector_id is not None:
+        connector = await connector_repo.get_by_id(connector_id)
+        if connector is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Connector not found",
+            )
+        try:
+            connector_runtime = await ConnectorRegistry.get_runtime(
+                connector.type,
+                connector.settings or {},
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Search engine connection check failed: {e}",
+            ) from e
+
+    try:
+        runtime = runtime_cls(**settings, connector=connector_runtime)
+        await runtime.check_connection()
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-    return user
-
-
-async def _clear_current_if_matches(
-    *,
-    db: AsyncSession,
-    owner_id: uuid.UUID,
-    search_engine_id: uuid.UUID,
-) -> bool:
-    user = await _get_user_model(db=db, owner_id=owner_id)
-    if user.search_engine_id != search_engine_id:
-        return False
-
-    user.search_engine_id = None
-    await db.commit()
-    await db.refresh(user)
-    await UserRepository.invalidate_cache(owner_id)
-    return True
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Search engine connection check failed: {e}",
+        ) from e
 
 
 @router.get("/types", response_model=list[str])
@@ -233,14 +211,25 @@ async def create_search_engine(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
+    if data.permissions is not None:
+        require_superuser(current_user)
+
     runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
     validated_settings = await _validate_settings(data.type, data.settings)
     validated_connector_id = await _validate_connector_link(
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_id=data.connector_id,
         supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
+        require_owner=True,
     )
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            settings=validated_settings,
+            connector_id=validated_connector_id,
+            connector_repo=connector_repo,
+        )
 
     engine = await engine_repo.create(
         owner_id=current_user.id,
@@ -250,7 +239,15 @@ async def create_search_engine(
         connector_id=validated_connector_id,
         is_active=data.is_active,
     )
-    return SearchEngineRepository.to_response(engine)
+    if data.permissions is not None:
+        await ResourcePermissionRepository(engine_repo.db).set_read_acl(
+            resource_type="search_engine",
+            resource_id=engine.id,
+            read_user_ids=data.permissions.read_user_ids,
+            read_group_ids=data.permissions.read_group_ids,
+            public_read=data.permissions.public_read,
+        )
+    return SearchEngineRepository.to_response(engine, can_edit=True)
 
 
 @router.get("", response_model=list[SearchEngineResponse])
@@ -259,8 +256,17 @@ async def get_search_engines(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     only_active: bool = Query(False, description="Only active search engines"),
 ):
-    engines = await engine_repo.get_by_owner(current_user.id, only_active=only_active)
-    return [SearchEngineRepository.to_response(engine) for engine in engines]
+    rows = await engine_repo.list_readable_with_edit_for_user(
+        user_id=current_user.id,
+        only_active=only_active,
+    )
+    return [
+        SearchEngineRepository.to_response(
+            engine,
+            can_edit=can_edit,
+        )
+        for engine, can_edit in rows
+    ]
 
 
 @router.get("/{engine_id}", response_model=SearchEngineResponse)
@@ -269,12 +275,13 @@ async def get_search_engine(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
 ):
-    engine = await _get_engine_with_owner_check(
-        engine_id=engine_id,
-        owner_id=current_user.id,
-        engine_repo=engine_repo,
+    engine, can_edit = await fetch_resource_with_read_and_edit(
+        resource_id=engine_id,
+        user_id=current_user.id,
+        repository=engine_repo,
+        not_found_detail="Search engine not found",
     )
-    return SearchEngineRepository.to_response(engine)
+    return SearchEngineRepository.to_response(engine, can_edit=can_edit)
 
 
 @router.patch("/{engine_id}", response_model=SearchEngineResponse)
@@ -286,14 +293,15 @@ async def patch_search_engine(
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
-    engine = await _get_engine_with_owner_check(
+    engine = await _get_engine_with_write_check(
         engine_id=engine_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         engine_repo=engine_repo,
     )
 
     runtime_cls = _resolve_runtime_cls(engine.type, status_code=status.HTTP_400_BAD_REQUEST)
     update_data: dict[str, Any] = {}
+    effective_settings = engine.settings or {}
 
     if "name" in data.model_fields_set:
         update_data["name"] = data.name
@@ -304,7 +312,8 @@ async def patch_search_engine(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="settings must be an object when provided",
             )
-        update_data["settings"] = await _validate_settings(engine.type, data.settings)
+        effective_settings = await _validate_settings(engine.type, data.settings)
+        update_data["settings"] = effective_settings
 
     effective_connector_id = (
         data.connector_id
@@ -312,13 +321,22 @@ async def patch_search_engine(
         else engine.connector_id
     )
     validated_connector_id = await _validate_connector_link(
-        owner_id=current_user.id,
+        user_id=current_user.id,
         connector_id=effective_connector_id,
         supported_connector_types=runtime_cls.supported_connector_types(),
         connector_repo=connector_repo,
+        require_owner=engine.owner_id == current_user.id,
     )
     if "connector_id" in data.model_fields_set:
         update_data["connector_id"] = validated_connector_id
+
+    if data.check_connection:
+        await _check_connection_or_http_error(
+            runtime_cls=runtime_cls,
+            settings=effective_settings,
+            connector_id=validated_connector_id,
+            connector_repo=connector_repo,
+        )
 
     is_deactivating_current = False
     if "is_active" in data.model_fields_set:
@@ -329,13 +347,14 @@ async def patch_search_engine(
         engine = await engine_repo.update(engine, **update_data)
 
     if is_deactivating_current:
-        await _clear_current_if_matches(
+        await clear_user_current_link_if_matches(
             db=db,
-            owner_id=current_user.id,
-            search_engine_id=engine.id,
+            owner_id=engine.owner_id,
+            resource_id=engine.id,
+            user_field_name="search_engine_id",
         )
 
-    return SearchEngineRepository.to_response(engine)
+    return SearchEngineRepository.to_response(engine, can_edit=True)
 
 
 @router.delete("/{engine_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -345,14 +364,15 @@ async def delete_search_engine(
     db: Annotated[AsyncSession, Depends(get_session)],
     engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
 ):
-    engine = await _get_engine_with_owner_check(
+    engine = await _get_engine_with_write_check(
         engine_id=engine_id,
-        owner_id=current_user.id,
+        user_id=current_user.id,
         engine_repo=engine_repo,
     )
     await engine_repo.delete(engine)
-    await _clear_current_if_matches(
+    await clear_user_current_link_if_matches(
         db=db,
-        owner_id=current_user.id,
-        search_engine_id=engine.id,
+        owner_id=engine.owner_id,
+        resource_id=engine.id,
+        user_field_name="search_engine_id",
     )

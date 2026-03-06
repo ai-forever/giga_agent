@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from cashews import cache
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError
 from sqlalchemy import String, DateTime, Uuid, ForeignKey, Integer, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,12 @@ from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
 from giga_agent.embeddings.base import AvailableEmbeddingModel, EmbeddingModelFetchError
+from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.connector import Connector  # noqa: F401
+from giga_agent.models.resource_permission import (
+    ResourcePermissionRepository,
+    ResourcePermissionsPayload,
+)
 
 # Ensure runtimes are registered.
 import giga_agent.connectors  # noqa: F401
@@ -80,12 +85,20 @@ class EmbeddingBase(BaseModel):
 
 
 class EmbeddingCreate(EmbeddingBase):
-    pass
+    check_connection: bool = True
+    permissions: ResourcePermissionsPayload | None = None
+
+
+class EmbeddingPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
 
 
 class EmbeddingResponse(EmbeddingBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    can_edit: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -104,8 +117,10 @@ class EmbeddingContext(BaseModel):
     is_active: bool
 
 
-class EmbeddingRepository:
+class EmbeddingRepository(ACLResourceRepositoryMixin[Embedding]):
     """Repository for embeddings records and cacheable embeddings config context."""
+    resource_model = Embedding
+    resource_type = "embedding"
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -205,6 +220,86 @@ class EmbeddingRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_readable_for_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        only_active: bool = False,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[Embedding]:
+        rows = await self.list_readable_with_edit_for_user(
+            user_id=user_id,
+            only_active=only_active,
+            user_group_ids=user_group_ids,
+        )
+        return [item for item, _ in rows]
+
+    async def get_by_id_with_access_for_user(
+        self,
+        embedding_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[Embedding, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            embedding_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id_readable(
+        self,
+        embedding_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> Embedding | None:
+        row = await self.get_by_id_with_access_for_user(
+            embedding_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        embedding, can_read, _ = row
+        if not can_read:
+            return None
+        return embedding
+
+    async def get_by_id_writable(
+        self,
+        embedding_id: uuid.UUID,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> Embedding | None:
+        row = await self.get_by_id_with_access_for_user(
+            embedding_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        embedding, _, can_edit = row
+        if not can_edit:
+            return None
+        return embedding
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="embedding",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
     async def get_by_connector(
         self,
         connector_id: uuid.UUID,
@@ -250,7 +345,7 @@ class EmbeddingRepository:
         **kwargs: Any,
     ) -> Embedding:
         for key, value in kwargs.items():
-            if hasattr(embedding, key) and value is not None:
+            if hasattr(embedding, key):
                 setattr(embedding, key, value)
         await self.db.commit()
         await self.db.refresh(embedding)
@@ -259,6 +354,11 @@ class EmbeddingRepository:
 
     async def delete(self, embedding: Embedding) -> None:
         embedding_id = embedding.id
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="embedding",
+            resource_id=embedding_id,
+            no_commit=True,
+        )
         await self.db.delete(embedding)
         await self.db.commit()
         await self.invalidate_cache(embedding_id)
@@ -272,5 +372,11 @@ class EmbeddingRepository:
         return await self.get_by_id_context(embedding_id, use_cache=use_cache)
 
     @staticmethod
-    def to_response(embedding: Embedding) -> EmbeddingResponse:
-        return EmbeddingResponse.model_validate(embedding)
+    def to_response(
+        embedding: Embedding,
+        *,
+        can_edit: bool = False,
+    ) -> EmbeddingResponse:
+        response = EmbeddingResponse.model_validate(embedding)
+        response.can_edit = can_edit
+        return response
