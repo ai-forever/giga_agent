@@ -5,7 +5,7 @@
 
 1. 
    ```shell
-   sh cp .env.example .env
+   cp .env.example .env
    ```
 2. Заполняем .env файл
 
