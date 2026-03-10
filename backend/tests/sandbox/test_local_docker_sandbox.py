@@ -53,6 +53,20 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             validated = await LocalDockerSandbox.validate_settings({})
         self.assertEqual(validated["max_active_sandboxes"], 3)
 
+    async def test_validate_settings_uses_env_fallback_for_image(self):
+        with self._patched_env(
+            {
+                "GIGA_AGENT_LOCAL_DOCKER_IMAGE": "registry.example/custom-sandbox:1.2.3",
+                "GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3",
+            },
+            clear=False,
+        ), patch(
+            "giga_agent.sandbox.local_docker.docker.from_env",
+            return_value=types.SimpleNamespace(ping=lambda: None, close=lambda: None),
+        ):
+            validated = await LocalDockerSandbox.validate_settings({})
+        self.assertEqual(validated["image"], "registry.example/custom-sandbox:1.2.3")
+
     async def test_validate_settings_fails_when_docker_unreachable(self):
         with self._patched_env(
             {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},

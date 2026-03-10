@@ -52,7 +52,7 @@ OWNER_ID_LABEL = "giga_agent.owner_id"
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(JupyterSandbox):
     image: str = Field(
-        default="mikelarg/code-interpreter:0.0.5",
+        default_factory=lambda: get_settings().giga_agent_local_docker_image,
         description="Docker image to run for local sandbox",
     )
 

@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     giga_agent_local_sandbox_enabled: bool = Field(
         True, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
     )
+    giga_agent_local_docker_image: str = Field(
+        "mikelarg/code-interpreter:0.0.5",
+        alias="GIGA_AGENT_LOCAL_DOCKER_IMAGE",
+    )
     giga_agent_local_docker_memory_limit_mb: int = Field(
         512, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
     )
