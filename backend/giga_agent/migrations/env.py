@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from giga_agent.conf import get_settings
+from giga_agent.core.db import configure_sqlite_foreign_keys
 
 # config - это объект конфигурации Alembic
 config = context.config
@@ -157,6 +158,10 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+    )
+    configure_sqlite_foreign_keys(
+        connectable,
+        config.get_main_option("sqlalchemy.url"),
     )
 
     try:
