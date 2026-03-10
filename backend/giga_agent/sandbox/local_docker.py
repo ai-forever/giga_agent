@@ -39,7 +39,7 @@ BUCKET_PREFIX = "/bucket/"
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(JupyterSandbox):
     image: str = Field(
-        default="mikelarg/code-interpreter:0.0.4",
+        default="mikelarg/code-interpreter:0.0.5",
         description="Docker image to run for local sandbox",
     )
 

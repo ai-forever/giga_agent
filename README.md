@@ -1,5 +1,36 @@
-
 <h1 align="center">Универсальный AI-агент</h1>
+-------
+
+## Запуск новой версии
+
+
+1. 
+   ```shell
+   sh cp .env.example .env
+   ```
+2. Заполняем .env файл
+
+   * **GIGA_AGENT_SECRET_KEY** - обязательная env переменная для генерации аутентификационных данных (можно для теста поставить просто 123)
+
+   * **GIGA_AGENT_HOST_PROJECT_PATH** - путь до склонированного репозитория на хосте (нужно для нормального запуска кода в docker) запускаем `pwd` из репозитория и заполняем путь который выдался
+
+   Отдельно можно раскомментировать:
+   * **PHOENIX_COLLECTOR_ENDPOINT** - Arize Phoenix Endpoint
+
+   * **PHOENIX_API_KEY** - API ключ для Arize
+
+   * **OTEL_TARGETS** - таргет для трейсов в Aegra куда слать. Возможные значения "LANGFUSE,PHOENIX,GENERIC"
+3. Качаем image для код-интерпретатора 
+   ```shell
+   docker image pull mikelarg/code-interpreter:0.0.5
+   ```
+
+4. После чего билдим и запускаем:
+    ```sh
+    make build
+    make up
+    ```
+-------
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/giga-agent_light_logo.png">
