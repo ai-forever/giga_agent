@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
@@ -92,6 +93,27 @@ class ConnectorsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "openai")
         mocked_check.assert_awaited_once()
+
+    def test_get_connector_settings_schema_materializes_default_factory(self):
+        class _SchemaStub(BaseModel):
+            base_url: str = Field(default_factory=lambda: "https://api.example.com")
+
+        class _RuntimeStub:
+            @classmethod
+            def settings_schema(cls):
+                return _SchemaStub
+
+        with patch(
+            "giga_agent.routes.connectors._resolve_runtime_cls",
+            return_value=_RuntimeStub,
+        ):
+            response = self.client.get("/connectors/types/openai/settings-schema")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["properties"]["base_url"]["default"],
+            "https://api.example.com",
+        )
 
     def test_create_connector_skips_connection_check_when_disabled(self):
         created = self._connector_obj()

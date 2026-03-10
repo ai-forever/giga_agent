@@ -546,6 +546,44 @@ class SandboxesRouterTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 403)
 
+    def test_get_local_provider_schema_materializes_default_factory_values(self):
+        env = {
+            "GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1",
+            "GIGA_AGENT_LOCAL_DOCKER_IMAGE": "registry.example/custom-sandbox:1.2.3",
+            "GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB": "3072",
+            "GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB": "1536",
+            "GIGA_AGENT_LOCAL_DOCKER_VCPU": "1.5",
+            "GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT": "256",
+            "GIGA_AGENT_LOCAL_DOCKER_SHM_SIZE_MB": "128",
+            "GIGA_AGENT_LOCAL_DOCKER_NOFILE_SOFT": "1024",
+            "GIGA_AGENT_LOCAL_DOCKER_NOFILE_HARD": "2048",
+            "GIGA_AGENT_LOCAL_DOCKER_STARTUP_TIMEOUT_SEC": "45",
+            "GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3",
+            "GIGA_AGENT_LOCAL_DOCKER_READONLY_ROOTFS": "true",
+        }
+
+        with self._patched_env(env):
+            response = self.client.get(
+                "/sandboxes/providers/types/local_docker/settings-schema"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        properties = response.json()["properties"]
+        self.assertEqual(
+            properties["image"]["default"],
+            "registry.example/custom-sandbox:1.2.3",
+        )
+        self.assertEqual(properties["memory_limit_mb"]["default"], 3072)
+        self.assertEqual(properties["memory_reservation_mb"]["default"], 1536)
+        self.assertEqual(properties["vcpu"]["default"], 1.5)
+        self.assertEqual(properties["pids_limit"]["default"], 256)
+        self.assertEqual(properties["shm_size_mb"]["default"], 128)
+        self.assertEqual(properties["nofile_soft"]["default"], 1024)
+        self.assertEqual(properties["nofile_hard"]["default"], 2048)
+        self.assertEqual(properties["startup_timeout_sec"]["default"], 45)
+        self.assertEqual(properties["max_active_sandboxes"]["default"], 3)
+        self.assertIs(properties["enforce_readonly_rootfs"]["default"], True)
+
     def test_create_local_provider_forbidden_for_non_superuser(self):
         self.user.is_superuser = False
         with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):

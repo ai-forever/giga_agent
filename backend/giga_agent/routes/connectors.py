@@ -32,6 +32,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure runtime registrations
@@ -256,7 +259,7 @@ async def get_connector_settings_schema(
         connector_type,
         status_code=status.HTTP_404_NOT_FOUND,
     )
-    return runtime_cls.settings_schema().model_json_schema()
+    return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
 @router.post("", response_model=ConnectorResponse, status_code=status.HTTP_201_CREATED)

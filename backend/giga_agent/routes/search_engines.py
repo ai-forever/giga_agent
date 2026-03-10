@@ -26,6 +26,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_read_and_edit,
 )
 from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
 )
@@ -201,7 +204,7 @@ async def get_engine_settings_schema(
 ):
     _ = current_user
     runtime_cls = _resolve_runtime_cls(engine_type, status_code=status.HTTP_404_NOT_FOUND)
-    return runtime_cls.settings_schema().model_json_schema()
+    return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
 @router.post("", response_model=SearchEngineResponse, status_code=status.HTTP_201_CREATED)

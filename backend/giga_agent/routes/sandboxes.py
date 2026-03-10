@@ -52,6 +52,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 
 router = APIRouter(prefix="/sandboxes", tags=["sandboxes"])
 
@@ -375,7 +378,7 @@ async def get_sandbox_provider_settings_schema(
         )
 
     schema_cls = SandboxRegistry.get_settings_schema(provider_type)
-    return schema_cls.model_json_schema()
+    return build_settings_schema_with_computed_defaults(schema_cls)
 
 
 @router.get("/providers/{provider_id}", response_model=SandboxProviderResponse)

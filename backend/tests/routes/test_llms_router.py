@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
@@ -451,6 +452,27 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), schema_payload)
         self.assertEqual(mocked_resolve.call_args.args[0], "openai")
+
+    def test_get_llm_settings_schema_materializes_default_factory(self):
+        class _SchemaStub(BaseModel):
+            temperature: float = Field(default_factory=lambda: 0.7)
+
+        class _RuntimeStub:
+            @classmethod
+            def settings_schema(cls):
+                return _SchemaStub
+
+        with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+            return_value=_RuntimeStub,
+        ):
+            response = self.client.get("/llms/types/openai/settings-schema")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["properties"]["temperature"]["default"],
+            0.7,
+        )
 
     def test_get_llm_settings_schema_returns_422_for_unknown_type(self):
         response = self.client.get("/llms/types/unknown-runtime/settings-schema")

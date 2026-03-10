@@ -38,6 +38,9 @@ from giga_agent.routes._shared.model_discovery import (
     fetch_models_or_http_error,
     validate_connector_settings_or_422,
 )
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
     get_user_model,
@@ -306,7 +309,7 @@ async def get_embedding_settings_schema(
         embedding_type,
         status_code=status.HTTP_404_NOT_FOUND,
     )
-    return runtime_cls.settings_schema().model_json_schema()
+    return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
 @router.post("", response_model=EmbeddingResponse, status_code=status.HTTP_201_CREATED)
