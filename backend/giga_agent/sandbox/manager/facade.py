@@ -111,6 +111,9 @@ class SandboxManager:
     async def reconcile_stale_starting_sandboxes(self, ttl_sec: int) -> list[uuid.UUID]:
         return await self._lifecycle.reconcile_stale_starting(ttl_sec)
 
+    async def cleanup_orphans(self, *, concurrency: int = 1) -> dict[str, list[str]]:
+        return await self._lifecycle.cleanup_orphans(concurrency=concurrency)
+
     async def upload_file_for_user(
         self,
         user_id: uuid.UUID,

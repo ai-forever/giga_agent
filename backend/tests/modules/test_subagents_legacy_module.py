@@ -116,6 +116,7 @@ class SubagentsLegacyModuleTests(unittest.IsolatedAsyncioTestCase):
                     "create_landing",
                     "generate_presentation",
                     "create_meme",
+                    "researcher_agent",
                 ]
             ),
         )

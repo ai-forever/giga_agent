@@ -46,6 +46,7 @@ from giga_agent.models.users import (
 )
 from giga_agent.models.file import FileRepository, FileStorageRef
 from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
+from giga_agent.sandbox.manager import SandboxManager
 
 router = APIRouter(tags=["auth"])
 
@@ -375,7 +376,12 @@ async def _delete_user_related_resources(
         await rag_repo.delete(owner_id=user_id, collection_id=collection.id)
 
     sandbox_repo = SandboxRepository(db)
+    sandbox_manager = SandboxManager(db)
     for sandbox in await sandbox_repo.get_by_owner(user_id):
+        try:
+            await sandbox_manager.stop(sandbox.id)
+        except Exception:
+            pass
         await sandbox_repo.delete(sandbox)
 
     provider_repo = SandboxProviderRepository(db)

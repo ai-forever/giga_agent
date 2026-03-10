@@ -4,11 +4,17 @@ import types
 import unittest
 import uuid
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from giga_agent.conf import reset_settings_cache
+from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.base import ContentResult
 from giga_agent.sandbox.local_docker import LocalDockerSandbox
+from giga_agent.sandbox.manager.types import (
+    RemoveExternalRuntimeAction,
+    SetSandboxStatusAction,
+    StopExternalRuntimeAction,
+)
 
 
 class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
@@ -109,3 +115,109 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
             with self.assertRaises(ValueError):
                 runtime._local_path_from_bucket_path("/bucket/../escape.txt")
+
+    async def test_up_passes_management_labels_to_container(self):
+        owner_id = uuid.uuid4()
+        provider_id = uuid.uuid4()
+        sandbox_id = uuid.uuid4()
+        container = types.SimpleNamespace(
+            id="container-1",
+            attrs={"NetworkSettings": {"Ports": {"8888/tcp": [{"HostPort": "12345"}]}}},
+            reload=lambda: None,
+            exec_run=lambda *args, **kwargs: None,
+        )
+        run_mock = Mock(return_value=container)
+        client = types.SimpleNamespace(
+            containers=types.SimpleNamespace(run=run_mock)
+        )
+
+        with patch(
+            "giga_agent.sandbox.local_docker.docker.from_env",
+            return_value=client,
+        ), patch.object(
+            LocalDockerSandbox,
+            "is_up",
+            return_value=True,
+        ):
+            runtime = LocalDockerSandbox(
+                owner_id=owner_id,
+                provider_id=provider_id,
+                sandbox_id=sandbox_id,
+                max_active_sandboxes=1,
+            )
+            await runtime.up()
+
+        labels = run_mock.call_args.kwargs["labels"]
+        self.assertEqual(labels["giga_agent.managed"], "true")
+        self.assertEqual(labels["giga_agent.provider_id"], str(provider_id))
+        self.assertEqual(labels["giga_agent.sandbox_id"], str(sandbox_id))
+        self.assertEqual(labels["giga_agent.owner_id"], str(owner_id))
+
+    async def test_cleanup_orphans_returns_remove_for_unbound_container(self):
+        sandbox_id = uuid.uuid4()
+        provider_id = uuid.uuid4()
+        container = types.SimpleNamespace(
+            id="container-1",
+            labels={
+                "giga_agent.managed": "true",
+                "giga_agent.provider_type": "local_docker",
+                "giga_agent.provider_id": str(provider_id),
+                "giga_agent.sandbox_id": str(sandbox_id),
+                "giga_agent.owner_id": str(uuid.uuid4()),
+            },
+            attrs={"Config": {"Labels": {}}, "State": {"Running": True}},
+            reload=lambda: None,
+        )
+        client = types.SimpleNamespace(
+            containers=types.SimpleNamespace(
+                list=lambda *args, **kwargs: [container],
+            ),
+            close=lambda: None,
+        )
+
+        with patch.object(LocalDockerSandbox, "_make_docker_client", return_value=client):
+            actions = await LocalDockerSandbox.cleanup_orphans(
+                providers=[],
+                sandboxes=[],
+            )
+
+        self.assertEqual(len(actions), 1)
+        self.assertIsInstance(actions[0], RemoveExternalRuntimeAction)
+
+    async def test_cleanup_orphans_returns_stop_and_status_for_live_stopped_sandbox(self):
+        sandbox_id = uuid.uuid4()
+        provider_id = uuid.uuid4()
+        container = types.SimpleNamespace(
+            id="container-1",
+            labels={
+                "giga_agent.managed": "true",
+                "giga_agent.provider_type": "local_docker",
+                "giga_agent.provider_id": str(provider_id),
+                "giga_agent.sandbox_id": str(sandbox_id),
+                "giga_agent.owner_id": str(uuid.uuid4()),
+            },
+            attrs={"Config": {"Labels": {}}, "State": {"Running": True}},
+            reload=lambda: None,
+        )
+        sandbox = types.SimpleNamespace(
+            id=sandbox_id,
+            provider_id=provider_id,
+            owner_id=uuid.uuid4(),
+            status=SandboxStatus.STOPPED,
+            external_id="container-1",
+            settings={},
+        )
+        client = types.SimpleNamespace(
+            containers=types.SimpleNamespace(list=lambda *args, **kwargs: [container]),
+            close=lambda: None,
+        )
+
+        with patch.object(LocalDockerSandbox, "_make_docker_client", return_value=client):
+            actions = await LocalDockerSandbox.cleanup_orphans(
+                providers=[],
+                sandboxes=[sandbox],
+            )
+
+        self.assertEqual(len(actions), 2)
+        self.assertIsInstance(actions[0], StopExternalRuntimeAction)
+        self.assertIsInstance(actions[1], SetSandboxStatusAction)

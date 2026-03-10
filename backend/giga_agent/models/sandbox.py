@@ -589,6 +589,18 @@ class SandboxRepository:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_by_provider_with_provider(
+        self,
+        provider_id: uuid.UUID,
+    ) -> list[Sandbox]:
+        result = await self.db.execute(
+            select(Sandbox)
+            .where(Sandbox.provider_id == provider_id)
+            .options(joinedload(Sandbox.provider))
+            .order_by(Sandbox.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def get_by_provider_and_id(
         self,
         provider_id: uuid.UUID,
@@ -658,6 +670,18 @@ class SandboxRepository:
             .where(Sandbox.updated_at < stale_before)
         )
         return result.scalars().all()
+
+    async def get_by_provider_type_with_provider(
+        self,
+        provider_type: str,
+    ) -> list[Sandbox]:
+        result = await self.db.execute(
+            select(Sandbox)
+            .join(Sandbox.provider)
+            .options(joinedload(Sandbox.provider))
+            .where(SandboxProvider.type == provider_type)
+        )
+        return list(result.scalars().all())
 
     async def create(
         self,

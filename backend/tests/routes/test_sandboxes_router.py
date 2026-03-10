@@ -269,6 +269,9 @@ class SandboxesRouterTests(unittest.TestCase):
             "giga_agent.routes.sandboxes.RagDocumentsRepository.detach_by_sandbox_provider",
             AsyncMock(return_value=0),
         ), patch(
+            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_with_provider",
+            AsyncMock(return_value=[]),
+        ), patch(
             "giga_agent.routes.sandboxes.SandboxProviderRepository.delete",
             AsyncMock(return_value=None),
         ), patch(

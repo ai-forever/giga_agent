@@ -82,6 +82,19 @@ async def get_provider_with_write_check(
     )
 
 
+async def _best_effort_stop_sandboxes(
+    *,
+    manager: SandboxManager,
+    sandboxes: list,
+) -> None:
+    for sandbox in sandboxes:
+        try:
+            await manager.stop(sandbox.id)
+        except Exception:
+            # Delete flows are best-effort for runtime cleanup.
+            continue
+
+
 def _is_local_docker_type(provider_type: str) -> bool:
     return provider_type == LOCAL_DOCKER_PROVIDER
 
@@ -445,6 +458,12 @@ async def delete_sandbox_provider(
 
     sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
     sandbox_repo = SandboxRepository(provider_repo.db)
+    provider_sandboxes = await sandbox_repo.get_by_provider_with_provider(provider.id)
+    await _best_effort_stop_sandboxes(
+        manager=SandboxManager(provider_repo.db),
+        sandboxes=provider_sandboxes,
+    )
+
     for owner_id in {item.owner_id for item in file_refs}:
         sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider.id)
         if sandbox is not None:
