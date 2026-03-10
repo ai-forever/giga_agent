@@ -330,6 +330,16 @@ async def patch_search_engine(
     if "connector_id" in data.model_fields_set:
         update_data["connector_id"] = validated_connector_id
 
+    is_deactivating_current = False
+    if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
+        update_data["is_active"] = data.is_active
+        is_deactivating_current = data.is_active is False
+
     if data.check_connection:
         await _check_connection_or_http_error(
             runtime_cls=runtime_cls,
@@ -337,11 +347,6 @@ async def patch_search_engine(
             connector_id=validated_connector_id,
             connector_repo=connector_repo,
         )
-
-    is_deactivating_current = False
-    if "is_active" in data.model_fields_set:
-        update_data["is_active"] = data.is_active
-        is_deactivating_current = data.is_active is False
 
     if update_data:
         engine = await engine_repo.update(engine, **update_data)

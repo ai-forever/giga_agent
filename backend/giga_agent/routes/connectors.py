@@ -356,6 +356,11 @@ async def patch_connector(
         update_data["name"] = data.name
 
     if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
         update_data["is_active"] = data.is_active
 
     if "settings" in data.model_fields_set:

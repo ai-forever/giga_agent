@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from cashews import cache
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -199,6 +199,8 @@ class UserShort(UserBase):
 class UserUpdate(BaseModel):
     """Схема для частичного обновления полей пользователя."""
 
+    model_config = ConfigDict(extra="forbid")
+
     settings: dict | None = None
     secrets: dict | None = None
     llm_id: uuid.UUID | None = None
@@ -211,6 +213,8 @@ class UserUpdate(BaseModel):
 
 class AdminUserUpdate(BaseModel):
     """Схема для частичного админ-обновления пользователя."""
+
+    model_config = ConfigDict(extra="forbid")
 
     email: EmailStr | None = None
     password: str | None = None
@@ -330,7 +334,7 @@ class UserRepository:
     ) -> User:
         """Обновить данные пользователя"""
         for key, value in kwargs.items():
-            if hasattr(user, key) and value is not None:
+            if hasattr(user, key):
                 setattr(user, key, value)
         await self.db.commit()
         await self.db.refresh(user)

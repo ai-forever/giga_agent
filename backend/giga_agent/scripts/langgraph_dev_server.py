@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -149,6 +150,7 @@ def main() -> int:
         port,
         reload_enabled,
         graphs,
+        n_jobs_per_worker=min(os.getenv("N_JOBS_PER_WORKER", 6), 6),
         reload_excludes=reload_excludes,
         auth={"path": auth_path},
         http=http_config,

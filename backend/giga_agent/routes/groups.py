@@ -127,13 +127,18 @@ async def patch_group(
     group = await _get_group_or_404(group_id, group_repo)
 
     update_data: dict[str, Any] = {}
-    if body.name is not None:
+    if "name" in body.model_fields_set:
+        if body.name is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="name must not be null when provided",
+            )
         update_data["name"] = body.name
-    if body.description is not None:
+    if "description" in body.model_fields_set:
         update_data["description"] = body.description
-    if body.data is not None:
+    if "data" in body.model_fields_set:
         update_data["data"] = body.data
-    if body.permissions is not None:
+    if "permissions" in body.model_fields_set:
         update_data["permissions"] = body.permissions
 
     if update_data:

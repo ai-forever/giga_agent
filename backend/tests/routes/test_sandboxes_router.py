@@ -560,3 +560,63 @@ class SandboxesRouterTests(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 403)
+
+    def test_patch_provider_allows_null_name_and_invalidates_cache(self):
+        provider = self._provider_obj()
+        updated = self._provider_obj(provider_id=provider.id)
+        updated.name = None
+
+        with patch(
+            "giga_agent.routes.sandboxes.get_provider_with_write_check",
+            AsyncMock(return_value=provider),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxProviderRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update, patch(
+            "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
+            return_value=self._provider_payload(updated),
+        ), patch(
+            "giga_agent.routes.sandboxes.cache.delete_match",
+            AsyncMock(return_value=None),
+        ) as mocked_delete_match:
+            response = self.client.patch(
+                f"/sandboxes/providers/{provider.id}",
+                json={"name": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["name"])
+        self.assertIsNone(mocked_update.await_args.kwargs["name"])
+        mocked_delete_match.assert_awaited_once_with(
+            f"sandboxpair:owner:{provider.owner_id}:*"
+        )
+
+    def test_patch_provider_rejects_null_idle_timeout(self):
+        provider = self._provider_obj()
+
+        with patch(
+            "giga_agent.routes.sandboxes.get_provider_with_write_check",
+            AsyncMock(return_value=provider),
+        ), patch(
+            "giga_agent.routes.sandboxes.SandboxProviderRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/sandboxes/providers/{provider.id}",
+                json={"idle_timeout": None},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "idle_timeout must not be null when provided",
+        )
+        mocked_update.assert_not_awaited()
+
+    def test_patch_provider_rejects_unknown_fields(self):
+        response = self.client.patch(
+            f"/sandboxes/providers/{uuid.uuid4()}",
+            json={"unknown_field": "value"},
+        )
+
+        self.assertEqual(response.status_code, 422)

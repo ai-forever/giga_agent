@@ -476,15 +476,30 @@ async def patch_llm(
         update_data["connector_id"] = data.connector_id
 
     if "model_id" in data.model_fields_set:
+        if data.model_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="model_id must not be null when provided",
+            )
         update_data["model_id"] = data.model_id
 
     if "name" in data.model_fields_set:
         update_data["name"] = data.name
 
     if "parallel_calls" in data.model_fields_set:
+        if data.parallel_calls is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="parallel_calls must not be null when provided",
+            )
         update_data["parallel_calls"] = data.parallel_calls
 
     if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
         update_data["is_active"] = data.is_active
 
     if "settings" in data.model_fields_set:

@@ -266,42 +266,14 @@ class ConnectorsRouterTests(unittest.TestCase):
         self.assertTrue(can_edit_by_id[str(writable_connector.id)])
         self.assertFalse(can_edit_by_id[str(readonly_connector.id)])
 
-    def test_patch_type_change_checks_dependencies(self):
+    def test_patch_rejects_unknown_type_field(self):
         connector_id = uuid.uuid4()
-        existing = self._connector_obj(connector_id=connector_id, connector_type="openai")
-        updated = self._connector_obj(connector_id=connector_id, connector_type="gigachat")
+        response = self.client.patch(
+            f"/connectors/{connector_id}",
+            json={"type": "gigachat", "settings": {}},
+        )
 
-        with patch(
-            "giga_agent.routes.connectors._get_connector_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.connectors._resolve_runtime_cls",
-            return_value=object(),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.connectors._validate_type_change_compatibility",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_compat, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(updated),
-        ):
-            response = self.client.patch(
-                f"/connectors/{connector_id}",
-                json={"type": "gigachat", "settings": {}},
-            )
-
-        self.assertEqual(response.status_code, 200)
-        mocked_validate_compat.assert_not_awaited()
-        mocked_check.assert_awaited_once()
-        self.assertEqual(response.json()["type"], "gigachat")
+        self.assertEqual(response.status_code, 422)
 
     def test_patch_with_settings_skips_connection_check_when_disabled(self):
         connector_id = uuid.uuid4()
@@ -372,6 +344,60 @@ class ConnectorsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 204)
         mocked_delete.assert_awaited_once()
+
+    def test_patch_connector_allows_null_name(self):
+        connector = self._connector_obj()
+        updated = self._connector_obj(connector_id=connector.id)
+        updated.name = None
+
+        with patch(
+            "giga_agent.routes.connectors._get_connector_with_write_check",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.connectors.ConnectorRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update, patch(
+            "giga_agent.routes.connectors.ConnectorRepository.to_response",
+            return_value=self._response_payload(updated),
+        ):
+            response = self.client.patch(
+                f"/connectors/{connector.id}",
+                json={"name": None, "check_connection": False},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["name"])
+        self.assertIsNone(mocked_update.await_args.kwargs["name"])
+
+    def test_patch_connector_rejects_null_is_active(self):
+        connector = self._connector_obj()
+
+        with patch(
+            "giga_agent.routes.connectors._get_connector_with_write_check",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.connectors.ConnectorRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/connectors/{connector.id}",
+                json={"is_active": None},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "is_active must not be null when provided",
+        )
+        mocked_update.assert_not_awaited()
+
+    def test_patch_connector_rejects_unknown_fields(self):
+        response = self.client.patch(
+            f"/connectors/{uuid.uuid4()}",
+            json={"unknown_field": "value"},
+        )
+
+        self.assertEqual(response.status_code, 422)
 
 
 class ConnectorCompatibilityTests(unittest.IsolatedAsyncioTestCase):

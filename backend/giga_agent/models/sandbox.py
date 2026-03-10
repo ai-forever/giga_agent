@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional, Any
 
 from cashews import cache
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     String,
     DateTime,
@@ -171,6 +171,8 @@ class SandboxProviderCreate(SandboxProviderBase):
 
 
 class SandboxProviderUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     settings: Optional[dict[str, Any]] = None
     idle_timeout: Optional[int] = None
@@ -205,6 +207,8 @@ class SandboxCreate(SandboxBase):
 
 
 class SandboxUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     settings: Optional[SandboxSettings] = None
 
 
@@ -417,7 +421,7 @@ class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
     ) -> SandboxProvider:
         """Обновить провайдера."""
         for key, value in kwargs.items():
-            if hasattr(provider, key) and value is not None:
+            if hasattr(provider, key):
                 setattr(provider, key, value)
         await self.db.commit()
         await self.db.refresh(provider)
@@ -707,7 +711,7 @@ class SandboxRepository:
     ) -> Sandbox:
         """Обновить sandbox."""
         for key, value in kwargs.items():
-            if hasattr(sandbox, key) and value is not None:
+            if hasattr(sandbox, key):
                 setattr(sandbox, key, value)
         await self.db.commit()
         await self.db.refresh(sandbox)

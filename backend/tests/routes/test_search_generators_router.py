@@ -299,6 +299,80 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         mocked_clear_current.assert_awaited_once()
 
+    def test_patch_allows_clearing_name_and_connector(self):
+        engine_id = uuid.uuid4()
+        existing = self._engine_obj(
+            engine_id=engine_id,
+            connector_id=uuid.uuid4(),
+            settings={"search_depth": "basic"},
+        )
+        updated = self._engine_obj(
+            engine_id=engine_id,
+            connector_id=None,
+            settings=existing.settings,
+        )
+        updated.name = None
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.search_engines._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
+        ), patch(
+            "giga_agent.routes.search_engines._validate_connector_link",
+            AsyncMock(return_value=None),
+        ) as mocked_validate_connector, patch(
+            "giga_agent.routes.search_engines._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update, patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+            return_value=self._response_payload(updated),
+        ):
+            response = self.client.patch(
+                f"/search-engines/{engine_id}",
+                json={"name": None, "connector_id": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["name"])
+        self.assertIsNone(response.json()["connector_id"])
+        self.assertIsNone(mocked_validate_connector.await_args.kwargs["connector_id"])
+        self.assertIsNone(mocked_update.await_args.kwargs["name"])
+        self.assertIsNone(mocked_update.await_args.kwargs["connector_id"])
+
+    def test_patch_rejects_null_is_active(self):
+        engine_id = uuid.uuid4()
+        existing = self._engine_obj(engine_id=engine_id, connector_id=None)
+
+        with patch(
+            "giga_agent.routes.search_engines._get_engine_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.search_engines._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
+        ), patch(
+            "giga_agent.routes.search_engines._validate_connector_link",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.search_engines.SearchEngineRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/search-engines/{engine_id}",
+                json={"is_active": None},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "is_active must not be null when provided",
+        )
+        mocked_update.assert_not_awaited()
+
     def test_create_skips_connection_check_when_disabled(self):
         created = self._engine_obj(connector_id=None)
 

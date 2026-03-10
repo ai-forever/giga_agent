@@ -72,7 +72,7 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full flex lg:p-5 p-0 lg:mt-0 mt-[75px]">
+    <div className="w-full flex lg:p-5 p-0 lg:mt-0">
       <div className="flex flex-col max-w-[900px] mx-auto h-full flex-1 bg-card/80 backdrop-blur-xl rounded-lg shadow-2xl overflow-hidden print:overflow-visible print:shadow-none">
         {/* Header */}
         <div className="flex items-center gap-4 p-6 border-b border-border">

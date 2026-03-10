@@ -412,13 +412,28 @@ async def update_sandbox_provider(
 
     update_data: dict[str, Any] = {}
 
-    if data.name is not None:
+    if "name" in data.model_fields_set:
         update_data["name"] = data.name
-    if data.idle_timeout is not None:
+    if "idle_timeout" in data.model_fields_set:
+        if data.idle_timeout is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="idle_timeout must not be null when provided",
+            )
         update_data["idle_timeout"] = data.idle_timeout
-    if data.is_active is not None:
+    if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
         update_data["is_active"] = data.is_active
-    if data.settings is not None:
+    if "settings" in data.model_fields_set:
+        if data.settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="settings must be an object when provided",
+            )
         update_data["settings"] = await validate_provider_settings(
             provider.type,
             data.settings,
