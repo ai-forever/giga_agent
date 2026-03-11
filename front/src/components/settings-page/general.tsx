@@ -268,12 +268,7 @@ export const GeneralSettings: React.FC = () => {
     fetchImageGenerators();
     fetchSearchEngines();
     fetchAgentSecrets();
-  }, [
-    fetchLLMs,
-    fetchImageGenerators,
-    fetchSearchEngines,
-    fetchAgentSecrets,
-  ]);
+  }, [fetchLLMs, fetchImageGenerators, fetchSearchEngines, fetchAgentSecrets]);
 
   const parsedForValidation = useMemo(
     () =>
@@ -891,7 +886,7 @@ export const GeneralSettings: React.FC = () => {
       </div>
 
       {/* Закреплённая кнопка сохранения */}
-      <div className="sticky bottom-0 pt-6 pb-2 bg-gradient-to-t from-card from-60% to-transparent">
+      <div className="sticky bottom-[-30px] pt-6 pb-11 bg-gradient-to-t from-card from-60% to-transparent">
         <Button
           onClick={handleSave}
           variant="default2"

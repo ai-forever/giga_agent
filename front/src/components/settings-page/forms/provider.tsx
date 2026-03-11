@@ -1,4 +1,6 @@
-import React from "react";
+import React, { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ChevronDown } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Input, SecretInput } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -17,10 +19,12 @@ import type {
 } from "./types";
 
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const GIGACHAT_DEFAULT_BASE_URL = "https://gigachat.devices.sberbank.ru/api/v1";
+const GIGACHAT_DEFAULT_AUTH_URL =
+  "https://ngw.devices.sberbank.ru:9443/api/v2/oauth";
 
 const GIGACHAT_API_TYPES: { id: GigaChatApiType; label: string }[] = [
   { id: "prod", label: "GigaChat Prod" },
-  { id: "preview", label: "GigaChat Preview" },
   { id: "dev", label: "GigaChat Dev Server" },
 ];
 
@@ -56,6 +60,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
   showConnectorTypeSelector = true,
   compact = false,
 }) => {
+  const [showConnectionSettings, setShowConnectionSettings] = useState(false);
+
   const handleConnectorTypeChange = (type: ConnectorType) => {
     onConnectorTypeChange(type);
   };
@@ -68,16 +74,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
   };
 
   const renderOpenAIFields = () => (
-    <div className="space-y-4 mt-4">
-      <div className="space-y-2">
-        <Label htmlFor="base_url">Base URL</Label>
-        <Input
-          id="base_url"
-          placeholder={OPENAI_DEFAULT_BASE_URL}
-          value={settings.base_url || OPENAI_DEFAULT_BASE_URL}
-          onChange={(e) => handleSettingChange("base_url", e.target.value)}
-        />
-      </div>
+    <>
       <div className="space-y-2">
         <Label htmlFor="api_key">API Token</Label>
         <SecretInput
@@ -87,15 +84,51 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
           onChange={(e) => handleSettingChange("api_key", e.target.value)}
         />
       </div>
-    </div>
+      <div className="space-y-2">
+        <Label htmlFor="base_url">Base URL</Label>
+        <Input
+          id="base_url"
+          placeholder={OPENAI_DEFAULT_BASE_URL}
+          value={settings.base_url || ""}
+          onChange={(e) => handleSettingChange("base_url", e.target.value)}
+        />
+      </div>
+    </>
   );
 
   const gigachatApiType = (settings.gigachat_api_type ||
     "prod") as GigaChatApiType;
   const isGigaChatDev = gigachatApiType === "dev";
 
+  const renderGigaChatProdUrls = () => (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="gigachat_base_url">Base URL</Label>
+        <Input
+          id="gigachat_base_url"
+          placeholder={GIGACHAT_DEFAULT_BASE_URL}
+          value={settings.gigachat_base_url || ""}
+          onChange={(e) =>
+            handleSettingChange("gigachat_base_url", e.target.value)
+          }
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="gigachat_auth_url">Auth URL</Label>
+        <Input
+          id="gigachat_auth_url"
+          placeholder={GIGACHAT_DEFAULT_AUTH_URL}
+          value={settings.gigachat_auth_url || ""}
+          onChange={(e) =>
+            handleSettingChange("gigachat_auth_url", e.target.value)
+          }
+        />
+      </div>
+    </>
+  );
+
   const renderGigaChatFields = () => (
-    <div className="space-y-4 mt-4">
+    <div className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="gigachat_api_type">Тип API</Label>
         <Select
@@ -157,9 +190,11 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
             <Label htmlFor="gigachat_base_url">Base URL</Label>
             <Input
               id="gigachat_base_url"
-              placeholder="GigaChat Base URL"
-              value={settings.base_url || ""}
-              onChange={(e) => handleSettingChange("base_url", e.target.value)}
+              placeholder={GIGACHAT_DEFAULT_BASE_URL}
+              value={settings.gigachat_base_url || ""}
+              onChange={(e) =>
+                handleSettingChange("gigachat_base_url", e.target.value)
+              }
             />
           </div>
           <div className="space-y-2">
@@ -228,7 +263,46 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
       )}
 
       {connectorType === "openai" && renderOpenAIFields()}
-      {connectorType === "gigachat" && renderGigaChatFields()}
+
+      {connectorType === "gigachat" && (
+        <>
+          {renderGigaChatFields()}
+          {!isGigaChatDev && (
+            <div className="space-y-3 mt-4">
+              <button
+                type="button"
+                onClick={() => setShowConnectionSettings((prev) => !prev)}
+                className="flex items-center gap-2 w-full py-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <div className="flex-1 h-px bg-border" />
+                <span className="flex items-center gap-1.5">
+                  Настроить подключение
+                  <ChevronDown
+                    className={`size-4 transition-transform ${showConnectionSettings ? "rotate-180" : ""}`}
+                  />
+                </span>
+                <div className="flex-1 h-px bg-border" />
+              </button>
+
+              <AnimatePresence initial={false}>
+                {showConnectionSettings && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.22, ease: "easeInOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-4 rounded-md border border-border p-4">
+                      {renderGigaChatProdUrls()}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };

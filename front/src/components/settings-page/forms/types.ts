@@ -2,8 +2,8 @@
 
 export type ConnectorType = "openai" | "gigachat" | "tavily";
 
-/** GigaChat API type: prod/preview use credentials; dev uses base_url + username + password */
-export type GigaChatApiType = "prod" | "preview" | "dev";
+/** GigaChat API type: prod uses credentials + urls; dev uses base_url + username + password */
+export type GigaChatApiType = "prod" | "dev";
 
 /** GigaChat scope (authorization scope) */
 export type GigaChatScope = "GIGACHAT_API_PERS" | "GIGACHAT_API_B2B" | "GIGACHAT_API_CORP";
@@ -16,6 +16,8 @@ export interface ConnectorSettings {
   gigachat_username?: string;
   gigachat_password?: string;
   gigachat_scope?: string;
+  gigachat_base_url?: string;
+  gigachat_auth_url?: string;
   extra?: Record<string, unknown>;
 }
 

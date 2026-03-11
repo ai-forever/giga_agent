@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
+from gigachat.settings import AUTH_URL as GIGACHAT_DEFAULT_AUTH_URL
+from gigachat.settings import BASE_URL as GIGACHAT_DEFAULT_BASE_URL
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
@@ -113,6 +115,20 @@ class ConnectorsRouterTests(unittest.TestCase):
         self.assertEqual(
             response.json()["properties"]["base_url"]["default"],
             "https://api.example.com",
+        )
+
+    def test_get_gigachat_settings_schema_exposes_default_urls(self):
+        response = self.client.get("/connectors/types/gigachat/settings-schema")
+
+        self.assertEqual(response.status_code, 200)
+        properties = response.json()["properties"]
+        self.assertEqual(
+            properties["gigachat_base_url"]["default"],
+            GIGACHAT_DEFAULT_BASE_URL,
+        )
+        self.assertEqual(
+            properties["gigachat_auth_url"]["default"],
+            GIGACHAT_DEFAULT_AUTH_URL,
         )
 
     def test_create_connector_skips_connection_check_when_disabled(self):

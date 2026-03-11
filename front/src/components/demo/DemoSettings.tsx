@@ -26,7 +26,7 @@ const DemoSettings: React.FC<DemoSettingsProps> = () => {
   };
   return (
     <div className="w-full flex lg:p-5 p-0 lg:mt-0 mt-[75px]">
-      <div className="flex max-w-[900px] mx-auto h-full flex-1 bg-card/80 backdrop-blur-xl rounded-lg shadow-2xl overflow-hidden print:overflow-visible print:shadow-none">
+      <div className="flex max-w-[900px] mx-auto h-full flex-1 bg-card backdrop-blur-xl rounded-lg shadow-2xl overflow-hidden print:overflow-visible print:shadow-none">
         <div
           ref={itemsRef}
           className="flex flex-col w-full h-full overflow-auto"

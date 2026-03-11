@@ -126,7 +126,7 @@ const MemoriesPage: React.FC = () => {
 
   return (
     <div className="container mx-auto p-5 w-full flex lg:p-5 p-0 lg:mt-0">
-      <Card className="bg-card/80 max-w-[900px] w-full mx-auto border-0 shadow-md">
+      <Card className="bg-card max-w-[900px] w-full mx-auto border-0 shadow-md">
         <CardContent className="flex flex-col space-y-6 px-6">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold">Долгосрочная память</h1>

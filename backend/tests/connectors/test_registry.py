@@ -7,6 +7,8 @@ from giga_agent.connectors.gigachat import GigaChatConnector
 from giga_agent.connectors.openai import OpenAIConnector
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.connectors.tavily import TavilyConnector
+from gigachat.settings import AUTH_URL as GIGACHAT_DEFAULT_AUTH_URL
+from gigachat.settings import BASE_URL as GIGACHAT_DEFAULT_BASE_URL
 
 
 class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
@@ -38,6 +40,54 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
                 "gigachat",
                 {"gigachat_api_type": "dev", "gigachat_username": "u", "gigachat_password": "p"},
             )
+
+    async def test_gigachat_validate_accepts_short_aliases(self):
+        settings = await ConnectorRegistry.validate_settings(
+            "gigachat",
+            {
+                "api_type": " PROD ",
+                "credentials": " token ",
+                "scope": " GIGACHAT_API_CORP ",
+                "base_url": "https://gigachat.example/api/ ",
+                "auth_url": "https://gigachat.example/oauth/ ",
+            },
+        )
+
+        self.assertEqual(
+            settings,
+            {
+                "gigachat_api_type": "prod",
+                "gigachat_credentials": "token",
+                "gigachat_scope": "GIGACHAT_API_CORP",
+                "gigachat_base_url": "https://gigachat.example/api",
+                "gigachat_auth_url": "https://gigachat.example/oauth",
+            },
+        )
+
+    async def test_gigachat_validate_rejects_preview_api_type(self):
+        with self.assertRaisesRegex(ValueError, "gigachat_api_type must be one of: prod, dev"):
+            await ConnectorRegistry.validate_settings(
+                "gigachat",
+                {"gigachat_api_type": "preview", "gigachat_credentials": "token"},
+            )
+
+    async def test_gigachat_prod_connection_kwargs_include_default_urls(self):
+        settings = await ConnectorRegistry.validate_settings(
+            "gigachat",
+            {"gigachat_api_type": "prod", "gigachat_credentials": "token"},
+        )
+
+        kwargs = ConnectorRegistry.get_connection_kwargs("gigachat", settings)
+        self.assertEqual(
+            kwargs,
+            {
+                "base_url": GIGACHAT_DEFAULT_BASE_URL,
+                "auth_url": GIGACHAT_DEFAULT_AUTH_URL,
+                "credentials": "token",
+                "scope": "GIGACHAT_API_PERS",
+                "verify_ssl_certs": False,
+            },
+        )
 
     async def test_tavily_env_fallback(self):
         with patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-env"}, clear=True):
