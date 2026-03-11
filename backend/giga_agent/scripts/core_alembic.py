@@ -13,7 +13,6 @@ Usage:
     python -m giga_agent.scripts.core_alembic downgrade -1
     python -m giga_agent.scripts.core_alembic history
     python -m giga_agent.scripts.core_alembic current
-    python -m giga_agent.scripts.core_alembic heads
 
 Or via Makefile:
     make core-alembic args="upgrade head"
@@ -68,6 +67,7 @@ class CoreAlembicCommandLine(CommandLine):
                 cmd_opts=options,
             )
             cfg.set_main_option("version_locations", target_migration_dir)
+            cfg.set_main_option("version_table", "alembic_version")
 
             # Set DB URL
             db_url = get_db_url()

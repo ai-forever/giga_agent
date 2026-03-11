@@ -7,9 +7,15 @@ from typing import Annotated
 import typer
 
 from giga_agent.conf import reset_settings_cache
+from giga_agent.core.db import get_db_url
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
-from ..migrations.common import _get_alembic_config, _get_core_models_migration_path
+from ..migrations.common import (
+    _get_alembic_config,
+    check_db_is_up_to_date,
+    get_agent_migration_scopes,
+    get_core_migration_scope,
+)
 from ..utils.imports import load_agent_from_string
 
 logger = get_logger(__name__)
@@ -18,12 +24,17 @@ logger = get_logger(__name__)
 def check(
     agent_path: Annotated[
         str,
-        typer.Option(help="Path to agent instance, e.g. giga_agent.agents.run:agent"),
+        typer.Argument(
+            help="Path to agent instance, e.g. giga_agent.agents.run:agent",
+        ),
     ] = "giga_agent.agents.run:agent",
+    scope: Annotated[
+        str,
+        typer.Option("--scope", help="Migration scope: all, core, or a module id."),
+    ] = "all",
 ) -> None:
     """
-    Validates migration history for all modules.
-    Fails if multiple heads are found in any module (branching history).
+    Validates migration history for core/modules and checks DB state.
     """
     from alembic.script import ScriptDirectory
 
@@ -38,71 +49,83 @@ def check(
         logger.exception("Failed to load agent")
         raise typer.Exit(code=1)
 
-    migration_paths: list[str] = []
+    available_scopes = get_agent_migration_scopes(agent)
+    if scope == "all":
+        selected_scopes = available_scopes
+    elif scope == "core":
+        core_scope = get_core_migration_scope()
+        selected_scopes = [core_scope] if core_scope is not None else []
+    else:
+        selected_scopes = [s for s in available_scopes if s.scope_id == scope]
+        if not selected_scopes:
+            logger.error("Unknown migration scope: %s", scope)
+            raise typer.Exit(code=1)
 
-    core_migrations = _get_core_models_migration_path()
-    if os.path.exists(core_migrations):
-        migration_paths.append(core_migrations)
-
-    for mod in agent.all_modules:
-        if getattr(mod, "migration_path", None):
-            migration_paths.append(mod.migration_path)
-
-    if not migration_paths:
+    if not selected_scopes:
         logger.info("No migrations found.")
         return
 
-    version_locations = os.pathsep.join(migration_paths)
-    alembic_cfg = _get_alembic_config(version_locations)
-
-    script = ScriptDirectory.from_config(alembic_cfg)
-    _ = script.get_heads()
-
+    db_url = get_db_url()
     has_errors = False
 
-    for path in migration_paths:
-        try:
-            if os.path.abspath(path) == os.path.abspath(core_migrations):
-                single_cfg = _get_alembic_config(path)
-                single_script = ScriptDirectory.from_config(single_cfg)
-                core_heads = list(single_script.get_heads() or ())
-
-                if len(core_heads) > 1:
-                    logger.error(f"CONFLICT detected in {path}!")
-                    logger.error(f"Found multiple heads: {core_heads}")
-                    has_errors = True
-                elif len(core_heads) == 1:
-                    logger.info(f"OK: {path} (Head: {core_heads[0]})")
-                continue
-
-            module_label = os.path.basename(os.path.dirname(path))
-            combined_locations = os.pathsep.join([core_migrations, path])
-            single_cfg = _get_alembic_config(combined_locations)
-            single_script = ScriptDirectory.from_config(single_cfg)
-
-            module_head_revs = list(
-                single_script.get_revisions(f"{module_label}@head") or ()
+    for migration_scope in selected_scopes:
+        if not os.path.isdir(migration_scope.migration_path):
+            logger.info(
+                "No migrations directory for scope '%s'; skipping.",
+                migration_scope.scope_id,
             )
+            continue
 
-            if len(module_head_revs) > 1:
-                logger.error(f"CONFLICT detected in {path}!")
+        cfg = _get_alembic_config(
+            os.pathsep.join(migration_scope.version_locations),
+            migration_scope.version_table,
+        )
+        if db_url:
+            cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
+
+        try:
+            script = ScriptDirectory.from_config(cfg)
+            heads = list(script.get_heads() or ())
+            if len(heads) > 1:
                 logger.error(
-                    f"Found multiple heads for branch '{module_label}': "
-                    f"{[r.revision for r in module_head_revs]}"
+                    "CONFLICT detected in scope '%s': multiple heads %s",
+                    migration_scope.scope_id,
+                    heads,
                 )
                 has_errors = True
-            elif len(module_head_revs) == 1:
+                continue
+
+            if heads:
                 logger.info(
-                    f"OK: {path} (Branch: {module_label}, Head: {module_head_revs[0].revision})"
+                    "OK: scope '%s' (head=%s, version_table=%s)",
+                    migration_scope.scope_id,
+                    heads[0],
+                    migration_scope.version_table,
                 )
             else:
-                pass
+                logger.info("OK: scope '%s' has no revisions yet.", migration_scope.scope_id)
 
+            check_db_is_up_to_date(
+                cfg,
+                scope_label=migration_scope.scope_id,
+                target_prefix=(
+                    migration_scope.target_prefix
+                    if migration_scope.kind == "module"
+                    else None
+                ),
+            )
+        except SystemExit:
+            has_errors = True
         except Exception as e:
-            logger.warning(f"Could not check {path}: {e}")
+            logger.warning(
+                "Could not check scope '%s': %s",
+                migration_scope.scope_id,
+                e,
+            )
+            has_errors = True
 
     if has_errors:
         logger.error("Migration validation failed! Please resolve conflicts.")
         sys.exit(1)
 
-    logger.info("All modules have linear migration history.")
+    logger.info("Migration validation passed for selected scope(s).")

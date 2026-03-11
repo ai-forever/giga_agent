@@ -115,6 +115,7 @@ def include_object(object, name, type_, reflected, compare_to):
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
     url = config.get_main_option("sqlalchemy.url")
+    version_table = config.get_main_option("version_table") or "alembic_version"
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -122,8 +123,9 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         # Включаем batch mode для SQLite
         render_as_batch=url.startswith("sqlite"),
-        # Для multi-head (core + модули) Alembic должен хранить несколько строк
-        # в version_table, поэтому PK на version_num отключаем.
+        version_table=version_table,
+        # Module scopes use dedicated version tables and may need multiple rows if a table
+        # is bootstrapped without a PK constraint from a previous setup.
         version_table_pk=False,
         include_object=include_object,
     )
@@ -136,14 +138,15 @@ def do_run_migrations(connection: Connection) -> None:
     """Run migrations in 'online' mode."""
     # Определяем, используем ли мы SQLite
     is_sqlite = connection.dialect.name == "sqlite"
+    version_table = config.get_main_option("version_table") or "alembic_version"
 
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
         # КРИТИЧНО ДЛЯ SQLITE: Включаем render_as_batch
         render_as_batch=is_sqlite,
-        # Для multi-head (core + модули) Alembic должен хранить несколько строк
-        # в version_table, поэтому PK на version_num отключаем.
+        version_table=version_table,
+        # Keep version table creation compatible with existing installs and module scopes.
         version_table_pk=False,
         include_object=include_object,
     )

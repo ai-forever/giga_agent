@@ -15,19 +15,26 @@ logger = get_logger(__name__)
 
 
 def migrate(
+    agent_path: Annotated[
+        str,
+        typer.Argument(help="Path to agent instance, e.g. giga_agent.agents.run:agent"),
+    ] = "giga_agent.agents.run:agent",
     target: Annotated[
         str,
         typer.Argument(
             help=(
                 "Alembic upgrade target revision (upgrade-only), "
-                "e.g. heads, head, base, or a specific revision id."
+                "e.g. head, base, or a specific revision id."
             )
         ),
-    ] = "heads",
-    agent_path: Annotated[
+    ] = "head",
+    scope: Annotated[
         str,
-        typer.Option(help="Path to agent instance, e.g. giga_agent.agents.run:agent"),
-    ] = "giga_agent.agents.run:agent",
+        typer.Option(
+            "--scope",
+            help="Migration scope: all, core, or a module id.",
+        ),
+    ] = "all",
 ) -> None:
     """
     Applies DB migrations by running `alembic upgrade <target>`.
@@ -45,7 +52,7 @@ def migrate(
         raise typer.Exit(code=1)
 
     try:
-        apply_migrations(agent, target=target)
+        apply_migrations(agent, target=target, requested_scope=scope)
     except Exception as e:
         logger.exception("Migrate command failed")
         typer.secho(f"Migrate command failed: {e}", err=True, fg=typer.colors.RED)

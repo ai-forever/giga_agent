@@ -16,7 +16,6 @@ core-migrations:
 #   make core-alembic args="downgrade -1"
 #   make core-alembic args="history"
 #   make core-alembic args="current"
-#   make core-alembic args="heads"
 core-alembic:
 	uv run python -m giga_agent.scripts.core_alembic $(args)
 

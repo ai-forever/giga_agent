@@ -38,15 +38,18 @@
   - `uv run giga_agent check --agent-path giga_agent.agents.run:agent`
 - Проксирование любых Alembic команд с подгрузкой модулей агента:
   - `uv run giga_agent alembic upgrade head`
+  - `uv run giga_agent alembic --scope rag current`
   - `uv run giga_agent alembic --agent-path giga_agent.agents.run:agent upgrade head`
 
 ## 2.1. Политика миграций модулей
 
-- Модульные миграции генерируются как отдельные ветки Alembic: `branch_labels=<module_name>`.
-- `branch_labels` задаётся **только** в первой миграции ветки модуля.
-- Порядок применения обеспечивается так:
- - первая миграция модуля: `down_revision=None`, `depends_on=<core_head>`, `branch_labels=<module_name>`;
- - последующие миграции модуля: `down_revision=<предыдущая миграция модуля>` (head = `<module>@head`), `depends_on=<core_head>`, без повторного `branch_labels`.
+- Core использует `alembic_version`.
+- Каждый модуль использует отдельную таблицу `alembic_version_<module.id>`.
+- Модульные миграции образуют независимую линейную цепочку:
+ - первая миграция модуля: `down_revision=None`, без `depends_on`, без `branch_labels`;
+ - последующие миграции модуля: `down_revision=<предыдущая миграция модуля>`.
+- Порядок применения обеспечивает раннер: сначала `core`, затем активные модули агента.
+- Для low-level Alembic операций scope выбирается через `--scope core|<module.id>`.
 
 ## 3. Правила по модулям
 

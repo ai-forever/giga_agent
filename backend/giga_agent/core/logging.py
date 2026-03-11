@@ -91,6 +91,7 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
             structlog.stdlib.add_logger_name,
             structlog.stdlib.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
+            structlog.stdlib.PositionalArgumentsFormatter(),
             structlog.processors.UnicodeDecoder(),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
@@ -112,6 +113,7 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
         renderer = structlog.dev.ConsoleRenderer(colors=True, sort_keys=True)
         processors = [
             structlog.stdlib.filter_by_level,
+            structlog.stdlib.PositionalArgumentsFormatter(remove_positional_args=False),
             structlog.processors.UnicodeDecoder(),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,

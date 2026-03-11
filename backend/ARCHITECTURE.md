@@ -94,28 +94,28 @@ LLM runtime поддерживает `can_analyze_image()`.
 
 ## 3. Управление миграциями
 
-Alembic работает в режиме multiple version locations.
+Alembic работает в режиме scope-based migration execution.
 
-1. CLI собирает пути миграций core + активных модулей.
-2. Пути прокидываются в `version_locations` динамически.
-3. `upgrade head` применяется единым проходом.
+1. `core` использует собственный scope и таблицу `alembic_version`.
+2. Каждый активный модуль использует отдельный scope и таблицу `alembic_version_<module.id>`.
+3. Startup / `giga_agent migrate` применяют scope последовательно: сначала `core`, затем модули.
 
-### Миграции модулей (branch + depends_on)
+### Миграции модулей
 
-Чтобы миграции модулей не «продвигали» core-цепочку и не привязывались к ней через `down_revision`,
-для модулей используется отдельная ветка Alembic:
+Чтобы история модулей была независимой от core, каждый модуль использует отдельный Alembic scope:
 
-- **`down_revision`**: всегда `None` (модульные ревизии не продолжают core-историю)
-- **`branch_labels`**: `<module_name>` (например, `rag`)
-- **`depends_on`**:
-  - для первой миграции модуля — текущий head core
-  - для последующих — текущий head core (модульная история продолжается через `down_revision=<предыдущая миграция модуля>`)
+- **`down_revision`**:
+  - для первой миграции модуля — `None`
+  - для последующих — предыдущая ревизия этого же модуля
+- **`depends_on`**: не используется
+- **`branch_labels`**: не используются
 
 Дополнительно:
 
-- `giga_agent check` проверяет конфликтующие heads;
+- `giga_agent check` проверяет core и активные модули независимо;
 - `giga_agent makemigrations <agent_path> [module_import_path] ...` создаёт миграции для конкретного модуля (если указан `module_import_path`) или для всех модулей, подключённых в агенте, с фильтром по табличному префиксу;
-- для core-моделей используется `make core-migrations` (или `giga_agent makemigrations --core`, но это dev-only путь).
+- для core-моделей используется `make core-migrations` (или `giga_agent makemigrations --core`, но это dev-only путь);
+- low-level `giga_agent alembic` без `--scope` работает только с core.
 
 ## 4. Запуск и lifecycle
 

@@ -8,6 +8,7 @@ import typer
 from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_db_url
 from giga_agent.core.logging import get_logger, setup_cli_logging
+from giga_agent.core.migrations import MigrationScope, get_module_migration_scope
 
 from ..migrations.common import (
     _get_alembic_config,
@@ -21,6 +22,29 @@ from ..migrations.common import (
 from ..utils.imports import load_agent_from_string
 
 logger = get_logger(__name__)
+
+
+def _scope_has_tables(base, target_prefix: str) -> bool:
+    return any(table_name.startswith(target_prefix) for table_name in base.metadata.tables)
+
+
+def _module_config(scope: MigrationScope, db_url: str | None):
+    cfg = _get_alembic_config(os.pathsep.join(scope.version_locations), scope.version_table)
+    if db_url:
+        cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
+    return cfg
+
+
+def _module_head_for_revision(scope: MigrationScope, db_url: str | None) -> str:
+    from alembic.script import ScriptDirectory
+
+    cfg = _module_config(scope, db_url)
+    script = ScriptDirectory.from_config(cfg)
+    heads = list(script.get_heads() or ())
+    if len(heads) > 1:
+        logger.error("Module '%s' migrations have multiple heads: %s", scope.scope_id, heads)
+        raise typer.Exit(code=1)
+    return heads[0] if heads else "base"
 
 
 def makemigrations(
@@ -71,11 +95,6 @@ def makemigrations(
 ) -> None:
     """
     Creates a new migration for a module (or for all modules of the agent).
-
-    Examples:
-        uv run giga_agent makemigrations giga_agent.agents.run:agent --core -m "add core table"
-        uv run giga_agent makemigrations giga_agent.agents.run:agent giga_agent.modules.auth -m "add auth"
-        uv run giga_agent makemigrations giga_agent.agents.run:agent
     """
     from alembic import command
     from alembic.script import ScriptDirectory
@@ -115,9 +134,7 @@ def makemigrations(
                 break
 
         if not selected_modules:
-            logger.error(
-                f"Module '{module_path}' not found among loaded agent modules."
-            )
+            logger.error(f"Module '{module_path}' not found among loaded agent modules.")
             logger.info("Available modules (import -> id -> path):")
             for mod in agent.all_modules:
                 logger.info(
@@ -127,30 +144,9 @@ def makemigrations(
     else:
         selected_modules = list(agent.all_modules)
 
-    migration_paths: list[str] = []
-
-    core_migrations = _get_core_models_migration_path()
-    if core and not os.path.exists(core_migrations):
-        logger.info(f"Creating core migrations directory: {core_migrations}")
-        os.makedirs(core_migrations, exist_ok=True)
-
-    if os.path.exists(core_migrations):
-        migration_paths.append(core_migrations)
-
-    for mod in agent.all_modules:
-        if getattr(mod, "migration_path", None):
-            migration_paths.append(mod.migration_path)
-
-    version_locations = os.pathsep.join(migration_paths)
-
-    alembic_cfg = _get_alembic_config(version_locations)
-
     db_url = get_db_url()
     if db_url:
-        alembic_cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
         wait_for_db(db_url)
-
-    check_db_is_up_to_date(alembic_cfg)
 
     try:
         from giga_agent.core.db import Base
@@ -159,31 +155,22 @@ def makemigrations(
         typer.secho("Could not import Base. Traceback:", err=True, fg=typer.colors.RED)
         raise typer.Exit(code=1)
 
-    # Ensure core + module models are imported so tables are visible in Base.metadata.
     try:
         import giga_agent.models  # noqa: F401
     except Exception:
-        logger.warning(
-            "Could not import giga_agent.models before migration generation."
-        )
+        logger.warning("Could not import giga_agent.models before migration generation.")
 
-    core_head: str | None = None
-    try:
-        if os.path.exists(core_migrations):
-            core_cfg = _get_alembic_config(core_migrations)
-            if db_url:
-                core_cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
-            core_script = ScriptDirectory.from_config(core_cfg)
-            core_heads = list(core_script.get_heads() or ())
-            if len(core_heads) == 1:
-                core_head = core_heads[0]
-            elif len(core_heads) > 1:
-                logger.error(f"Core migrations have multiple heads: {core_heads}")
-                raise typer.Exit(code=1)
-    except typer.Exit:
-        raise
-    except Exception as e:
-        logger.warning(f"Could not determine core head for depends_on: {e}")
+    core_migrations = _get_core_models_migration_path()
+    if core and not os.path.exists(core_migrations):
+        logger.info(f"Creating core migrations directory: {core_migrations}")
+        os.makedirs(core_migrations, exist_ok=True)
+
+    core_cfg = None
+    if os.path.exists(core_migrations):
+        core_cfg = _get_alembic_config(core_migrations, "alembic_version")
+        if db_url:
+            core_cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
+        check_db_is_up_to_date(core_cfg, scope_label="core")
 
     if core:
         logger.warning(
@@ -191,18 +178,20 @@ def makemigrations(
             "library developers. Prefer `make core-migrations` for the canonical workflow."
         )
         if not message.strip():
-            logger.warning(
-                "Core migration message is empty; consider passing -m/--message."
-            )
+            logger.warning("Core migration message is empty; consider passing -m/--message.")
 
-        target_migration_dir = core_migrations
-        target_prefix = "core_"
+        alembic_cfg = core_cfg
+        if alembic_cfg is None:
+            logger.error("Core migrations directory is not available.")
+            raise typer.Exit(code=1)
 
-        alembic_cfg.cmd_opts = type(
-            "CmdOpts", (), {"x": [f"target_prefix={target_prefix}"]}
-        )()
-
-        core_head_for_revision = core_head or "base"
+        alembic_cfg.cmd_opts = type("CmdOpts", (), {"x": ["target_prefix=core_"]})()
+        core_script = ScriptDirectory.from_config(alembic_cfg)
+        core_heads = list(core_script.get_heads() or ())
+        if len(core_heads) > 1:
+            logger.error("Core migrations have multiple heads: %s", core_heads)
+            raise typer.Exit(code=1)
+        core_head_for_revision = core_heads[0] if core_heads else "base"
 
         created = False
 
@@ -237,12 +226,12 @@ def makemigrations(
             message=message.strip() or None,
             autogenerate=True,
             head=core_head_for_revision,
-            version_path=target_migration_dir,
+            version_path=core_migrations,
             process_revision_directives=_process_revision_directives,
         )
 
         if created:
-            logger.info(f"Migration created in {target_migration_dir}")
+            logger.info(f"Migration created in {core_migrations}")
             return
 
         if empty:
@@ -251,9 +240,9 @@ def makemigrations(
                 message=message.strip() or None,
                 autogenerate=False,
                 head=core_head_for_revision,
-                version_path=target_migration_dir,
+                version_path=core_migrations,
             )
-            logger.info(f"Empty migration created in {target_migration_dir}")
+            logger.info(f"Empty migration created in {core_migrations}")
             return
 
         logger.info("No core schema changes detected; skipping.")
@@ -263,20 +252,12 @@ def makemigrations(
 
     for mod in selected_modules:
         mod_import = _get_agent_module_import(mod)
-        module_name, target_prefix = _get_module_name_and_prefix(mod_import)
-
+        _, target_prefix = _get_module_name_and_prefix(mod_import)
         message_for_module = message.strip() or None
+        force_empty_for_module = empty and normalized_input_import is not None
 
         try:
-            module_depends_on: str | None = None
-            module_branch_label: str = module_name
-            revision_head: str = "base"
-            revision_branch_label: str | None = None
-
-            # Load models (if provided) to register tables in Base.metadata for autogenerate.
             module_models = mod.get_models()
-            force_empty_for_module = empty and normalized_input_import is not None
-
             if not module_models:
                 if force_empty_for_module:
                     logger.error(
@@ -286,99 +267,34 @@ def makemigrations(
                     raise typer.Exit(code=1)
                 continue
 
-            target_migration_dir = os.path.join(mod.module_path, "migrations")
-            if not os.path.exists(target_migration_dir):
-                logger.info(f"Creating migrations directory: {target_migration_dir}")
-                os.makedirs(target_migration_dir, exist_ok=True)
+            scope = get_module_migration_scope(mod)
+            if not os.path.exists(scope.migration_path):
+                logger.info(f"Creating migrations directory: {scope.migration_path}")
+                os.makedirs(scope.migration_path, exist_ok=True)
 
-            if target_migration_dir not in migration_paths:
-                migration_paths.append(target_migration_dir)
-                alembic_cfg.set_main_option(
-                    "version_locations", os.pathsep.join(migration_paths)
-                )
-
-            # Determine module head (for depends_on) using the same semantics as `giga_agent check`,
-            # i.e. via "<branch_label>@head" in a script that includes core + this module.
-            try:
-                combined = os.pathsep.join(
-                    [
-                        p
-                        for p in [
-                            (
-                                core_migrations
-                                if os.path.exists(core_migrations)
-                                else None
-                            ),
-                            target_migration_dir,
-                        ]
-                        if p
-                    ]
-                )
-                module_cfg = _get_alembic_config(combined)
-                if db_url:
-                    module_cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
-                module_script = ScriptDirectory.from_config(module_cfg)
-
-                module_head_revs = list(
-                    module_script.get_revisions(f"{module_branch_label}@head") or ()
-                )
-                if len(module_head_revs) > 1:
-                    logger.error(
-                        f"Module '{module_name}' migrations have multiple heads: "
-                        f"{[r.revision for r in module_head_revs]}"
-                    )
-                    raise typer.Exit(code=1)
-
-                if len(module_head_revs) == 1:
-                    # Subsequent module revisions don't declare a branch label again and should
-                    # build on top of the current branch head.
-                    module_depends_on = core_head
-                    revision_head = module_head_revs[0].revision
-                    revision_branch_label = None
-                else:
-                    module_depends_on = core_head
-                    revision_head = "base"
-                    revision_branch_label = module_branch_label
-            except typer.Exit:
-                raise
-            except Exception as e:
-                logger.warning(
-                    f"Could not determine module head for depends_on ({module_name}): {e}"
-                )
-                module_depends_on = core_head
-                revision_head = "base"
-                # Be conservative: only assign a branch label if the directory appears empty.
-                try:
-                    existing_py = [
-                        f
-                        for f in os.listdir(target_migration_dir)
-                        if f.endswith(".py") and not f.startswith("__")
-                    ]
-                except Exception:
-                    existing_py = []
-                revision_branch_label = module_branch_label if not existing_py else None
-
-            has_tables = any(
-                table_name.startswith(target_prefix)
-                for table_name in Base.metadata.tables
+            module_cfg = _module_config(scope, db_url)
+            check_db_is_up_to_date(
+                module_cfg,
+                scope_label=scope.scope_id,
+                target_prefix=scope.target_prefix,
             )
+
+            revision_head = _module_head_for_revision(scope, db_url)
+
+            has_tables = _scope_has_tables(Base, target_prefix)
             if not has_tables:
                 if force_empty_for_module:
                     logger.info(
                         f"Creating empty migration for module {getattr(mod, 'id', '?')} "
                         f"({mod_import}): no tables found with prefix '{target_prefix}'."
                     )
-                    empty_message = message_for_module
-                    revision_kwargs = {
-                        "message": empty_message,
-                        "autogenerate": False,
-                        "head": revision_head,
-                        "depends_on": module_depends_on,
-                        "version_path": target_migration_dir,
-                    }
-                    if revision_branch_label is not None:
-                        revision_kwargs["branch_label"] = revision_branch_label
-                    command.revision(alembic_cfg, **revision_kwargs)
+                    command.revision(
+                        module_cfg,
+                        message=message_for_module,
+                        autogenerate=False,
+                        head=revision_head,
+                        version_path=scope.migration_path,
+                    )
                     generated_any = True
                 else:
                     logger.warning(
@@ -390,10 +306,10 @@ def makemigrations(
             logger.info(
                 f"Generating migration for module {getattr(mod, 'id', '?')} ({mod_import})"
             )
-            logger.info(f"Target directory: {target_migration_dir}")
+            logger.info(f"Target directory: {scope.migration_path}")
             logger.info(f"Filtering tables with prefix: {target_prefix}")
 
-            alembic_cfg.cmd_opts = type(
+            module_cfg.cmd_opts = type(
                 "CmdOpts", (), {"x": [f"target_prefix={target_prefix}"]}
             )()
 
@@ -419,51 +335,41 @@ def makemigrations(
                         ):
                             is_empty = is_empty and bool(downgrade_ops.is_empty())
                     except Exception:
-                        # If we can't reliably detect emptiness, err on the side of creating.
                         is_empty = False
 
                 if is_empty:
-                    # Prevent creating a "no-op" revision unless explicitly requested via --empty.
                     directives[:] = []
                     created = False
                 else:
                     created = True
 
-            revision_kwargs = {
-                "message": message_for_module,
-                "autogenerate": True,
-                "head": revision_head,
-                "depends_on": module_depends_on,
-                "version_path": target_migration_dir,
-                "process_revision_directives": _process_revision_directives,
-            }
-            if revision_branch_label is not None:
-                revision_kwargs["branch_label"] = revision_branch_label
-            command.revision(alembic_cfg, **revision_kwargs)
+            command.revision(
+                module_cfg,
+                message=message_for_module,
+                autogenerate=True,
+                head=revision_head,
+                version_path=scope.migration_path,
+                process_revision_directives=_process_revision_directives,
+            )
 
             if created:
                 generated_any = True
-                logger.info(f"Migration created in {target_migration_dir}")
+                logger.info(f"Migration created in {scope.migration_path}")
+            elif force_empty_for_module:
+                command.revision(
+                    module_cfg,
+                    message=message_for_module,
+                    autogenerate=False,
+                    head=revision_head,
+                    version_path=scope.migration_path,
+                )
+                generated_any = True
+                logger.info(f"Empty migration created in {scope.migration_path}")
             else:
-                if force_empty_for_module:
-                    empty_message = message_for_module
-                    revision_kwargs = {
-                        "message": empty_message,
-                        "autogenerate": False,
-                        "head": revision_head,
-                        "depends_on": module_depends_on,
-                        "version_path": target_migration_dir,
-                    }
-                    if revision_branch_label is not None:
-                        revision_kwargs["branch_label"] = revision_branch_label
-                    command.revision(alembic_cfg, **revision_kwargs)
-                    generated_any = True
-                    logger.info(f"Empty migration created in {target_migration_dir}")
-                else:
-                    logger.info(
-                        f"No schema changes detected for module {getattr(mod, 'id', '?')} "
-                        f"({mod_import}); skipping."
-                    )
+                logger.info(
+                    f"No schema changes detected for module {getattr(mod, 'id', '?')} "
+                    f"({mod_import}); skipping."
+                )
         except Exception:
             logger.exception(f"Error creating migration for {mod_import}")
             typer.secho(
