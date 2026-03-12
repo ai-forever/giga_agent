@@ -36,7 +36,7 @@ export default function EmptyCollectionsState() {
   };
 
   return (
-    <Card className="bg-muted/20 w-full mx-auto border-0 shadow-md">
+    <Card className="bg-card w-full mx-auto border-0 shadow-md">
       <CardContent className="flex flex-col items-center justify-center space-y-6 px-6 py-30 text-center">
         <div className="bg-primary/10 rounded-full p-4">
           <Layers className="text-primary h-12 w-12" />

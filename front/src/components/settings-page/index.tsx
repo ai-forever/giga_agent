@@ -46,10 +46,6 @@ const SettingsPage: React.FC = () => {
     { id: "sandbox", label: "Sandbox" },
   ];
 
-  const handleBack = () => {
-    navigate(-1);
-  };
-
   const renderContent = () => {
     switch (activeTab) {
       case "general":
@@ -72,13 +68,10 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full flex lg:p-5 p-0 lg:mt-0">
-      <div className="flex flex-col max-w-[900px] mx-auto h-full flex-1 bg-card backdrop-blur-xl rounded-lg shadow-2xl overflow-hidden print:overflow-visible print:shadow-none">
+    <div className="w-full flex lg:p-5 p-0 lg:mt-0 bg-card overflow-auto">
+      <div className="flex flex-col max-w-[1000px] mx-auto h-full w-full flex-1 bg-card  print:overflow-visible print:shadow-none">
         {/* Header */}
         <div className="flex items-center gap-4 p-6 border-b border-border">
-          <Button variant="ghost" size="icon" onClick={handleBack}>
-            <ArrowLeft className="size-5" />
-          </Button>
           <h1 className="text-xl font-semibold">Настройки</h1>
         </div>
 
@@ -97,9 +90,7 @@ const SettingsPage: React.FC = () => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6 flex flex-col">
-          {renderContent()}
-        </div>
+        <div className="flex-1 p-6 flex flex-col">{renderContent()}</div>
       </div>
     </div>
   );

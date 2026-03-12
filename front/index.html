@@ -74,6 +74,7 @@
             min-height: 100vh;
             /* mobile viewport bug fix */
             min-height: -webkit-fill-available;
+            overflow: hidden;
         }
 
         #root {
@@ -100,8 +101,8 @@
         }
     </style>
 </head>
-<body class="text-foreground bg-card min-[901px]:bg-background">
-<div id="root" class="bg-card min-[901px]:bg-background min-h-screen flex flex-col opacity-0 transition-opacity duration-500"></div>
+<body class="text-foreground bg-card min-[901px]:bg-card">
+<div id="root" class="bg-card min-[901px]:bg-card min-h-screen flex flex-col opacity-0 transition-opacity duration-500"></div>
 <script type="module" src="/src/index.tsx"></script>
 </body>
 </html>
