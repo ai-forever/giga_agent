@@ -2,8 +2,8 @@
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://github.com/ai-forever/giga_agent/blob/v0.1/docs/images/giga-agent_light_logo.png">
-  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/ai-forever/giga_agent/blob/v0.1/docs/images/giga-agent_dark_logo.png>
-  <img alt="Shows a black and red Giga Agent Logo in light color mode and a white and red in dark color mode." src="docs/images/giga-agent_dark_logo.png"  width="full">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/ai-forever/giga_agent/blob/v0.1/docs/images/giga-agent_dark_logo.png">
+  <img alt="Shows a black and red Giga Agent Logo in light color mode and a white and red in dark color mode" src="docs/images/giga-agent_dark_logo.png"  width="full">
 </picture>
 
 [ [Русский](https://www.zdoc.app/ru/ai-forever/giga_agent) | 
