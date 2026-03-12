@@ -116,6 +116,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         mocked.assert_called_once_with(
             model="EmbeddingsGigaR",
+            base_url='https://gigachat.devices.sberbank.ru/api/v1',
             credentials="token",
             scope="GIGACHAT_API_PERS",
             verify_ssl_certs=False,
