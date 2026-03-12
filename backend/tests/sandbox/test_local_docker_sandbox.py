@@ -101,12 +101,13 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
 
-            sandbox_path = await runtime.upload_file(
-                owner_id=owner_id,
-                file_name="notes/report.txt",
-                content=b"hello",
-            )
-            self.assertEqual(sandbox_path, "/bucket/notes/report.txt")
+            with patch.object(runtime, "_random_key_suffix", return_value="ABCDEFGH"):
+                sandbox_path = await runtime.upload_file(
+                    owner_id=owner_id,
+                    file_name="notes/report.txt",
+                    content=b"hello",
+                )
+            self.assertEqual(sandbox_path, "/bucket/notes/report--ABCDEFGH.txt")
 
             result = await runtime.read_file(sandbox_path)
             self.assertIsInstance(result, ContentResult)
@@ -129,6 +130,42 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
             with self.assertRaises(ValueError):
                 runtime._local_path_from_bucket_path("/bucket/../escape.txt")
+
+    async def test_uniquify_bucket_rel_path_adds_suffix_before_plotly_json_extension(self):
+        owner_id = uuid.uuid4()
+        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
+            {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+            clear=False,
+        ), patch(
+            "giga_agent.sandbox.local_docker.docker.from_env",
+            return_value=types.SimpleNamespace(),
+        ):
+            runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
+            with patch.object(runtime, "_random_key_suffix", return_value="ABCDEFGH"):
+                rel = runtime._uniquify_bucket_rel_path(
+                    owner_id=owner_id,
+                    file_name="thread-1/chart.plotly.json",
+                )
+
+        self.assertEqual(rel.as_posix(), "thread-1/chart--ABCDEFGH.plotly.json")
+
+    async def test_uniquify_bucket_rel_path_keeps_subdirectories(self):
+        owner_id = uuid.uuid4()
+        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
+            {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+            clear=False,
+        ), patch(
+            "giga_agent.sandbox.local_docker.docker.from_env",
+            return_value=types.SimpleNamespace(),
+        ):
+            runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
+            with patch.object(runtime, "_random_key_suffix", return_value="ABCDEFGH"):
+                rel = runtime._uniquify_bucket_rel_path(
+                    owner_id=owner_id,
+                    file_name="thread-42/reports/report.txt",
+                )
+
+        self.assertEqual(rel.as_posix(), "thread-42/reports/report--ABCDEFGH.txt")
 
     async def test_up_passes_management_labels_to_container(self):
         owner_id = uuid.uuid4()

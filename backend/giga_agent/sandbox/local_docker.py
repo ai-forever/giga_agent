@@ -42,6 +42,7 @@ logger = get_logger(__name__)
 
 JUPYTER_PORT = 8888
 BUCKET_PREFIX = "/bucket/"
+_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 MANAGED_LABEL = "giga_agent.managed"
 PROVIDER_TYPE_LABEL = "giga_agent.provider_type"
 PROVIDER_ID_LABEL = "giga_agent.provider_id"
@@ -649,7 +650,7 @@ class LocalDockerSandbox(JupyterSandbox):
         file_name: str,
         content: bytes,
     ) -> str:
-        rel_path = self._validate_relative_file_name(file_name)
+        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(target, "wb") as f:
@@ -681,6 +682,7 @@ class LocalDockerSandbox(JupyterSandbox):
 
             async with aiofiles.open(local_path, "rb") as f:
                 data = await f.read()
+
             return ContentResult(data=data, media_type=media_type, inline=inline)
 
         await self._ensure_container_connected()
@@ -753,6 +755,53 @@ class LocalDockerSandbox(JupyterSandbox):
         if any(part in {".", ".."} for part in path.parts):
             raise ValueError("file_name must not contain '.' or '..' path segments")
         return path
+
+    def _uniquify_bucket_rel_path(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        file_name: str,
+    ) -> PurePosixPath:
+        path = self._validate_relative_file_name(file_name)
+        plotly_json_suffix = ".plotly.json"
+        name = path.name
+        if name.lower().endswith(plotly_json_suffix) and len(name) > len(
+            plotly_json_suffix
+        ):
+            suffix_start = len(name) - len(plotly_json_suffix)
+            stem = name[:suffix_start]
+            suffix = name[suffix_start:]
+        else:
+            stem = path.stem or path.name
+            suffix = path.suffix
+
+        parent = path.parent
+        parent_parts = (
+            []
+            if str(parent) in {"", "."}
+            else [p for p in parent.parts if p not in {"", "."}]
+        )
+        user_root = self._user_root_dir(owner_id)
+        for _ in range(10):
+            suffix_id = self._random_key_suffix()
+            candidate_name = (
+                f"{stem}--{suffix_id}{suffix}" if suffix else f"{stem}--{suffix_id}"
+            )
+            rel_path = (
+                PurePosixPath(*parent_parts, candidate_name)
+                if parent_parts
+                else PurePosixPath(candidate_name)
+            )
+            target = user_root / Path(*rel_path.parts)
+            if not target.exists():
+                return rel_path
+
+        raise RuntimeError(
+            "Failed to generate unique local upload file name after retries"
+        )
+
+    def _random_key_suffix(self) -> str:
+        return "".join(secrets.choice(_LOCAL_FILE_SUFFIX_ALPHABET) for _ in range(8))
 
     def _user_root_dir(self, owner_id: uuid.UUID) -> Path:
         root = self._sandbox_root_dir

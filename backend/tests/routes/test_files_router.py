@@ -147,6 +147,44 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.content, b"payload")
         self.assertIn("attachment; filename=\"local.bin\"", response.headers["content-disposition"])
 
+    def test_read_local_file_with_non_latin_name_uses_ascii_fallback(self):
+        file_obj = self._file_obj("/tmp/report.txt")
+        file_obj.original_name = "отчет 2026.txt"
+        result = ContentResult(data=b"payload")
+
+        with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
+            AsyncMock(return_value=(file_obj, result)),
+        ):
+            response = self.client.get(f"/files/{file_obj.id}/content")
+
+        self.assertEqual(response.status_code, 200)
+        disposition = response.headers["content-disposition"]
+        self.assertIn('filename="2026.txt"', disposition)
+        self.assertIn("filename*=UTF-8''%D0%BE%D1%82%D1%87%D0%B5%D1%82%202026.txt", disposition)
+
+    def test_read_local_file_with_non_latin_stem_preserves_extension_in_fallback(self):
+        file_obj = self._file_obj("/tmp/report.txt")
+        file_obj.original_name = "отчет.txt"
+        result = ContentResult(data=b"payload")
+
+        with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
+            AsyncMock(return_value=(file_obj, result)),
+        ):
+            response = self.client.get(f"/files/{file_obj.id}/content")
+
+        self.assertEqual(response.status_code, 200)
+        disposition = response.headers["content-disposition"]
+        self.assertIn('filename="download.txt"', disposition)
+        self.assertIn("filename*=UTF-8''%D0%BE%D1%82%D1%87%D0%B5%D1%82.txt", disposition)
+
     def test_read_foreign_file_returns_403(self):
         file_id = uuid.uuid4()
         with patch(
