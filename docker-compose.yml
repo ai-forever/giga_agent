@@ -106,11 +106,12 @@ services:
       GIGA_AGENT_LANGGRAPH_API_URL: http://giga-agent:8000
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       GIGA_AGENT_PROJECT_ROOT: /.giga_agent
-      GIGA_AGENT_SECRET_KEY: ${GIGA_AGENT_SECRET_KEY:-local-dev-secret}
     volumes:
       - ./backend/langgraph.json:/app/config/langgraph.json:ro
       - ./deployments/aegra-startup.sh:/app/deployments/aegra-startup.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.giga_agent:/.giga_agent
     command: ["sh", "/app/deployments/aegra-startup.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
