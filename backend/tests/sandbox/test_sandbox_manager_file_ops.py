@@ -74,7 +74,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
         user = await self._create_user("m1@example.com")
         provider = await self._create_provider(user.id)
         runtime = types.SimpleNamespace(
-            upload_file=AsyncMock(return_value="/home/user/bucket/giga_agent/test/report.txt"),
+            upload_file=AsyncMock(return_value="/bucket/report.txt"),
             requires_running_for_upload=lambda: False,
         )
 
@@ -92,7 +92,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(file.owner_id, user.id)
             self.assertEqual(file.provider_id, provider.id)
-            self.assertEqual(file.sandbox_path, "/home/user/bucket/giga_agent/test/report.txt")
+            self.assertEqual(file.sandbox_path, "/bucket/report.txt")
             self.assertEqual(file.original_name, "report.txt")
             self.assertEqual(file.file_type, "text")
             self.assertEqual(file.size, 4)
@@ -137,7 +137,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             file = await repo.create(
                 owner_id=user.id,
                 provider_id=provider.id,
-                sandbox_path="/home/user/bucket/giga_agent/u/r.txt",
+                sandbox_path="/bucket/u/r.txt",
                 original_name="r.txt",
                 file_type="text",
                 size=3,
@@ -212,7 +212,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             file = await repo.create(
                 owner_id=owner.id,
                 provider_id=provider.id,
-                sandbox_path="/home/user/bucket/giga_agent/u/r.txt",
+                sandbox_path="/bucket/u/r.txt",
                 original_name="r.txt",
                 file_type="text",
                 size=3,
@@ -232,7 +232,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             file = await repo.create(
                 owner_id=user.id,
                 provider_id=provider.id,
-                sandbox_path="/home/user/bucket/giga_agent/u/by-path.txt",
+                sandbox_path="/bucket/u/by-path.txt",
                 original_name="by-path.txt",
                 file_type="text",
                 size=8,
@@ -245,7 +245,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
             fetched, result = await manager.read_file_by_path_for_user(
                 user_id=user.id,
-                sandbox_path="/home/user/bucket/giga_agent/u/by-path.txt",
+                sandbox_path="/bucket/u/by-path.txt",
             )
 
             self.assertEqual(fetched.id, file.id)
@@ -262,10 +262,10 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
         runtime = types.SimpleNamespace(
             upload_file=AsyncMock(
                 side_effect=[
-                    "/home/user/bucket/giga_agent/test/first.png",
-                    "/home/user/bucket/giga_agent/test/second.mp3",
-                    "/home/user/bucket/giga_agent/test/third.mp4",
-                    "/home/user/bucket/giga_agent/test/fourth.plotly.json",
+                    "/bucket/first.png",
+                    "/bucket/second.mp3",
+                    "/bucket/third.mp4",
+                    "/bucket/fourth.plotly.json",
                 ]
             ),
             requires_running_for_upload=lambda: False,
@@ -309,10 +309,10 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 [f.sandbox_path for f in files],
                 [
-                    "/home/user/bucket/giga_agent/test/first.png",
-                    "/home/user/bucket/giga_agent/test/second.mp3",
-                    "/home/user/bucket/giga_agent/test/third.mp4",
-                    "/home/user/bucket/giga_agent/test/fourth.plotly.json",
+                    "/bucket/first.png",
+                    "/bucket/second.mp3",
+                    "/bucket/third.mp4",
+                    "/bucket/fourth.plotly.json",
                 ],
             )
             self.assertEqual(
@@ -335,7 +335,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             file = await repo.create(
                 owner_id=user.id,
                 provider_id=provider.id,
-                sandbox_path="/bucket/giga_agent/u/to-delete.txt",
+                sandbox_path="/bucket/u/to-delete.txt",
                 original_name="to-delete.txt",
                 file_type="text",
                 size=1,

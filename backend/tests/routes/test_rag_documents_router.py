@@ -47,7 +47,7 @@ class RagDocumentsRouterTests(unittest.TestCase):
         docs_repo.get_by_id = AsyncMock(
             return_value=types.SimpleNamespace(
                 id=document_id,
-                sandbox_path=f"/bucket/giga_agent/{self.user.id}/rag/doc.txt",
+                sandbox_path="/bucket/rag/doc.txt",
             )
         )
         docs_repo.delete = AsyncMock(return_value=True)
