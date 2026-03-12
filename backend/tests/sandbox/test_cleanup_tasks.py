@@ -13,7 +13,7 @@ class CleanupTasksTests(unittest.IsolatedAsyncioTestCase):
         ref = FileStorageRef(
             owner_id=uuid.uuid4(),
             provider_id=uuid.uuid4(),
-            sandbox_path="/bucket/giga_agent/u/a.txt",
+            sandbox_path="/bucket/u/a.txt",
         )
 
         with patch(
@@ -33,7 +33,7 @@ class CleanupTasksTests(unittest.IsolatedAsyncioTestCase):
         ref = FileStorageRef(
             owner_id=owner_id,
             provider_id=provider_id,
-            sandbox_path="/bucket/giga_agent/u/a.txt",
+            sandbox_path="/bucket/u/a.txt",
         )
         provider_snapshot = SandboxProviderSnapshot(
             id=provider_id,

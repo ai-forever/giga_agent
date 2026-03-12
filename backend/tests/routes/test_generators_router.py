@@ -476,6 +476,84 @@ class GeneratorsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         mocked_update.assert_not_awaited()
 
+    def test_patch_allows_clearing_name_and_connector(self):
+        generator_id = uuid.uuid4()
+        existing = self._generator_obj(
+            generator_id=generator_id,
+            generator_type="openai",
+            connector_id=uuid.uuid4(),
+        )
+        updated = self._generator_obj(
+            generator_id=generator_id,
+            generator_type="openai",
+            connector_id=None,
+        )
+        updated.name = None
+
+        with patch(
+            "giga_agent.routes.generators.image._get_generator_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.generators.image._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_connector_link",
+            AsyncMock(return_value=None),
+        ) as mocked_validate_connector, patch(
+            "giga_agent.routes.generators.image._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update, patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+            return_value=self._response_payload(updated),
+        ):
+            response = self.client.patch(
+                f"/image/{generator_id}",
+                json={"name": None, "connector_id": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["name"])
+        self.assertIsNone(response.json()["connector_id"])
+        self.assertIsNone(mocked_validate_connector.await_args.kwargs["connector_id"])
+        self.assertIsNone(mocked_update.await_args.kwargs["name"])
+        self.assertIsNone(mocked_update.await_args.kwargs["connector_id"])
+
+    def test_patch_rejects_null_is_active(self):
+        generator_id = uuid.uuid4()
+        existing = self._generator_obj(
+            generator_id=generator_id,
+            generator_type="openai",
+            connector_id=None,
+        )
+
+        with patch(
+            "giga_agent.routes.generators.image._get_generator_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.generators.image._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_connector_link",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/image/{generator_id}",
+                json={"is_active": None},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "is_active must not be null when provided",
+        )
+        mocked_update.assert_not_awaited()
+
     def test_delete_current_auto_clears_current(self):
         generator_id = uuid.uuid4()
         existing = self._generator_obj(generator_id=generator_id)

@@ -13,6 +13,11 @@ from giga_agent.conf import (
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
+    GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY,
+    GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_ENABLED,
+    GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC,
+    GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY,
+    GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC,
     get_settings,
 )
 from giga_agent.core.db import get_session_factory
@@ -33,6 +38,7 @@ from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import router as api_router
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
+from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
 
 NOTES_PROMPT = """
 ====
@@ -64,6 +70,7 @@ class BaseAgent(BaseModel):
     )
     _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
     _idle_sandbox_sweeper: IdleSandboxSweeper | None = PrivateAttr(default=None)
+    _orphan_sandbox_sweeper: OrphanSandboxSweeper | None = PrivateAttr(default=None)
 
     def get_modules(self) -> list[BaseModule]:
         return []
@@ -122,11 +129,15 @@ class BaseAgent(BaseModel):
             await self.run_startup_hooks()
             if self._idle_sandbox_sweeper is not None:
                 self._idle_sandbox_sweeper.start()
+            if self._orphan_sandbox_sweeper is not None:
+                self._orphan_sandbox_sweeper.start()
             try:
                 yield
             finally:
                 if self._idle_sandbox_sweeper is not None:
                     await self._idle_sandbox_sweeper.stop()
+                if self._orphan_sandbox_sweeper is not None:
+                    await self._orphan_sandbox_sweeper.stop()
                 stack = getattr(_app.state, "_ui_resources_stack", None)
                 if stack is not None:
                     stack.close()
@@ -177,6 +188,13 @@ class BaseAgent(BaseModel):
             lock_key=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
             lock_ttl_sec=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC,
             enabled=GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
+        )
+        self._orphan_sandbox_sweeper = OrphanSandboxSweeper(
+            interval_sec=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC,
+            lock_key=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY,
+            lock_ttl_sec=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC,
+            concurrency=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY,
+            enabled=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_ENABLED,
         )
 
     @property

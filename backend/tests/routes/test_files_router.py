@@ -44,7 +44,7 @@ class FilesRouterTests(unittest.TestCase):
         )
 
     def test_upload_happy_path(self):
-        created = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        created = self._file_obj("/bucket/thread-42/report.txt")
 
         with patch(
             "giga_agent.routes.files.SandboxManager.upload_file_for_user",
@@ -58,7 +58,7 @@ class FilesRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         body = response.json()
-        self.assertEqual(body["sandbox_path"], "/home/user/bucket/giga_agent/u/report.txt")
+        self.assertEqual(body["sandbox_path"], "/bucket/thread-42/report.txt")
         self.assertEqual(body["original_name"], "report.txt")
         self.assertEqual(body["file_type"], "text")
         self.assertEqual(body["size"], 5)
@@ -68,7 +68,7 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(kwargs["file_type"], "text")
 
     def test_upload_infers_video_file_type(self):
-        created = self._file_obj("/home/user/bucket/giga_agent/u/movie.mp4")
+        created = self._file_obj("/bucket/movie.mp4")
         created.file_type = "video"
 
         with patch(
@@ -86,7 +86,7 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(mocked_upload.await_args.kwargs["file_type"], "video")
 
     def test_read_s3_file_returns_redirect(self):
-        file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        file_obj = self._file_obj("/bucket/u/report.txt")
         result = RedirectResult(url="https://signed.example.local/object")
 
         with patch(
@@ -105,7 +105,7 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.headers["location"], "https://signed.example.local/object")
 
     def test_read_s3_file_returns_json_redirect_instruction(self):
-        file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        file_obj = self._file_obj("/bucket/u/report.txt")
         result = RedirectResult(url="https://signed.example.local/object")
 
         with patch(
@@ -147,6 +147,44 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.content, b"payload")
         self.assertIn("attachment; filename=\"local.bin\"", response.headers["content-disposition"])
 
+    def test_read_local_file_with_non_latin_name_uses_ascii_fallback(self):
+        file_obj = self._file_obj("/tmp/report.txt")
+        file_obj.original_name = "отчет 2026.txt"
+        result = ContentResult(data=b"payload")
+
+        with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
+            AsyncMock(return_value=(file_obj, result)),
+        ):
+            response = self.client.get(f"/files/{file_obj.id}/content")
+
+        self.assertEqual(response.status_code, 200)
+        disposition = response.headers["content-disposition"]
+        self.assertIn('filename="2026.txt"', disposition)
+        self.assertIn("filename*=UTF-8''%D0%BE%D1%82%D1%87%D0%B5%D1%82%202026.txt", disposition)
+
+    def test_read_local_file_with_non_latin_stem_preserves_extension_in_fallback(self):
+        file_obj = self._file_obj("/tmp/report.txt")
+        file_obj.original_name = "отчет.txt"
+        result = ContentResult(data=b"payload")
+
+        with patch(
+            "giga_agent.routes.files.FileRepository.get_by_id_readable",
+            AsyncMock(return_value=file_obj),
+        ), patch(
+            "giga_agent.routes.files.SandboxManager.read_file_for_user",
+            AsyncMock(return_value=(file_obj, result)),
+        ):
+            response = self.client.get(f"/files/{file_obj.id}/content")
+
+        self.assertEqual(response.status_code, 200)
+        disposition = response.headers["content-disposition"]
+        self.assertIn('filename="download.txt"', disposition)
+        self.assertIn("filename*=UTF-8''%D0%BE%D1%82%D1%87%D0%B5%D1%82.txt", disposition)
+
     def test_read_foreign_file_returns_403(self):
         file_id = uuid.uuid4()
         with patch(
@@ -174,7 +212,7 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_read_by_path_returns_redirect(self):
-        file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        file_obj = self._file_obj("/bucket/u/report.txt")
         result = RedirectResult(url="https://signed.example.local/by-path")
         with patch(
             "giga_agent.routes.files.FileRepository.get_by_path_readable",
@@ -185,7 +223,7 @@ class FilesRouterTests(unittest.TestCase):
         ):
             response = self.client.get(
                 "/files/content/by-path",
-                params={"path": "/home/user/bucket/giga_agent/u/report.txt"},
+                params={"path": "/bucket/u/report.txt"},
                 follow_redirects=False,
             )
 
@@ -193,7 +231,7 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.headers["location"], "https://signed.example.local/by-path")
 
     def test_read_by_path_returns_json_redirect_instruction(self):
-        file_obj = self._file_obj("/home/user/bucket/giga_agent/u/report.txt")
+        file_obj = self._file_obj("/bucket/u/report.txt")
         result = RedirectResult(url="https://signed.example.local/by-path")
         with patch(
             "giga_agent.routes.files.FileRepository.get_by_path_readable",
@@ -205,7 +243,7 @@ class FilesRouterTests(unittest.TestCase):
             response = self.client.get(
                 "/files/content/by-path",
                 params={
-                    "path": "/home/user/bucket/giga_agent/u/report.txt",
+                    "path": "/bucket/u/report.txt",
                     "redirect_result": "json",
                 },
                 follow_redirects=False,

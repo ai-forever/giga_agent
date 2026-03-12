@@ -72,6 +72,30 @@ def _apply_thread_prefix(file_name: str, thread_id: str | None) -> str:
     return f"{clean}/{file_name}"
 
 
+def _ascii_filename_fallback(file_name: str) -> str:
+    lower_name = file_name.lower()
+    extension = ""
+    plotly_json_suffix = ".plotly.json"
+    if lower_name.endswith(plotly_json_suffix) and len(file_name) > len(plotly_json_suffix):
+        extension = file_name[-len(plotly_json_suffix) :]
+    else:
+        _, ext = os.path.splitext(file_name)
+        extension = ext
+
+    ascii_name = file_name.encode("ascii", "ignore").decode("ascii")
+    ascii_name = ascii_name.replace('"', "").strip()
+    stem_part = ascii_name
+    if extension and ascii_name.lower().endswith(extension.lower()):
+        stem_part = ascii_name[: -len(extension)]
+    ascii_base, ascii_ext = os.path.splitext(ascii_name)
+    if not stem_part.strip().strip("."):
+        extension = extension or ascii_ext
+        if extension:
+            return f"download{extension}"
+        return "download.bin"
+    return ascii_name
+
+
 @router.post(
     "/upload", response_model=FileResponse, status_code=status.HTTP_201_CREATED
 )
@@ -240,10 +264,11 @@ def _build_file_response(
         or "download.bin"
     )
     file_name = file_name.replace('"', "")
+    ascii_file_name = _ascii_filename_fallback(file_name)
     disposition = "inline" if result.inline else "attachment"
     headers: dict[str, str] = {
         "Content-Disposition": (
-            f"{disposition}; filename=\"{file_name}\"; "
+            f"{disposition}; filename=\"{ascii_file_name}\"; "
             f"filename*=UTF-8''{quote(file_name)}"
         ),
     }

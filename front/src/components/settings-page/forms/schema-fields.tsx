@@ -48,6 +48,30 @@ function decodeEnumValue(value: string): string | number | boolean | null {
   return JSON.parse(value.slice(ENUM_SELECT_PREFIX.length));
 }
 
+function formatDefaultValue(
+  property: JsonSchemaProperty,
+  defaultValue: unknown,
+): string {
+  const enumOptions = resolveEnumOptions(property);
+  const matchedOption = enumOptions.find((option) => option.value === defaultValue);
+  if (matchedOption) return matchedOption.label;
+  if (typeof defaultValue === "string") return defaultValue;
+  if (typeof defaultValue === "number" || typeof defaultValue === "boolean") {
+    return String(defaultValue);
+  }
+  if (defaultValue === null) return "null";
+  return JSON.stringify(defaultValue);
+}
+
+function renderDefaultHint(property: JsonSchemaProperty): React.ReactNode {
+  if (property.default === undefined) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      По умолчанию: {formatDefaultValue(property, property.default)}
+    </p>
+  );
+}
+
 const SchemaFields: React.FC<SchemaFieldsProps> = ({
   schema,
   values,
@@ -79,7 +103,7 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
   const renderField = ([name, property]: [string, JsonSchemaProperty]) => {
     const required = isFieldRequired(name, schema);
     const nullable = isNullableProperty(property);
-    const rawValue = values[name] ?? property.default;
+    const rawValue = values[name];
     const enumOptions = resolveEnumOptions(property);
     const hasEnum = enumOptions.length > 0;
     const label = fieldLabel(name, property);
@@ -118,14 +142,20 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
               <SelectValue placeholder="Выберите значение" />
             </SelectTrigger>
             <SelectContent>
-              {nullable && <SelectItem value={UNSET_SELECT_VALUE}>Не задано</SelectItem>}
+              {nullable && (
+                <SelectItem value={UNSET_SELECT_VALUE}>Не задано</SelectItem>
+              )}
               {enumOptions.map((option) => (
-                <SelectItem key={encodeEnumValue(option.value)} value={encodeEnumValue(option.value)}>
+                <SelectItem
+                  key={encodeEnumValue(option.value)}
+                  value={encodeEnumValue(option.value)}
+                >
                   {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {renderDefaultHint(property)}
           {property.description && (
             <p className="text-xs text-muted-foreground">{property.description}</p>
           )}
@@ -137,17 +167,23 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
 
     if (propertyType === "boolean") {
       return (
-        <div key={name} className="flex items-center justify-between">
-          <Label htmlFor={`${idPrefix}-${name}`}>
-            {label}
-            {required && <span className="text-destructive ml-1">*</span>}
-          </Label>
-          <Switch
-            id={`${idPrefix}-${name}`}
-            checked={Boolean(rawValue)}
-            onCheckedChange={(checked) => setFieldValue(name, checked)}
-            disabled={disabled}
-          />
+        <div key={name} className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor={`${idPrefix}-${name}`}>
+              {label}
+              {required && <span className="text-destructive ml-1">*</span>}
+            </Label>
+            <Switch
+              id={`${idPrefix}-${name}`}
+              checked={Boolean(rawValue)}
+              onCheckedChange={(checked) => setFieldValue(name, checked)}
+              disabled={disabled}
+            />
+          </div>
+          {renderDefaultHint(property)}
+          {property.description && (
+            <p className="text-xs text-muted-foreground">{property.description}</p>
+          )}
         </div>
       );
     }
@@ -212,8 +248,9 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
           id={`${idPrefix}-${name}`}
           value={value}
           placeholder={
-            property.description ||
-            (property.default !== undefined ? String(property.default) : "")
+            property.default !== undefined
+              ? String(property.default)
+              : property.description || ""
           }
           onChange={(e) => setFieldValue(name, e.target.value || undefined)}
           disabled={disabled}

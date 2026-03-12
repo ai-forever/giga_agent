@@ -198,7 +198,7 @@ const ContextModal: React.FC<ContextModalProps> = ({
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="w-full max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Контекст</DialogTitle>
+          <DialogTitle>Персонализация</DialogTitle>
           <DialogDescription>
             Настройте поведение агента под себя
           </DialogDescription>

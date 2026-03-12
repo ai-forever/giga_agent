@@ -1,6 +1,6 @@
 import asyncio
 from typing import Any, AsyncGenerator, Optional
-from sqlalchemy import JSON
+from sqlalchemy import JSON, event
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import (
@@ -84,6 +84,24 @@ def JSON_VARIANT():
     return JSON().with_variant(JSONB, "postgresql")
 
 
+def _set_sqlite_foreign_keys(
+    dbapi_connection: Any,
+    connection_record: Any,
+) -> None:
+    del connection_record
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
+def configure_sqlite_foreign_keys(engine: AsyncEngine, url: str) -> None:
+    if "sqlite" not in url:
+        return
+    event.listen(engine.sync_engine, "connect", _set_sqlite_foreign_keys)
+
+
 def get_db_url() -> str:
     """
     Determines database URL based on environment.
@@ -118,6 +136,7 @@ async def get_engine():
     if _engine is None:
         url = await asyncio.to_thread(get_db_url)
         _engine = await asyncio.to_thread(create_async_engine, url, echo=False)
+        configure_sqlite_foreign_keys(_engine, url)
     return _engine
 
 

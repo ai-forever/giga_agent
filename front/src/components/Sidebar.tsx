@@ -502,18 +502,18 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       <div
         onClick={toggle}
         className={[
+          "fixed top-0 left-0 h-full w-full bg-black/50 z-10 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
           settings.sideBarOpen
             ? "opacity-100 pointer-events-auto"
             : "opacity-0 pointer-events-none",
-          "fixed top-0 left-0 h-full w-full bg-black/50 z-10 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
         ].join(" ")}
       />
 
       {/* Sidebar */}
       <div
         className={[
-          "fixed top-0 left-0 h-full w-[270px] p-2 pt-5 rounded-r-lg z-[10] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
-          "bg-card border text-card-foreground",
+          "fixed top-0 left-0 h-full w-[270px] p-2 pt-5 z-[10] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
+          "bg-background border text-card-foreground",
           settings.sideBarOpen ? "translate-x-0" : "-translate-x-[280px]",
           "max-[900px]:rounded-none",
         ].join(" ")}
@@ -807,9 +807,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       </AlertDialog>
 
       {/* Opener button */}
-      <div
-        className="fixed top-5 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden"
-      >
+      <div className="fixed top-5 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
         <div
           className="h-10 bg-cover transition-[width] duration-300 ease-in-out"
           style={{
@@ -818,7 +816,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           }}
         />
         <ChevronRight
-        onClick={toggle}
+          onClick={toggle}
           style={{
             transform: settings.sideBarOpen ? "rotate(180deg)" : "rotate(0)",
             marginLeft: "0.5rem",

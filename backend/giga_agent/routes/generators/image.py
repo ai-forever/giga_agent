@@ -27,6 +27,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_read_and_edit,
 )
 from giga_agent.routes._shared.connectors import validate_connector_link
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
 )
@@ -200,7 +203,7 @@ async def get_generator_settings_schema(
 ):
     _ = current_user
     runtime_cls = _resolve_runtime_cls(generator_type, status_code=status.HTTP_404_NOT_FOUND)
-    return runtime_cls.settings_schema().model_json_schema()
+    return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
 @router.post("", response_model=ImageGeneratorResponse, status_code=status.HTTP_201_CREATED)
@@ -329,6 +332,16 @@ async def patch_image_generator(
     if "connector_id" in data.model_fields_set:
         update_data["connector_id"] = validated_connector_id
 
+    is_deactivating_current = False
+    if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
+        update_data["is_active"] = data.is_active
+        is_deactivating_current = data.is_active is False
+
     if data.check_connection:
         await _check_connection_or_http_error(
             runtime_cls=runtime_cls,
@@ -336,11 +349,6 @@ async def patch_image_generator(
             connector_id=validated_connector_id,
             connector_repo=connector_repo,
         )
-
-    is_deactivating_current = False
-    if "is_active" in data.model_fields_set:
-        update_data["is_active"] = data.is_active
-        is_deactivating_current = data.is_active is False
 
     if update_data:
         generator = await generator_repo.update(generator, **update_data)

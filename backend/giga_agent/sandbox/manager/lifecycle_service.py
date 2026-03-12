@@ -3,12 +3,19 @@ import os
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from cashews import cache
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.logging import get_logger
-from giga_agent.models.sandbox import Sandbox, SandboxRepository, SandboxStatus
+from giga_agent.models.sandbox import (
+    Sandbox,
+    SandboxProviderSnapshot,
+    SandboxRepository,
+    SandboxSnapshot,
+    SandboxStatus,
+)
 from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.sandbox.manager.errors import (
     SandboxBusyError,
@@ -18,6 +25,14 @@ from giga_agent.sandbox.manager.errors import (
 )
 from giga_agent.sandbox.manager.resolve_service import SandboxResolveService
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
+from giga_agent.sandbox.manager.types import (
+    LogOnlyOrphanAction,
+    OrphanAction,
+    RemoveExternalRuntimeAction,
+    SetSandboxStatusAction,
+    StopExternalRuntimeAction,
+)
+from giga_agent.sandbox.registry import SandboxRegistry
 
 logger = get_logger(__name__)
 
@@ -54,8 +69,8 @@ class SandboxLifecycleService:
     async def _with_lifecycle_lock(
         self,
         sandbox_id: uuid.UUID,
-        action: Callable[[], Awaitable[BaseSandbox | Sandbox]],
-    ) -> BaseSandbox | Sandbox:
+        action: Callable[[], Awaitable[Any]],
+    ) -> Any:
         key = f"sandbox:lifecycle:{sandbox_id}"
         try:
             async with asyncio.timeout(self._lock_timeout):
@@ -120,6 +135,16 @@ class SandboxLifecycleService:
 
         await self._with_provider_capacity_lock(sandbox.provider_id, action=_reserve)
 
+    async def _best_effort_cleanup_runtime(self, runtime: BaseSandbox) -> None:
+        try:
+            await runtime.stop()
+        except Exception as cleanup_error:
+            logger.warning(
+                "sandbox_runtime_cleanup_failed runtime=%s reason=%s",
+                runtime.__class__.__name__,
+                cleanup_error,
+            )
+
     async def _start_unlocked(self, sandbox_id: uuid.UUID) -> BaseSandbox:
         sandbox = await self._sandbox_repo.get_by_id_with_provider(sandbox_id)
         if sandbox is None:
@@ -130,9 +155,9 @@ class SandboxLifecycleService:
             return self._runtime_factory.build(sandbox.provider, sandbox)
 
         provider = sandbox.provider
+        runtime = self._runtime_factory.build(provider, sandbox)
 
         try:
-            runtime = self._runtime_factory.build(provider, sandbox)
             await self._reserve_capacity_and_mark_starting(
                 sandbox=sandbox,
                 runtime=runtime,
@@ -157,6 +182,7 @@ class SandboxLifecycleService:
             raise
         except Exception as e:
             logger.error("Failed to start sandbox %s: %s", sandbox_id, e)
+            await self._best_effort_cleanup_runtime(runtime)
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.ERROR)
             await SandboxRepository.cache_invalidate_pair(
                 owner_id=sandbox.owner_id,
@@ -176,54 +202,17 @@ class SandboxLifecycleService:
         assert isinstance(result, BaseSandbox)
         return result
 
-    async def _stop_unlocked(self, sandbox_id: uuid.UUID) -> Sandbox:
-        sandbox = await self._sandbox_repo.get_by_id_with_provider(sandbox_id)
-        if sandbox is None:
-            raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found")
-
-        if sandbox.status in (SandboxStatus.STOPPED, SandboxStatus.PENDING):
-            logger.info("Sandbox %s is already stopped", sandbox_id)
-            return sandbox
-
-        provider = sandbox.provider
-        initial_status = SandboxStatus(sandbox.status)
-        await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPING)
-
-        try:
-            runtime = self._runtime_factory.build(provider, sandbox)
-            await runtime.stop()
-
-            self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
-
-            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
-            logger.info("Sandbox %s stopped successfully", sandbox_id)
-            await SandboxRepository.cache_invalidate_pair(
-                owner_id=sandbox.owner_id,
-                provider_id=sandbox.provider_id,
-            )
-
-        except Exception as e:
-            if initial_status in self._FORCED_STOP_FALLBACK_STATUSES:
-                fallback_stopped = await self._handle_forced_stop_fallback(
-                    sandbox=sandbox,
-                    provider=provider,
-                    initial_status=initial_status,
-                    reason=e,
-                )
-                if fallback_stopped:
-                    return sandbox
-
-            logger.error("Failed to stop sandbox %s: %s", sandbox_id, e)
-            await self._sandbox_repo.set_status(sandbox, SandboxStatus.ERROR)
-            await SandboxRepository.cache_invalidate_pair(
-                owner_id=sandbox.owner_id,
-                provider_id=sandbox.provider_id,
-            )
-            raise StorageOperationError(
-                f"Failed to stop sandbox {sandbox_id}: {e}"
-            ) from e
-
-        return sandbox
+    @staticmethod
+    def _clear_runtime_connection_state(
+        *, sandbox: Sandbox, runtime: BaseSandbox
+    ) -> None:
+        connection_keys = set(runtime.get_connection_settings().keys())
+        sandbox.settings = {
+            k: v
+            for k, v in (sandbox.settings or {}).items()
+            if k not in connection_keys
+        }
+        sandbox.external_id = None
 
     async def _handle_forced_stop_fallback(
         self,
@@ -233,10 +222,6 @@ class SandboxLifecycleService:
         initial_status: SandboxStatus,
         reason: Exception,
     ) -> bool:
-        """
-        Conservative fallback for transitional states.
-        We mark STOPPED only when we can verify runtime is no longer up.
-        """
         logger.warning(
             "sandbox_stop_forced_fallback sandbox_id=%s initial_status=%s reason=%s",
             sandbox.id,
@@ -280,6 +265,69 @@ class SandboxLifecycleService:
         )
         return True
 
+    async def _stop_runtime_for_sandbox(
+        self,
+        *,
+        sandbox: Sandbox,
+        force: bool,
+        reason: str,
+    ) -> Sandbox:
+        if not force and sandbox.status in (SandboxStatus.STOPPED, SandboxStatus.PENDING):
+            logger.info("Sandbox %s is already stopped", sandbox.id)
+            return sandbox
+
+        provider = sandbox.provider
+        initial_status = SandboxStatus(sandbox.status)
+        if sandbox.status != SandboxStatus.STOPPING:
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPING)
+
+        try:
+            runtime = self._runtime_factory.build(provider, sandbox)
+            await runtime.stop()
+            self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
+            logger.info(
+                "Sandbox %s stopped successfully reason=%s",
+                sandbox.id,
+                reason,
+            )
+            await SandboxRepository.cache_invalidate_pair(
+                owner_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+            )
+        except Exception as e:
+            if initial_status in self._FORCED_STOP_FALLBACK_STATUSES or force:
+                fallback_stopped = await self._handle_forced_stop_fallback(
+                    sandbox=sandbox,
+                    provider=provider,
+                    initial_status=initial_status,
+                    reason=e,
+                )
+                if fallback_stopped:
+                    return sandbox
+
+            logger.error("Failed to stop sandbox %s: %s", sandbox.id, e)
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.ERROR)
+            await SandboxRepository.cache_invalidate_pair(
+                owner_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+            )
+            raise StorageOperationError(
+                f"Failed to stop sandbox {sandbox.id}: {e}"
+            ) from e
+
+        return sandbox
+
+    async def _stop_unlocked(self, sandbox_id: uuid.UUID) -> Sandbox:
+        sandbox = await self._sandbox_repo.get_by_id_with_provider(sandbox_id)
+        if sandbox is None:
+            raise SandboxNotFoundError(f"Sandbox {sandbox_id} not found")
+        return await self._stop_runtime_for_sandbox(
+            sandbox=sandbox,
+            force=False,
+            reason="explicit_stop",
+        )
+
     async def stop(self, sandbox_id: uuid.UUID) -> Sandbox:
         result = await self._with_lifecycle_lock(
             sandbox_id,
@@ -288,17 +336,137 @@ class SandboxLifecycleService:
         assert isinstance(result, Sandbox)
         return result
 
-    @staticmethod
-    def _clear_runtime_connection_state(
-        *, sandbox: Sandbox, runtime: BaseSandbox
-    ) -> None:
-        connection_keys = set(runtime.get_connection_settings().keys())
-        sandbox.settings = {
-            k: v
-            for k, v in (sandbox.settings or {}).items()
-            if k not in connection_keys
-        }
-        sandbox.external_id = None
+    async def _set_sandbox_status_unlocked(
+        self,
+        *,
+        sandbox: Sandbox,
+        status: SandboxStatus,
+        clear_runtime_connection: bool,
+    ) -> SandboxStatus:
+        if clear_runtime_connection:
+            runtime = self._runtime_factory.build(sandbox.provider, sandbox)
+            self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
+        await self._sandbox_repo.set_status(sandbox, status)
+        await SandboxRepository.cache_invalidate_pair(
+            owner_id=sandbox.owner_id,
+            provider_id=sandbox.provider_id,
+        )
+        return status
+
+    async def _apply_orphan_action_unlocked(self, action: OrphanAction) -> str | None:
+        if isinstance(action, LogOnlyOrphanAction):
+            log_fn = getattr(logger, action.level, logger.info)
+            log_fn(
+                "sandbox_orphan_log provider_type=%s provider_id=%s sandbox_id=%s external_id=%s reason=%s",
+                action.provider_type,
+                action.provider_id,
+                action.sandbox_id,
+                action.external_id,
+                action.reason,
+            )
+            return None
+
+        if isinstance(action, RemoveExternalRuntimeAction):
+            runtime_cls = SandboxRegistry.get(action.provider_type)
+            await runtime_cls.remove_external_runtime(action.external_id)
+            return action.external_id
+
+        sandbox = None
+        if action.sandbox_id is not None:
+            sandbox = await self._sandbox_repo.get_by_id_with_provider(action.sandbox_id)
+
+        if isinstance(action, StopExternalRuntimeAction):
+            if sandbox is None:
+                runtime_cls = SandboxRegistry.get(action.provider_type)
+                await runtime_cls.remove_external_runtime(action.external_id)
+                return action.external_id
+            await self._stop_runtime_for_sandbox(
+                sandbox=sandbox,
+                force=True,
+                reason=action.reason,
+            )
+            return str(sandbox.id)
+
+        if isinstance(action, SetSandboxStatusAction):
+            if sandbox is None:
+                return None
+            await self._set_sandbox_status_unlocked(
+                sandbox=sandbox,
+                status=action.status,
+                clear_runtime_connection=action.clear_runtime_connection,
+            )
+            return str(sandbox.id)
+
+        return None
+
+    async def apply_orphan_action(self, action: OrphanAction) -> str | None:
+        sandbox_id = getattr(action, "sandbox_id", None)
+        if sandbox_id is None:
+            return await self._apply_orphan_action_unlocked(action)
+        result = await self._with_lifecycle_lock(
+            sandbox_id,
+            action=lambda: self._apply_orphan_action_unlocked(action),
+        )
+        if result is None or isinstance(result, str):
+            return result
+        return str(result)
+
+    async def cleanup_orphans_for_provider_type(self, provider_type: str) -> list[str]:
+        runtime_cls = SandboxRegistry.get(provider_type)
+        sandboxes = await self._sandbox_repo.get_by_provider_type_with_provider(provider_type)
+        provider_snapshots: dict[uuid.UUID, SandboxProviderSnapshot] = {}
+        sandbox_snapshots: list[SandboxSnapshot] = []
+
+        for sandbox in sandboxes:
+            if sandbox.provider is None:
+                continue
+            pair = SandboxRepository.to_pair_snapshot(sandbox.provider, sandbox)
+            provider_snapshots[pair.provider.id] = pair.provider
+            sandbox_snapshots.append(pair.sandbox)
+
+        actions = await runtime_cls.cleanup_orphans(
+            providers=list(provider_snapshots.values()),
+            sandboxes=sandbox_snapshots,
+        )
+        applied: list[str] = []
+
+        for action in actions:
+            try:
+                result = await self.apply_orphan_action(action)
+                if result is not None:
+                    applied.append(result)
+            except Exception:
+                logger.exception(
+                    "sandbox_orphan_action_failed provider_type=%s action=%s",
+                    provider_type,
+                    action,
+                )
+
+        return applied
+
+    async def cleanup_orphans(self, *, concurrency: int = 1) -> dict[str, list[str]]:
+        results: dict[str, list[str]] = {}
+        semaphore = asyncio.Semaphore(max(concurrency, 1))
+
+        async def _run(provider_type: str) -> tuple[str, list[str] | None]:
+            async with semaphore:
+                try:
+                    applied = await self.cleanup_orphans_for_provider_type(provider_type)
+                except Exception:
+                    logger.exception(
+                        "sandbox_orphan_cleanup_failed provider_type=%s",
+                        provider_type,
+                    )
+                    return provider_type, None
+                return provider_type, applied
+
+        batches = await asyncio.gather(
+            *(_run(provider_type) for provider_type in SandboxRegistry.available_types())
+        )
+        for provider_type, applied in batches:
+            if applied:
+                results[provider_type] = applied
+        return results
 
     async def ensure_running_for_user(
         self,
@@ -332,12 +500,10 @@ class SandboxLifecycleService:
                     "Sandbox %s is marked as RUNNING but is not responding, restarting...",
                     sandbox_fresh.id,
                 )
-                await self._sandbox_repo.set_status(
-                    sandbox_fresh, SandboxStatus.STOPPED
-                )
-                await SandboxRepository.cache_invalidate_pair(
-                    owner_id=user_id,
-                    provider_id=sandbox_fresh.provider_id,
+                await self._stop_runtime_for_sandbox(
+                    sandbox=sandbox_fresh,
+                    force=True,
+                    reason="running_but_not_responding_restart",
                 )
 
             return await self._start_unlocked(sandbox_fresh.id)
@@ -427,6 +593,7 @@ class SandboxLifecycleService:
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.RUNNING)
             logger.info("sandbox_reconcile_promoted_running sandbox_id=%s", sandbox_id)
         else:
+            await self._best_effort_cleanup_runtime(runtime)
             self._clear_runtime_connection_state(sandbox=sandbox, runtime=runtime)
             await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
             logger.info("sandbox_reconcile_healed_stopped sandbox_id=%s", sandbox_id)

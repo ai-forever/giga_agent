@@ -20,6 +20,7 @@ from giga_agent.conf import (
     get_settings,
 )
 from giga_agent.core.logging import get_logger
+from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.core.paths import ensure_giga_agent_dir
 from giga_agent.sandbox.base import (
     LARGE_FILE_THRESHOLD,
@@ -29,17 +30,30 @@ from giga_agent.sandbox.base import (
 )
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.sandbox.manager.types import (
+    LogOnlyOrphanAction,
+    OrphanAction,
+    RemoveExternalRuntimeAction,
+    SetSandboxStatusAction,
+    StopExternalRuntimeAction,
+)
 
 logger = get_logger(__name__)
 
 JUPYTER_PORT = 8888
 BUCKET_PREFIX = "/bucket/"
+_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+MANAGED_LABEL = "giga_agent.managed"
+PROVIDER_TYPE_LABEL = "giga_agent.provider_type"
+PROVIDER_ID_LABEL = "giga_agent.provider_id"
+SANDBOX_ID_LABEL = "giga_agent.sandbox_id"
+OWNER_ID_LABEL = "giga_agent.owner_id"
 
 
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(JupyterSandbox):
     image: str = Field(
-        default="mikelarg/code-interpreter:0.0.5",
+        default_factory=lambda: get_settings().giga_agent_local_docker_image,
         description="Docker image to run for local sandbox",
     )
 
@@ -131,6 +145,21 @@ class LocalDockerSandbox(JupyterSandbox):
 
     def _internal_base_url(self) -> str:
         return f"http://{self._container_name()}:{JUPYTER_PORT}"
+
+    def _container_labels(self) -> dict[str, str]:
+        if self.sandbox_id is None:
+            raise RuntimeError("sandbox_id is required for docker labels")
+        if self.provider_id is None:
+            raise RuntimeError("provider_id is required for docker labels")
+        if self.owner_id is None:
+            raise RuntimeError("owner_id is required for docker labels")
+        return {
+            MANAGED_LABEL: "true",
+            PROVIDER_TYPE_LABEL: "local_docker",
+            PROVIDER_ID_LABEL: str(self.provider_id),
+            SANDBOX_ID_LABEL: str(self.sandbox_id),
+            OWNER_ID_LABEL: str(self.owner_id),
+        }
 
     @staticmethod
     def _get_env_value(container: Any, key: str) -> str | None:
@@ -301,6 +330,7 @@ class LocalDockerSandbox(JupyterSandbox):
             "detach": True,
             "remove": True,
             "environment": envs,
+            "labels": self._container_labels(),
             "volumes": {
                 str(bind_source): {"bind": BUCKET_PREFIX.rstrip("/"), "mode": "rw"}
             },
@@ -382,6 +412,212 @@ class LocalDockerSandbox(JupyterSandbox):
 
         self._container = None
 
+    @classmethod
+    def _make_docker_client(cls) -> Any:
+        return docker.from_env()
+
+    @classmethod
+    def _managed_container_filters(cls) -> dict[str, list[str]]:
+        return {
+            "label": [
+                f"{MANAGED_LABEL}=true",
+                f"{PROVIDER_TYPE_LABEL}=local_docker",
+            ]
+        }
+
+    @classmethod
+    def _parse_uuid_label(cls, labels: dict[str, str], key: str) -> uuid.UUID | None:
+        raw = labels.get(key)
+        if not raw:
+            return None
+        try:
+            return uuid.UUID(raw)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _container_is_running(cls, container: Any) -> bool:
+        try:
+            state = (container.attrs.get("State") or {})
+            return bool(state.get("Running"))
+        except Exception:
+            return getattr(container, "status", None) == "running"
+
+    @classmethod
+    async def cleanup_orphans(
+        cls,
+        *,
+        providers: list[Any],
+        sandboxes: list[Any],
+    ) -> list[OrphanAction]:
+        sandbox_by_id = {sandbox.id: sandbox for sandbox in sandboxes}
+        container_ids_by_sandbox_id: dict[uuid.UUID, set[str]] = {}
+        actions: list[OrphanAction] = []
+        client = None
+
+        try:
+            client = cls._make_docker_client()
+            containers = client.containers.list(
+                all=True,
+                filters=cls._managed_container_filters(),
+            )
+            for container in containers:
+                try:
+                    container.reload()
+                except Exception:
+                    pass
+                labels = getattr(container, "labels", None) or (
+                    container.attrs.get("Config") or {}
+                ).get("Labels", {}) or {}
+                sandbox_id = cls._parse_uuid_label(labels, SANDBOX_ID_LABEL)
+                provider_id = cls._parse_uuid_label(labels, PROVIDER_ID_LABEL)
+                external_id = getattr(container, "id", "")
+
+                if sandbox_id is None:
+                    actions.append(
+                        LogOnlyOrphanAction(
+                            provider_type="local_docker",
+                            provider_id=provider_id,
+                            sandbox_id=None,
+                            external_id=external_id or None,
+                            level="warning",
+                            reason="managed_local_docker_container_missing_sandbox_label",
+                        )
+                    )
+                    continue
+
+                container_ids_by_sandbox_id.setdefault(sandbox_id, set()).add(external_id)
+                sandbox = sandbox_by_id.get(sandbox_id)
+                if sandbox is None:
+                    actions.append(
+                        RemoveExternalRuntimeAction(
+                            provider_type="local_docker",
+                            provider_id=provider_id,
+                            sandbox_id=sandbox_id,
+                            external_id=external_id,
+                            reason="managed_local_docker_container_without_sandbox_row",
+                        )
+                    )
+                    continue
+
+                if sandbox.external_id != external_id:
+                    actions.append(
+                        RemoveExternalRuntimeAction(
+                            provider_type="local_docker",
+                            provider_id=sandbox.provider_id,
+                            sandbox_id=sandbox.id,
+                            external_id=external_id,
+                            reason="managed_local_docker_container_not_bound_to_sandbox_external_id",
+                        )
+                    )
+                    continue
+
+                if not cls._container_is_running(container):
+                    actions.append(
+                        SetSandboxStatusAction(
+                            provider_type="local_docker",
+                            provider_id=sandbox.provider_id,
+                            sandbox_id=sandbox.id,
+                            status=SandboxStatus.STOPPED,
+                            reason="managed_local_docker_container_not_running",
+                            clear_runtime_connection=True,
+                        )
+                    )
+                    continue
+
+                if sandbox.status in (
+                    SandboxStatus.PENDING,
+                    SandboxStatus.STOPPED,
+                    SandboxStatus.ERROR,
+                ):
+                    actions.append(
+                        StopExternalRuntimeAction(
+                            provider_type="local_docker",
+                            provider_id=sandbox.provider_id,
+                            sandbox_id=sandbox.id,
+                            external_id=external_id,
+                            reason="managed_local_docker_container_running_for_non_running_sandbox",
+                        )
+                    )
+                    actions.append(
+                        SetSandboxStatusAction(
+                            provider_type="local_docker",
+                            provider_id=sandbox.provider_id,
+                            sandbox_id=sandbox.id,
+                            status=SandboxStatus.STOPPED,
+                            reason="managed_local_docker_container_stopped_by_orphan_cleanup",
+                            clear_runtime_connection=True,
+                        )
+                    )
+
+            for sandbox in sandboxes:
+                if sandbox.status not in (
+                    SandboxStatus.RUNNING,
+                    SandboxStatus.STARTING,
+                ):
+                    continue
+                discovered_ids = container_ids_by_sandbox_id.get(sandbox.id, set())
+                if sandbox.external_id and sandbox.external_id in discovered_ids:
+                    continue
+                actions.append(
+                    SetSandboxStatusAction(
+                        provider_type="local_docker",
+                        provider_id=sandbox.provider_id,
+                        sandbox_id=sandbox.id,
+                        status=SandboxStatus.STOPPED,
+                        reason="managed_local_docker_container_missing_for_active_sandbox",
+                        clear_runtime_connection=True,
+                    )
+                )
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+        return actions
+
+    @classmethod
+    async def stop_external_runtime(cls, external_id: str) -> None:
+        client = None
+        try:
+            client = cls._make_docker_client()
+            try:
+                container = client.containers.get(external_id)
+            except NotFound:
+                return
+            try:
+                container.stop(timeout=5)
+            except NotFound:
+                return
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
+    @classmethod
+    async def remove_external_runtime(cls, external_id: str) -> None:
+        client = None
+        try:
+            client = cls._make_docker_client()
+            try:
+                container = client.containers.get(external_id)
+            except NotFound:
+                return
+            try:
+                container.remove(force=True)
+            except NotFound:
+                return
+        finally:
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+
     async def _reconnect(self) -> None:
         if not self.external_id:
             return
@@ -414,7 +650,7 @@ class LocalDockerSandbox(JupyterSandbox):
         file_name: str,
         content: bytes,
     ) -> str:
-        rel_path = self._validate_relative_file_name(file_name)
+        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(target, "wb") as f:
@@ -446,6 +682,7 @@ class LocalDockerSandbox(JupyterSandbox):
 
             async with aiofiles.open(local_path, "rb") as f:
                 data = await f.read()
+
             return ContentResult(data=data, media_type=media_type, inline=inline)
 
         await self._ensure_container_connected()
@@ -518,6 +755,53 @@ class LocalDockerSandbox(JupyterSandbox):
         if any(part in {".", ".."} for part in path.parts):
             raise ValueError("file_name must not contain '.' or '..' path segments")
         return path
+
+    def _uniquify_bucket_rel_path(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        file_name: str,
+    ) -> PurePosixPath:
+        path = self._validate_relative_file_name(file_name)
+        plotly_json_suffix = ".plotly.json"
+        name = path.name
+        if name.lower().endswith(plotly_json_suffix) and len(name) > len(
+            plotly_json_suffix
+        ):
+            suffix_start = len(name) - len(plotly_json_suffix)
+            stem = name[:suffix_start]
+            suffix = name[suffix_start:]
+        else:
+            stem = path.stem or path.name
+            suffix = path.suffix
+
+        parent = path.parent
+        parent_parts = (
+            []
+            if str(parent) in {"", "."}
+            else [p for p in parent.parts if p not in {"", "."}]
+        )
+        user_root = self._user_root_dir(owner_id)
+        for _ in range(10):
+            suffix_id = self._random_key_suffix()
+            candidate_name = (
+                f"{stem}--{suffix_id}{suffix}" if suffix else f"{stem}--{suffix_id}"
+            )
+            rel_path = (
+                PurePosixPath(*parent_parts, candidate_name)
+                if parent_parts
+                else PurePosixPath(candidate_name)
+            )
+            target = user_root / Path(*rel_path.parts)
+            if not target.exists():
+                return rel_path
+
+        raise RuntimeError(
+            "Failed to generate unique local upload file name after retries"
+        )
+
+    def _random_key_suffix(self) -> str:
+        return "".join(secrets.choice(_LOCAL_FILE_SUFFIX_ALPHABET) for _ in range(8))
 
     def _user_root_dir(self, owner_id: uuid.UUID) -> Path:
         root = self._sandbox_root_dir

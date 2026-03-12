@@ -1,58 +1,21 @@
 <h1 align="center">Универсальный AI-агент</h1>
 
-## Запуск новой версии
-
-
-1. 
-   ```shell
-   cp .env.example .env
-   ```
-2. Заполняем .env файл
-
-   * **GIGA_AGENT_SECRET_KEY** - обязательная env переменная для генерации аутентификационных данных (можно для теста поставить просто 123)
-
-   * **GIGA_AGENT_HOST_PROJECT_PATH** - путь до склонированного репозитория на хосте (нужно для нормального запуска кода в docker) запускаем `pwd` из репозитория и заполняем путь который выдался
-
-   Отдельно можно раскомментировать:
-   * **PHOENIX_COLLECTOR_ENDPOINT** - Arize Phoenix Endpoint
-
-   * **PHOENIX_API_KEY** - API ключ для Arize
-
-   * **OTEL_TARGETS** - таргет для трейсов в Aegra куда слать. Возможные значения "LANGFUSE,PHOENIX,GENERIC"
-3. Качаем image для код-интерпретатора 
-   ```shell
-   docker image pull mikelarg/code-interpreter:0.0.5
-   ```
-
-4. После чего билдим и запускаем:
-    ```sh
-    make build
-    make up
-    ```
--------
-
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/images/giga-agent_light_logo.png">
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/giga-agent_dark_logo.png">
   <img alt="Shows a black and red Giga Agent Logo in light color mode and a white and red in dark color mode." src="docs/images/giga-agent_dark_logo.png"  width="full">
 </picture>
 
-  <!-- Keep these links. Translations will automatically update with the README. -->
 [ [Русский](https://www.zdoc.app/ru/ai-forever/giga_agent) | 
 [中文](https://www.zdoc.app/zh/ai-forever/giga_agent) | 
 [English](https://www.zdoc.app/en/ai-forever/giga_agent) | 
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
-<b>GigaAgent может решать самые разные задачи, используя более 30 встроенных инструментов и субагентов.</b>
+**GigaAgent может решать самые разные задачи, используя более 30 встроенных инструментов и субагентов.**
 
 Например, он позволит вам работать с большими файлами через код (Excel-файл с десятками тысяч строк), [придумать мем](docs/examples/memes/chat.pdf), [описать бизнес-модель стартапа](docs/examples/lean_canvas/lean_canvas.pdf) или [создать лендинг](docs/examples/changelog_landing/changelog_landing.pdf).
 Для этого GigaAgent использует субагентов, REPL-среду для исполнения кода и сторонние сервисы.
 
 GigaAgent разработан в рамках проекта [GigaChain](https://github.com/ai-forever/gigachain) – открытого набора инструментов для разработки LLM-приложений и мультиагентных систем.
-
-> [!IMPORTANT]
-> GigaAgent может писать и исполнять код без участия пользователя.
-> Учитывая раннюю стадию разработки проекта это может быть опасно.
-> Используйте агента с большой осторожностью.
 
 GigaAgent умеет:
 
@@ -78,231 +41,398 @@ GigaAgent умеет:
 Примеры работы субагентов, а также подробная информация о них — в разделе [Субагенты](SUBAGENTS.md).
 Описание доступных инструментов и процесса создания новых инструментов можно найти в разделе [Инструменты в GigaAgent](TOOLS.md)
 
+## Содержание
+
+- [Быстрый старт](#быстрый-старт)
+- [Функциональные возможности](#функциональные-возможности)
+- [Конфигурация](#конфигурация)
+- [Запуск через Docker](#запуск-через-docker)
+- [Технологический стек](#технологический-стек)
+- [Архитектура](#архитектура)
+- [Структура проекта](#структура-проекта)
+- [Troubleshooting](#troubleshooting)
+- [Для разработчиков](#для-разработчиков)
+- [Дополнительные материалы](#дополнительные-материалы)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## Быстрый старт
 
-Для запуска GigaAgent, вам потребуется Docker.
-
-> [!TIP]
-> Смотрите также подробные инструкции по запуску GigaAgent на Cloud.ru:
-> * [Руководство по установке](CLOUD_RU_SETUP.md)
-> * Видео ниже отличаются в деталях от новой схемы установки. Желательно следовать инструкции выше
-> * [RuTube видео на русском](https://rutube.ru/video/c9a416a654723f0b1df23424bd3d9b4d/)
-> * [YouTube видео на русском](https://youtu.be/tyeXgCJ090Y?si=WcbITF3DiTo_aBUF)
-
-### Запуск в Docker
-
-Перед запуском в Docker:
-
-* Скопируйте мок-данные в папку `files` в корне проекта:
-
-  ```sh
-  make init_files
+1. Установите пакет:
+  ```bash
+   pip install giga_agent
+  ```
+2. Запустите dev-сервер:
+  ```bash
+   giga_agent run dev
+  ```
+3. Откройте в браузере:
+  ```text
+   http://localhost:9090
   ```
 
-Чтобы запустить GigaAgent:
+Логин по умолчанию при первой инициализации (когда в БД нет пользователей):
 
-1. В корне проекта заполните файл `.docker.env` с переменными окружения.
+- `admin@example.com`
+- `giga_agent_admin`
 
-   Примеры заполнения `.docker.env` — в папке [`env_examples`](env_examples/README.md)
+## Функциональные возможности
 
-2. Соберите Docker-образ сервера LangGraph:
-   
-   ```sh
+### 💬 Chat & Agent System
+
+- **Streaming Chat** — диалог с AI-агентом
+- **Thread Management** — история диалогов
+- **Message Branching** — ветвление диалогов для экспериментов
+- **File Attachments** — поддержка изображений, документов, аудио, видео
+- **Tool Visualization** — визуализация выполнения инструментов в UI
+- **Auto-approve Mode** — автоматическое подтверждение использования инструментов
+
+### 🔧 Встроенные модули
+
+GigaAgent включает **13 готовых модулей** для разных задач:
+
+
+| Модуль             | ID                 | Описание                                                                         |
+| ------------------ | ------------------ | -------------------------------------------------------------------------------- |
+| **Auth**           | `auth`             | Аутентификация, управление пользователями и группами                             |
+| **REPL**           | `repl`             | Выполнение Python и shell команд в sandbox                                       |
+| **Image**          | `image`            | Генерация изображений (GigaChat, FusionBrain, OpenAI)                            |
+| **Analyze Images** | `analyze_images`   | Анализ изображений через multimodal LLM                                          |
+| **Search**         | `search`           | Веб-поиск через                                                         |
+| **Scraper**        | `scraper`          | Извлечение контента с веб-страниц (Jina AI Reader)                               |
+| **RAG**            | `rag`              | Retrieval Augmented Generation с векторным поиском                               |
+| **GitHub**         | `github`           | Интеграция с GitHub API                                                          |
+| **VK**             | `vk`               | Интеграция с VK API                                                              |
+| **Weather**        | `weather`          | Получение прогноза погоды                                                        |
+| **Mem0**           | `mem_zero_memory`  | Долговременная память агента                                                     |
+| **Subagents**      | `subagents_legacy` | Специализированные субагенты (landing, presentation, meme, podcast, lean_canvas) |
+| **MCP**            | `frontend_mcp`     | Вызов MCP-тулов на стороне фронтенда пользователя                                                |
+
+
+### 🐳 Sandbox Providers
+
+Изолированные окружения для безопасного выполнения кода:
+
+#### Local Docker
+
+- **Описание:** Контейнеры на локальной машине или VPS
+- **Использование:** Локальная разработка и self-hosted deployment
+- **Настройка:**
+  - Образ: `mikelarg/code-interpreter:0.0.5`
+  - Resource limits (CPU, memory, PIDs)
+  - Доступ: только superuser
+- **Преимущества:** Полный контроль, без внешних зависимостей
+- **Недостатки:** Требует Docker daemon на хосте
+
+#### E2B Cloud
+
+- **Описание:** Облачные sandboxes от [e2b.dev](https://e2b.dev/)
+- **Использование:** Production-ready решение без инфраструктуры
+- **Настройка:** Требуется API ключ E2B
+- **Преимущества:** Автомасштабирование, управляемая инфраструктура
+- **Недостатки:** Зависимость от внешнего сервиса
+
+### 🤖 Субагенты (Legacy)
+
+Специализированные агенты для прикладных задач:
+
+
+| Субагент         | Описание                        | Graph ID       |
+| ---------------- | ------------------------------- | -------------- |
+| **Landing**      | Генерация лендинговых страниц   | `landing`      |
+| **Presentation** | Создание презентаций            | `presentation` |
+| **Meme**         | Генерация мемов с изображениями | `meme`         |
+| **Podcast**      | Создание подкастов из текста    | `podcast`      |
+| **Lean Canvas**  | Описание бизнес-модели стартапа | `lean_canvas`  |
+
+
+См. [SUBAGENTS.md](SUBAGENTS.md) для подробностей.
+
+### 📚 RAG (Retrieval Augmented Generation)
+
+- **Document Collections** — организация знаний по коллекциям
+- **Multiple Formats** — поддержка PDF, DOCX, TXT, Markdown, HTML
+- **Vector Search** — семантический поиск через Qdrant
+- **Permissions** — настройка доступа к коллекциям
+
+### 🔐 Управление доступом
+
+- **User Management** — создание и управление пользователями
+- **Groups** — объединение пользователей в группы
+- **Resource Permissions (ACL)** — детальный контроль доступа к ресурсам:
+  - Read access — просмотр
+  - Owner — полный контроль
+- **JWT Tokens** — безопасная аутентификация через cookie или Bearer header
+- **Superuser Role** — административные привилегии (local docker, admin panel)
+
+### 🔌 Интеграции
+
+**LLM Providers:**
+
+- OpenAI (GPT-4, GPT-3.5)
+- GigaChat
+- Anthropic (Claude)
+- Любые модели через LangChain
+
+**Embedding Models:**
+
+- OpenAI Embeddings
+- GigaChat Embeddings
+
+**External Services:**
+
+- Tavily — веб-поиск
+- Jina AI — web scraping
+- GitHub API — работа с репозиториями
+- VK API — социальная сеть
+
+**Vector Store:**
+
+- Qdrant — для RAG и Mem0
+
+### 🧪 REPL Environment
+
+Выполнение кода прямо в чате:
+
+- **Python REPL** — полноценный Python interpreter
+- **Shell Commands** — выполнение bash команд
+- **File Operations** — работа с файлами внутри sandbox
+- **Nested Tool Calls** — LLM tools доступны из Python кода
+- **Persistent Context** — сохранение переменных между вызовами
+
+### 🎨 Генерация изображений
+
+Поддержка множественных провайдеров:
+
+- GigaChat (Kandinsky)
+- FusionBrain (Kandinsky)
+- OpenAI (DALL-E)
+
+## Конфигурация
+
+### Минимум для старта
+
+Для локального `giga_agent run dev` дополнительная конфигурация может не требоваться.
+Если нужны предсказуемые значения в окружении, задайте:
+
+```bash
+export GIGA_AGENT_SECRET_KEY="replace_with_secure_value"
+export GIGA_AGENT_ADMIN_EMAIL="admin@your-domain.com"
+export GIGA_AGENT_ADMIN_PASSWORD="your_strong_password"
+```
+
+Поведение admin-инициализации:
+
+- если пользователей нет, создается первый admin из `GIGA_AGENT_ADMIN_EMAIL` / `GIGA_AGENT_ADMIN_PASSWORD`;
+- если пользователи уже есть, авто-создание admin пропускается.
+
+### Advanced env (runtime/integration)
+
+В расширенной конфигурации обычно настраиваются:
+
+- sandbox/runtime параметры;
+- docker-ориентированные env;
+- БД/кэш/векторное хранилище;
+- tracing/observability параметры.
+
+Детальный env-референс: [docs/configuration/env.md](docs/configuration/env.md)
+
+## Запуск через Docker
+
+Docker-сценарий оставляем как второй quick start (для self-hosted/операционного запуска).
+
+### Отличие от `pip + run dev`
+
+- `pip + run dev`: самый быстрый локальный запуск для разработки и проверки.
+- `docker compose`: более инфраструктурный сценарий с отдельными сервисами (nginx/postgres/redis/qdrant и т.д.).
+
+### Быстрые шаги
+
+1. Подготовьте `.env`:
+  ```bash
+   cp .env.example .env
+  ```
+   Минимально проверьте/заполните:
+  - `GIGA_AGENT_SECRET_KEY`
+  - `GIGA_AGENT_HOST_PROJECT_PATH` (абсолютный путь до репозитория на хосте; важен для local docker sandbox)
+2. (Опционально) скачайте image для code interpreter:
+  ```bash
+   docker image pull mikelarg/code-interpreter:0.0.5
+  ```
+3. Соберите и поднимите сервисы:
+  ```bash
    make build
-   ```
-3. Запустите приложение:
-
-   ```sh
    make up
-   ```
+  ```
+4. Откройте UI:
+  ```text
+   http://localhost:8123
+  ```
 
-Приложение будет доступно в браузере по адресу `http://localhost:8502`
+### Перезапуск после обновления репозитория
 
-Чтобы применить изменения после обновления репозитория:
-
-1. Остановите приложение
-2. Повторно выполните комманды `make build` и `make up`
-
-## Настройка параметров
-
-### Переменные окружения
-
-Переменные окружения для работы GigaAgent задаются в файлах `.env` или `.docker.env` в корне проекта.
-В папке [env_examples](env_examples/README.md) вы найдете шаблоны файлов с переменными окружения, для работы с разными LLM-сервисами.
-
-Обратите внимание на переменные `REPL_FROM_MESSAGE` и `MAIN_GIGACHAT_*`.
-
-* `REPL_FROM_MESSAGE` — ставьте `0` если код в REPL будет браться из аргумента функции. `1` — если код берется из сообщения. Иногда GigaChat не может нормально прописывать сложный код в аргументе функции.
-* `MAIN_GIGACHAT_*` — пропишите настройки подключения GigaChat как в примерах [отсюда](env_examples/gigachat); Это настройка основной LLM, которая крутится в главном графе. Настройки, которые начинаются не с MAIN_ идут в под-агенты. Возможно в будущем уберем.
-
-### Выбор моделей для генерации и эмбеддингов
-
-Модели задаются с помощью переменных окружения:
-
-* **GIGA_AGENT_LLM** — основная LLM, на которой работает основные агенты.
-* **GIGA_AGENT_LLM_FAST** — дешевая / быстрая LLM, на которой происходить скрейпинг ссылок и вызов LLM через REPL среду.
-
-Выбор происходит на основе метода LangChain [init_chat_model](https://python.langchain.com/api_reference/langchain/chat_models/langchain.chat_models.base.init_chat_model.html).
-С небольшой правкой возможности выбора GigaChat в качестве основной LLM.
-
-В проект предустановлены библиотеки для работы GigaChat, OpenAI. Для работы остальных LLM вам нужно будет поставить их в папке `backend/graph` с помощью `uv add`
-
-Пример заполнения:
-
-* `GIGA_AGENT_LLM="gigachat:GigaChat-2-Max"` — для выбора модели GigaChat-2-Max в качестве основной
-* `GIGA_AGENT_LLM="openai:gpt-4o"` — для выбора модели gpt-4o в качестве основной
-
-По такому же принципу выбирается модель для векторного представления текстов `GIGA_AGENT_EMBEDDINGS`.
-
-Также в проекте есть простая модель для оценки настроения текста на основе эмбеддингов LLM с помощью `GIGA_AGENT_SENTIMENT_MODEL`. 
-Допустим это можно применять для анализа настроений комментариев.
-Модели созданы на основе GigaChat модели `EmbeddingsGigaR` и модели OpenAI `text-embedding-3-small`. 
-Создать свою мини модель под конкретную модель можно в ноутбуке [sentiment_model.ipynb](backend/graph/giga_agent/repl_tools/models/sentiment_model.ipynb)
-
-### Создание изображений
-
-Агент может генерировать изображения. Для этого нужно заполнить ENV переменную: `IMAGE_GEN_NAME`. `IMAGE_GEN_NAME` заполняется в формате `провайдер:название_модели`
-
-Тулы/агенты, которые зависят от генерации изображений: **generate_image**, **create_meme**, **create_landing**, **generate_presentation**.
-Если не заполнить `IMAGE_GEN_NAME`, эти тулы отключатся.
-
-#### GigaChat Kandinsky
-
-Генерация изображений на GigaChat API `/image/generate/`. Доступ к этому API пока работает по приглашению.
-Чтобы включить этот способ, заполните: `IMAGE_GEN_NAME="gigachat:kandinsky-4.1""`
-
-#### FusionBrain
-
-Генерация изображений с помощью сервиса [FusionBrain](https://fusionbrain.ai/docs/). Он предоставляет 100 бесплатных генераций. 
-
-Чтобы включить этот способ, заполните: `IMAGE_GEN_NAME="fusion_brain:123""`. Заметьте, что модель можно заполнить как угодно, в этом провайдере будет использоваться всегда Kandinsky3.0
-
-Также укажите переменные:
-
-- **KANDINSKY_API_KEY** — API ключ Fusion Brain
-- **KANDINSKY_SECRET_KEY** — API secret Fusion Brain
-
-#### OpenAI
-
-Генерация изображений с помощью [OpenAI](https://platform.openai.com/docs/guides/image-generation?image-generation-model=gpt-image-1)
-
-Чтобы включить этот способ, заполните: `IMAGE_GEN_NAME="openai:dall-e-3""`
-
-Также нужно заполнить следующие ENV
-- **OPENAI_API_KEY**
-
-### Подключение сторонних сервисов
-
-GigaAgent подключен к сторонним сервисам, поэтому для корректной работы некоторых сценариев нужно получить их API ключи.
-
-Если не заполнить API-ключ сервиса, то тулы, которые зависят от него, отключатся от LLM.
-Также можно отключить тулы/агентов в файле [config](backend/graph/giga_agent/config.py) в переменных **SERVICE_TOOLS**/**AGENTS**/**TOOLS**
-
-Ниже ссылки и инструкции к сервисам
-
-#### Tavily (поиск в интернете)
-
-Тулы/агенты, которые зависят от сервиса: **search**, **get_urls**
-
-Также в агентах **city_explore** и **lean_canvas** применяется поиск, но он не обязателен. Если вы не заполните API-ключ, то они все равно смогут корректно отработать.
-
-Получить API ключ можно здесь: https://tavily.com/
-
-#### GitHub
-
-Тулы/агенты, которые зависят от сервиса: **get_workflow_runs**, **list_pull_requests**, **get_pull_request**
-
-Получить API ключ можно здесь: https://github.com/settings/personal-access-tokens
-
-#### VK
-
-Тулы/агенты, которые зависят от сервиса: **vk_get_posts**, **vk_get_comments**, **vk_get_last_comments**
-
-Для работы с ВК нужно создать мини-приложение, здесь: https://dev.vk.com/ru/admin/apps-list.
-И получить сервисный API-ключ от приложения.
-
-#### 2GIS
-
-Тулы/агенты, которые зависят от сервиса: **city_explore**
-
-https://docs.2gis.com/ru/platform-manager/overview
-
-#### SaluteSpeech (синтез голоса)
-
-Тулы/агенты, которые зависят от сервиса: **podcast_generate**
-
-https://developers.sber.ru/portal/products/smartspeech
-
-#### OpenWeatherMap (получение погоды)
-
-Тулы/агенты, которые зависят от сервиса: **weather**
-
-https://openweathermap.org/api/one-call-3
-
-## Добавление MCP тулов
-К GigaAgent можно подключить MCP-тулы из браузера, если они RemoteMCP, или MCP, которые хостятся локально.
-
-Пример MCP Gateway сервера поднятого локально можно посмотреть [здесь](https://github.com/Mikelarg/giga_agent_mcp_example)
-
-Также можно включить MCP сервера через ENV-переменную **GIGA_AGENT_MCP_CONFIG**
-
-Пример заполнения ENV переменной
-```
-GIGA_AGENT_MCP_CONFIG='{"giga_tools": {"transport": "stdio", "command": "npx", "args": ["-y", "mcp-remote@latest", "https://gigachat.fastmcp.app/mcp"]}}'
+```bash
+make down
+make build
+make up
 ```
 
-## Добавление RAG базы знаний
-Для подключения базы знаний нужно развернуть дополнительно [этот проект](https://github.com/Mikelarg/giga_agent_langconnect)
-и заполнить следующие ENV-переменные в `.env` файле. (ниже пример langconnect, который хостится локально)
+Для dev-варианта compose:
+
+```bash
+make build_dev
+make up_dev
 ```
-LANGCONNECT_API_URL=http://host.docker.internal:8833
-LANGCONNECT_API_SECRET_TOKEN=123
-```
 
-**Важно!**
+## Технологический стек
 
-Если LangConnect хостится локально и вы поднимаете GigaAgent через `make build` и `make up`, тогда в файл [docker-compose.yml](docker-compose.yml)
-нужно добавить следующие YAML параметры к контейнерам `langgraph-api` и `tool_server`
-```yaml
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
-```
-Также нужно снова запустить `make build` и `make up`.
+### Backend
 
-При поднятии через `make build_dev` и `make up_dev` этого делать не нужно, так как эти параметры уже добавлены в [docker-compose.dev.yml](docker-compose.dev.yml)
+- **Python 3.11+** — современный Python с async/await
+- **[LangGraph 1.0.8](https://github.com/langchain-ai/langgraph)** — state machine для AI-агентов от LangChain
+- **[FastAPI](https://fastapi.tiangolo.com/)** — высокопроизводительный веб-фреймворк
+- **[SQLAlchemy 2.0](https://www.sqlalchemy.org/)** — async ORM с поддержкой SQLite и PostgreSQL
+- **[Alembic](https://alembic.sqlalchemy.org/)** — система миграций с multi-scope поддержкой
+- **Redis** — кэширование и distributed locks (через [cashews](https://github.com/Krukov/cashews))
+- **[Qdrant](https://qdrant.tech/)** — векторное хранилище для RAG и Mem0
+- **[E2B](https://e2b.dev/)** — облачные sandboxes для безопасного выполнения кода
+- **Docker SDK** — управление локальными sandbox-контейнерами
 
-## Режим разработчика
-Чтобы поднять проект в режиме hot-reload (когда вы меняете код проекта локально и docker подгружает их сразу в свою среду) выполните следующие комманды:
-* `make build_dev`
-* `make up_dev`
+### Frontend
 
-## Архитектура проекта
+- **[React 19](https://react.dev/)** — последняя версия React
+- **[TypeScript 5.8](https://www.typescriptlang.org/)** — статическая типизация
+- **[Vite 7](https://vitejs.dev/)** — быстрая сборка и dev-сервер
+- **[Tailwind CSS 4](https://tailwindcss.com/)** — utility-first CSS фреймворк
+- **[Radix UI](https://www.radix-ui.com/)** — headless UI компоненты
+- **[LangGraph SDK](https://github.com/langchain-ai/langgraph/tree/main/libs/sdk-js)** — интеграция с LangGraph для streaming
+- **[Framer Motion](https://www.framer.com/motion/)** — анимации
 
-<img src="docs/images/diagram.png" width=500>
+### Инфраструктура
 
-- **GigaAgent** — основной агент
-- **SubAgents** — субагенты, выполняющие специфические задачи: создание презентаций, создание лендингов и другие
-- **REPL** — отдельный контейнер с REPL-средой для выполнения кода, сгенерированного моделью
-- **ToolServer** — сервер, для запуска подключенных к моделям инструментов или выполнения закрытого код / кода завязанный на скрытых переменных окружения, который не доступен пользователю в REPL-среде
-- **LLM Tools** — инструменты (функции) для моделей: поиск, работа с данными ВК, работа с github и другие
-- **REPL Tools** — инструменты REPL: predict_sentiments, get_embeddings, summarize, инструменты моделей. Эти методы завязаны на API моделей и могут быть вызваны из REPL-среды. Они позволяют предотвратить доступ к API-ключам в REPL-среде.
+- **Docker & Docker Compose** — контейнеризация
+- **Nginx** — reverse proxy для production
+- **PostgreSQL** — production база данных (dual-database: LangGraph + app)
+- **SQLite** — development база данных
 
-## Планы
+## Архитектура
 
-У нас много планов, но мы также будем рады вашим PR и Issues!
+### Ключевые принципы
 
-- [x] Перенести настройку агента с ENV переменных в единый понятный config файл
-- [x] Поддержка MCP
-- [x] Поддержка RAG базы знаний
-- [x] Добавить память
-- [x] Перевод с проприетарной LangGraphPlatform API на Open-Source Aegra
-- [ ] Перевод документации / примеров
-- [ ] Оптимизировать генерацию изображений в агенте презентаций, лендингов
-- [ ] Добавить историю чатов
-- [ ] Вынести наименование агентов и узлов их выполнения в бэкенд из файла [config.ts](front/src/config.ts)
-- [ ] Добавить поддержку разных провайдеров синтеза речи (OpenAI, ElevenLabs)
-- [ ] Добавить авторизацию
-- [ ] Тесты
-- [ ] Сделать локализацию интерфейса + (возможно промптов)
-- [ ] Агент по созданию сайтов 2.0 (также добавить в него подгрузку созданных графиков / изображений как в агенте презентаций)
-- [ ] To be continued...
+#### 1. Модульная система
+
+Каждый модуль (`BaseModule`) — независимый plugin:
+
+- **Собственные миграции** — таблицы с auto-префиксом модуля
+- **Независимые инструменты** — tools для агента
+- **Собственные API endpoints** — автоматический роутинг
+- **Инструкции и middleware** — настройка поведения агента
+
+#### 2. Dual-Database Strategy
+
+**Development (local):**
+
+- SQLite с `aiosqlite` драйвером
+- Файловая БД в `.giga_agent/`
+- Batch-режим для миграций
+
+**Production (docker):**
+
+- Две отдельные PostgreSQL базы:
+  1. **LangGraph DB** — state checkpoints, thread history
+  2. **Application DB** — метаданные, пользователи, конфигурация (asyncpg)
+
+#### 3. Registry Pattern
+
+Runtime компоненты регистрируются динамически:
+
+- **Connectors** — подключения к внешним сервисам (OpenAI, GigaChat, Tavily)
+- **LLMs** — языковые модели с валидацией настроек
+- **Embeddings** — модели векторизации
+- **Sandbox Providers** — окружения выполнения кода
+- **Image Generators** — генераторы изображений
+- **Search Engines** — поисковые движки
+
+#### 4. Sandbox Execution
+
+Безопасное выполнение Python-кода/Shell комманд в изолированных окружениях:
+
+**Local Docker:**
+
+- Контейнеры на локальной машине или VPS
+- Resource limits (CPU, memory, PIDs)
+- Volume mounts для файлов
+- Только для superuser (security)
+
+**E2B Cloud:**
+
+- Облачные sandboxes (e2b.dev)
+- Автомасштабирование
+- API-based управление
+
+#### 5. Background Tasks
+
+Фоновые процессы с Redis-координацией для multi-instance deployment:
+
+- **Idle Sweeper** — останавливает неактивные sandboxes
+- **Orphan Sweeper** — удаляет "осиротевшие" ресурсы
+
+#### 6. Security & ACL
+
+- **JWT Authentication** — cookie + Bearer token
+- **Resource-level permissions** — read/edit/owner access
+- **Group-based access control** — разделение доступа по группам
+- **bcrypt** — хеширование паролей
+
+## Troubleshooting
+
+- UI не открывается:
+  - проверьте, что dev-сервер запущен на `localhost:9090` (pip режим) или что `make up` поднял nginx на `8123` (docker режим).
+- Не удается залогиниться:
+  - если это первый запуск, используйте дефолтные креды или проверьте `GIGA_AGENT_ADMIN_EMAIL` / `GIGA_AGENT_ADMIN_PASSWORD`;
+- Не видны провайдеры/инструменты:
+  - проверьте env-конфиг и настройки в UI (`/settings/`*).
+
+## Для разработчиков
+
+Ключевые CLI-команды:
+
+- Проверка состояния миграций:
+  ```bash
+  giga_agent check
+  ```
+- Применение миграций:
+  ```bash
+  giga_agent migrate
+  ```
+- Генерация миграций:
+  ```bash
+  giga_agent makemigrations
+  ```
+- Проксирование Alembic-команд:
+  ```bash
+  giga_agent alembic --scope core upgrade head
+  ```
+- Экспорт langgraph-конфига:
+  ```bash
+  giga_agent export-langgraph-json
+  ```
+
+## Дополнительные материалы
+
+- Субагенты: [SUBAGENTS.md](SUBAGENTS.md)
+- Инструменты: [TOOLS.md](TOOLS.md)
+- Observability для локального запуска: [docs/configuration/observability-local.md](docs/configuration/observability-local.md)
+
+Внешние материалы (опционально):
+
+- [RuTube видео на русском](https://rutube.ru/video/c9a416a654723f0b1df23424bd3d9b4d/)
+- [YouTube видео на русском](https://youtu.be/tyeXgCJ090Y?si=WcbITF3DiTo_aBUF)
+
+## Contributing
+
+PR и issue приветствуются. Для больших изменений лучше заранее описать proposal в issue с ожидаемым эффектом и планом валидации.
+
+## License
+
+Проект распространяется под лицензией MIT. См. файл [LICENSE](LICENSE).

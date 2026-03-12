@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from cashews import cache
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String, DateTime, Uuid, ForeignKey, select, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -86,6 +86,8 @@ class LLMCreate(LLMBase):
 
 
 class LLMUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     type: Optional[str] = None
     connector_id: Optional[uuid.UUID] = None
     model_id: Optional[str] = None
@@ -341,7 +343,7 @@ class LLMRepository(ACLResourceRepositoryMixin[LLM]):
         **kwargs: Any,
     ) -> LLM:
         for key, value in kwargs.items():
-            if hasattr(llm, key) and value is not None:
+            if hasattr(llm, key):
                 setattr(llm, key, value)
         await self.db.commit()
         await self.db.refresh(llm)

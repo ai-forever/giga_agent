@@ -53,7 +53,7 @@ class RagCollectionsRouterTests(unittest.TestCase):
             side_effect=[
                 [
                     types.SimpleNamespace(
-                        sandbox_path=f"/bucket/giga_agent/{self.user.id}/rag1.txt"
+                        sandbox_path="/bucket/rag1.txt"
                     )
                 ],
                 [],

@@ -32,6 +32,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 # Ensure runtime registrations
@@ -256,7 +259,7 @@ async def get_connector_settings_schema(
         connector_type,
         status_code=status.HTTP_404_NOT_FOUND,
     )
-    return runtime_cls.settings_schema().model_json_schema()
+    return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
 @router.post("", response_model=ConnectorResponse, status_code=status.HTTP_201_CREATED)
@@ -356,6 +359,11 @@ async def patch_connector(
         update_data["name"] = data.name
 
     if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
         update_data["is_active"] = data.is_active
 
     if "settings" in data.model_fields_set:

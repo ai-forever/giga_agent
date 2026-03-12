@@ -14,7 +14,7 @@ const SelectorButton = styled.button<{ $selected: boolean; $isGraph: boolean }>`
   right: 8px;
   width: 24px;
   height: 24px;
-  z-index: 1000;
+  z-index: 5;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;

@@ -144,7 +144,7 @@ class RagRepositoriesTests(unittest.IsolatedAsyncioTestCase):
             file = File(
                 owner_id=user.id,
                 provider_id=provider.id,
-                sandbox_path="/bucket/giga_agent/u/doc.txt",
+                sandbox_path="/bucket/u/doc.txt",
                 original_name="doc.txt",
                 file_type="text",
                 size=10,
@@ -209,7 +209,7 @@ class RagRepositoriesTests(unittest.IsolatedAsyncioTestCase):
                 collection_id=collection.id,
                 original_name="doc.txt",
                 sandbox_provider_id=provider.id,
-                sandbox_path="/bucket/giga_agent/u/doc.txt",
+                sandbox_path="/bucket/u/doc.txt",
             )
             session.add(doc)
             await session.commit()

@@ -7,7 +7,7 @@ from giga_agent.cli.commands.migrate import migrate
 
 
 class CLIMigrateTests(unittest.TestCase):
-    def test_migrate_uses_heads_by_default(self):
+    def test_migrate_uses_all_scope_by_default(self):
         agent = object()
         with patch(
             "giga_agent.cli.commands.migrate.load_agent_from_string",
@@ -17,7 +17,11 @@ class CLIMigrateTests(unittest.TestCase):
         ) as apply_migrations:
             migrate()
 
-        apply_migrations.assert_called_once_with(agent, target="heads")
+        apply_migrations.assert_called_once_with(
+            agent,
+            target="head",
+            requested_scope="all",
+        )
 
     def test_migrate_uses_custom_target(self):
         agent = object()
@@ -27,9 +31,13 @@ class CLIMigrateTests(unittest.TestCase):
         ), patch(
             "giga_agent.cli.commands.migrate.apply_migrations"
         ) as apply_migrations:
-            migrate("base")
+            migrate("giga_agent.agents.run:agent", "base", scope="core")
 
-        apply_migrations.assert_called_once_with(agent, target="base")
+        apply_migrations.assert_called_once_with(
+            agent,
+            target="base",
+            requested_scope="core",
+        )
 
     def test_migrate_returns_exit_1_on_error(self):
         with patch(

@@ -189,10 +189,8 @@ export const LLMSettings: React.FC = () => {
         settings: nextSettings,
         is_active: nextIsActive,
         check_connection: data.check_connection,
+        name: nextName,
       };
-      if (data.llm_name) {
-        payload.name = data.llm_name;
-      }
 
       if (!isNewLLM && editingLLM) {
         const hasResourceChanges =

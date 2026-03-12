@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -74,6 +74,8 @@ class GroupCreate(GroupBase):
 
 
 class GroupUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = None
     description: str | None = None
     data: dict[str, Any] | None = None
@@ -169,7 +171,7 @@ class GroupRepository:
 
     async def update(self, group: Group, **kwargs: Any) -> Group:
         for key, value in kwargs.items():
-            if hasattr(group, key) and value is not None:
+            if hasattr(group, key):
                 setattr(group, key, value)
         await self.db.commit()
         await self.db.refresh(group)

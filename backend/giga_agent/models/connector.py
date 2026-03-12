@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from cashews import cache
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import String, DateTime, Uuid, ForeignKey, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
@@ -56,6 +56,8 @@ class ConnectorCreate(ConnectorBase):
 
 
 class ConnectorUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     settings: Optional[dict[str, Any]] = None
     is_active: Optional[bool] = None
@@ -261,7 +263,7 @@ class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
         **kwargs: Any,
     ) -> Connector:
         for key, value in kwargs.items():
-            if hasattr(connector, key) and value is not None:
+            if hasattr(connector, key):
                 setattr(connector, key, value)
         await self.db.commit()
         await self.db.refresh(connector)

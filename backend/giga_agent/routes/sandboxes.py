@@ -52,6 +52,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 
 router = APIRouter(prefix="/sandboxes", tags=["sandboxes"])
 
@@ -80,6 +83,19 @@ async def get_provider_with_write_check(
         not_found_detail="Sandbox provider not found",
         require_edit=True,
     )
+
+
+async def _best_effort_stop_sandboxes(
+    *,
+    manager: SandboxManager,
+    sandboxes: list,
+) -> None:
+    for sandbox in sandboxes:
+        try:
+            await manager.stop(sandbox.id)
+        except Exception:
+            # Delete flows are best-effort for runtime cleanup.
+            continue
 
 
 def _is_local_docker_type(provider_type: str) -> bool:
@@ -362,7 +378,7 @@ async def get_sandbox_provider_settings_schema(
         )
 
     schema_cls = SandboxRegistry.get_settings_schema(provider_type)
-    return schema_cls.model_json_schema()
+    return build_settings_schema_with_computed_defaults(schema_cls)
 
 
 @router.get("/providers/{provider_id}", response_model=SandboxProviderResponse)
@@ -399,13 +415,28 @@ async def update_sandbox_provider(
 
     update_data: dict[str, Any] = {}
 
-    if data.name is not None:
+    if "name" in data.model_fields_set:
         update_data["name"] = data.name
-    if data.idle_timeout is not None:
+    if "idle_timeout" in data.model_fields_set:
+        if data.idle_timeout is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="idle_timeout must not be null when provided",
+            )
         update_data["idle_timeout"] = data.idle_timeout
-    if data.is_active is not None:
+    if "is_active" in data.model_fields_set:
+        if data.is_active is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="is_active must not be null when provided",
+            )
         update_data["is_active"] = data.is_active
-    if data.settings is not None:
+    if "settings" in data.model_fields_set:
+        if data.settings is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="settings must be an object when provided",
+            )
         update_data["settings"] = await validate_provider_settings(
             provider.type,
             data.settings,
@@ -445,6 +476,12 @@ async def delete_sandbox_provider(
 
     sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
     sandbox_repo = SandboxRepository(provider_repo.db)
+    provider_sandboxes = await sandbox_repo.get_by_provider_with_provider(provider.id)
+    await _best_effort_stop_sandboxes(
+        manager=SandboxManager(provider_repo.db),
+        sandboxes=provider_sandboxes,
+    )
+
     for owner_id in {item.owner_id for item in file_refs}:
         sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider.id)
         if sandbox is not None:

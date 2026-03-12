@@ -2,10 +2,14 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import ClassVar, Type
+from typing import TYPE_CHECKING, ClassVar, Type
 
 from pydantic import BaseModel, create_model
 from typing_extensions import override
+
+if TYPE_CHECKING:
+    from giga_agent.models.sandbox import SandboxProviderSnapshot, SandboxSnapshot
+    from giga_agent.sandbox.manager.types import OrphanAction
 
 
 LARGE_FILE_THRESHOLD = 20 * 1024 * 1024  # 20 MB
@@ -113,6 +117,25 @@ class BaseSandbox(BaseModel, ABC):
         (например, external_id, токены и т.д.).
         """
         return {}
+
+    @classmethod
+    async def cleanup_orphans(
+        cls,
+        *,
+        providers: list["SandboxProviderSnapshot"],
+        sandboxes: list["SandboxSnapshot"],
+    ) -> list["OrphanAction"]:
+        return []
+
+    @classmethod
+    async def stop_external_runtime(cls, external_id: str) -> None:
+        raise NotImplementedError(
+            f"{cls.__name__} does not implement stop_external_runtime()"
+        )
+
+    @classmethod
+    async def remove_external_runtime(cls, external_id: str) -> None:
+        await cls.stop_external_runtime(external_id)
 
     @abstractmethod
     async def up(self) -> None:

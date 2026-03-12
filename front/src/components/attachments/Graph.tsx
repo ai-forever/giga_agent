@@ -6,7 +6,10 @@ import { Check } from "lucide-react";
 // @ts-ignore
 import Plot from "react-plotly.js";
 import { apiClient } from "@/lib/api-client.ts";
-import { buildContentByPathPreviewUrl, buildContentByPathUrl } from "./file-utils.ts";
+import {
+  buildContentByPathPreviewUrl,
+  buildContentByPathUrl,
+} from "./file-utils.ts";
 
 const Placeholder = styled.div`
   width: 100%;
@@ -32,7 +35,7 @@ const SelectorButton = styled.button<{ $selected: boolean; $isGraph: boolean }>`
   right: 8px;
   width: 24px;
   height: 24px;
-  z-index: 1000;
+  z-index: 5;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -140,7 +143,11 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
     return (
       <div>
         Ошибка загрузки вложения{" "}
-        <a href={buildContentByPathUrl(path)} target="_blank" rel="noopener noreferrer">
+        <a
+          href={buildContentByPathUrl(path)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           {id}
         </a>
       </div>

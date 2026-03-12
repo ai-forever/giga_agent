@@ -266,6 +266,14 @@ class AuthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
+    def test_patch_users_me_rejects_unknown_fields(self):
+        response = self.client.patch(
+            "/users/me",
+            json={"unknown_field": "value"},
+        )
+
+        self.assertEqual(response.status_code, 422)
+
     def test_patch_users_me_returns_422_for_invalid_reference(self):
         user_model = self._user_model()
         invalid_llm_id = uuid.uuid4()
@@ -1395,6 +1403,14 @@ class AuthRouterTests(unittest.TestCase):
         self.app.dependency_overrides[get_current_active_user] = _override_current_user
         response = self.client.delete(f"/users/{uuid.uuid4()}")
         self.assertEqual(response.status_code, 403)
+
+    def test_patch_user_by_id_rejects_unknown_fields(self):
+        response = self.client.patch(
+            f"/users/{uuid.uuid4()}",
+            json={"unknown_field": "value"},
+        )
+
+        self.assertEqual(response.status_code, 422)
 
 
 if __name__ == "__main__":

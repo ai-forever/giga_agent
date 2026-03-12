@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useImperativeHandle, useRef } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { useStableMessages } from "../hooks/useStableMessages";
@@ -45,6 +45,19 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     },
   });
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const autoScrollEnabledRef = useRef<boolean>(true);
+  const bottomSentinelRef = useRef<HTMLDivElement>(null);
+  const userScrollIntentRef = useRef<boolean>(false);
+  const resetIntentTimeoutRef = useRef<number | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const isSafariRef = useRef<boolean>(
+    typeof navigator !== "undefined" &&
+      /safari/i.test(navigator.userAgent) &&
+      !/chrome|android/i.test(navigator.userAgent),
+  );
+  const firstSroll = useRef<boolean>(false);
+
   useEffect(() => {
     onThreadReady?.(thread as unknown as UseStream<GraphState>);
   }, [thread, onThreadReady]);
@@ -85,16 +98,108 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
 
+  // Наблюдаем за «сентинелом» внизу списка, чтобы понять, включать ли авто-скролл
+  useEffect(() => {
+    const root = containerRef.current;
+    const sentinel = bottomSentinelRef.current;
+    if (!root || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          // Включаем авто-скролл только при достижении низа
+          autoScrollEnabledRef.current = true;
+        }
+        // Не выключаем авто-скролл на больших рывках контента
+      },
+      { root, threshold: 0.99 },
+    );
+
+    observer.observe(sentinel);
+    return () => {
+      if (rafIdRef.current !== null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      observer.disconnect();
+    };
+  }, []);
+
+  const maybeAutoScroll = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (!autoScrollEnabledRef.current) return;
+    if (rafIdRef.current !== null) return; // коалесцируем множественные вызовы за кадр
+    rafIdRef.current = window.requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const current = containerRef.current;
+      if (!current) return;
+      if (isSafariRef.current || firstSroll) {
+        // Safari: избегаем smooth, чтобы не было скачков вверх
+        current.scrollTop = current.scrollHeight;
+      } else {
+        current.scrollTo({ top: current.scrollHeight, behavior: "smooth" });
+      }
+      firstSroll.current = true;
+    });
+  };
+
+  const markUserScrollIntent = () => {
+    userScrollIntentRef.current = true;
+    if (resetIntentTimeoutRef.current) {
+      window.clearTimeout(resetIntentTimeoutRef.current);
+    }
+    resetIntentTimeoutRef.current = window.setTimeout(() => {
+      userScrollIntentRef.current = false;
+    }, 300);
+  };
+
+  const handleUserScroll = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    if (!userScrollIntentRef.current) return;
+    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;
+    if (!nearBottom) {
+      // Отключаем авто-скролл только если пользователь явно ушёл от низа
+      autoScrollEnabledRef.current = false;
+    }
+  };
+
+  // useImperativeHandle(ref, () => ({
+  //   scrollToBottom: () => {
+  //     const current = containerRef.current;
+  //     if (!current) return;
+  //     if (isSafariRef.current) {
+  //       // Safari: избегаем smooth, чтобы не было скачков вверх
+  //       current.scrollTop = current.scrollHeight;
+  //     } else {
+  //       current.scrollTo({ top: current.scrollHeight, behavior: "smooth" });
+  //     }
+  //   },
+  // }));
+
   return (
     <SelectedAttachmentsProvider>
-      <div className="w-full flex p-5 max-[900px]:p-0 max-[900px]:mt-[75px]">
-        <div className="flex max-w-[900px] mx-auto h-full flex-col flex-1 bg-card text-card-foreground rounded-lg overflow-hidden shadow-lg dark:shadow-2xl max-[900px]:shadow-none print:overflow-visible print:shadow-none dark:print:shadow-none">
-          <MessageList messages={stableMessages ?? []} thread={thread} />
-          <InputArea
-            // @ts-ignore
+      <div
+        className="flex flex-col w-full h-full max-[900px]:mt-[75px] bg-card overflow-y-auto print:overflow-visible"
+        ref={containerRef}
+        onWheel={markUserScrollIntent}
+        onTouchStart={markUserScrollIntent}
+        onScroll={handleUserScroll}
+      >
+        <div className="grow max-w-[900px] w-full p-5 max-[900px]:p-0  mx-auto flex-col flex-1 bg-card text-card-foreground rounded-lg max-[900px]:shadow-none">
+          <MessageList
+            messages={stableMessages ?? []}
             thread={thread}
+            maybeAutoScroll={maybeAutoScroll}
           />
         </div>
+        <div ref={bottomSentinelRef} style={{ height: 1 }} />
+
+        <InputArea
+          // @ts-ignore
+          thread={thread}
+        />
       </div>
     </SelectedAttachmentsProvider>
   );

@@ -245,3 +245,64 @@ class GroupsRouterTests(unittest.TestCase):
         ):
             response = client.get(f"{GIGA_PREFIX_API}/groups")
         self.assertEqual(response.status_code, 200)
+
+    def test_patch_group_allows_clearing_nullable_fields(self):
+        group = self._group_obj()
+        updated = self._group_obj(group_id=group.id)
+        updated.description = None
+        updated.data = None
+        updated.permissions = None
+
+        with patch(
+            "giga_agent.routes.groups.GroupRepository.get_by_id",
+            AsyncMock(return_value=group),
+        ), patch(
+            "giga_agent.routes.groups.GroupRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update, patch(
+            "giga_agent.routes.groups.GroupRepository.get_user_counts",
+            AsyncMock(return_value={group.id: 0}),
+        ), patch(
+            "giga_agent.routes.groups.GroupRepository.to_response",
+            return_value=self._group_payload(updated),
+        ):
+            response = self.client.patch(
+                f"/groups/{group.id}",
+                json={"description": None, "data": None, "permissions": None},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["description"])
+        self.assertIsNone(mocked_update.await_args.kwargs["description"])
+        self.assertIsNone(mocked_update.await_args.kwargs["data"])
+        self.assertIsNone(mocked_update.await_args.kwargs["permissions"])
+
+    def test_patch_group_rejects_null_name(self):
+        group = self._group_obj()
+
+        with patch(
+            "giga_agent.routes.groups.GroupRepository.get_by_id",
+            AsyncMock(return_value=group),
+        ), patch(
+            "giga_agent.routes.groups.GroupRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/groups/{group.id}",
+                json={"name": None},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "name must not be null when provided",
+        )
+        mocked_update.assert_not_awaited()
+
+    def test_patch_group_rejects_unknown_fields(self):
+        response = self.client.patch(
+            f"/groups/{uuid.uuid4()}",
+            json={"unknown_field": True},
+        )
+
+        self.assertEqual(response.status_code, 422)

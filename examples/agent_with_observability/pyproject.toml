@@ -1,0 +1,11 @@
+[project]
+name = "agent_with_observability"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "giga-agent",
+    "arize-phoenix",
+    "openinference-instrumentation-langchain"
+]

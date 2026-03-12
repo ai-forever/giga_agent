@@ -59,59 +59,107 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
             s3_region="ru-central-1",
             aws_access_key_id="ak",
             aws_secret_access_key="sk",
+            owner_id=uuid.uuid4(),
         )
 
-    async def test_uniquify_s3_key_adds_random_suffix(self):
+    async def test_uniquify_relative_s3_path_adds_random_suffix(self):
         sandbox = self._sandbox()
-        owner_id = uuid.uuid4()
         with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
-            key = await sandbox._uniquify_s3_key(owner_id=owner_id, file_name="report.txt")
+            key = sandbox._uniquify_relative_s3_path(file_name="report.txt")
 
-        self.assertEqual(key, f"giga_agent/{owner_id}/report--ABCDEFGH.txt")
+        self.assertEqual(key, "report--ABCDEFGH.txt")
 
-    async def test_uniquify_s3_key_adds_suffix_before_plotly_json_extension(self):
+    async def test_uniquify_relative_s3_path_adds_suffix_before_plotly_json_extension(
+        self,
+    ):
         sandbox = self._sandbox()
-        owner_id = uuid.uuid4()
         with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
-            key = await sandbox._uniquify_s3_key(
-                owner_id=owner_id,
-                file_name="chart.plotly.json",
+            key = sandbox._uniquify_relative_s3_path(file_name="chart.plotly.json")
+
+        self.assertEqual(key, "chart--ABCDEFGH.plotly.json")
+
+    async def test_uniquify_relative_s3_path_keeps_subdirectories(self):
+        sandbox = self._sandbox()
+        with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
+            key = sandbox._uniquify_relative_s3_path(
+                file_name="thread-42/reports/report.txt"
             )
+        self.assertEqual(key, "thread-42/reports/report--ABCDEFGH.txt")
 
-        self.assertEqual(key, f"giga_agent/{owner_id}/chart--ABCDEFGH.plotly.json")
-
-    async def test_uniquify_s3_key_keeps_subdirectories(self):
+    async def test_s3_key_for_relative_path_adds_user_prefix(self):
         sandbox = self._sandbox()
-        owner_id = uuid.uuid4()
-        with patch.object(sandbox, "_random_key_suffix", return_value="ABCDEFGH"):
-            key = await sandbox._uniquify_s3_key(
-                owner_id=owner_id, file_name="thread-42/reports/report.txt"
-            )
+        key = sandbox._s3_key_for_relative_path("thread-42/reports/report.txt")
         self.assertEqual(
-            key, f"giga_agent/{owner_id}/thread-42/reports/report--ABCDEFGH.txt"
+            key,
+            f"giga_agent/{sandbox.owner_id}/thread-42/reports/report.txt",
+        )
+
+    async def test_ensure_user_prefix_exists_creates_marker_object_when_missing(self):
+        sandbox = self._sandbox()
+        fake_client = _FakeS3Client()
+
+        with patch("aioboto3.Session", return_value=_FakeSession(fake_client)):
+            await sandbox._ensure_user_prefix_exists()
+
+        self.assertEqual(
+            fake_client.put_calls,
+            [
+                {
+                    "Bucket": "bucket",
+                    "Key": f"giga_agent/{sandbox.owner_id}/",
+                    "Body": b"",
+                }
+            ],
         )
 
     async def test_upload_file_returns_mount_path(self):
         sandbox = self._sandbox()
-        owner_id = uuid.uuid4()
         fake_client = _FakeS3Client()
 
         with (
             patch("aioboto3.Session", return_value=_FakeSession(fake_client)),
             patch.object(
                 sandbox,
-                "_uniquify_s3_key",
-                AsyncMock(return_value=f"giga_agent/{owner_id}/file--ABCDEFGH.txt"),
+                "_uniquify_relative_s3_path",
+                return_value="file--ABCDEFGH.txt",
             ),
         ):
             sandbox_path = await sandbox.upload_file(
-                owner_id=owner_id,
+                owner_id=sandbox.owner_id,
                 file_name="file.txt",
                 content=b"abc",
             )
 
-        self.assertEqual(sandbox_path, f"/bucket/giga_agent/{owner_id}/file--ABCDEFGH.txt")
-        self.assertEqual(fake_client.put_calls[0]["Key"], f"giga_agent/{owner_id}/file--ABCDEFGH.txt")
+        self.assertEqual(sandbox_path, "/bucket/file--ABCDEFGH.txt")
+        self.assertEqual(fake_client.put_calls[0]["Key"], f"giga_agent/{sandbox.owner_id}/")
+        self.assertEqual(
+            fake_client.put_calls[1]["Key"],
+            f"giga_agent/{sandbox.owner_id}/file--ABCDEFGH.txt",
+        )
+
+    async def test_upload_file_keeps_nested_paths_under_user_prefix(self):
+        sandbox = self._sandbox()
+        fake_client = _FakeS3Client()
+
+        with (
+            patch("aioboto3.Session", return_value=_FakeSession(fake_client)),
+            patch.object(
+                sandbox,
+                "_uniquify_relative_s3_path",
+                return_value="thread-42/reports/report--ABCDEFGH.txt",
+            ),
+        ):
+            sandbox_path = await sandbox.upload_file(
+                owner_id=sandbox.owner_id,
+                file_name="thread-42/reports/report.txt",
+                content=b"abc",
+            )
+
+        self.assertEqual(sandbox_path, "/bucket/thread-42/reports/report--ABCDEFGH.txt")
+        self.assertEqual(
+            fake_client.put_calls[1]["Key"],
+            f"giga_agent/{sandbox.owner_id}/thread-42/reports/report--ABCDEFGH.txt",
+        )
 
     async def test_read_file_returns_redirect_for_s3(self):
         sandbox = self._sandbox()
@@ -131,7 +179,9 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsInstance(result, RedirectResult)
         self.assertEqual(result.url, "https://signed.example.local")
-        mocked.assert_awaited_once_with(key="u/report.txt", expires_in=3600)
+        mocked.assert_awaited_once_with(
+            key=f"giga_agent/{sandbox.owner_id}/u/report.txt", expires_in=3600
+        )
 
     async def test_read_file_returns_content_for_html(self):
         sandbox = self._sandbox()
@@ -145,7 +195,7 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 sandbox,
                 "_download_s3_object",
                 AsyncMock(return_value=b"<html></html>"),
-            ),
+            ) as mocked_download,
         ):
             result = await sandbox.read_file("/bucket/u/page.html")
 
@@ -153,6 +203,9 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.data, b"<html></html>")
         self.assertEqual(result.media_type, "text/html")
         self.assertTrue(result.inline)
+        mocked_download.assert_awaited_once_with(
+            f"giga_agent/{sandbox.owner_id}/u/page.html"
+        )
 
     async def test_read_file_returns_stream_for_large_file(self):
         sandbox = self._sandbox()
@@ -173,12 +226,27 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 sandbox,
                 "_stream_s3_object",
                 AsyncMock(return_value=mock_stream_result),
-            ),
+            ) as mocked_stream,
         ):
             result = await sandbox.read_file("/bucket/u/big.bin")
 
         self.assertIsInstance(result, StreamResult)
         self.assertEqual(result.content_length, large_size)
+        mocked_stream.assert_awaited_once_with(
+            f"giga_agent/{sandbox.owner_id}/u/big.bin",
+            media_type="application/octet-stream",
+            inline=False,
+            content_length=large_size,
+        )
+
+    async def test_delete_file_resolves_bucket_path_with_user_prefix(self):
+        sandbox = self._sandbox()
+        with patch.object(sandbox, "_delete_s3_object", AsyncMock()) as mocked_delete:
+            await sandbox.delete_file("/bucket/u/to-delete.txt")
+
+        mocked_delete.assert_awaited_once_with(
+            f"giga_agent/{sandbox.owner_id}/u/to-delete.txt"
+        )
 
     async def test_read_file_returns_content_for_non_s3(self):
         sandbox = self._sandbox()

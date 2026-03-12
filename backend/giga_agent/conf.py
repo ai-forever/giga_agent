@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     giga_agent_local_sandbox_enabled: bool = Field(
         True, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
     )
+    giga_agent_local_docker_image: str = Field(
+        "mikelarg/code-interpreter:0.0.5",
+        alias="GIGA_AGENT_LOCAL_DOCKER_IMAGE",
+    )
     giga_agent_local_docker_memory_limit_mb: int = Field(
         512, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
     )
@@ -172,6 +176,22 @@ class Settings(BaseSettings):
     )
     giga_agent_sandbox_starting_ttl_sec: int = Field(
         120, alias="GIGA_AGENT_SANDBOX_STARTING_TTL_SEC"
+    )
+    giga_agent_sandbox_orphan_sweeper_enabled: bool = Field(
+        True, alias="GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_ENABLED"
+    )
+    giga_agent_sandbox_orphan_sweeper_interval_sec: int = Field(
+        120, alias="GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC"
+    )
+    giga_agent_sandbox_orphan_sweeper_lock_key: str = Field(
+        "sandbox:orphan-cleanup:lock",
+        alias="GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY",
+    )
+    giga_agent_sandbox_orphan_sweeper_lock_ttl_sec: int = Field(
+        110, alias="GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC"
+    )
+    giga_agent_sandbox_orphan_sweeper_concurrency: int = Field(
+        1, alias="GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY"
     )
 
     @field_validator("giga_agent_prefix_api", mode="after")
@@ -243,6 +263,21 @@ class Settings(BaseSettings):
     def _min_starting_ttl(cls, value: int) -> int:
         return max(value, 10)
 
+    @field_validator("giga_agent_sandbox_orphan_sweeper_interval_sec", mode="after")
+    @classmethod
+    def _min_orphan_interval(cls, value: int) -> int:
+        return max(value, 10)
+
+    @field_validator("giga_agent_sandbox_orphan_sweeper_lock_ttl_sec", mode="after")
+    @classmethod
+    def _min_orphan_lock_ttl(cls, value: int) -> int:
+        return max(value, 5)
+
+    @field_validator("giga_agent_sandbox_orphan_sweeper_concurrency", mode="after")
+    @classmethod
+    def _min_orphan_concurrency(cls, value: int) -> int:
+        return max(value, 1)
+
     @field_validator("giga_agent_scraper_total_concurrency", mode="after")
     @classmethod
     def _min_scraper_total_concurrency(cls, value: int) -> int:
@@ -288,6 +323,21 @@ GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_TTL_SEC = (
     get_settings().giga_agent_sandbox_idle_sweeper_lock_ttl_sec
 )
 GIGA_AGENT_SANDBOX_STARTING_TTL_SEC = get_settings().giga_agent_sandbox_starting_ttl_sec
+GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_ENABLED = (
+    get_settings().giga_agent_sandbox_orphan_sweeper_enabled
+)
+GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC = (
+    get_settings().giga_agent_sandbox_orphan_sweeper_interval_sec
+)
+GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY = (
+    get_settings().giga_agent_sandbox_orphan_sweeper_lock_key
+)
+GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC = (
+    get_settings().giga_agent_sandbox_orphan_sweeper_lock_ttl_sec
+)
+GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY = (
+    get_settings().giga_agent_sandbox_orphan_sweeper_concurrency
+)
 GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
 GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY = (
     get_settings().giga_agent_startup_migrations_lock_key

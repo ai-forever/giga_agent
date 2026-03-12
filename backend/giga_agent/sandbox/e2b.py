@@ -56,6 +56,9 @@ class E2BSandbox(JupyterSandbox):
     idle_timeout: int = Field(
         default=300, description="Sandbox timeout in seconds (from provider)"
     )
+    owner_id: Optional[uuid.UUID] = Field(
+        default=None, description="Sandbox owner id (runtime only)"
+    )
 
     # S3 FUSE настройки (обязательные)
     s3_bucket: str = Field(..., description="S3 bucket name")
@@ -74,10 +77,11 @@ class E2BSandbox(JupyterSandbox):
     )
 
     # Исключаем connection-поля из provider settings schema
-    _runtime_fields = JupyterSandbox._runtime_fields | {"jupyter_token"}
+    _runtime_fields = JupyterSandbox._runtime_fields | {"jupyter_token", "owner_id"}
 
     # --- Private ---
     _e2b_sandbox: Any = PrivateAttr(default=None)
+    _s3_prefix_ready: bool = PrivateAttr(default=False)
 
     def model_post_init(self, __context: Any) -> None:
         # Восстанавливаем _token из сохранённого jupyter_token (при восстановлении из БД)
@@ -183,6 +187,8 @@ class E2BSandbox(JupyterSandbox):
         self.external_id = self._e2b_sandbox.sandbox_id
         logger.info(f"E2B sandbox created: {self.external_id}")
 
+        await self._ensure_user_prefix_exists()
+
         # Настраиваем S3 FUSE mount
         await self._mount_s3()
 
@@ -202,8 +208,10 @@ class E2BSandbox(JupyterSandbox):
         await self._wait_for_jupyter()
 
     async def _mount_s3(self) -> None:
-        """Монтирует S3 бакет через s3fs FUSE."""
-        logger.info(f"Mounting S3 bucket '{self.s3_bucket}'...")
+        """Монтирует пользовательский префикс S3 через s3fs FUSE."""
+        owner_id = self._require_owner_id()
+        bucket_with_prefix = f"{self.s3_bucket}:/{self._user_s3_prefix(owner_id)}"
+        logger.info(f"Mounting S3 prefix '{bucket_with_prefix}'...")
 
         await self._e2b_sandbox.commands.run(
             f"mkdir -p {S3_MOUNT_PREFIX}",
@@ -217,7 +225,7 @@ class E2BSandbox(JupyterSandbox):
         )
 
         s3_cmd_parts = [
-            f"s3fs {self.s3_bucket} {S3_MOUNT_PREFIX}",
+            f"s3fs {shlex.quote(bucket_with_prefix)} {shlex.quote(S3_MOUNT_PREFIX)}",
             f"-o url={self.s3_endpoint}",
             f"-o endpoint={self.s3_region}",
             "-o use_path_request_style",
@@ -258,9 +266,9 @@ class E2BSandbox(JupyterSandbox):
         content: bytes,
     ) -> str:
         """
-        Загружает файл в S3 under giga_agent/{owner_id}/ с uniquify.
+        Загружает файл в пользовательский S3 prefix с uniquify.
 
-        Возвращает sandbox_path вида /bucket/{key}.
+        Возвращает sandbox_path вида /bucket/{relative_path}.
         """
         import aioboto3
         from botocore.exceptions import BotoCoreError, ClientError
@@ -269,7 +277,9 @@ class E2BSandbox(JupyterSandbox):
         if not clean_name:
             raise ValueError("file_name must not be empty")
 
-        key = await self._uniquify_s3_key(owner_id=owner_id, file_name=clean_name)
+        await self._ensure_user_prefix_exists(owner_id=owner_id)
+        rel_path = self._uniquify_relative_s3_path(file_name=clean_name)
+        key = self._s3_key_for_relative_path(rel_path, owner_id=owner_id)
 
         content_type, _ = mimetypes.guess_type(clean_name)
         if not content_type:
@@ -295,14 +305,13 @@ class E2BSandbox(JupyterSandbox):
                         ContentType=content_type,
                         IfNoneMatch="*",
                     )
-                    return f"{S3_MOUNT_PREFIX}{key}"
+                    return f"{S3_MOUNT_PREFIX}{rel_path}"
             except ClientError as e:
                 code = (e.response.get("Error") or {}).get("Code")
                 # Межпоточная гонка на имя: генерируем следующее имя и повторяем.
                 if code in {"PreconditionFailed", "412"}:
-                    key = await self._uniquify_s3_key(
-                        owner_id=owner_id, file_name=clean_name
-                    )
+                    rel_path = self._uniquify_relative_s3_path(file_name=clean_name)
+                    key = self._s3_key_for_relative_path(rel_path, owner_id=owner_id)
                     last_error = e
                     continue
                 raise RuntimeError(f"S3 upload failed: {e}") from e
@@ -397,13 +406,8 @@ class E2BSandbox(JupyterSandbox):
         return path.startswith(S3_MOUNT_PREFIX)
 
     def _s3_key_from_sandbox_path(self, path: str) -> str:
-        if not self._is_s3_path(path):
-            raise ValueError(f"Path '{path}' is not under S3 mount '{S3_MOUNT_PREFIX}'")
-
-        key = path[len(S3_MOUNT_PREFIX) :].strip("/")
-        if not key:
-            raise ValueError(f"Path '{path}' does not contain a valid S3 object key")
-        return key
+        rel_path = self._relative_path_from_sandbox_path(path)
+        return self._s3_key_for_relative_path(rel_path)
 
     async def _get_s3_object_size(self, key: str) -> int:
         """Возвращает размер объекта в S3 (в байтах)."""
@@ -560,14 +564,17 @@ class E2BSandbox(JupyterSandbox):
         except BotoCoreError as e:
             raise RuntimeError(f"Failed to generate S3 URL for '{key}': {e}") from e
 
-    async def _uniquify_s3_key(self, owner_id: uuid.UUID, file_name: str) -> str:
+    def _validate_relative_file_name(self, file_name: str) -> PurePosixPath:
         clean = file_name.strip().replace("\\", "/").lstrip("/")
         path = PurePosixPath(clean)
         if path.name in {"", ".", ".."}:
             raise ValueError("file_name must contain a valid file name")
         if any(part in {".", ".."} for part in path.parts):
             raise ValueError("file_name must not contain '.' or '..' path segments")
+        return path
 
+    def _uniquify_relative_s3_path(self, file_name: str) -> str:
+        path = self._validate_relative_file_name(file_name)
         suffix_id = self._random_key_suffix()
         plotly_json_suffix = ".plotly.json"
         name = path.name
@@ -591,8 +598,85 @@ class E2BSandbox(JupyterSandbox):
             else [p for p in parent.parts if p not in {"", "."}]
         )
 
-        key_parts = [_S3_KEY_PREFIX, str(owner_id), *parent_parts, candidate_name]
-        return "/".join(key_parts)
+        rel_path = (
+            PurePosixPath(*parent_parts, candidate_name)
+            if parent_parts
+            else PurePosixPath(candidate_name)
+        )
+        return rel_path.as_posix()
+
+    def _relative_path_from_sandbox_path(self, path: str) -> str:
+        if not self._is_s3_path(path):
+            raise ValueError(f"Path '{path}' is not under S3 mount '{S3_MOUNT_PREFIX}'")
+
+        rel_path = path[len(S3_MOUNT_PREFIX) :].strip("/")
+        if not rel_path:
+            raise ValueError(f"Path '{path}' does not contain a valid relative path")
+
+        validated = self._validate_relative_file_name(rel_path)
+        return validated.as_posix()
+
+    def _s3_key_for_relative_path(
+        self,
+        rel_path: str,
+        *,
+        owner_id: uuid.UUID | None = None,
+    ) -> str:
+        validated = self._validate_relative_file_name(rel_path)
+        return f"{self._user_s3_prefix(owner_id)}/{validated.as_posix()}"
+
+    def _user_s3_prefix(self, owner_id: uuid.UUID | None = None) -> str:
+        resolved_owner_id = owner_id or self._require_owner_id()
+        return f"{_S3_KEY_PREFIX}/{resolved_owner_id}"
+
+    def _user_s3_marker_key(self, owner_id: uuid.UUID | None = None) -> str:
+        return f"{self._user_s3_prefix(owner_id)}/"
+
+    def _require_owner_id(self) -> uuid.UUID:
+        if self.owner_id is None:
+            raise RuntimeError("owner_id is required for E2B S3 user root")
+        return self.owner_id
+
+    async def _ensure_user_prefix_exists(
+        self,
+        *,
+        owner_id: uuid.UUID | None = None,
+    ) -> None:
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        resolved_owner_id = owner_id or self._require_owner_id()
+        if self._s3_prefix_ready and resolved_owner_id == self.owner_id:
+            return
+
+        marker_key = self._user_s3_marker_key(resolved_owner_id)
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                try:
+                    await s3.head_object(Bucket=self.s3_bucket, Key=marker_key)
+                except ClientError as e:
+                    code = (e.response.get("Error") or {}).get("Code")
+                    if code not in {"NoSuchKey", "404"}:
+                        raise
+                    await s3.put_object(
+                        Bucket=self.s3_bucket,
+                        Key=marker_key,
+                        Body=b"",
+                    )
+        except ClientError as e:
+            raise RuntimeError(f"Failed to ensure S3 prefix '{marker_key}': {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"Failed to ensure S3 prefix '{marker_key}': {e}") from e
+
+        if resolved_owner_id == self.owner_id:
+            self._s3_prefix_ready = True
 
     def _random_key_suffix(self) -> str:
         return "".join(secrets.choice(_S3_SUFFIX_ALPHABET) for _ in range(8))

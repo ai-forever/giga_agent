@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, Field
 
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
@@ -452,6 +453,27 @@ class LLMsRouterTests(unittest.TestCase):
         self.assertEqual(response.json(), schema_payload)
         self.assertEqual(mocked_resolve.call_args.args[0], "openai")
 
+    def test_get_llm_settings_schema_materializes_default_factory(self):
+        class _SchemaStub(BaseModel):
+            temperature: float = Field(default_factory=lambda: 0.7)
+
+        class _RuntimeStub:
+            @classmethod
+            def settings_schema(cls):
+                return _SchemaStub
+
+        with patch(
+            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+            return_value=_RuntimeStub,
+        ):
+            response = self.client.get("/llms/types/openai/settings-schema")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["properties"]["temperature"]["default"],
+            0.7,
+        )
+
     def test_get_llm_settings_schema_returns_422_for_unknown_type(self):
         response = self.client.get("/llms/types/unknown-runtime/settings-schema")
 
@@ -749,3 +771,82 @@ class LLMsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         mocked_update.assert_not_awaited()
+
+    def test_patch_llm_allows_null_name(self):
+        llm_id = uuid.uuid4()
+        existing = self._llm_obj(llm_id=llm_id, llm_type="openai")
+        updated = self._llm_obj(llm_id=llm_id, llm_type="openai")
+        updated.name = None
+        connector = self._connector_obj(connector_id=existing.connector_id)
+
+        with patch(
+            "giga_agent.routes.llms._get_llm_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.llms._validate_llm_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.llms.LLMRepository.update",
+            AsyncMock(return_value=updated),
+        ) as mocked_update, patch(
+            "giga_agent.routes.llms.LLMRepository.to_response",
+            return_value=self._llm_payload(updated),
+        ), patch(
+            "giga_agent.routes.llms.cache.delete_tags",
+            AsyncMock(return_value=None),
+        ):
+            response = self.client.patch(
+                f"/llms/{llm_id}",
+                json={"name": None, "check_connection": False},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["name"])
+        self.assertIsNone(mocked_update.await_args.kwargs["name"])
+
+    def test_patch_llm_rejects_null_model_id(self):
+        llm_id = uuid.uuid4()
+        existing = self._llm_obj(llm_id=llm_id, llm_type="openai")
+        connector = self._connector_obj(connector_id=existing.connector_id)
+
+        with patch(
+            "giga_agent.routes.llms._get_llm_with_write_check",
+            AsyncMock(return_value=existing),
+        ), patch(
+            "giga_agent.routes.llms._validate_connector_link",
+            AsyncMock(return_value=connector.id),
+        ), patch(
+            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+            AsyncMock(return_value=connector),
+        ), patch(
+            "giga_agent.routes.llms._validate_llm_connector_compatibility",
+            return_value=None,
+        ), patch(
+            "giga_agent.routes.llms.LLMRepository.update",
+            AsyncMock(),
+        ) as mocked_update:
+            response = self.client.patch(
+                f"/llms/{llm_id}",
+                json={"model_id": None, "check_connection": False},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            "model_id must not be null when provided",
+        )
+        mocked_update.assert_not_awaited()
+
+    def test_patch_llm_rejects_unknown_fields(self):
+        response = self.client.patch(
+            f"/llms/{uuid.uuid4()}",
+            json={"unknown_field": "value"},
+        )
+
+        self.assertEqual(response.status_code, 422)
