@@ -57,7 +57,7 @@ export default function EmptyCollectionsState() {
           onOpenChange={setOpen}
           onSubmit={handleSubmit}
           trigger={
-            <Button size="lg" className="mt-4 gap-2">
+            <Button variant={"default2"} size="lg" className="mt-4 gap-2">
               <FolderPlus className="h-4 w-4" />
               Создать новую папку
             </Button>

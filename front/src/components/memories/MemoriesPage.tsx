@@ -68,7 +68,7 @@ const MemoriesPage: React.FC = () => {
       if (e instanceof ApiError && e.isConflict()) {
         setItems([]);
         setError(
-          "Долгосрочная память отключена: подключите модель Embeddings в настройках пользователя.",
+          "Факты о вас отключены: подключите модель Embeddings в настройках пользователя.",
         );
         return;
       }
@@ -129,7 +129,7 @@ const MemoriesPage: React.FC = () => {
       <Card className="bg-card max-w-[900px] w-full mx-auto border-0 shadow-md">
         <CardContent className="flex flex-col space-y-6 px-6">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold">Долгосрочная память</h1>
+            <h1 className="text-xl font-semibold">Факты о вас</h1>
             <div className="flex gap-2">
               <AlertDialog>
                 <AlertDialogTrigger asChild>

@@ -40,6 +40,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { Switch } from "@/components/ui/switch";
+import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,7 +57,9 @@ interface InputAreaProps {
 }
 
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
+  const navigate = useNavigate();
   const [message, setMessage] = useState("");
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -65,7 +68,13 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
 
-  const { collections, activeCollections } = useRagContext();
+  const {
+    collections,
+    activeCollections,
+    getCollections,
+    initialSearchExecuted,
+    initialFetch,
+  } = useRagContext();
   const { settings, setSettings } = useSettings();
   const { user } = useAuth();
   const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
@@ -172,6 +181,18 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     autoResize();
   }, [message]);
 
+  useEffect(() => {
+    if (!window.matchMedia) return;
+
+    const media = window.matchMedia("(pointer: coarse)");
+    const updateIsMobileDevice = () => setIsMobileDevice(media.matches);
+
+    updateIsMobileDevice();
+    media.addEventListener("change", updateIsMobileDevice);
+
+    return () => media.removeEventListener("change", updateIsMobileDevice);
+  }, []);
+
   const handleContinue = useCallback(
     async (type: "comment" | "approve") => {
       if (
@@ -251,6 +272,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isMobileDevice) return;
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
@@ -269,6 +292,32 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
       e.target.value = "";
     }
   };
+
+  const handleOpenDocuments = useCallback(async () => {
+    if (collections.length > 0) {
+      openCollectionsModal();
+      return;
+    }
+
+    if (!initialSearchExecuted) {
+      await initialFetch();
+    }
+
+    const latestCollections = await getCollections().catch(() => []);
+    if (latestCollections.length > 0) {
+      openCollectionsModal();
+      return;
+    }
+
+    navigate("/rag");
+  }, [
+    collections.length,
+    getCollections,
+    initialFetch,
+    initialSearchExecuted,
+    navigate,
+    openCollectionsModal,
+  ]);
 
   return (
     <div className="p-4 bg-card dark:bg-input border-border rounded-lg shadow-[2px_2px_12px_6px_rgba(0,0,0,0.04)] dark:shadow-[2px_2px_12px_6px_rgba(0,0,0,0.14)] print:hidden border-t-1 border-highlight">
@@ -293,16 +342,20 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                 <Settings2 />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="input-dropdown" align="start" sideOffset={3}>
+            <DropdownMenuContent
+              className="input-dropdown"
+              align="start"
+              sideOffset={3}
+            >
               <DropdownMenuItem onSelect={openContextModal}>
                 <Brain className={"size-5"} />
-                <span>Контекст</span>
+                <span>Персонализация</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={openMcpModal}>
                 <Cog className={"size-5"} />
                 <span>Инструменты</span>
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={openCollectionsModal}>
+              <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
                 <Files className={"size-5"} />
                 <span>Документы</span>
               </DropdownMenuItem>
@@ -408,14 +461,14 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           )}
         </div>
         <label className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none">
-            <span>Автономность</span>
-            <Switch
-              checked={settings.autoApprove ?? false}
-              onCheckedChange={(checked) =>
-                setSettings((prev) => ({ ...prev, autoApprove: checked }))
-              }
-            />
-          </label>
+          <span>Автономность</span>
+          <Switch
+            checked={settings.autoApprove ?? false}
+            onCheckedChange={(checked) =>
+              setSettings((prev) => ({ ...prev, autoApprove: checked }))
+            }
+          />
+        </label>
       </div>
 
       {uploads.length > 0 && (
