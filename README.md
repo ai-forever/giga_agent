@@ -98,7 +98,7 @@ GigaAgent включает **13 готовых модулей** для разн�
 | **REPL**           | `repl`             | Выполнение Python и shell команд в sandbox                                       |
 | **Image**          | `image`            | Генерация изображений (GigaChat, FusionBrain, OpenAI)                            |
 | **Analyze Images** | `analyze_images`   | Анализ изображений через multimodal LLM                                          |
-| **Search**         | `search`           | Веб-поиск через Tavily                                                           |
+| **Search**         | `search`           | Веб-поиск через                                                         |
 | **Scraper**        | `scraper`          | Извлечение контента с веб-страниц (Jina AI Reader)                               |
 | **RAG**            | `rag`              | Retrieval Augmented Generation с векторным поиском                               |
 | **GitHub**         | `github`           | Интеграция с GitHub API                                                          |
@@ -106,7 +106,7 @@ GigaAgent включает **13 готовых модулей** для разн�
 | **Weather**        | `weather`          | Получение прогноза погоды                                                        |
 | **Mem0**           | `mem_zero_memory`  | Долговременная память агента                                                     |
 | **Subagents**      | `subagents_legacy` | Специализированные субагенты (landing, presentation, meme, podcast, lean_canvas) |
-| **MCP**            | `frontend_mcp`     | Model Context Protocol интеграция                                                |
+| **MCP**            | `frontend_mcp`     | Вызов MCP-тулов на стороне фронтенда пользователя                                                |
 
 
 ### 🐳 Sandbox Providers
@@ -170,7 +170,7 @@ GigaAgent включает **13 готовых модулей** для разн�
 **LLM Providers:**
 
 - OpenAI (GPT-4, GPT-3.5)
-- GigaChat (Сбер)
+- GigaChat
 - Anthropic (Claude)
 - Любые модели через LangChain
 
