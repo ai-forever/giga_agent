@@ -209,6 +209,8 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
         system_prompt=research_instructions,
         subagents=[critique_sub_agent, research_sub_agent],
     ).with_config({"recursion_limit": 1000})
+    config = runtime.config.copy()
+    config['recursion_limit'] = 10000
     async for chunk in agent.astream(
         input={
             "messages": runtime.state["messages"][:-1]
@@ -218,7 +220,7 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
             ],
         },
         stream_mode=["values"],
-        config=runtime.config,
+        config=config,
     ):
         if chunk[0] == "values":
             result_state = chunk[1]
