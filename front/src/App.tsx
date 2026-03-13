@@ -13,7 +13,6 @@ import {
 import Sidebar from "./components/Sidebar.tsx";
 import DemoSettings from "./components/demo/DemoSettings.tsx";
 import { DemoItemsProvider, useDemoItems } from "./hooks/DemoItemsProvider.tsx";
-import DemoChat from "./components/demo/DemoChat.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "./interfaces.ts";
 import { RagProvider } from "@/components/rag/providers/RAG.tsx";
@@ -125,57 +124,47 @@ const AppRoutes: React.FC<{
   onNavigateAndReload: () => void;
   onThreadIdChange: (threadId: string) => void;
   onThreadReady: (thread: UseStream<GraphState>) => void;
-}> = React.memo(
-  ({ reloadKey, onNavigateAndReload, onThreadIdChange, onThreadReady }) => {
-    return (
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Chat
-              key={reloadKey}
-              onThreadIdChange={onThreadIdChange}
-              onThreadReady={onThreadReady}
-            />
-          }
-        />
-        <Route
-          path="/threads/:threadId"
-          element={
-            <Chat
-              key={reloadKey}
-              onThreadIdChange={onThreadIdChange}
-              onThreadReady={onThreadReady}
-            />
-          }
-        />
-        <Route
-          path="/demo/:demoIndex"
-          element={
-            <DemoChat
-              key={reloadKey}
-              onContinue={onNavigateAndReload}
-              onThreadIdChange={onThreadIdChange}
-              onThreadReady={onThreadReady}
-            />
-          }
-        />
-        <Route path="/oauth/callback" element={<OAuthCallback />} />
-        <Route path="/rag" element={<RAGInterface />} />
-        <Route path="/memories" element={<MemoriesPage />} />
-        <Route path="/demo/settings" element={<DemoSettings />} />
-        <Route path="/settings" element={<Navigate to="/settings/general" replace />} />
-        <Route path="/settings/:tab" element={<SettingsPage />} />
-        <Route
-          path="/admin-panel"
-          element={<Navigate to="/admin-panel/users" replace />}
-        />
-        <Route path="/admin-panel/users" element={<AdminPanelPage />} />
-        <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
-      </Routes>
-    );
-  },
-);
+}> = React.memo(({ reloadKey, onThreadIdChange, onThreadReady }) => {
+  return (
+    <Routes>
+      <Route
+        path="/"
+        element={
+          <Chat
+            key={reloadKey}
+            onThreadIdChange={onThreadIdChange}
+            onThreadReady={onThreadReady}
+          />
+        }
+      />
+      <Route
+        path="/threads/:threadId"
+        element={
+          <Chat
+            key={reloadKey}
+            onThreadIdChange={onThreadIdChange}
+            onThreadReady={onThreadReady}
+          />
+        }
+      />
+      <Route path="/oauth/callback" element={<OAuthCallback />} />
+      <Route path="/rag" element={<RAGInterface />} />
+      <Route path="/memories" element={<MemoriesPage />} />
+      <Route path="/demo/settings" element={<DemoSettings />} />
+      <Route
+        path="/settings"
+        element={<Navigate to="/settings/general" replace />}
+      />
+      <Route path="/settings/:tab" element={<SettingsPage />} />
+      <Route
+        path="/admin-panel"
+        element={<Navigate to="/admin-panel/users" replace />}
+      />
+      <Route path="/admin-panel/users" element={<AdminPanelPage />} />
+      <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
+    </Routes>
+  );
+});
 
 AppRoutes.displayName = "AppRoutes";
 
