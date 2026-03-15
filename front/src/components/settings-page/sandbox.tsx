@@ -77,7 +77,6 @@ function formatDateTime(value?: string | null): string {
   }).format(parsed);
 }
 
-
 interface ProviderCardProps {
   provider: SandboxProviderResponse;
   isUserActive: boolean;
@@ -98,7 +97,7 @@ const ProviderCard: React.FC<ProviderCardProps> = ({
   disabled,
 }) => {
   return (
-    <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
+    <div className="flex items-center justify-between p-4 flex-wrap border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="font-medium">

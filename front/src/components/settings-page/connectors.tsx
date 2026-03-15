@@ -56,7 +56,7 @@ const ConnectorItem: React.FC<ConnectorItemProps> = ({
   onDelete,
 }) => {
   return (
-    <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
+    <div className="flex items-center justify-between p-4 flex-wrap border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col gap-1">
         <span className="font-medium">{connector.name || connector.type}</span>
         <span className="text-xs text-muted-foreground">

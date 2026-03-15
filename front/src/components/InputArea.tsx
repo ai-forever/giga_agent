@@ -321,7 +321,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
-      <div className="p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto">
+      <div className="p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden">
         <div className="flex items-end gap-2 relative">
           <input
             className="hidden"
@@ -414,7 +414,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                         onClick={() => handleContinue("comment")}
                         disabled={thread.isLoading || isMCPLoading}
                         title="Отменить выполнение"
-                        className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
+                        className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex z-8 items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
                       >
                         <X />
                       </motion.button>
@@ -434,7 +434,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                             onClick={() => handleContinue("approve")}
                             disabled={thread.isLoading || isMCPLoading}
                             title="Подтвердить выполнение"
-                            className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-67"
+                            className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center z-8 transition-colors hover:bg-green-700 disabled:opacity-67"
                           >
                             <Check />
                           </motion.button>

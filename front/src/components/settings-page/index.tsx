@@ -76,7 +76,7 @@ const SettingsPage: React.FC = () => {
         </div>
 
         {/* Tab badges */}
-        <div className="flex gap-2 p-4 border-b border-border">
+        <div className="flex flex-none overflow-x-auto gap-2 p-4 border-b border-border">
           {tabs.map((tab) => (
             <Badge
               key={tab.id}

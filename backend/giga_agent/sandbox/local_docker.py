@@ -11,7 +11,7 @@ from typing import Any, Optional
 import aiofiles
 import aiofiles.os
 import docker
-from docker.errors import NotFound
+from docker.errors import NotFound, DockerException
 from docker.types import Ulimit
 from pydantic import Field, PrivateAttr
 
@@ -569,6 +569,9 @@ class LocalDockerSandbox(JupyterSandbox):
                         clear_runtime_connection=True,
                     )
                 )
+        except DockerException as e:
+            pass
+            return []
         finally:
             if client is not None:
                 try:

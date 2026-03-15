@@ -64,6 +64,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const { isDark } = useTheme();
   const { user, logout, token } = useAuth();
   const THREADS_PAGE_SIZE = 50;
+  const SIDEBAR_WIDTH = 270;
 
   const activeThreadId = useMemo(() => {
     const match = location.pathname.match(/^\/threads\/([^/?#]+)/);
@@ -360,19 +361,27 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       : user.email
     : "";
 
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSettings({ ...settings, ...{ sideBarOpen: !settings.sideBarOpen } });
+  };
+
+  const closeSidebarOnMobile = () => {
+    if (window.innerWidth <= 900 && settings.sideBarOpen) {
+      setSettings({ ...settings, sideBarOpen: false });
+    }
+  };
+
   const handleLogout = () => {
+    closeSidebarOnMobile();
     logout();
     navigate("/login");
   };
 
   const handleProfile = () => {
     // TODO: Реализовать страницу профиля
+    closeSidebarOnMobile();
     navigate("/profile");
-  };
-
-  const toggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSettings({ ...settings, ...{ sideBarOpen: !settings.sideBarOpen } });
   };
 
   const handleDemo = (e: React.MouseEvent) => {
@@ -382,19 +391,33 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
   const handleAdminPanel = (e: Event) => {
     e.stopPropagation();
+    closeSidebarOnMobile();
     navigate("/admin-panel/users");
   };
 
-  const handleSettings = () => navigate("/settings");
-  const handleRag = () => navigate("/rag");
-  const handleMemories = () => navigate("/memories");
+  const handleSettings = () => {
+    closeSidebarOnMobile();
+    navigate("/settings");
+  };
+
+  const handleRag = () => {
+    closeSidebarOnMobile();
+    navigate("/rag");
+  };
+
+  const handleMemories = () => {
+    closeSidebarOnMobile();
+    navigate("/memories");
+  };
 
   const handleNewChat = () => {
+    closeSidebarOnMobile();
     navigate("/");
     onNewChat();
   };
 
   const handleOpenThread = (threadId: string) => {
+    closeSidebarOnMobile();
     navigate(`/threads/${threadId}`);
   };
 
@@ -500,7 +523,18 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     <>
       {/* Overlay (только мобильные) */}
       <div
-        onClick={toggle}
+        onClick={(e) => {
+          const clickX = (e as React.MouseEvent).clientX;
+          const targetEl = e.target as HTMLElement;
+
+          if (
+            clickX < SIDEBAR_WIDTH ||
+            targetEl.closest('[role="menu"]') !== null
+          )
+            return;
+
+          toggle(e);
+        }}
         className={[
           "fixed top-0 left-0 h-full w-full bg-black/50 z-10 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
           settings.sideBarOpen
@@ -509,14 +543,42 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         ].join(" ")}
       />
 
+      <div
+        className={
+          "align-middle items-center p-5 top-0 w-full h-[70px] max-[900px]:flex min-[901px]:hidden"
+        }
+      >
+        <div
+          className="h-10 bg-cover transition-[width] duration-300 ease-in-out opacity-0"
+          style={{
+            width: settings.sideBarOpen ? 156 : 40,
+            backgroundImage: `url(${isDark ? LogoImage : LogoWhiteImage})`,
+          }}
+        />
+        <ChevronRight
+          onClick={toggle}
+          className={"opacity-0"}
+          style={{
+            transform: settings.sideBarOpen ? "rotate(180deg)" : "rotate(0)",
+            marginLeft: "0.5rem",
+          }}
+        />
+      </div>
+
       {/* Sidebar */}
       <div
         className={[
-          "fixed top-0 left-0 h-full w-[270px] p-2 pt-5 z-[10] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
+          "fixed top-0 left-0 h-full p-2 pt-5 z-[11] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
           "bg-background border text-card-foreground",
-          settings.sideBarOpen ? "translate-x-0" : "-translate-x-[280px]",
-          "max-[900px]:rounded-none",
+          settings.sideBarOpen ? "translate-x-0" : "",
         ].join(" ")}
+        style={{
+          width: `${SIDEBAR_WIDTH}px`,
+          transform: settings.sideBarOpen
+            ? undefined
+            : `translateX(-${SIDEBAR_WIDTH + 10}px)`,
+        }}
+        onClick={(e) => e.stopPropagation()}
       >
         <div
           className="h-10 bg-cover transition-[width] duration-300 ease-in-out mb-2 opacity-0"
@@ -807,7 +869,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       </AlertDialog>
 
       {/* Opener button */}
-      <div className="fixed top-5 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
+      <div className="fixed top-4 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
         <div
           className="h-10 bg-cover transition-[width] duration-300 ease-in-out"
           style={{

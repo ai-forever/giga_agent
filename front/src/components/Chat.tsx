@@ -181,7 +181,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   return (
     <SelectedAttachmentsProvider>
       <div
-        className="flex flex-col w-full h-full max-[900px]:mt-[75px] bg-card overflow-y-auto print:overflow-visible"
+        className="flex grow flex-col w-full bg-card overflow-y-auto print:overflow-visible"
         ref={containerRef}
         onWheel={markUserScrollIntent}
         onTouchStart={markUserScrollIntent}

@@ -53,7 +53,7 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
   disabled,
 }) => {
   return (
-    <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
+    <div className="flex items-center justify-between p-4 flex-wrap border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col gap-1">
         <span className="font-medium">{engine.name || engine.type}</span>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -574,7 +574,9 @@ export const SearchEnginesSettings: React.FC = () => {
       const compactedSettings = compactObject(settingsValues);
 
       if (editingEngineId) {
-        const currentEngine = engines.find((item) => item.id === editingEngineId);
+        const currentEngine = engines.find(
+          (item) => item.id === editingEngineId,
+        );
         if (!currentEngine) return;
 
         const isResourceChanged =

@@ -16,7 +16,10 @@ from giga_agent.models.users import UserShort, UserRepository
 from giga_agent.search_engines.base import BaseSearchEngine
 from giga_agent.search_engines.manager import SearchEngineManager
 
-SecretKey = Literal["TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM"]
+SecretKey = Literal[
+    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE",
+    "SUBAGENTS_LLM", "RESEARCHER_LLM"
+]
 
 
 @dataclass(frozen=True)

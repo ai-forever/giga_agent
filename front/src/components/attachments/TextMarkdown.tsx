@@ -294,6 +294,8 @@ const markdownComponents = {
     const match = /language-(\w+)/.exec(className || "");
     const additionalStyles: React.CSSProperties = {
       padding: "0.2em 0.5em",
+      display: "inline-block",
+      maxWidth: "100%",
     };
     return (
       <SyntaxHighlighter
@@ -315,7 +317,11 @@ const markdownComponents = {
     if (href.startsWith("attachment:")) {
       const path = decodeURI(href.replace(/^attachment:/, ""));
       const fileType = inferAttachmentTypeFromPath(path);
-      if (fileType === "image" || fileType === "audio" || fileType === "video") {
+      if (
+        fileType === "image" ||
+        fileType === "audio" ||
+        fileType === "video"
+      ) {
         return <MessageAttachment path={path} fileType={fileType} />;
       }
       return (

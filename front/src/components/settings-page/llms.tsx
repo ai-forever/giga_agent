@@ -32,7 +32,7 @@ const LLMItem: React.FC<LLMItemProps> = ({
   disabled,
 }) => {
   return (
-    <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
+    <div className="flex items-center justify-between p-4 flex-wrap border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
       <div className="flex flex-col">
         <span className="font-medium">{llm.name || llm.model_id}</span>
         <span className="text-sm text-muted-foreground">{llm.model_id}</span>

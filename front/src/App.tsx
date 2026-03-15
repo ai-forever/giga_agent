@@ -174,8 +174,8 @@ const MainContent: React.FC<{ children: React.ReactNode }> = React.memo(
     return (
       <div
         className={[
-          "flex h-screen w-full mx-auto transition-[margin] duration-300 ease-in-out",
-          "max-[900px]:max-h-[calc(100vh-75px)]",
+          "flex grow min-h-0 transition-[margin] duration-300 ease-in-out",
+          "",
           settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "min-[900px]:ml-0",
           "print:!ml-0",
         ].join(" ")}
@@ -207,7 +207,7 @@ const App: React.FC = () => {
                           path="/*"
                           element={
                             <ProtectedRoute>
-                              <div className="flex h-auto w-full mx-auto print:h-auto">
+                              <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto">
                                 <InnerApp />
                               </div>
                             </ProtectedRoute>

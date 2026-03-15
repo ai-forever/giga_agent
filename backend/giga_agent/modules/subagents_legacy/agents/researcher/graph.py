@@ -1,15 +1,18 @@
+import uuid
 from typing import Literal
 
-from deepagents import create_deep_agent, SubAgent
+from deepagents import create_deep_agent
 from langchain.tools import ToolRuntime
+from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import tool
 
 from giga_agent.core.db import get_session_factory
+from giga_agent.llm.manager import LLMManager
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_runtime,
     normalize_search_result,
     resolve_user_llm,
-    resolve_user_search_engine,
+    resolve_user_search_engine, get_user_secret,
 )
 from giga_agent.modules.subagents_legacy.uploads import (
     build_tool_message,
@@ -137,6 +140,22 @@ research_instructions = """Вы — опытный исследователь. �
 Используйте это для запуска интернет-поиска по заданному запросу. Вы можете указать количество результатов, тему и необходимость включения исходного контента.
 """  # noqa: E501
 
+
+async def _resolve_researcher_llm(user, *, session) -> BaseChatModel:
+    researcher_llm_id = get_user_secret(user, "RESEARCHER_LLM")
+    if researcher_llm_id is not None:
+        try:
+            runtime = await LLMManager.resolve_by_id(
+                uuid.UUID(str(researcher_llm_id).strip()),
+                session=session,
+            )
+            return await runtime.get_llm()
+        except ValueError:
+            pass
+
+    return await resolve_user_llm(user, session=session)
+
+
 def _extract_final_report(result_state: dict) -> str:
     if "files" in result_state and "/final_report.md" in result_state["files"]:
         final_report = result_state["files"]["/final_report.md"]
@@ -146,7 +165,7 @@ def _extract_final_report(result_state: dict) -> str:
             return final_report
     messages = result_state.get("messages") or []
     if messages:
-        return messages[-1].content
+        return str(messages[-1].text)
     return ""
 
 
@@ -156,11 +175,18 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_runtime(runtime, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await _resolve_researcher_llm(user, session=session)
     llm = llm.bind(timeout=120).with_config(tags=["nostream"])
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
     result_state = {}
+    async with factory() as session:
+        current_user = await get_current_user_from_runtime(runtime, session=session)
+        search_engine = await resolve_user_search_engine(
+            current_user,
+            session=session,
+        )
 
+    @tool
     async def internet_search(
         query: str,
         max_results: int = 10,
@@ -169,13 +195,6 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
     ):
         """Функция поиска в интернете"""
         _ = (max_results, topic, include_raw_content)
-        factory = await get_session_factory()
-        async with factory() as session:
-            current_user = await get_current_user_from_runtime(runtime, session=session)
-            search_engine = await resolve_user_search_engine(
-                current_user,
-                session=session,
-            )
         result = await search_engine.search([query])
         return "\n\n".join(normalize_search_result(item) for item in result)
 

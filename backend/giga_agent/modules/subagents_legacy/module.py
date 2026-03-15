@@ -67,6 +67,15 @@ class SubAgentLegacyModule(BaseModule):
                 "description": "LLM для работы внутри субагентов",
                 "type": "llm_id",
             },
+            {
+                "name": "RESEARCHER_LLM",
+                "description": (
+                    "LLM для researcher_agent. "
+                    "Для корректной работы researcher_agent требуется модель "
+                    "с поддержкой 7+ инструментов."
+                ),
+                "type": "llm_id",
+            },
         ]
 
     async def get_tools(
@@ -101,7 +110,7 @@ class SubAgentLegacyModule(BaseModule):
     ) -> str | None:
         _ = agent
         if user is None:
-            return []
+            return ""
 
         caps = get_legacy_capabilities(user)
         instructions: list[str] = []
