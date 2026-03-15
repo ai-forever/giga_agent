@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List, Optional
 
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
+from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule, SecretMetadata
 from giga_agent.models.users import UserShort
 from giga_agent.modules.subagents_legacy.runtime import get_legacy_capabilities
@@ -36,7 +37,8 @@ from giga_agent.modules.subagents_legacy.agents.researcher.graph import (
 class SubAgentLegacyModule(BaseModule):
     id: str = "subagents_legacy"
 
-    def get_subgraphs(self) -> dict[str, str]:
+    def get_subgraphs(self, **kwargs: Any) -> dict[str, str]:
+        _ = kwargs
         return {
             "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
             "presentation": "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph:graph",
@@ -45,7 +47,8 @@ class SubAgentLegacyModule(BaseModule):
             "podcast": "giga_agent.modules.subagents_legacy.agents.podcast.graph:graph",
         }
 
-    def get_secrets(self) -> list[SecretMetadata]:
+    def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
+        _ = kwargs
         return [
             {
                 "name": "TWOGIS_TOKEN",
@@ -106,9 +109,13 @@ class SubAgentLegacyModule(BaseModule):
         return tools
 
     async def get_instructions(
-        self, user: UserShort | None, agent: BaseAgent
+        self,
+        user: UserShort | None,
+        agent: BaseAgent,
+        state: Optional["AgentState"] = None,
+        **kwargs: Any,
     ) -> str | None:
-        _ = agent
+        _ = agent, state, kwargs
         if user is None:
             return ""
 

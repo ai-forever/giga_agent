@@ -124,13 +124,14 @@ class MemZeroMiddleware(AgentMiddleware):
 class MemZeroModule(BaseModule):
     id: str = "mem_zero_memory"
 
-    def get_api_router(self) -> APIRouter:
+    def get_api_router(self, **kwargs: Any) -> APIRouter:
+        _ = kwargs
         from giga_agent.modules.mem_zero_memory.api import router
 
         return router
 
-    async def on_startup(self, session) -> None:
-        _ = session
+    async def on_startup(self, session, **kwargs: Any) -> None:
+        _ = session, kwargs
         global _MEM0_EMBEDDING_SUBSCRIBED
         async with _MEM0_EMBEDDING_SUBSCRIBE_LOCK:
             if _MEM0_EMBEDDING_SUBSCRIBED:
@@ -144,8 +145,9 @@ class MemZeroModule(BaseModule):
         task: str,
         state: "AgentState",
         agent: "BaseAgent",
+        **kwargs: Any,
     ) -> str | None:
-        _ = state, agent
+        _ = state, agent, kwargs
         if user is None or user.embedding_id is None:
             return None
 
@@ -164,5 +166,6 @@ class MemZeroModule(BaseModule):
             return None
         return f"<memory>{formatted}</memory>\n"
 
-    def get_middleware(self) -> AgentMiddleware:
+    def get_middleware(self, **kwargs: Any) -> AgentMiddleware:
+        _ = kwargs
         return MemZeroMiddleware()

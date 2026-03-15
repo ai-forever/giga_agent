@@ -8,7 +8,7 @@ import json
 import httpx
 from pydantic import Field, PrivateAttr
 
-from giga_agent.generators.image.base import BaseImageGenerator
+from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.core.logging import get_logger
 
@@ -131,10 +131,18 @@ class FusionBrainImageGen(BaseImageGenerator):
         self._api = _AsyncKandinskyClient(api_key=api_key, secret_key=secret_key)
         await super().init()
 
-    async def _generate_image(self, prompt: str, width: int, height: int) -> str:
+    async def _generate_image(
+        self,
+        prompt: str,
+        width: int | None = None,
+        height: int | None = None,
+        **kwargs,
+    ) -> str:
         if self._api is None:
             raise RuntimeError("FusionBrainImageGen is not initialized. Call init().")
 
+        width = DEFAULT_WIDTH if width is None else width
+        height = DEFAULT_HEIGHT if height is None else height
         files = await self._api.generate_and_get_image(
             prompt,
             width=width,

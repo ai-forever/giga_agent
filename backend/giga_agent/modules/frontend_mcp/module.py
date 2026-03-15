@@ -59,5 +59,6 @@ class FrontendMCPMiddleware(AgentMiddleware):
 class FrontendMCPModule(BaseModule):
     id: str = "frontend_mcp"
 
-    def get_middleware(self) -> Optional["AgentMiddleware"]:
+    def get_middleware(self, **kwargs: Any) -> Optional["AgentMiddleware"]:
+        _ = kwargs
         return FrontendMCPMiddleware()

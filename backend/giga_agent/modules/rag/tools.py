@@ -164,7 +164,11 @@ RAG_PROMPT = """
 
 def get_rag_info(collections: list[Collection]):
     if not collections:
-        return ""
+        return RAG_PROMPT.format(
+            "ДОСТУПНЫХ КОЛЛЕКЦИЙ НЕТ, ЕСЛИ ПОЛЬЗОВАТЕЛЬ "
+            "ЗАПРАШИВАЕТ get_documents скажи,"
+            " что ему нужно либо добавить документы, либо включить их в интерфейсе"
+        )
     descriptions = []
     for collection in collections:
         description = (

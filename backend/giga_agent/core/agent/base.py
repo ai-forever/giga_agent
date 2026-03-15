@@ -217,10 +217,14 @@ class BaseAgent(BaseModel):
                 middlewares.append(mw)
         return middlewares
 
-    async def get_prompt(self, user: UserShort) -> str:
+    async def get_prompt(
+        self, user: UserShort, state: AgentState | None = None
+    ) -> str:
         modules_prompts = []
         for module in self._agent_modules:
-            instructions = await module.get_instructions(user=user, agent=self)
+            instructions = await module.get_instructions(
+                user=user, agent=self, state=state
+            )
             if instructions:
                 modules_prompts.append(instructions)
         instructions = dict(user.settings or {}).get("contextInstructions")

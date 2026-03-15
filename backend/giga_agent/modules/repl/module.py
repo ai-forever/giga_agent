@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import keyword
 import uuid
-from typing import Any, List, Coroutine
+from typing import Any, List, Coroutine, Optional
 
 from giga_agent.modules.repl.repl_tools.llm import summarize
 from giga_agent.modules.repl.repl_tools.sentiment import (
@@ -109,7 +109,14 @@ class ReplModule(BaseModule):
             python.extras["repl_tools"] = self._repl_tools
         return [python, shell]
 
-    async def get_instructions(self, user: UserShort, agent: BaseAgent) -> str | None:
+    async def get_instructions(
+        self,
+        user: UserShort,
+        agent: BaseAgent,
+        state: Optional[AgentState] = None,
+        **kwargs: Any,
+    ) -> str | None:
+        _ = state, kwargs
         return (
             JUPYTER_REPL_INSTRUCTIONS
             + get_user_secrets_prompt(user)

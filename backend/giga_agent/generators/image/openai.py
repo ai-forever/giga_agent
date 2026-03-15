@@ -8,7 +8,7 @@ from typing import Any
 from openai import AsyncOpenAI
 from pydantic import Field, PrivateAttr
 
-from giga_agent.generators.image.base import BaseImageGenerator
+from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.core.logging import get_logger
 
@@ -83,10 +83,18 @@ class OpenAIImageGen(BaseImageGenerator):
 
         return None
 
-    async def _generate_image(self, prompt: str, width: int, height: int) -> str:
+    async def _generate_image(
+        self,
+        prompt: str,
+        width: int | None = None,
+        height: int | None = None,
+        **kwargs: Any,
+    ) -> str:
         if self._client is None:
             raise RuntimeError("OpenAIImageGen is not initialized. Call init().")
 
+        width = DEFAULT_WIDTH if width is None else width
+        height = DEFAULT_HEIGHT if height is None else height
         norm_w, norm_h = self._normalize_size_for_model(self.model, width, height)
         size = f"{norm_w}x{norm_h}"
 

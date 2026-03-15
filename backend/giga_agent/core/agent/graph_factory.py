@@ -533,7 +533,7 @@ def create_graph(
         llm = llm.bind_tools(
             tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
         )
-        system_message = SystemMessage(content=await agent.get_prompt(user))
+        system_message = SystemMessage(content=await agent.get_prompt(user, state=state))
 
         request = ModelRequest(
             model=llm,

@@ -1,3 +1,5 @@
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter
 
@@ -15,10 +17,12 @@ logger = get_logger(__name__)
 class AuthModule(BaseModule):
     id: str = "auth"
 
-    def get_api_router(self) -> APIRouter:
+    def get_api_router(self, **kwargs: Any) -> APIRouter:
+        _ = kwargs
         return api.router
 
-    async def on_startup(self, session: AsyncSession):
+    async def on_startup(self, session: AsyncSession, **kwargs: Any):
+        _ = kwargs
         logger.info("Checking for existing users...")
         user_repo = UserRepository(session)
 

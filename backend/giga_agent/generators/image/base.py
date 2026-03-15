@@ -24,7 +24,8 @@ class BaseImageGenerator(BaseModel, abc.ABC):
     """Абстрактный базовый класс для генераторов изображений.
 
     Контракт:
-      - Подклассы реализуют `_generate_image(prompt, width, height) -> str` (base64).
+      - Подклассы реализуют `_generate_image(prompt, width, height, **kwargs) -> str` (base64).
+      - `width` и `height` optional: провайдер сам нормализует `None`.
       - `generate_image` — обёртка с семафором.
       - `settings_schema()` / `validate_settings()` — для валидации провайдерских настроек.
     """
@@ -58,8 +59,9 @@ class BaseImageGenerator(BaseModel, abc.ABC):
     async def generate_image(
         self,
         prompt: str,
-        width: int = DEFAULT_WIDTH,
-        height: int = DEFAULT_HEIGHT,
+        width: int | None = None,
+        height: int | None = None,
+        **kwargs: Any,
     ) -> str:
         """Генерирует изображение с ограничением семафором.
 
@@ -71,14 +73,15 @@ class BaseImageGenerator(BaseModel, abc.ABC):
                 f"{self.__class__.__name__}.init() must be called before generate_image()."
             )
         async with self._semaphore:
-            return await self._generate_image(prompt, width, height)
+            return await self._generate_image(prompt, width, height, **kwargs)
 
     @abc.abstractmethod
     async def _generate_image(
         self,
         prompt: str,
-        width: int,
-        height: int,
+        width: int | None = None,
+        height: int | None = None,
+        **kwargs: Any,
     ) -> str:
         """Реализация генерации. Возвращает base64-строку."""
         raise NotImplementedError

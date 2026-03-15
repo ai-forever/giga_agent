@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 from langchain_core.tools import BaseTool
 
@@ -25,7 +25,8 @@ def _has_secret(user: UserShort | None, key: str) -> bool:
 class WeatherModule(BaseModule):
     id: str = "weather"
 
-    def get_secrets(self) -> list[SecretMetadata]:
+    def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
+        _ = kwargs
         return [
             {
                 "name": WEATHER_SECRET_KEY,

@@ -39,7 +39,11 @@ class BaseSearchEngine(BaseModel, abc.ABC):
         await self.search(["ping"])
         return True
 
-    async def search(self, queries: list[str]) -> list[dict[str, Any]]:
+    async def search(
+        self,
+        queries: list[str],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         if not self._initialized:
             raise RuntimeError(
                 f"{self.__class__.__name__}.init() must be called before search()."
@@ -47,10 +51,14 @@ class BaseSearchEngine(BaseModel, abc.ABC):
         if not queries:
             return []
         async with self._semaphore:
-            return await self._search(queries)
+            return await self._search(queries, **kwargs)
 
     @abc.abstractmethod
-    async def _search(self, queries: list[str]) -> list[dict[str, Any]]:
+    async def _search(
+        self,
+        queries: list[str],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         raise NotImplementedError
 
     @classmethod

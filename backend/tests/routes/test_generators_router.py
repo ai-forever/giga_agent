@@ -603,7 +603,13 @@ class BaseImageGeneratorCheckConnectionTests(unittest.IsolatedAsyncioTestCase):
             async def init(self) -> None:
                 await super().init()
 
-            async def _generate_image(self, prompt: str, width: int, height: int) -> str:
+            async def _generate_image(
+                self,
+                prompt: str,
+                width: int | None = None,
+                height: int | None = None,
+                **kwargs,
+            ) -> str:
                 return "ok"
 
         runtime = _Runtime()
@@ -613,3 +619,31 @@ class BaseImageGeneratorCheckConnectionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result)
         runtime._generate_image.assert_awaited_once_with("ping", 256, 256)
+
+    async def test_generate_image_passes_kwargs_and_none_dimensions_to_provider(self):
+        class _Runtime(BaseImageGenerator):
+            async def init(self) -> None:
+                await super().init()
+
+            async def _generate_image(
+                self,
+                prompt: str,
+                width: int | None = None,
+                height: int | None = None,
+                **kwargs,
+            ) -> str:
+                return "ok"
+
+        runtime = _Runtime()
+        await runtime.init()
+        runtime._generate_image = AsyncMock(return_value="ok")
+
+        result = await runtime.generate_image("prompt", None, None, foo="bar")
+
+        self.assertEqual(result, "ok")
+        runtime._generate_image.assert_awaited_once_with(
+            "prompt",
+            None,
+            None,
+            foo="bar",
+        )

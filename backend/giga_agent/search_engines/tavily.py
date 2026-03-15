@@ -54,9 +54,15 @@ class TavilySearchEngine(BaseSearchEngine):
         )
         await super().init()
 
-    async def _search(self, queries: list[str]) -> list[dict[str, Any]]:
+    async def _search(
+        self,
+        queries: list[str],
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
         if self._search_tool is None:
             raise RuntimeError("TavilySearchEngine is not initialized. Call init().")
+        # Reserved for interface compatibility with BaseSearchEngine.search().
+        del kwargs
 
         prepared_queries = [query.strip() for query in queries if query.strip()]
         if not prepared_queries:

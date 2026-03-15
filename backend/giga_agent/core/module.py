@@ -1,6 +1,6 @@
 import os
 import inspect
-from typing import TYPE_CHECKING, Optional, List, TypedDict, Literal
+from typing import TYPE_CHECKING, Any, Optional, List, TypedDict, Literal
 from typing_extensions import override
 
 from pydantic import ConfigDict, PrivateAttr
@@ -52,13 +52,13 @@ class BaseModule(Serializable):
             return path
         return None
 
-    def get_api_router(self) -> Optional["APIRouter"]:
+    def get_api_router(self, **kwargs: Any) -> Optional["APIRouter"]:
         """
         Возвращает FastAPI router для подключения к основному приложению.
         """
         return None
 
-    def get_models(self) -> list[type]:
+    def get_models(self, **kwargs: Any) -> list[type]:
         """
         Возвращает список SQLAlchemy-моделей модуля.
         Модули должны переопределять этот метод, чтобы CLI мог подгружать модели
@@ -81,6 +81,8 @@ class BaseModule(Serializable):
         self,
         user: UserShort | None,
         agent: "BaseAgent",
+        state: Optional["AgentState"] = None,
+        **kwargs: Any,
     ) -> str | None:
         """
         Возвращает строку с инструкциями (system prompt), которые модуль
@@ -94,6 +96,7 @@ class BaseModule(Serializable):
         task: str,
         state: "AgentState",
         agent: "BaseAgent",
+        **kwargs: Any,
     ) -> str | None:
         """
         Возвращает расширение пользовательской задачи, которое будет добавлено
@@ -101,27 +104,27 @@ class BaseModule(Serializable):
         """
         return None
 
-    def get_secrets(self) -> list[SecretMetadata]:
+    def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
         """
         Возвращает метаданные секретов, которые нужны модулю.
         """
         return []
 
-    def get_middleware(self) -> Optional["AgentMiddleware"]:
+    def get_middleware(self, **kwargs: Any) -> Optional["AgentMiddleware"]:
         """
         Возвращает AgentMiddleware, предоставляемый модулем.
         Переопределите в подклассе, чтобы добавить middleware в агент.
         """
         return None
 
-    def get_subgraphs(self) -> dict[str, str]:
+    def get_subgraphs(self, **kwargs: Any) -> dict[str, str]:
         """
         Возвращает дополнительные subgraph entrypoints для langgraph dev server.
         Формат значения: "python.import.path:variable_name".
         """
         return {}
 
-    async def on_startup(self, session: "AsyncSession"):
+    async def on_startup(self, session: "AsyncSession", **kwargs: Any):
         """
         Hook executed on application startup.
         """
