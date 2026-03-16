@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from aiogram import Bot, Dispatcher, types as tg_types
+from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
 from langgraph_sdk import get_client
 
@@ -19,12 +20,12 @@ from giga_agent.modules.auth.security import create_access_token
 from giga_agent.modules.telegram.models import (
     TelegramBot as TelegramBotModel,
     TelegramBotRepository,
-    TelegramThread,
 )
 
 logger = get_logger(__name__)
 
 ASSISTANT_ID = "giga_agent"
+THREAD_TTL_SECONDS = 24 * 60 * 60
 
 
 def _langgraph_url() -> str:
@@ -44,12 +45,10 @@ _ATTACHMENT_RE = re.compile(
 
 
 def _strip_thinking(text: str) -> str:
-    """Remove <thinking>...</thinking> blocks from agent output."""
     return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL).strip()
 
 
 def _extract_attachments(text: str) -> tuple[str, list[str]]:
-    """Extract attachment paths and return cleaned text + list of paths."""
     paths: list[str] = []
     for match in _ATTACHMENT_RE.finditer(text):
         paths.append(match.group(2))
@@ -59,7 +58,6 @@ def _extract_attachments(text: str) -> tuple[str, list[str]]:
 
 
 def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
-    """Extract final AI text and image URLs from the run result."""
     messages = result.get("messages") or []
     text_parts: list[str] = []
     image_urls: list[str] = []
@@ -99,7 +97,6 @@ def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
 
 
 class _BotInstance:
-    """Wraps a single aiogram Bot + Dispatcher pair for one user."""
 
     def __init__(self, bot_row: TelegramBotModel, user_email: str):
         self.bot_row = bot_row
@@ -110,18 +107,49 @@ class _BotInstance:
         self._setup_handlers()
 
     def _setup_handlers(self):
+        @self.dp.message(Command("new"))
+        async def _on_new(message: tg_types.Message):
+            await self._handle_new(message)
+
+        @self.dp.message(Command("start"))
+        async def _on_start(message: tg_types.Message):
+            await message.answer(
+                "Привет! Я GigaAgent — универсальный AI-агент.\n\n"
+                "Просто напишите мне сообщение, и я отвечу.\n"
+                "/new — начать новый диалог (сбросить контекст)"
+            )
+
         @self.dp.message()
         async def _on_message(message: tg_types.Message):
             if not message.text:
                 return
             await self._handle_message(message)
 
+    async def _handle_new(self, message: tg_types.Message):
+        chat_id = message.chat.id
+        session_factory = await get_session_factory()
+        async with session_factory() as session:
+            repo = TelegramBotRepository(session)
+            await self._reset_thread(repo, chat_id)
+        await message.answer("🔄 Контекст сброшен. Начнём новый диалог!")
+
     async def _get_or_create_thread(
         self, client: Any, repo: TelegramBotRepository, chat_id: int
     ) -> str:
         thread_row = await repo.get_thread(self.bot_row.id, chat_id)
         if thread_row is not None:
-            return thread_row.langgraph_thread_id
+            expired = False
+            if thread_row.updated_at:
+                from datetime import datetime, timezone
+                age = (datetime.now(timezone.utc) - thread_row.updated_at.replace(tzinfo=timezone.utc)).total_seconds()
+                if age > THREAD_TTL_SECONDS:
+                    expired = True
+            if expired:
+                logger.info("Thread for chat %s expired (age=%ds), creating new", chat_id, age)
+                await repo.delete_thread(thread_row)
+            else:
+                await repo.touch_thread(thread_row)
+                return thread_row.langgraph_thread_id
 
         thread = await client.threads.create(
             metadata={"telegram_chat_id": str(chat_id)},
@@ -133,7 +161,6 @@ class _BotInstance:
     async def _reset_thread(
         self, repo: TelegramBotRepository, chat_id: int
     ) -> None:
-        """Delete thread mapping so a fresh thread is created next time."""
         thread_row = await repo.get_thread(self.bot_row.id, chat_id)
         if thread_row is not None:
             await repo.delete_thread(thread_row)
@@ -187,11 +214,7 @@ class _BotInstance:
                     break
 
             if not isinstance(result, dict) or not result.get("messages"):
-                logger.warning(
-                    "Empty or unexpected result for chat %s: %s",
-                    chat_id,
-                    str(result)[:500],
-                )
+                logger.warning("Empty result for chat %s: %s", chat_id, str(result)[:500])
                 async with session_factory() as session:
                     repo = TelegramBotRepository(session)
                     await self._reset_thread(repo, chat_id)
@@ -199,7 +222,6 @@ class _BotInstance:
                 return
 
             response_text, image_urls = _extract_ai_response(result)
-
             response_text, attachment_paths = _extract_attachments(response_text)
 
             logger.info(
@@ -242,7 +264,7 @@ class _BotInstance:
         except Exception as exc:
             logger.exception("Error handling Telegram message for user %s", user_id)
             error_str = str(exc)
-            if "tool_call" in error_str or "tool_calls" in error_str:
+            if "tool_call" in error_str or "function call" in error_str:
                 try:
                     async with (await get_session_factory())() as session:
                         repo = TelegramBotRepository(session)
@@ -250,9 +272,7 @@ class _BotInstance:
                 except Exception:
                     pass
                 try:
-                    await message.answer(
-                        "⚠️ Контекст чата повреждён, создан новый. Повторите сообщение."
-                    )
+                    await message.answer("⚠️ Контекст повреждён, сброшен. Повторите сообщение.")
                 except Exception:
                     pass
             else:
@@ -262,7 +282,6 @@ class _BotInstance:
                     pass
 
     async def _download_attachment(self, token: str, path: str) -> bytes | None:
-        """Download a file from the agent's file API by sandbox path."""
         import httpx
         url = f"{_langgraph_url()}/agent/files/content/by-path"
         async with httpx.AsyncClient(timeout=30) as http:
@@ -274,10 +293,7 @@ class _BotInstance:
             )
             if resp.status_code == 200:
                 return resp.content
-            logger.warning(
-                "Failed to download attachment %s: %d %s",
-                path[:80], resp.status_code, resp.text[:200],
-            )
+            logger.warning("Failed to download %s: %d", path[:80], resp.status_code)
             return None
 
     async def _send_image(self, message: tg_types.Message, url: str):
@@ -337,7 +353,6 @@ def _split_message(text: str, max_len: int = 4096) -> list[str]:
 
 
 class TelegramBotManager:
-    """Manages all running Telegram bot instances."""
 
     def __init__(self):
         self._bots: dict[uuid.UUID, _BotInstance] = {}
