@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from typing import Any
 
@@ -37,6 +38,11 @@ def _make_token(user_id: uuid.UUID, email: str) -> str:
     )
 
 
+def _strip_thinking(text: str) -> str:
+    """Remove <thinking>...</thinking> blocks from agent output."""
+    return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL).strip()
+
+
 def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
     """Extract final AI text and image URLs from the run result."""
     messages = result.get("messages") or []
@@ -54,7 +60,9 @@ def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
 
         content = msg.get("content", "")
         if isinstance(content, str) and content.strip():
-            text_parts.append(content.strip())
+            cleaned = _strip_thinking(content)
+            if cleaned:
+                text_parts.append(cleaned)
             break
         elif isinstance(content, list):
             for block in content:
@@ -140,8 +148,28 @@ class _BotInstance:
                 thread_id=thread_id,
                 assistant_id=ASSISTANT_ID,
                 input={"messages": [{"role": "human", "content": text}]},
-                config={"configurable": {"auto_approve": True}},
             )
+
+            for _ in range(10):
+                if not isinstance(result, dict):
+                    break
+                msgs = result.get("messages", [])
+                last_ai = None
+                for m in reversed(msgs):
+                    if isinstance(m, dict) and m.get("type") == "ai":
+                        last_ai = m
+                        break
+                if last_ai and last_ai.get("tool_calls"):
+                    logger.info("Auto-approving tool calls for chat %s", chat_id)
+                    await message.chat.do("typing")
+                    result = await client.runs.wait(
+                        thread_id=thread_id,
+                        assistant_id=ASSISTANT_ID,
+                        input=None,
+                        command={"resume": {"type": "approve"}},
+                    )
+                else:
+                    break
 
             if not isinstance(result, dict) or not result.get("messages"):
                 logger.warning(
