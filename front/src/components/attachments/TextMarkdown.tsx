@@ -1,7 +1,7 @@
 import React from "react";
 import styled from "styled-components";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { dracula } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
@@ -9,23 +9,122 @@ import Markdown from "react-markdown";
 import MessageAttachment from "./MessageAttachment.tsx";
 import { cn } from "@/lib/utils.ts";
 import rehypeKatex from "@/lib/rehype_katex.ts";
+import {
+  buildContentByPathUrl,
+  inferAttachmentTypeFromPath,
+} from "./file-utils.ts";
 
-// Оборачивает ссылки/картинки вида ](/files/...) и ](attachment:/files/...) с пробелами в <...>,
+// Оборачивает ссылки/картинки вида ](attachment:...) с пробелами или скобками в <...>,
 // чтобы CommonMark корректно парсил URI без URL-энкода.
+// Ручной парсер, а не regex, т.к. скобки внутри URL ломают regex-подход.
 const wrapFilesLinksWithAngles = (
   markdown: string | null | undefined,
 ): string => {
   if (!markdown) return "";
-  return markdown.replace(
-    /(!?\[[^\]]*\]\()(<)?((?:attachment:)[^)\n]*?)(>)?\)/g,
-    (match, prefix: string, hasLt: string, url: string, hasRt: string) => {
-      if (hasLt || hasRt) return match;
-      if (url.includes(" ")) {
-        return `${prefix}<${url}>)`;
+
+  const ATTACHMENT_PREFIX = "attachment:";
+  let result = "";
+  let i = 0;
+
+  while (i < markdown.length) {
+    // Ищем начало ссылки: "![" или "["
+    const bangBracket = markdown.indexOf("![", i);
+    const bracket = markdown.indexOf("[", i);
+
+    let linkStart: number;
+    if (bangBracket === -1 && bracket === -1) {
+      result += markdown.slice(i);
+      break;
+    } else if (bangBracket === -1) {
+      linkStart = bracket;
+    } else if (bracket === -1) {
+      linkStart = bangBracket;
+    } else {
+      linkStart = Math.min(bangBracket, bracket);
+    }
+
+    result += markdown.slice(i, linkStart);
+
+    const prefixStart = linkStart;
+    // Пропускаем "!" если есть
+    let pos = markdown[linkStart] === "!" ? linkStart + 1 : linkStart;
+    if (markdown[pos] !== "[") {
+      result += markdown[linkStart];
+      i = linkStart + 1;
+      continue;
+    }
+    pos++; // после "["
+
+    // Ищем закрывающую "]"
+    let depth = 1;
+    while (pos < markdown.length && depth > 0) {
+      if (markdown[pos] === "[") depth++;
+      else if (markdown[pos] === "]") depth--;
+      if (depth > 0) pos++;
+    }
+    if (depth !== 0 || pos >= markdown.length) {
+      result += markdown[linkStart];
+      i = linkStart + 1;
+      continue;
+    }
+    pos++; // после "]"
+
+    // Ожидаем "("
+    if (pos >= markdown.length || markdown[pos] !== "(") {
+      result += markdown.slice(linkStart, pos);
+      i = pos;
+      continue;
+    }
+    pos++; // после "("
+
+    // Проверяем, начинается ли URL с "attachment:" (возможно с "<")
+    const alreadyAngled = markdown[pos] === "<";
+    const urlCheckStart = alreadyAngled ? pos + 1 : pos;
+    if (!markdown.slice(urlCheckStart).startsWith(ATTACHMENT_PREFIX)) {
+      result += markdown.slice(linkStart, pos);
+      i = pos;
+      continue;
+    }
+
+    if (alreadyAngled) {
+      // Уже обёрнуто в <>, не трогаем — ищем >)
+      const closeAngle = markdown.indexOf(">)", pos);
+      if (closeAngle === -1) {
+        result += markdown.slice(linkStart, pos);
+        i = pos;
+        continue;
       }
-      return match;
-    },
-  );
+      result += markdown.slice(linkStart, closeAngle + 2);
+      i = closeAngle + 2;
+      continue;
+    }
+
+    // Извлекаем URL со сбалансированными скобками
+    let parenDepth = 1;
+    let urlEnd = pos;
+    while (urlEnd < markdown.length && parenDepth > 0) {
+      if (markdown[urlEnd] === "(") parenDepth++;
+      else if (markdown[urlEnd] === ")") parenDepth--;
+      if (parenDepth > 0) urlEnd++;
+    }
+    if (parenDepth !== 0) {
+      result += markdown.slice(linkStart, pos);
+      i = pos;
+      continue;
+    }
+
+    const url = markdown.slice(pos, urlEnd);
+    const prefix = markdown.slice(prefixStart, pos); // "![alt](" или "[text]("
+
+    if (url.includes(" ") || url.includes("(") || url.includes(")")) {
+      result += `${prefix}<${url}>)`;
+    } else {
+      result += `${prefix}${url})`;
+    }
+    i = urlEnd + 1; // после финальной ")"
+  }
+
+  return result;
 };
 
 const getYouTubeId = (url: string): string | null => {
@@ -195,6 +294,8 @@ const markdownComponents = {
     const match = /language-(\w+)/.exec(className || "");
     const additionalStyles: React.CSSProperties = {
       padding: "0.2em 0.5em",
+      display: "inline-flex",
+      maxWidth: "100%",
     };
     return (
       <SyntaxHighlighter
@@ -212,6 +313,28 @@ const markdownComponents = {
 
   a({ href, children, ...props }: any) {
     if (!href) return <a {...props}>{children}</a>;
+
+    if (href.startsWith("attachment:")) {
+      const path = decodeURI(href.replace(/^attachment:/, ""));
+      const fileType = inferAttachmentTypeFromPath(path);
+      if (
+        fileType === "image" ||
+        fileType === "audio" ||
+        fileType === "video"
+      ) {
+        return <MessageAttachment path={path} fileType={fileType} />;
+      }
+      return (
+        <a
+          href={buildContentByPathUrl(path)}
+          target="_blank"
+          rel="noopener noreferrer"
+          {...props}
+        >
+          {children}
+        </a>
+      );
+    }
 
     // YouTube
     const ytId = getYouTubeId(href);
@@ -248,10 +371,10 @@ const markdownComponents = {
     }
 
     if (href.startsWith("file:")) {
-      const filePath = href.replace(/^file:\/?/, "");
+      const filePath = decodeURI(href.replace(/^file:\/?/, ""));
       return (
         <a
-          href={`/files/${filePath}`}
+          href={buildContentByPathUrl(filePath)}
           target="_blank"
           rel="noopener noreferrer"
           {...props}
@@ -271,8 +394,8 @@ const markdownComponents = {
   img({ src, alt, ...props }: any) {
     if (!src) return null;
     if (src.startsWith("attachment:")) {
-      const path = src.replace(/^attachment:/, "");
-      return <MessageAttachment path={decodeURI(path)} alt={alt} />;
+      const path = decodeURI(src.replace(/^attachment:/, ""));
+      return <MessageAttachment path={path} alt={alt} />;
     }
     // if (src.startsWith("graph:")) {
     //   const graphId = src.replace(/^graph:/, "");
@@ -291,10 +414,10 @@ const markdownComponents = {
     //   return <AudioPlayer id={audioId} alt={alt} />;
     // }
     if (src.startsWith("file:")) {
-      const filePath = src.replace(/^file:\/?/, "");
+      const filePath = decodeURI(src.replace(/^file:\/?/, ""));
       return (
         <a
-          href={`/files/${filePath}`}
+          href={buildContentByPathUrl(filePath)}
           rel={"noopener noreferrer"}
           target={"_blank"}
         >

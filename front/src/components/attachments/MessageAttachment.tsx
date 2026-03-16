@@ -1,113 +1,94 @@
-import React, { useEffect, useState } from "react";
-import styled from "styled-components";
-import { StoreClient } from "@langchain/langgraph-sdk/client";
-import Graph from "./Graph.tsx";
+import React, { Suspense } from "react";
 import Text from "./Text.tsx";
 import HTMLPage from "./HTMLPage.tsx";
 import Image from "./Image.tsx";
 import Audio from "./Audio.tsx";
+import Video from "./Video.tsx";
+import {
+  AttachmentFileType,
+  buildContentByPathUrl,
+  inferAttachmentTypeFromPath,
+  resolveAttachmentPath,
+} from "./file-utils.ts";
+
+const Graph = React.lazy(() => import("./Graph.tsx"));
 
 interface MessageAttachmentProps {
   path: string;
+  fileType?: AttachmentFileType;
   fullScreen?: boolean;
   alt?: string;
 }
 
-const Placeholder = styled.div`
-  width: 100%;
-  padding-top: 56.25%; /* подложка под изображение, чтобы не прыгал layout */
-  background-color: #2d2d2d;
-  position: relative;
-`;
-
-const client = new StoreClient({
-  apiUrl: `${window.location.protocol}//${window.location.host}/graph`,
-});
-
 const MessageAttachment: React.FC<MessageAttachmentProps> = ({
   path,
+  fileType,
   alt,
   fullScreen,
 }) => {
-  const [attachment, setAttachment] = useState<any | null>(null);
-  const [error, setError] = useState<boolean>(false);
+  const effectivePath = resolveAttachmentPath(path);
+  const effectiveType = fileType ?? inferAttachmentTypeFromPath(effectivePath);
 
-  const detectFileType = (
-    filePath: string,
-  ): "image" | "audio" | "html" | "text" | "other" => {
-    const lower = filePath.toLowerCase();
-    const dotIdx = lower.lastIndexOf(".");
-    const ext = dotIdx >= 0 ? lower.slice(dotIdx + 1) : "";
-    const imageExt = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
-    const audioExt = ["mp3", "wav", "ogg", "m4a", "aac", "flac"];
-    const htmlExt = ["html", "htm"];
-    const textExt = [
-      "txt",
-      "md",
-      "csv",
-      "json",
-      "xml",
-      "yaml",
-      "yml",
-      "toml",
-      "ini",
-      "cfg",
-      "conf",
-    ];
-    if (imageExt.includes(ext)) return "image";
-    if (audioExt.includes(ext)) return "audio";
-    if (htmlExt.includes(ext)) return "html";
-    if (textExt.includes(ext)) return "text";
-    return "other";
-  };
-
-  useEffect(() => {
-    setError(false);
-    setAttachment(null);
-    if (path.startsWith("/home/jupyter")) {
-      const file_type = detectFileType(path);
-      setAttachment({ file_type, path: `${path}` });
-    } else {
-      client
-        .getItem(["attachments"], path)
-        .then((res) => {
-          setAttachment(res?.value);
-        })
-        .catch(() => {
-          setError(true);
-        });
-    }
-  }, [path]);
-
-  if (error) {
+  if (!effectivePath) {
     return <div>Ошибка загрузки вложения {alt || ""}</div>;
   }
-  if (!attachment) {
-    return <Placeholder />; // можно заменить на спиннер или skeleton
-  }
-  if (attachment["file_type"] === "plotly_graph") {
-    return <Graph data={attachment} alt={alt} id={path} />;
-  } else if (attachment["file_type"] === "text") {
-    return <Text data={attachment} alt={alt} id={path} />;
-  } else if (attachment["file_type"] === "html") {
+
+  if (effectiveType === "plotly_graph") {
+    return (
+      <Suspense
+        fallback={
+          <div
+            style={{
+              width: "100%",
+              paddingTop: "56.25%",
+              backgroundColor: "#2d2d2d",
+            }}
+          />
+        }
+      >
+        <Graph path={effectivePath} alt={alt} id={effectivePath} />
+      </Suspense>
+    );
+  } else if (effectiveType === "text") {
+    return <Text path={effectivePath} alt={alt} id={effectivePath} />;
+  } else if (effectiveType === "html") {
     return (
       <HTMLPage
-        data={attachment}
+        path={effectivePath}
         alt={alt}
-        id={path}
+        id={effectivePath}
         fullScreen={fullScreen ? fullScreen : false}
       />
     );
-  } else if (attachment["file_type"] === "image") {
-    return <Image data={attachment} alt={alt} id={path} />;
-  } else if (attachment["file_type"] === "audio") {
-    return <Audio data={attachment} alt={alt} id={path} />;
+  } else if (effectiveType === "image") {
+    return <Image path={effectivePath} alt={alt} id={effectivePath} />;
+  } else if (effectiveType === "audio") {
+    return <Audio path={effectivePath} alt={alt} id={effectivePath} />;
+  } else if (effectiveType === "video") {
+    return <Video path={effectivePath} alt={alt} id={effectivePath} />;
   } else {
-    return <div>Ошибка загрузки вложения {alt || ""}</div>;
+    const name = effectivePath.split("/").at(-1) || effectivePath;
+    return (
+      <div>
+        Ошибка загрузки вложения {alt || ""}
+        {" - "}
+        <a
+          href={buildContentByPathUrl(effectivePath)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {name}
+        </a>
+      </div>
+    );
   }
 };
 
 export default React.memo(
   MessageAttachment,
-  (prev, next) => prev.path === next.path && prev.alt === next.alt,
+  (prev, next) =>
+    prev.path === next.path &&
+    prev.alt === next.alt &&
+    prev.fileType === next.fileType &&
+    prev.fullScreen === next.fullScreen,
 );

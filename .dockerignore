@@ -1,0 +1,16 @@
+.git
+.gitignore
+.idea
+.vscode
+**/.DS_Store
+
+# Never send local deps/build artifacts to Docker context
+**/node_modules
+**/dist
+**/.vite
+**/.cache
+**/*.log
+
+# Local runtime data
+.giga_agent
+qdrant_storage

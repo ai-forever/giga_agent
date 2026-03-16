@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, SecretInput } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -74,7 +74,7 @@ const resolveUrlForTransport = (rawUrl: string): string => {
     const proxyUrl = MCP_PROXY_URL
       ? MCP_PROXY_URL
       : `${window.location.protocol}//${window.location.host}/proxy/`;
-    return `${proxyUrl}${rawUrl}`;
+    return `${rawUrl}`;
   } catch {
     // Если URL некорректный — возвращаем как есть
     return rawUrl;
@@ -834,19 +834,8 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
               )}
               {showAuthTokenInput && (
                 <div className="mt-2 relative">
-                  <Input
-                    type="text"
+                  <SecretInput
                     name="auth_token"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    style={
-                      {
-                        WebkitTextSecurity: "disc",
-                        textSecurity: "disc",
-                      } as React.CSSProperties
-                    }
                     placeholder="Введите токен аутентификации"
                     value={newServerAuthToken}
                     onChange={(e) => setNewServerAuthToken(e.target.value)}

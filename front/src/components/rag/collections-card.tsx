@@ -9,6 +9,7 @@ import { CreateCollectionDialog } from "./create-collection-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { toast } from "sonner";
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface CollectionsCardProps {
   collections: Collection[];
@@ -25,6 +26,8 @@ export function CollectionsCard({
   setSelectedCollection,
   setCurrentPage,
 }: CollectionsCardProps) {
+  const { user } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const {
     createCollection,
     deleteCollection,
@@ -41,7 +44,7 @@ export function CollectionsCard({
 
   // Handle creating a new collection (uses hook)
   const handleCreateCollection = async (name: string, description: string) => {
-    const loadingToast = toast.loading("Создание коллекции", {
+    const loadingToast = toast.loading("Создание папки", {
       richColors: true,
     });
     const success = await createCollection(name, {
@@ -50,10 +53,10 @@ export function CollectionsCard({
     toast.dismiss(loadingToast);
     if (success) {
       setOpen(false);
-      toast.success("Коллекция успешно создана", { richColors: true });
+      toast.success("Папка успешно создана", { richColors: true });
     } else {
       toast.warning(
-        `Не удалось создать коллекцию с именем '${name}' (вероятно, уже существует).`,
+        `Не удалось создать папку с именем '${name}' (вероятно, уже существует).`,
         {
           duration: 5000,
           richColors: true,
@@ -64,16 +67,18 @@ export function CollectionsCard({
 
   // Handle deleting a collection (uses collection hook and document hook)
   const handleDeleteCollection = async (id: string) => {
-    const loadingToast = toast.loading("Удаление коллекции", {
+    const collectionToDelete = collections.find((c) => c.uuid === id);
+    if (!collectionToDelete?.can_edit) return;
+    const loadingToast = toast.loading("Удаление папки", {
       richColors: true,
     });
     await deleteCollection(id);
     toast.dismiss(loadingToast);
-    toast.success("Коллекция успешно удалена", { richColors: true });
+    toast.success("Папка успешно удалена", { richColors: true });
     if (selectedCollection?.uuid === id) {
       const newSelectedCollection = collections.find((c) => c.uuid !== id);
       if (!newSelectedCollection) {
-        toast.error("Коллекций не осталось.", { richColors: true });
+        toast.error("Папок не осталось.", { richColors: true });
         return;
       }
       setSelectedCollection(newSelectedCollection);
@@ -88,18 +93,20 @@ export function CollectionsCard({
     name: string,
     metadata: Record<string, any>,
   ) => {
-    const loadingToast = toast.loading("Обновление коллекции", {
+    const collectionToUpdate = collections.find((c) => c.uuid === id);
+    if (!collectionToUpdate?.can_edit) return;
+    const loadingToast = toast.loading("Обновление папок", {
       richColors: true,
     });
     await updateCollection(id, name, metadata);
     toast.dismiss(loadingToast);
-    toast.success("Коллекция успешно обновлена", { richColors: true });
+    toast.success("Папка успешно обновлена", { richColors: true });
   };
 
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Коллекции</CardTitle>
+        <CardTitle>Папки</CardTitle>
         <CreateCollectionDialog
           open={open}
           onOpenChange={setOpen}
@@ -126,6 +133,7 @@ export function CollectionsCard({
           itemsPerPage={collectionsItemsPerPage}
           totalCollections={collections.length}
           onPageChange={setCollectionsCurrentPage}
+          canManagePermissions={canManagePermissions}
         />
       </CardContent>
     </Card>

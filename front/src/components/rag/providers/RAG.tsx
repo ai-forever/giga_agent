@@ -1,7 +1,7 @@
 import React, { createContext, useContext, PropsWithChildren } from "react";
 import { useRag } from "../hooks/use-rag";
 import { useEffect } from "react";
-import { session } from "@/config.ts";
+import { useAuth } from "@/components/providers/auth";
 
 type RagContextType = ReturnType<typeof useRag>;
 
@@ -9,17 +9,23 @@ const RagContext = createContext<RagContextType | null>(null);
 
 export const RagProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const ragState = useRag();
+  const { token } = useAuth();
 
   useEffect(() => {
     if (
       ragState.collections.length > 0 ||
       ragState.initialSearchExecuted ||
-      !session?.accessToken
+      !token
     ) {
       return;
     }
-    ragState.initialFetch(session?.accessToken);
-  }, [session?.accessToken]);
+    ragState.initialFetch();
+  }, [
+    ragState.collections.length,
+    ragState.initialSearchExecuted,
+    ragState.initialFetch,
+    token,
+  ]);
 
   return <RagContext.Provider value={ragState}>{children}</RagContext.Provider>;
 };

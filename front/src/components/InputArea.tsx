@@ -15,6 +15,7 @@ import {
   Brain,
   Files,
   Cog,
+  Printer,
 } from "lucide-react";
 import { useSettings } from "./Settings.tsx";
 import { useFileUpload, UploadedFile } from "../hooks/useFileUploads";
@@ -37,6 +38,9 @@ import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import Spinner from "./Spinner.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useAuth } from "@/components/providers/auth.tsx";
+import { Switch } from "@/components/ui/switch";
+import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,7 +57,9 @@ interface InputAreaProps {
 }
 
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
+  const navigate = useNavigate();
   const [message, setMessage] = useState("");
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -62,8 +68,15 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
 
-  const { collections, activeCollections } = useRagContext();
-  const { settings } = useSettings();
+  const {
+    collections,
+    activeCollections,
+    getCollections,
+    initialSearchExecuted,
+    initialFetch,
+  } = useRagContext();
+  const { settings, setSettings } = useSettings();
+  const { user } = useAuth();
   const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
     useUserInfo();
 
@@ -98,14 +111,22 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           selected: selected,
         },
       } as HumanMessage;
+      const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
+      const contextInstructions =
+        typeof userSettings.contextInstructions === "string"
+          ? userSettings.contextInstructions
+          : "";
+      const contextSecrets = Array.isArray(userSettings.contextSecrets)
+        ? userSettings.contextSecrets
+        : [];
       clear();
       thread?.submit(
         {
           messages: [newMessage],
           collections: enabledCollections,
           mcp_tools: mcpToolsPayload,
-          secrets: settings.contextSecrets,
-          instructions: settings.contextInstructions,
+          secrets: contextSecrets,
+          instructions: contextInstructions,
         },
         {
           optimisticValues(prev) {
@@ -118,15 +139,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         },
       );
     },
-    [
-      thread,
-      selected,
-      clear,
-      mcpToolsPayload,
-      enabledCollections,
-      settings.contextInstructions,
-      settings.contextSecrets,
-    ],
+    [thread, selected, clear, mcpToolsPayload, enabledCollections, user],
   );
   const handleContinueThread = useCallback(
     async (data: any) => {
@@ -167,6 +180,18 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   useEffect(() => {
     autoResize();
   }, [message]);
+
+  useEffect(() => {
+    if (!window.matchMedia) return;
+
+    const media = window.matchMedia("(pointer: coarse)");
+    const updateIsMobileDevice = () => setIsMobileDevice(media.matches);
+
+    updateIsMobileDevice();
+    media.addEventListener("change", updateIsMobileDevice);
+
+    return () => media.removeEventListener("change", updateIsMobileDevice);
+  }, []);
 
   const handleContinue = useCallback(
     async (type: "comment" | "approve") => {
@@ -247,6 +272,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isMobileDevice) return;
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
@@ -266,186 +293,237 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     }
   };
 
-  return (
-    <div className="p-4 bg-card dark:bg-input border-border rounded-lg shadow-[2px_2px_12px_6px_rgba(0,0,0,0.04)] dark:shadow-[2px_2px_12px_6px_rgba(0,0,0,0.14)] print:hidden border-t-1 border-highlight">
-      <div className="flex items-end gap-2 relative">
-        <input
-          className="hidden"
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          multiple
-          disabled={thread?.isLoading || isMCPLoading}
-        />
-        <div className="flex flex-col items-center gap-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                disabled={thread?.isLoading || isMCPLoading}
-                title="Открыть настройки"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-              >
-                <Settings2 />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={3}>
-              <DropdownMenuItem onSelect={openContextModal}>
-                <Brain className={"size-5"} />
-                <span>Контекст</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={openMcpModal}>
-                <Cog className={"size-5"} />
-                <span>Инструменты</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={openCollectionsModal}>
-                <Files className={"size-5"} />
-                <span>Знания</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={thread?.isLoading || isMCPLoading}
-            title="Добавить вложения"
-            className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-          >
-            <Paperclip />
-          </button>
-        </div>
+  const handleOpenDocuments = useCallback(async () => {
+    if (collections.length > 0) {
+      openCollectionsModal();
+      return;
+    }
 
-        <textarea
-          placeholder={
-            thread?.interrupt
-              ? "Принять / Отменить с комментарием…"
-              : "Введите вашу задачу…"
-          }
-          ref={textRef}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={thread?.isLoading || isMCPLoading}
-          className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
-        />
-        {thread?.interrupt &&
-        thread?.interrupt.value &&
-        ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
-        (!settings.autoApprove ||
-          thread.interrupt.value.type === "tool_call") ? (
-          <>
-            {isMCPLoading ? (
-              <div className="w-9 h-9 flex items-center justify-center">
-                <Spinner size="16" />
-              </div>
-            ) : (
+    if (!initialSearchExecuted) {
+      await initialFetch();
+    }
+
+    const latestCollections = await getCollections().catch(() => []);
+    if (latestCollections.length > 0) {
+      openCollectionsModal();
+      return;
+    }
+
+    navigate("/rag");
+  }, [
+    collections.length,
+    getCollections,
+    initialFetch,
+    initialSearchExecuted,
+    navigate,
+    openCollectionsModal,
+  ]);
+
+  return (
+    <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
+      <div className="p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden">
+        <div className="flex items-end gap-2 relative">
+          <input
+            className="hidden"
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            multiple
+            disabled={thread?.isLoading || isMCPLoading}
+          />
+          <div className="flex flex-col items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={thread?.isLoading || isMCPLoading}
+                  title="Открыть настройки"
+                  className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+                >
+                  <Settings2 />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="input-dropdown"
+                align="start"
+                sideOffset={3}
+              >
+                <DropdownMenuItem onSelect={openContextModal}>
+                  <Brain className={"size-5"} />
+                  <span>Персонализация</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={openMcpModal}>
+                  <Cog className={"size-5"} />
+                  <span>Инструменты</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
+                  <Files className={"size-5"} />
+                  <span>Документы</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => window.print()}>
+                  <Printer className={"size-5"} />
+                  <span>Печать</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={thread?.isLoading || isMCPLoading}
+              title="Добавить вложения"
+              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+            >
+              <Paperclip />
+            </button>
+          </div>
+
+          <textarea
+            placeholder={
+              thread?.interrupt
+                ? "Принять / Отменить с комментарием…"
+                : "Введите вашу задачу…"
+            }
+            ref={textRef}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={thread?.isLoading || isMCPLoading}
+            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
+          />
+          <div className="flex flex-col items-end gap-1">
+            {thread?.interrupt &&
+            thread?.interrupt.value &&
+            ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+            (!settings.autoApprove ||
+              thread.interrupt.value.type === "tool_call") ? (
               <>
-                <motion.div layout className="flex items-center gap-2">
-                  <motion.button
-                    layout
-                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                    onClick={() => handleContinue("comment")}
-                    disabled={thread.isLoading || isMCPLoading}
-                    title="Отменить выполнение"
-                    className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
-                  >
-                    <X />
-                  </motion.button>
-                  <AnimatePresence mode="popLayout">
-                    {!message.trim() && (
+                {isMCPLoading ? (
+                  <div className="w-9 h-9 flex items-center justify-center">
+                    <Spinner size="16" />
+                  </div>
+                ) : (
+                  <>
+                    <motion.div layout className="flex items-center gap-2">
                       <motion.button
-                        key="approve-btn"
                         layout
-                        initial={{ x: 24, scale: 1, opacity: 1 }}
-                        animate={{ x: 0, scale: 1, opacity: 1 }}
-                        exit={{ x: 24, scale: 1, opacity: 1 }}
                         transition={{
                           type: "spring",
                           stiffness: 500,
                           damping: 35,
                         }}
-                        onClick={() => handleContinue("approve")}
+                        onClick={() => handleContinue("comment")}
                         disabled={thread.isLoading || isMCPLoading}
-                        title="Подтвердить выполнение"
-                        className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center transition-colors hover:bg-green-700 disabled:opacity-67"
+                        title="Отменить выполнение"
+                        className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex z-8 items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
                       >
-                        <Check />
+                        <X />
                       </motion.button>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
+                      <AnimatePresence mode="popLayout">
+                        {!message.trim() && (
+                          <motion.button
+                            key="approve-btn"
+                            layout
+                            initial={{ x: 24, scale: 1, opacity: 1 }}
+                            animate={{ x: 0, scale: 1, opacity: 1 }}
+                            exit={{ x: 24, scale: 1, opacity: 1 }}
+                            transition={{
+                              type: "spring",
+                              stiffness: 500,
+                              damping: 35,
+                            }}
+                            onClick={() => handleContinue("approve")}
+                            disabled={thread.isLoading || isMCPLoading}
+                            title="Подтвердить выполнение"
+                            className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center z-8 transition-colors hover:bg-green-700 disabled:opacity-67"
+                          >
+                            <Check />
+                          </motion.button>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  </>
+                )}
               </>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={
+                  thread?.isLoading ||
+                  isMCPLoading ||
+                  !message.trim() ||
+                  isUploading
+                }
+                title="Отправить"
+                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+              >
+                <Send />
+              </button>
             )}
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={
-              thread?.isLoading ||
-              isMCPLoading ||
-              !message.trim() ||
-              isUploading
-            }
-            title="Отправить"
-            className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-          >
-            <Send />
-          </button>
+          </div>
+          <label className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none">
+            <span>Автономность</span>
+            <Switch
+              checked={settings.autoApprove ?? false}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, autoApprove: checked }))
+              }
+            />
+          </label>
+        </div>
+
+        {uploads.length > 0 && (
+          <AttachmentsContainer>
+            {uploads.map((u: UploadedFile, idx) => (
+              <AttachmentBubble
+                key={idx}
+                onClick={() => u.previewUrl && setEnlargedImage(u.previewUrl!)}
+              >
+                {u.previewUrl ? (
+                  <ImagePreview src={u.previewUrl} />
+                ) : (
+                  <span>{u.file.name}</span>
+                )}
+
+                {u.progress < 100 && (
+                  <ProgressOverlay>
+                    <CircularProgress progress={u.progress}>
+                      {u.progress}%
+                    </CircularProgress>
+                  </ProgressOverlay>
+                )}
+
+                <RemoveButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeUpload(idx);
+                  }}
+                >
+                  ×
+                </RemoveButton>
+              </AttachmentBubble>
+            ))}
+          </AttachmentsContainer>
+        )}
+
+        <div
+          className={[
+            "absolute bottom-2 left-[75px] text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
+            selectedCount > 0
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 translate-y-1",
+          ].join(" ")}
+        >
+          Выбрано вложений: {selectedCount}
+        </div>
+
+        {enlargedImage && (
+          <Overlay onClick={() => setEnlargedImage(null)}>
+            <EnlargedImage src={enlargedImage} />
+            <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
+          </Overlay>
         )}
       </div>
-
-      {uploads.length > 0 && (
-        <AttachmentsContainer>
-          {uploads.map((u: UploadedFile, idx) => (
-            <AttachmentBubble
-              key={idx}
-              onClick={() => u.previewUrl && setEnlargedImage(u.previewUrl!)}
-            >
-              {u.previewUrl ? (
-                <ImagePreview src={u.previewUrl} />
-              ) : (
-                <span>{u.file.name}</span>
-              )}
-
-              {u.progress < 100 && (
-                <ProgressOverlay>
-                  <CircularProgress progress={u.progress}>
-                    {u.progress}%
-                  </CircularProgress>
-                </ProgressOverlay>
-              )}
-
-              <RemoveButton
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeUpload(idx);
-                }}
-              >
-                ×
-              </RemoveButton>
-            </AttachmentBubble>
-          ))}
-        </AttachmentsContainer>
-      )}
-
-      <div
-        className={[
-          "absolute bottom-2 left-[75px] text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
-          selectedCount > 0
-            ? "opacity-100 translate-y-0"
-            : "opacity-0 translate-y-1",
-        ].join(" ")}
-      >
-        Выбрано вложений: {selectedCount}
-      </div>
-
-      {enlargedImage && (
-        <Overlay onClick={() => setEnlargedImage(null)}>
-          <EnlargedImage src={enlargedImage} />
-          <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
-        </Overlay>
-      )}
     </div>
   );
 };

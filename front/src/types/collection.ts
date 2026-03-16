@@ -1,6 +1,7 @@
 export type Collection = {
   name: string;
   uuid: string;
+  can_edit: boolean;
   metadata: {
     description?: string;
     [key: string]: any;

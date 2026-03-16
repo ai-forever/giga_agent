@@ -23,7 +23,9 @@ import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
-import { useSettings } from "@/components/Settings.tsx";
+import { useAuth } from "@/components/providers/auth.tsx";
+import { useParams } from "react-router-dom";
+import { buildContentByPathUrl } from "./attachments/file-utils.ts";
 
 interface MessageEditorProps {
   message: Message;
@@ -38,6 +40,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
   onCancel,
   thread,
 }) => {
+  const { threadId } = useParams<{ threadId?: string }>();
   const textRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -47,7 +50,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
   const { selected } = useSelectedAttachments();
   const { collections, activeCollections } = useRagContext();
   const selectedCount = Object.keys(selected).length;
-  const { settings } = useSettings();
+  const { user } = useAuth();
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -68,13 +71,18 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     [mcpTools],
   );
 
+  const getFilePath = useCallback((file: FileData): string => {
+    const withSandbox = file as FileData & { sandbox_path?: string };
+    return withSandbox.path || withSandbox.sandbox_path || "";
+  }, []);
+
   useEffect(() => {
     // @ts-ignore
     setMessageText(message.additional_kwargs?.user_input);
     // @ts-ignore
     const initialFiles: FileData[] = message.additional_kwargs?.files ?? [];
     setExistingFiles(initialFiles);
-  }, [message, setExistingFiles]);
+  }, [message, setExistingFiles, threadId]);
 
   // при первом рендере и при очистке
   useEffect(() => {
@@ -123,29 +131,71 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     } as HumanMessage;
 
     const meta = thread?.getMessagesMetadata(message);
-    const parentCheckpoint = meta?.firstSeenState?.parent_checkpoint;
+    const parentCheckpoint = meta?.branch
+      ? ({
+          ...meta?.firstSeenState?.parent_checkpoint,
+          thread_id: meta.firstSeenState?.checkpoint.thread_id,
+          checkpoint_id:
+            meta.branch.split(">").length > 1
+              ? meta.branch.split(">")[0]
+              : meta.branch,
+        } as Checkpoint)
+      : meta?.firstSeenState?.parent_checkpoint;
+    const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
+    const contextInstructions =
+      typeof userSettings.contextInstructions === "string"
+        ? userSettings.contextInstructions
+        : "";
+    const contextSecrets = Array.isArray(userSettings.contextSecrets)
+      ? userSettings.contextSecrets
+      : [];
+
+    const editedMessage = {
+      ...(message as any),
+      type: "human",
+      content: messageText,
+      additional_kwargs: {
+        ...(message as any)?.additional_kwargs,
+        user_input: messageText,
+        files: allFiles,
+        selected: selected,
+      },
+    } as unknown as HumanMessage;
 
     thread?.submit(
       {
-        messages: [newMessage],
+        messages: [editedMessage],
         mcp_tools: mcpToolsPayload,
         collections: enabledCollections,
-        secrets: settings.contextSecrets,
-        instructions: settings.contextInstructions,
+        secrets: contextSecrets,
+        instructions: contextInstructions,
       },
       {
         optimisticValues(prev: GraphState) {
           const prevMessages = prev.messages ?? [];
-          const newMessages = [...prevMessages, newMessage];
-          newMessages.forEach((el) => {
-            if (el.id === message.id) {
-              el.content = messageText;
-              // @ts-ignore
-              el.additional_kwargs.user_input = messageText;
-              // @ts-ignore
-              el.additional_kwargs.files = allFiles;
-            }
-          });
+          const targetMessageId = (message as any)?.id ?? null;
+          const idx = targetMessageId
+            ? prevMessages.findIndex((m) => (m as any)?.id === targetMessageId)
+            : -1;
+          const matched = idx >= 0;
+
+          // При редактировании мы НЕ добавляем новое сообщение в конец.
+          // Вместо этого заменяем текущее и отсекаем хвост (последующие сообщения будут пересчитаны сервером от checkpoint).
+          const newMessages = matched
+            ? [
+                ...prevMessages.slice(0, idx),
+                ({
+                  ...prevMessages[idx],
+                  content: messageText,
+                  additional_kwargs: {
+                    // @ts-ignore
+                    ...(prevMessages[idx] as any)?.additional_kwargs,
+                    user_input: messageText,
+                    files: allFiles,
+                  },
+                } as Message),
+              ]
+            : [...prevMessages, newMessage];
           onCancel();
           return { ...prev, messages: newMessages };
         },
@@ -161,8 +211,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     onCancel,
     getAllFileData,
     selected,
-    settings.contextInstructions,
-    settings.contextSecrets,
+    user,
     enabledCollections,
     mcpToolsPayload,
   ]);
@@ -231,9 +280,10 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
               onClick={() => {
                 if (it.kind === "existing") {
                   const f = it.data!;
-                  if (f.file_type === "image")
-                    setEnlargedImage("/files/" + f.path);
-                  else openLink("/files/" + f.path);
+                  const path = getFilePath(f);
+                  const url = buildContentByPathUrl(path);
+                  if (f.file_type === "image") setEnlargedImage(url);
+                  else openLink(url);
                 } else if (it.previewUrl) {
                   setEnlargedImage(it.previewUrl);
                 }
@@ -241,11 +291,9 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
             >
               {it.kind === "existing" ? (
                 it.data?.file_type === "image" ? (
-                  <ImagePreview src={"/files/" + it.data.path} />
+                  <ImagePreview src={buildContentByPathUrl(getFilePath(it.data))} />
                 ) : (
-                  <span>
-                    {it.name ?? it.data?.path.replace(/^files\//, "")}
-                  </span>
+                  <span>{it.name ?? (it.data ? getFilePath(it.data) : "")}</span>
                 )
               ) : it.previewUrl ? (
                 <ImagePreview src={it.previewUrl} />

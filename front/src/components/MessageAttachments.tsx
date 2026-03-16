@@ -8,6 +8,7 @@ import {
 } from "./Attachments.tsx";
 import { FileData } from "../interfaces.ts";
 import OverlayPortal from "./OverlayPortal.tsx";
+import { buildContentByPathUrl } from "./attachments/file-utils.ts";
 
 interface MessageProps {
   message: Message;
@@ -17,6 +18,12 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
   // @ts-ignore
   const uploads = (message.additional_kwargs?.files ?? []) as FileData[];
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+
+  const getPath = (file: FileData): string => {
+    const raw = (file as FileData & { sandbox_path?: string }).path;
+    if (raw) return raw;
+    return (file as FileData & { sandbox_path?: string }).sandbox_path ?? "";
+  };
 
   const openLink = (url: string) => {
     // @ts-ignore
@@ -32,16 +39,23 @@ const MessageAttachments: React.FC<MessageProps> = ({ message }) => {
           {uploads.map((u: FileData, idx) => (
             <AttachmentBubble
               key={idx}
-              onClick={() =>
-                u.file_type === "image"
-                  ? setEnlargedImage("/files/" + u.path)
-                  : openLink("/files/" + u.path)
-              }
+              onClick={() => {
+                const path = getPath(u);
+                const url = buildContentByPathUrl(path);
+                if (u.file_type === "image") {
+                  setEnlargedImage(url);
+                } else {
+                  openLink(url);
+                }
+              }}
             >
               {u.file_type === "image" ? (
-                <ImagePreview src={"/files/" + u.path} />
+                <ImagePreview src={buildContentByPathUrl(getPath(u))} />
               ) : (
-                <span>{u.path.replace("files/", "")}</span>
+                <span>
+                  {u.original_name ??
+                    (getPath(u).split("/").pop() || getPath(u))}
+                </span>
               )}
             </AttachmentBubble>
           ))}

@@ -36,6 +36,7 @@ export interface GraphTemplate extends BagTemplate {
 
 export interface FileData {
   path: string;
+  original_name?: string;
   file_type?: string;
   size: number;
   image_id?: string;

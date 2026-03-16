@@ -1,10 +1,10 @@
 import { useState, Dispatch, SetStateAction, useCallback } from "react";
 import { Document } from "@langchain/core/documents";
-import { v4 as uuidv4 } from "uuid";
 import { Collection, CollectionCreate } from "@/types/collection";
 import { toast } from "sonner";
-import { LANGCONNECT_API_URL, session } from "@/config.ts";
 import { useSettings } from "@/components/Settings";
+import { API_AGENT_PREFIX } from "@/config.ts";
+import { apiClient, ApiError } from "@/lib/api-client";
 
 export const DEFAULT_COLLECTION_NAME = "default_collection";
 
@@ -15,76 +15,34 @@ export function getDefaultCollection(collections: Collection[]): Collection {
   );
 }
 
-function getApiUrlOrThrow(): URL {
-  if (!LANGCONNECT_API_URL) {
-    throw new Error(
-      "Failed to upload documents: API URL not configured. Please set NEXT_PUBLIC_RAG_API_URL",
-    );
-  }
-  return new URL(
-    LANGCONNECT_API_URL.replace("host.docker.internal", "localhost"),
-  );
-}
-
 export function getCollectionName(name: string | undefined) {
   if (!name) return "";
   return name === DEFAULT_COLLECTION_NAME ? "Default" : name;
 }
 
-async function uploadDocuments(
-  collectionId: string,
-  files: File[],
-  authorization: string,
-  metadatas?: Record<string, any>[],
-): Promise<any> {
-  const url = `${getApiUrlOrThrow().href}collections/${encodeURIComponent(collectionId)}/documents`;
+type RagDocumentResponse = {
+  id: string;
+  collection_id: string;
+  content?: string | null;
+  metadata?: Record<string, any> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
 
-  const formData = new FormData();
+function mapApiDocumentToLangchain(doc: RagDocumentResponse): Document {
+  const metadata: Record<string, any> = { ...(doc.metadata || {}) };
 
-  // Append files
-  files.forEach((file) => {
-    formData.append("files", file, file.name);
+  // UI ожидает эти поля (см. DocumentsCard / DocumentsTable)
+  metadata.file_id = metadata.file_id ?? doc.id;
+  metadata.name = metadata.name ?? metadata.original_name ?? "document";
+  metadata.created_at = metadata.created_at ?? doc.created_at ?? null;
+  metadata.collection = metadata.collection ?? doc.collection_id;
+
+  return new Document({
+    id: doc.id,
+    pageContent: doc.content ?? "",
+    metadata,
   });
-
-  // Append metadatas if provided
-  if (metadatas) {
-    if (metadatas.length !== files.length) {
-      throw new Error(
-        `Number of metadata objects (${metadatas.length}) must match the number of files (${files.length}).`,
-      );
-    }
-    // FastAPI expects the metadatas as a JSON *string* in the form data
-    const metadatasJsonString = JSON.stringify(metadatas);
-    formData.append("metadatas_json", metadatasJsonString);
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData,
-      headers: {
-        Authorization: `Bearer ${authorization}`,
-      },
-    });
-
-    if (!response.ok) {
-      // Attempt to parse error details from the response body
-      let errorDetail = `HTTP error! status: ${response.status}`;
-      try {
-        const errorJson = await response.json();
-        errorDetail = errorJson.detail || JSON.stringify(errorJson);
-      } catch (_) {
-        // If parsing JSON fails, use the status text
-        errorDetail = `${errorDetail} - ${response.statusText}`;
-      }
-      throw new Error(`Failed to upload documents: ${errorDetail}`);
-    }
-
-    return await response.json(); // Parse the successful JSON response
-  } catch (error) {
-    console.error("Error uploading documents:", error);
-    throw error; // Re-throw the error for further handling
-  }
 }
 
 // --- Type Definitions ---
@@ -95,7 +53,7 @@ interface UseRagReturn {
   initialSearchExecuted: boolean;
   setInitialSearchExecuted: Dispatch<SetStateAction<boolean>>;
   // Initial load
-  initialFetch: (accessToken: string) => Promise<void>;
+  initialFetch: () => Promise<void>;
 
   // Collection state and operations
   collections: Collection[];
@@ -105,18 +63,17 @@ interface UseRagReturn {
   deactivateCollection: (collectionId: string) => void;
   collectionsLoading: boolean;
   setCollectionsLoading: Dispatch<SetStateAction<boolean>>;
-  getCollections: (accessToken?: string) => Promise<Collection[]>;
+  getCollections: () => Promise<Collection[]>;
   createCollection: (
     name: string,
     metadata?: Record<string, any>,
-    accessToken?: string,
   ) => Promise<Collection | undefined>;
   updateCollection: (
     collectionId: string,
     newName: string,
     metadata: Record<string, any>,
   ) => Promise<Collection | undefined>;
-  deleteCollection: (collectionId: string) => Promise<string | undefined>;
+  deleteCollection: (collectionId: string) => Promise<void>;
 
   // Selected collection
   selectedCollection: Collection | undefined;
@@ -130,7 +87,6 @@ interface UseRagReturn {
   listDocuments: (
     collectionId: string,
     args?: { limit?: number; offset?: number },
-    accessToken?: string,
   ) => Promise<Document[]>;
   deleteDocument: (id: string) => Promise<void>;
   handleFileUpload: (
@@ -184,20 +140,180 @@ export function useRag(): UseRagReturn {
     [setSettings],
   );
 
+  const getCollections = useCallback(async (): Promise<Collection[]> => {
+    const data = await apiClient.get<Collection[]>(
+      `${API_AGENT_PREFIX}/rag/collections`,
+    );
+    return Array.isArray(data) ? data : [];
+  }, []);
+
+  const createCollection = useCallback(
+    async (
+      name: string,
+      metadata: Record<string, any> = {},
+    ): Promise<Collection | undefined> => {
+      const trimmedName = name.trim();
+      if (!trimmedName) return undefined;
+
+      const nameExists = collections.some(
+        (c) => c.name.toLowerCase() === trimmedName.toLowerCase(),
+      );
+      if (nameExists) {
+        return undefined;
+      }
+
+      const newCollection: CollectionCreate = {
+        name: trimmedName,
+        metadata,
+      };
+
+      try {
+        const created = await apiClient.post<Collection>(
+          `${API_AGENT_PREFIX}/rag/collections`,
+          newCollection,
+          { showError: false },
+        );
+        setCollections((prevCollections) => [...prevCollections, created]);
+        // новая папка по умолчанию активна
+        setSettings((prev) => ({
+          ...prev,
+          activeCollections: {
+            ...(prev.activeCollections || {}),
+            [created.uuid]: true,
+          },
+        }));
+        return created;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          return undefined;
+        }
+        throw e;
+      }
+    },
+    [collections, setSettings],
+  );
+
+  const updateCollection = useCallback(
+    async (
+      collectionId: string,
+      newName: string,
+      metadata: Record<string, any>,
+    ): Promise<Collection | undefined> => {
+      const collectionToUpdate = collections.find(
+        (c) => c.uuid === collectionId,
+      );
+      if (!collectionToUpdate) {
+        toast.error(`Папка с ID "${collectionId}" не найдена.`, {
+          richColors: true,
+        });
+        return undefined;
+      }
+      if (!collectionToUpdate.can_edit) {
+        return undefined;
+      }
+
+      const trimmedNewName = newName.trim();
+      if (!trimmedNewName) {
+        toast.error("Название папки не может быть пустым.", {
+          richColors: true,
+        });
+        return undefined;
+      }
+
+      const nameExists = collections.some(
+        (c) =>
+          c.name.toLowerCase() === trimmedNewName.toLowerCase() &&
+          c.name !== collectionToUpdate.name,
+      );
+      if (nameExists) {
+        toast.warning(`Папка с именем "${trimmedNewName}" уже существует.`, {
+          richColors: true,
+        });
+        return undefined;
+      }
+
+      const updateData = {
+        name: trimmedNewName,
+        metadata,
+      };
+
+      const updated = await apiClient.patch<Collection>(
+        `${API_AGENT_PREFIX}/rag/collections/${collectionId}`,
+        updateData,
+      );
+
+      setCollections((prevCollections) =>
+        prevCollections.map((collection) =>
+          collection.uuid === collectionId ? updated : collection,
+        ),
+      );
+
+      if (selectedCollection && selectedCollection.uuid === collectionId) {
+        setSelectedCollection(updated);
+      }
+
+      return updated;
+    },
+    [collections, selectedCollection],
+  );
+
+  const deleteCollection = useCallback(
+    async (collectionId: string): Promise<void> => {
+      const collectionToDelete = collections.find(
+        (c) => c.uuid === collectionId,
+      );
+      if (!collectionToDelete) return;
+      if (!collectionToDelete.can_edit) return;
+
+      await apiClient.delete(
+        `${API_AGENT_PREFIX}/rag/collections/${collectionId}`,
+      );
+
+      setCollections((prevCollections) =>
+        prevCollections.filter(
+          (collection) => collection.uuid !== collectionId,
+        ),
+      );
+      // удалить из активных
+      setSettings((prev) => {
+        const { [collectionId]: _removed, ...rest } =
+          prev.activeCollections || {};
+        return { ...prev, activeCollections: rest };
+      });
+    },
+    [collections, setSettings],
+  );
+
+  const listDocuments = useCallback(
+    async (
+      collectionId: string,
+      args?: { limit?: number; offset?: number },
+    ): Promise<Document[]> => {
+      const searchParams = new URLSearchParams();
+      if (args?.limit) searchParams.set("limit", String(args.limit));
+      if (args?.offset) searchParams.set("offset", String(args.offset));
+      const qs = searchParams.toString();
+
+      const data = await apiClient.get<RagDocumentResponse[]>(
+        `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents${qs ? `?${qs}` : ""}`,
+      );
+      const rows = Array.isArray(data) ? data : [];
+      return rows.map(mapApiDocumentToLangchain);
+    },
+    [],
+  );
+
   // --- Initial Fetch ---
-  const initialFetch = useCallback(async (accessToken: string) => {
+  const initialFetch = useCallback(async () => {
     setCollectionsLoading(true);
     setDocumentsLoading(true);
     let initCollections: Collection[] = [];
 
     try {
-      initCollections = await getCollections(accessToken);
-    } catch (e: any) {
-      if (e.message.includes("Failed to fetch collections")) {
-        // Database likely not initialized yet. Let's try this then re-fetch.
-        await initializeDatabase(accessToken);
-        initCollections = await getCollections(accessToken);
-      }
+      initCollections = await getCollections();
+    } catch {
+      // handled globally
+      initCollections = [];
     }
 
     if (!initCollections.length) {
@@ -209,7 +325,7 @@ export function useRag(): UseRagReturn {
     }
 
     setCollections(initCollections);
-    // Синхронизация активных коллекций со "входящими":
+    // Синхронизация активных папок со "входящими":
     // - сохраняем статусы существующих, которые остались во входящих
     // - удаляем отсутствующие
     // - добавляем новые как enabled=true
@@ -231,172 +347,65 @@ export function useRag(): UseRagReturn {
     setInitialSearchExecuted(true);
     setCollectionsLoading(false);
 
-    const documents = await listDocuments(
-      defaultCollection.uuid,
-      {
-        limit: 100,
-      },
-      accessToken,
-    );
+    const documents = await listDocuments(defaultCollection.uuid, {
+      limit: 100,
+    });
     setDocuments(documents);
     setDocumentsLoading(false);
-  }, []);
-
-  const initializeDatabase = useCallback(
-    async (accessToken?: string) => {
-      if (!session?.accessToken && !accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description:
-            "Не удалось получить список документов. Попробуйте ещё раз.",
-        });
-        return [];
-      }
-
-      const url = getApiUrlOrThrow();
-      url.pathname += "admin/initialize-database";
-      const response = await fetch(url.toString(), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken || session?.accessToken}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Не удалось инициализировать базу данных: ${response.statusText}`,
-        );
-      }
-      const data = await response.json();
-      return data;
-    },
-    [session],
-  );
+  }, [getCollections, listDocuments, setSettings]);
 
   // --- Document Operations ---
 
-  const listDocuments = useCallback(
-    async (
-      collectionId: string,
-      args?: { limit?: number; offset?: number },
-      accessToken?: string,
-    ): Promise<Document[]> => {
-      if (!session?.accessToken && !accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description:
-            "Не удалось получить список документов. Попробуйте ещё раз.",
-        });
-        return [];
-      }
-
-      const url = getApiUrlOrThrow();
-      url.pathname += `collections/${collectionId}/documents`;
-      if (args?.limit) {
-        url.searchParams.set("limit", args.limit.toString());
-      }
-      if (args?.offset) {
-        url.searchParams.set("offset", args.offset.toString());
-      }
-
-      const response = await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${accessToken || session?.accessToken}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch documents: ${response.statusText}`);
-      }
-      const data = await response.json();
-      return data;
-    },
-    [session],
-  );
-
   const deleteDocument = useCallback(
     async (id: string) => {
-      if (!session?.accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description:
-            "Не удалось получить удалить документ. Попробуйте ещё раз.",
-        });
-        return;
-      }
-
       if (!selectedCollection) {
         throw new Error("No collection selected");
       }
 
-      const url = getApiUrlOrThrow();
-      url.pathname += `collections/${selectedCollection.uuid}/documents/${id}`;
-
-      const response = await fetch(url.toString(), {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to delete document: ${response.statusText}`);
-      }
+      await apiClient.delete(
+        `${API_AGENT_PREFIX}/rag/collections/${selectedCollection.uuid}/documents/${encodeURIComponent(id)}`,
+      );
 
       setDocuments((prevDocs) =>
         prevDocs.filter((doc) => doc.metadata.file_id !== id),
       );
     },
-    [selectedCollection, session],
+    [selectedCollection],
   );
 
   const handleFileUpload = useCallback(
     async (files: FileList | null, collectionId: string) => {
-      if (!session?.accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description: "Не удалось загрузить файл(ы). Попробуйте ещё раз.",
-        });
-        return;
-      }
-
       if (!files || files.length === 0) {
         console.warn("File upload skipped: No files selected.");
         return;
       }
 
-      const newDocs: Document[] = Array.from(files).map((file) => {
-        return new Document({
-          id: uuidv4(),
-          pageContent: `Содержимое ${file.name}`, // Placeholder: Real implementation needs file reading
-          metadata: {
-            name: file.name,
-            collection: collectionId,
-            size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-            created_at: new Date().toISOString(),
-          },
-        });
-      });
+      const filesArray = Array.from(files);
+      const metadatas = filesArray.map((file) => ({
+        name: file.name,
+        size: file.size,
+        created_at: new Date().toISOString(),
+      }));
 
-      await uploadDocuments(
-        collectionId,
-        Array.from(files),
-        session.accessToken,
-        newDocs.map((d) => d.metadata),
+      const formData = new FormData();
+      filesArray.forEach((file) => {
+        formData.append("files", file, file.name);
+      });
+      formData.append("metadatas_json", JSON.stringify(metadatas));
+
+      await apiClient.post(
+        `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`,
+        formData,
       );
-      setDocuments((prevDocs) => [...prevDocs, ...newDocs]);
+
+      const nextDocs = await listDocuments(collectionId, { limit: 100 });
+      setDocuments(nextDocs);
     },
-    [session],
+    [listDocuments],
   );
 
   const handleTextUpload = useCallback(
     async (textInput: string, collectionId: string) => {
-      if (!session?.accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description:
-            "Не удалось загрузить текстовый документ. Попробуйте ещё раз.",
-        });
-        return;
-      }
-
       if (!textInput.trim()) {
         console.warn("Text upload skipped: Text is empty.");
         return;
@@ -406,256 +415,26 @@ export function useRag(): UseRagReturn {
       const textFile = new File([textBlob], fileName, { type: "text/plain" });
       const metadata = {
         name: fileName,
-        collection: collectionId,
-        size: `${(textInput.length / 1024).toFixed(1)} KB`,
+        size: textInput.length,
         created_at: new Date().toISOString(),
       };
-      await uploadDocuments(collectionId, [textFile], session.accessToken, [
-        metadata,
-      ]);
-      setDocuments((prevDocs) => [
-        ...prevDocs,
-        new Document({
-          id: uuidv4(),
-          pageContent: textInput,
-          metadata,
-        }),
-      ]);
+
+      const formData = new FormData();
+      formData.append("files", textFile, textFile.name);
+      formData.append("metadatas_json", JSON.stringify([metadata]));
+
+      await apiClient.post(
+        `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`,
+        formData,
+      );
+
+      const nextDocs = await listDocuments(collectionId, { limit: 100 });
+      setDocuments(nextDocs);
     },
-    [session],
+    [listDocuments],
   );
 
   // --- Collection Operations ---
-
-  const getCollections = useCallback(
-    async (accessToken?: string): Promise<Collection[]> => {
-      if (!session?.accessToken && !accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description: "Не удалось получить коллекции. Попробуйте ещё раз.",
-        });
-        return [];
-      }
-
-      const url = getApiUrlOrThrow();
-      url.pathname += "collections";
-
-      const response = await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${accessToken || session?.accessToken}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch collections: ${response.statusText}`);
-      }
-      const data = await response.json();
-      return data;
-    },
-    [session],
-  );
-
-  const createCollection = useCallback(
-    async (
-      name: string,
-      metadata: Record<string, any> = {},
-      accessToken?: string,
-    ): Promise<Collection | undefined> => {
-      if (!session?.accessToken && !accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description: "Не удалось создать коллекцию. Попробуйте ещё раз.",
-        });
-        return;
-      }
-
-      const url = getApiUrlOrThrow();
-      url.pathname += "collections";
-
-      const trimmedName = name.trim();
-      if (!trimmedName) {
-        console.error("Collection name cannot be empty.");
-        return undefined;
-      }
-      const nameExists = collections.some(
-        (c) => c.name.toLowerCase() === trimmedName.toLowerCase(),
-      );
-      if (nameExists) {
-        console.warn(`Collection with name "${trimmedName}" already exists.`);
-        return undefined;
-      }
-
-      const newCollection: CollectionCreate = {
-        name: trimmedName,
-        metadata,
-      };
-      const response = await fetch(url.toString(), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken || session?.accessToken}`,
-        },
-        body: JSON.stringify(newCollection),
-      });
-      if (!response.ok) {
-        console.error(`Failed to create collection: ${response.statusText}`);
-        return undefined;
-      }
-      const data = await response.json();
-      setCollections((prevCollections) => [...prevCollections, data]);
-      // новая коллекция по умолчанию активна
-      setSettings((prev) => ({
-        ...prev,
-        activeCollections: {
-          ...(prev.activeCollections || {}),
-          [data.uuid]: true,
-        },
-      }));
-      return data;
-    },
-    [collections, session, setSettings],
-  );
-
-  const updateCollection = useCallback(
-    async (
-      collectionId: string,
-      newName: string,
-      metadata: Record<string, any>,
-    ): Promise<Collection | undefined> => {
-      if (!session?.accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description: "Не удалось обновить коллекцию. Попробуйте ещё раз.",
-        });
-        return;
-      }
-
-      // Find the collection to update
-      const collectionToUpdate = collections.find(
-        (c) => c.uuid === collectionId,
-      );
-
-      if (!collectionToUpdate) {
-        toast.error(`Коллекция с ID "${collectionId}" не найдена.`, {
-          richColors: true,
-        });
-        return undefined;
-      }
-
-      const trimmedNewName = newName.trim();
-      if (!trimmedNewName) {
-        toast.error("Название коллекции не может быть пустым.", {
-          richColors: true,
-        });
-        return undefined;
-      }
-
-      // Check if the new name already exists (only if name is changing)
-      const nameExists = collections.some(
-        (c) =>
-          c.name.toLowerCase() === trimmedNewName.toLowerCase() &&
-          c.name !== collectionToUpdate.name,
-      );
-      if (nameExists) {
-        toast.warning(
-          `Коллекция с именем "${trimmedNewName}" уже существует.`,
-          {
-            richColors: true,
-          },
-        );
-        return undefined;
-      }
-
-      const url = getApiUrlOrThrow();
-      url.pathname += `collections/${collectionId}`;
-
-      const updateData = {
-        name: trimmedNewName,
-        metadata: metadata,
-      };
-
-      const response = await fetch(url.toString(), {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-        body: JSON.stringify(updateData),
-      });
-
-      if (!response.ok) {
-        toast.error(`Не удалось обновить коллекцию: ${response.statusText}`, {
-          richColors: true,
-        });
-        return undefined;
-      }
-
-      const updatedCollection = await response.json();
-
-      // Update the collections state
-      setCollections((prevCollections) =>
-        prevCollections.map((collection) =>
-          collection.uuid === collectionId ? updatedCollection : collection,
-        ),
-      );
-
-      // Update selected collection if it was the one that got updated
-      if (selectedCollection && selectedCollection.uuid === collectionId) {
-        setSelectedCollection(updatedCollection);
-      }
-
-      return updatedCollection;
-    },
-    [collections, selectedCollection, session],
-  );
-
-  const deleteCollection = useCallback(
-    async (collectionId: string): Promise<string | undefined> => {
-      if (!session?.accessToken) {
-        toast.error("Не удалось подключиться к LangConnect API", {
-          richColors: true,
-          description: "Не удалось удалить коллекцию. Попробуйте ещё раз.",
-        });
-        return;
-      }
-
-      const collectionToDelete = collections.find(
-        (c) => c.uuid === collectionId,
-      );
-
-      if (!collectionToDelete) {
-        return;
-      }
-
-      const url = getApiUrlOrThrow();
-      url.pathname += `collections/${collectionId}`;
-
-      const response = await fetch(url.toString(), {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.error(`Failed to delete collection: ${response.statusText}`);
-        return undefined;
-      }
-
-      // Delete the collection itself
-      setCollections((prevCollections) =>
-        prevCollections.filter(
-          (collection) => collection.uuid !== collectionId,
-        ),
-      );
-      // удалить из активных
-      setSettings((prev) => {
-        const { [collectionId]: _removed, ...rest } =
-          prev.activeCollections || {};
-        return { ...prev, activeCollections: rest };
-      });
-    },
-    [collections, session, setSettings],
-  );
 
   // --- Return combined state and functions ---
   return {

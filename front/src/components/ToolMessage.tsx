@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { dracula } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Message } from "@langchain/langgraph-sdk";
 import Spinner from "./Spinner.tsx";
 import { ChevronRight } from "lucide-react";
@@ -145,6 +145,7 @@ const ATTACHMENT_TEXTS = {
   image: "В результате работы было сгенерировано изображение ",
   html: "В результате работы была сгенерирована HTML-страница",
   audio: "В результате работы было сгенерировано аудио",
+  video: "В результате работы было сгенерировано видео",
   text: "В результате работы был сгенерирован текстовый файл ",
   other: "В результате работы было сгенерировано вложение ",
 };
@@ -215,9 +216,13 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
       {attachments.length > 0 && (
         <div className="flex flex-col gap-3">
           {attachments.map((att: any) => {
+            const attachmentPath = att["sandbox_path"] ?? att["path"];
+            if (!attachmentPath) return null;
+            const attachmentName =
+              att["original_name"] ?? attachmentPath.split("/").at(-1);
             return (
               <a
-                key={att["path"]}
+                key={attachmentPath}
                 href=""
                 onClick={(ev) => handleLinkClick(ev, att)}
                 className="px-9 ml-3 text-foreground text-xs underline"
@@ -226,7 +231,7 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
                   // @ts-ignore
                   ATTACHMENT_TEXTS[att["file_type"] ?? "image/png"]
                 }{" "}
-                {att["path"].split("/").at(-1)}
+                {attachmentName}
               </a>
             );
           })}
@@ -235,7 +240,12 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
       <OverlayPortal isVisible={!!file} onClose={() => setFile(null)}>
         <div className="bg-card rounded-lg p-2.5">
           {file ? (
-            <MessageAttachment path={file["path"]} alt={""} fullScreen={true} />
+            <MessageAttachment
+              path={file["sandbox_path"] ?? file["path"]}
+              fileType={file["file_type"]}
+              alt={""}
+              fullScreen={true}
+            />
           ) : (
             <></>
           )}

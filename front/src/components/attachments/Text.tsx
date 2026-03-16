@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ChevronUp } from "lucide-react";
-import axios from "axios";
 import TextMarkdown from "./TextMarkdown.tsx";
 import { cn } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client.ts";
+import { buildContentByPathPreviewUrl, buildContentByPathUrl } from "./file-utils.ts";
 
 interface TextProps {
   id: string;
   alt?: string;
-  data: any;
+  path: string;
 }
 
-const Text: React.FC<TextProps> = ({ id, data }) => {
+const Text: React.FC<TextProps> = ({ id, path }) => {
   const [text, setText] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -23,19 +24,35 @@ const Text: React.FC<TextProps> = ({ id, data }) => {
     "linear-gradient(to bottom, rgba(0,0,0,1) 70%, rgba(0,0,0,0) 100%)";
 
   useEffect(() => {
-    axios
-      .get(
-        `${window.location.protocol}//${window.location.host}/files${data.path}`,
-      )
-      .then((res) => {
-        setText(res.data);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError(true);
-        setLoading(false);
-      });
-  }, [data.path]);
+    let cancelled = false;
+    const loadText = async () => {
+      try {
+        const raw = await apiClient.getTextWithRedirectInstruction(
+          buildContentByPathPreviewUrl(path),
+          {
+            attachAuth: true,
+            credentials: "omit",
+            showError: false,
+          },
+        );
+        if (!cancelled) {
+          setText(raw);
+          setError(false);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setError(true);
+          setLoading(false);
+        }
+      }
+    };
+    setLoading(true);
+    void loadText();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
   if (loading)
     return (
       <div className="w-full rounded-lg bg-muted/40 pt-[56.25%] shadow-inner" />
@@ -44,10 +61,7 @@ const Text: React.FC<TextProps> = ({ id, data }) => {
     return (
       <div>
         Ошибка загрузки вложения{" "}
-        <a
-          href={`${window.location.protocol}//${window.location.host}/files${data.path}`}
-          target={"_blank"}
-        >
+        <a href={buildContentByPathUrl(path)} target="_blank" rel="noreferrer">
           {id}
         </a>
       </div>
@@ -90,8 +104,9 @@ const Text: React.FC<TextProps> = ({ id, data }) => {
           Файл:{" "}
           <a
             className="text-primary hover:underline"
-            href={`${window.location.protocol}//${window.location.host}/files${data.path}`}
-            target={"_blank"}
+            href={buildContentByPathUrl(path)}
+            target="_blank"
+            rel="noreferrer"
           >
             {id}
           </a>

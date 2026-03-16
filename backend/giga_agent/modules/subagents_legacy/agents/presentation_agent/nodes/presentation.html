@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <title>Презентация</title>
+    <meta charset="UTF-8">
+    <!-- Reveal JS -->
+    <!--    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reset.css">-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.css">
+    <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+    <style>
+        /* Custom styles */
+        @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+        }
+
+        h1, h2, h3, h4, h5, h6, p, span, div {
+            color: white !important;
+        }
+
+        li {
+            list-style: none;
+        }
+
+        section img {
+            width: 100%;
+            height: auto;
+        }
+
+        .reveal section img {
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .reveal section {
+            text-align: center;
+        }
+
+        @media screen and (max-width: 768px) {
+            .reveal h1 {
+                font-size: 2em;
+            }
+
+            .reveal h2 {
+                font-size: 1.5em;
+            }
+
+            .reveal p {
+                font-size: 1.2em;
+            }
+        }
+
+        ul, ol {
+            color: white;
+        }
+
+        .graph {
+            margin: auto;
+        }
+
+        .graph .main-svg {
+            border-radius: 20px;
+        }
+
+        .graph {
+            max-width: 700px !important;
+        }
+
+        .left > .graph, .right > .graph {
+            max-width: 500px !important;
+        }
+
+        .left > .content, .right > .content {
+            max-width: 100% !important;
+        }
+
+        .horizontal-slide {
+            display: flex;
+            align-items: center
+        }
+
+        .horizontal-slide > .left {
+            flex: 1;
+            text-align: left;
+            padding-right: 40px;
+            overflow-y: auto
+        }
+
+
+        .horizontal-slide > .right {
+            flex: 1;
+            max-height: 60vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            max-width: 500px;
+        }
+
+        .img {
+            border-radius: 20px;
+            max-width: 400px !important;
+        }
+
+        img.graph {
+            max-width: 500px !important;
+            border-radius: 20px;
+        }
+
+        /* Print button */
+        .print-button {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.6);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+        }
+
+        .print-button:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        @media print {
+            .print-button { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="reveal">
+    <div class="slides">
+        <SECTIONS></SECTIONS>
+    </div>
+</div>
+
+<!-- Floating print button -->
+<button class="print-button" title="Экспорт в PDF">Печать</button>
+
+<!-- Reveal JS Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4/dist/reveal.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.2.1/plugin/math/math.min.js"></script>
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Track async assets so printing waits for them
+    const __printAssets = {
+        images: [],
+        plots: [],
+    };
+
+    function withTimeout(promise, ms) {
+        return new Promise((resolve) => {
+            const t = setTimeout(() => resolve(null), ms);
+            Promise.resolve(promise)
+                .then((v) => {
+                    clearTimeout(t);
+                    resolve(v);
+                })
+                .catch(() => {
+                    clearTimeout(t);
+                    resolve(null);
+                });
+        });
+    }
+
+    function waitForImage(imgEl) {
+        if (!imgEl) return Promise.resolve(null);
+        // If decode exists, it generally waits for the image to be ready to paint
+        if (typeof imgEl.decode === 'function') {
+            return imgEl.decode().catch(() => null);
+        }
+        if (imgEl.complete) return Promise.resolve(null);
+        return new Promise((resolve) => {
+            imgEl.addEventListener('load', () => resolve(null), { once: true });
+            imgEl.addEventListener('error', () => resolve(null), { once: true });
+        });
+    }
+
+    function __getRevealHeight() {
+        try {
+            const el = document.querySelector('.reveal');
+            if (!el) return 0;
+            const r = el.getBoundingClientRect();
+            return r && r.height ? r.height : 0;
+        } catch (_) {
+            return 0;
+        }
+    }
+
+    async function __waitForNonZeroLayout(maxFrames) {
+        const frames = typeof maxFrames === 'number' ? maxFrames : 90;
+        for (let i = 0; i < frames; i++) {
+            if (__getRevealHeight() > 0) return;
+            await new Promise((r) => requestAnimationFrame(() => r(null)));
+        }
+    }
+
+    async function prepareForPrint() {
+        // Wait for fonts (e.g., Roboto) to avoid reflow during print preview
+        if (document.fonts && document.fonts.ready) {
+            await withTimeout(document.fonts.ready, 4000);
+        }
+
+        // Wait for images currently in the DOM
+        const domImages = Array.from(document.images || []);
+        const domImagePromises = domImages.map((img) => waitForImage(img));
+
+        await Promise.allSettled([
+            ...__printAssets.images.map((p) => withTimeout(p, 8000)),
+            ...domImagePromises.map((p) => withTimeout(p, 8000)),
+            ...__printAssets.plots.map((p) => withTimeout(p, 12000)),
+        ]);
+
+        // Ensure Reveal recalculates slide sizes after dynamic content is ready
+        if (typeof Reveal !== 'undefined' && Reveal && typeof Reveal.layout === 'function') {
+            try {
+                Reveal.layout();
+                await new Promise((r) => requestAnimationFrame(() => r(null)));
+                Reveal.layout();
+            } catch (e) {
+                // noop
+            }
+        }
+    }
+
+    function isImageInPath(path) {
+        const lower = path.toLowerCase();
+        const dotIdx = lower.lastIndexOf(".");
+        const ext = dotIdx >= 0 ? lower.slice(dotIdx + 1) : "";
+        const imageExt = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+        return imageExt.includes(ext);
+    }
+    function isPlotlyGraphInPath(path) {
+        const lower = path.toLowerCase();
+        return lower.endsWith(".plotly.json");
+    }
+    function getApiBaseUrl() {
+        const v = (urlParams.get('api_base_url') || '').trim();
+        return v;
+    }
+    function buildUrl(relativePath) {
+        const base = getApiBaseUrl();
+        if (!base) return relativePath;
+        if (!relativePath.startsWith('/')) return relativePath;
+        const trimmedBase = base.replace(/\/+$/, '');
+        if (trimmedBase.endsWith('/api') && relativePath.startsWith('/api/')) {
+            return trimmedBase + relativePath.slice(4);
+        }
+        return trimmedBase + relativePath;
+    }
+    function getFileContentUrl(path) {
+        return buildUrl(`<|API_URL|>?path=${encodeURIComponent(path)}`);
+    }
+    function createImage(el, path) {
+        const uuid = crypto.randomUUID();
+        const d = document.createElement('img');
+        d.attributes = el.attributes;
+        const attributes = $(el).prop("attributes");
+        $.each(attributes, function () {
+            $(d).attr(this.name, this.value);
+        });
+        d.src = getFileContentUrl(path);
+        d.setAttribute('id', uuid);
+        d.removeAttribute("data-src");
+        __printAssets.images.push(waitForImage(d));
+        el.parentNode.replaceChild(d, el);
+    }
+    // Replace placeholders for graphs/images.
+    // Some slides may not set `class="graph"`, so we also match by src/data-src prefix.
+    jQuery('.slides .graph, .slides [src^="attachment:"], .slides [data-src^="attachment:"], .slides [src^="graph:"], .slides [data-src^="graph:"]').each((index, el) => {
+        const rawSrc = el.getAttribute('src') ? el.getAttribute('src') : el.getAttribute('data-src');
+        if (!rawSrc) return;
+        const src = String(rawSrc);
+        if (src.startsWith("attachment:") || src.startsWith("graph:")) {
+            let graphId = src.replace(/^attachment:/, "");
+             graphId = graphId.replace(/^graph:/, "");
+            if (isImageInPath(graphId)) {
+                createImage(el, graphId);
+            } else if (isPlotlyGraphInPath(graphId)) {
+                const plotTask = fetch(getFileContentUrl(graphId)).then((res) => {
+                    return res.json().then((data) => {
+                        const uuid = crypto.randomUUID();
+                        const d = document.createElement('div');
+                        d.innerHTML = el.innerHTML;
+                        d.attributes = el.attributes;
+                        const attributes = $(el).prop("attributes");
+
+                        $.each(attributes, function () {
+                            $(d).attr(this.name, this.value);
+                        });
+
+                        el.parentNode.replaceChild(d, el);
+                        el = d;
+                        el.setAttribute('id', uuid);
+                        return Plotly.newPlot(uuid, data.data, data.layout, data.config);
+                    });
+                });
+                __printAssets.plots.push(plotTask);
+            }
+        }
+    });
+    // Print/PDF helpers
+    const isPrintPdf = urlParams.has('print-pdf') || /print-pdf/gi.test(window.location.search);
+
+    // Inject Reveal's PDF print stylesheet when in print mode
+    if (isPrintPdf) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/reveal.js@4/dist/print/pdf.css';
+        document.head.appendChild(link);
+    }
+
+    // Handle print button click: open a new tab with print params
+    const printBtn = document.querySelector('.print-button');
+    if (printBtn) {
+        printBtn.addEventListener('click', () => {
+            const url = new URL(window.location.href);
+            url.searchParams.set('print-pdf', '1');
+            url.searchParams.set('autoprint', '1');
+            window.open(url.toString(), '_blank');
+        });
+    }
+
+    setTimeout(() => {
+        // Initialize RevealJS
+        Reveal.initialize({
+            hash: true,
+            controls: !isPrintPdf,
+            progress: !isPrintPdf,
+            history: true,
+            keyboard: true,
+            overview: true,
+            touch: true,
+            fragments: true,
+            embedded: false,
+            help: true,
+            pause: true,
+            countdown: false,
+            transition: 'slide',
+            backgroundTransition: 'fade',
+            // Printing/PDF is very sensitive to lazy assets.
+            // Force eager loading so slides render fully before the print dialog opens.
+            lazyLoad: false,
+            preloadIframes: true,
+            pdfSeparateFragments: false,
+            dependencies: [],
+            plugins: [RevealMath.KaTeX]
+        });
+
+        // Auto-open print dialog when in print mode
+        if (isPrintPdf) {
+            // Allow disabling via ?autoprint=0 or ?noautoprint
+            const shouldAuto = !(
+                urlParams.get('autoprint') === '0' || urlParams.has('noautoprint')
+            );
+
+            // Close tab when user finishes or cancels printing
+            let printStarted = false;
+            const safeClose = () => {
+                try { window.close(); } catch (e) { /* noop */ }
+            };
+
+            window.addEventListener('beforeprint', () => { printStarted = true; });
+            window.addEventListener('afterprint', () => { safeClose(); });
+
+            const mediaQuery = window.matchMedia && window.matchMedia('print');
+            if (mediaQuery) {
+                if ('addEventListener' in mediaQuery) {
+                    mediaQuery.addEventListener('change', (e) => {
+                        if (!e.matches && printStarted) safeClose();
+                    });
+                } else if ('addListener' in mediaQuery) {
+                    mediaQuery.addListener((e) => {
+                        if (!e.matches && printStarted) safeClose();
+                    });
+                }
+            }
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && printStarted) {
+                    safeClose();
+                }
+            });
+
+            Reveal.on('ready', () => {
+                (async () => {
+                    // Give Reveal a moment to apply PDF styles, then wait for async assets
+                    await withTimeout(new Promise((r) => setTimeout(r, 150)), 300);
+                    await prepareForPrint();
+                    // Wait until Reveal has a measurable layout before calling print
+                    await __waitForNonZeroLayout(90);
+                    if (shouldAuto) window.print();
+                })();
+            });
+        }
+    }, 200);
+</script>
+</body>
+</html>

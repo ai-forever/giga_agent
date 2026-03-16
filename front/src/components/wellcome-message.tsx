@@ -1,7 +1,9 @@
 import React from "react";
 import { motion, type Variants } from "framer-motion";
-import LogoWhiteImage from "../assets/gigachain_logo.svg";
+import DarkLogoSvg from "../assets/dark_theme_GigaAgent_grey-ball.svg?react";
+import LightLogoSvg from "../assets/light_theme_GigaAgent_black-ball.svg?react";
 import { useNavigate } from "react-router-dom";
+import { useTheme } from "@/components/providers/theme";
 
 const curve: [number, number, number, number] = [0.19, 1, 0.22, 1];
 
@@ -52,10 +54,16 @@ const logoVariants: Variants = {
   },
 };
 
+const tasks = [];
+
+const MotionDarkLogo = motion(DarkLogoSvg);
+const MotionLightLogo = motion(LightLogoSvg);
+
 let hasShownWelcomeAnimation = false;
 
 const WellcomeMessage: React.FC = () => {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const shouldAnimate = React.useMemo(() => {
     if (hasShownWelcomeAnimation) {
       return false;
@@ -65,35 +73,23 @@ const WellcomeMessage: React.FC = () => {
   }, []);
 
   const animationState = shouldAnimate ? "hidden" : "visible";
+  const LogoComponent = isDark ? MotionDarkLogo : MotionLightLogo;
 
   return (
-    <div className="flex min-h-[60vh] pt-30 max-[900px]:pt-10 w-full items-center justify-center">
+    <div className="flex max-[900px]:pt-10 w-full items-center justify-center">
       <motion.div
         className="max-w-2xl text-center"
         variants={containerVariants}
         initial={animationState}
         animate="visible"
       >
-        <motion.img
-          src={LogoWhiteImage}
-          alt="GigaAgent Logo"
-          className="mx-auto mb-6 h-28 w-28 sm:h-32 sm:w-32 md:h-36 md:w-36"
+        <LogoComponent
+          className="mx-auto mb-2 h-16 w-[250px] sm:h-14 sm:w-96 md:h-7 md:w-[250px]"
+          style={{ display: 'block' }}
+          preserveAspectRatio="xMidYMid slice"
           variants={logoVariants}
+          aria-label="GigaAgent Logo"
         />
-        <motion.h1
-          className="text-2xl font-semibold text-gray-800 dark:text-gray-100 sm:text-3xl"
-          variants={itemVariants}
-        >
-          Привет, я GigaAgent
-        </motion.h1>
-        <motion.p
-          className="mt-3 text-sm text-gray-600 dark:text-gray-300 sm:text-base"
-          variants={itemVariants}
-        >
-          Универсальный агент с открытым исходным кодом для разработчиков и
-          бизнеса. <br></br>Я могу координировать, планировать и решать широкий
-          спектр задач.
-        </motion.p>
       </motion.div>
     </div>
   );

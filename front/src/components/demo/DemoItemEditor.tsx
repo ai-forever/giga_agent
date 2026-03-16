@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { buildContentByPathUrl } from "@/components/attachments/file-utils.ts";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 
 interface DemoItemEditorProps {
   item: DemoItem;
@@ -40,6 +42,7 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
   const [message, setMessage] = useState("");
   const navigate = useNavigate();
   const { removeItem, updateItem } = useDemoItems();
+  const confirm = useConfirm();
 
   useEffect(() => {
     setMessage(item.json_data.message ? item.json_data.message : "");
@@ -57,11 +60,16 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
     }
   };
 
-  const handleDelete = () => {
-    // eslint-disable-next-line no-restricted-globals
-    if (confirm("Подтверждаете удаление?")) {
-      removeItem(item.id);
+  const handleDelete = async () => {
+    if (
+      !(await confirm({
+        description: "Подтверждаете удаление?",
+        variant: "destructive",
+      }))
+    ) {
+      return;
     }
+    removeItem(item.id);
   };
 
   const openLink = (url: string) => {
@@ -182,9 +190,10 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
                 onClick={() => {
                   if (it.kind === "existing") {
                     const f = it.data!;
+                    const fileUrl = buildContentByPathUrl(f.path);
                     if (f.file_type === "image")
-                      setEnlargedImage("/files/" + f.path);
-                    else openLink("/files/" + f.path);
+                      setEnlargedImage(fileUrl);
+                    else openLink(fileUrl);
                   } else if (it.previewUrl) {
                     setEnlargedImage(it.previewUrl);
                   }
@@ -192,10 +201,12 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
               >
                 {it.kind === "existing" ? (
                   it.data?.file_type === "image" ? (
-                    <ImagePreview src={"/files/" + it.data.path} />
+                    <ImagePreview src={buildContentByPathUrl(it.data.path)} />
                   ) : (
                     <span>
-                      {it.name ?? it.data?.path.replace(/^files\//, "")}
+                      {it.name ??
+                        it.data?.original_name ??
+                        it.data?.path.replace(/^files\//, "")}
                     </span>
                   )
                 ) : it.previewUrl ? (

@@ -1,0 +1,309 @@
+import os
+import uuid
+from typing import Annotated, Literal
+from urllib.parse import quote
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from giga_agent.core.db import get_session
+from giga_agent.models.file import File as FileModel, FileRepository, FileResponse, FileType
+from giga_agent.models.users import User
+from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.sandbox.base import FileReadResult, RedirectResult, StreamResult
+from giga_agent.sandbox.manager import (
+    FileAccessError,
+    FileNotFoundForUserError,
+    ProviderNotFoundError,
+    SandboxManager,
+    StorageOperationError,
+)
+
+router = APIRouter(prefix="/files", tags=["files"])
+
+REDIRECT_INSTRUCTION_MEDIA_TYPE = "application/vnd.giga-agent.redirect+json"
+
+
+async def get_file_repository(
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> FileRepository:
+    return FileRepository(db)
+
+
+def _infer_file_type(upload: UploadFile) -> FileType:
+    content_type = (upload.content_type or "").lower()
+    if content_type.startswith("image/"):
+        return "image"
+    if content_type.startswith("audio/"):
+        return "audio"
+    if content_type.startswith("video/"):
+        return "video"
+    if content_type == "text/html":
+        return "html"
+    if content_type.startswith("text/"):
+        return "text"
+
+    name = (upload.filename or "").lower()
+    if name.endswith(".html") or name.endswith(".htm"):
+        return "html"
+    if name.endswith(".txt") or name.endswith(".md") or name.endswith(".csv"):
+        return "text"
+    if name.endswith(".plotly.json"):
+        return "plotly_graph"
+    return "other"
+
+
+def _apply_thread_prefix(file_name: str, thread_id: str | None) -> str:
+    if not thread_id:
+        return file_name
+    clean = thread_id.strip().strip("/")
+    if not clean:
+        return file_name
+    return f"{clean}/{file_name}"
+
+
+def _ascii_filename_fallback(file_name: str) -> str:
+    lower_name = file_name.lower()
+    extension = ""
+    plotly_json_suffix = ".plotly.json"
+    if lower_name.endswith(plotly_json_suffix) and len(file_name) > len(plotly_json_suffix):
+        extension = file_name[-len(plotly_json_suffix) :]
+    else:
+        _, ext = os.path.splitext(file_name)
+        extension = ext
+
+    ascii_name = file_name.encode("ascii", "ignore").decode("ascii")
+    ascii_name = ascii_name.replace('"', "").strip()
+    stem_part = ascii_name
+    if extension and ascii_name.lower().endswith(extension.lower()):
+        stem_part = ascii_name[: -len(extension)]
+    ascii_base, ascii_ext = os.path.splitext(ascii_name)
+    if not stem_part.strip().strip("."):
+        extension = extension or ascii_ext
+        if extension:
+            return f"download{extension}"
+        return "download.bin"
+    return ascii_name
+
+
+@router.post(
+    "/upload", response_model=FileResponse, status_code=status.HTTP_201_CREATED
+)
+async def upload_file(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    thread_id: str | None = Form(default=None),
+    file_type: FileType | None = Form(default=None),
+    file: UploadFile = File(...),
+):
+    file_name = (file.filename or "").strip()
+    if not file_name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="File name must not be empty",
+        )
+
+    content = await file.read()
+    effective_file_name = _apply_thread_prefix(file_name=file_name, thread_id=thread_id)
+    effective_file_type = file_type or _infer_file_type(file)
+
+    manager = SandboxManager(db)
+    try:
+        created = await manager.upload_file_for_user(
+            user_id=current_user.id,
+            file_name=effective_file_name,
+            content=content,
+            file_type=effective_file_type,
+        )
+    except ProviderNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except StorageOperationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e
+
+    return FileRepository.to_response(created)
+
+
+@router.get("", response_model=list[FileResponse])
+async def list_files(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[FileRepository, Depends(get_file_repository)],
+    provider_id: uuid.UUID | None = Query(
+        default=None,
+        description="Фильтр по провайдеру",
+    ),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    files = await repo.get_readable_for_user(
+        user_id=current_user.id,
+        provider_id=provider_id,
+        skip=skip,
+        limit=limit,
+    )
+    return [FileRepository.to_response(item) for item in files]
+
+
+@router.get("/{file_id}/content")
+async def read_file_content(
+    file_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    redirect_result: Literal["redirect", "json"] = Query(
+        default="redirect",
+        description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
+    ),
+):
+    repo = FileRepository(db)
+    readable_file = await repo.get_by_id_readable(
+        file_id,
+        user_id=current_user.id,
+    )
+    if readable_file is None:
+        existing = await repo.get_by_id(file_id)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    manager = SandboxManager(db)
+    try:
+        file, result = await manager.read_file_for_user(
+            user_id=readable_file.owner_id,
+            file_id=file_id,
+        )
+    except FileNotFoundForUserError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except FileAccessError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except StorageOperationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e
+
+    return _build_file_response(file, result, redirect_result=redirect_result)
+
+
+@router.get("/content/by-path")
+async def read_file_content_by_path(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    path: str = Query(..., description="Полный sandbox_path файла"),
+    redirect_result: Literal["redirect", "json"] = Query(
+        default="redirect",
+        description="Как отвечать при RedirectResult: сделать 307 redirect или вернуть JSON инструкцию с URL.",
+    ),
+):
+    repo = FileRepository(db)
+    readable_file = await repo.get_by_path_readable(
+        user_id=current_user.id,
+        sandbox_path=path,
+    )
+    if readable_file is None:
+        existing = await repo.get_by_path_any_owner(sandbox_path=path)
+        if existing is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    manager = SandboxManager(db)
+    try:
+        file, result = await manager.read_file_for_user(
+            user_id=readable_file.owner_id,
+            file_id=readable_file.id,
+        )
+    except FileNotFoundForUserError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except FileAccessError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except StorageOperationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e
+
+    return _build_file_response(file, result, redirect_result=redirect_result)
+
+
+def _build_file_response(
+    file: FileModel,
+    result: FileReadResult,
+    *,
+    redirect_result: Literal["redirect", "json"] = "redirect",
+) -> RedirectResponse | StreamingResponse | JSONResponse:
+    if isinstance(result, RedirectResult):
+        if redirect_result == "json":
+            return JSONResponse(
+                {
+                    "kind": "redirect",
+                    "url": result.url,
+                },
+                media_type=REDIRECT_INSTRUCTION_MEDIA_TYPE,
+            )
+        return RedirectResponse(
+            url=result.url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
+        )
+
+    file_name = (
+        (file.original_name or "").strip()
+        or os.path.basename(file.sandbox_path.rstrip("/"))
+        or "download.bin"
+    )
+    file_name = file_name.replace('"', "")
+    ascii_file_name = _ascii_filename_fallback(file_name)
+    disposition = "inline" if result.inline else "attachment"
+    headers: dict[str, str] = {
+        "Content-Disposition": (
+            f"{disposition}; filename=\"{ascii_file_name}\"; "
+            f"filename*=UTF-8''{quote(file_name)}"
+        ),
+    }
+
+    if isinstance(result, StreamResult):
+        if result.content_length is not None:
+            headers["Content-Length"] = str(result.content_length)
+        return StreamingResponse(
+            result.stream,
+            media_type=result.media_type,
+            headers=headers,
+        )
+
+    return StreamingResponse(
+        iter([result.data]),
+        media_type=result.media_type,
+        headers=headers,
+    )
+
+
+@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_file(
+    file_id: uuid.UUID,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+):
+    manager = SandboxManager(db)
+    try:
+        await manager.delete_file_for_user(user_id=current_user.id, file_id=file_id)
+    except FileNotFoundForUserError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except FileAccessError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except StorageOperationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from e

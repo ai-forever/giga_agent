@@ -1,0 +1,461 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    Uuid,
+    delete,
+    select,
+    update,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
+
+from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.models._acl import ACLResourceRepositoryMixin
+from giga_agent.models.resource_permission import ResourcePermissionRepository
+
+
+class RagCollection(Base):
+    __tablename__ = "core_rag_collections"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_core_rag_collections_owner_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, index=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_users.id",
+            name="fk_core_rag_collections_owner_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    embedding_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_embeddings.id",
+            name="fk_core_rag_collections_embedding_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSON_VARIANT(), default=dict
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
+    )
+
+    documents: Mapped[list["RagDocument"]] = relationship(
+        "RagDocument",
+        back_populates="collection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class RagDocument(Base):
+    __tablename__ = "core_rag_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, index=True, default=uuid.uuid4
+    )
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_users.id",
+            name="fk_core_rag_documents_owner_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_rag_collections.id",
+            name="fk_core_rag_documents_collection_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    original_name: Mapped[str] = mapped_column(String(1024), nullable=False)
+    file_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_files.id",
+            name="fk_core_rag_documents_file_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    sandbox_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_sandbox_providers.id",
+            name="fk_core_rag_documents_sandbox_provider_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    sandbox_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
+    )
+
+    collection: Mapped["RagCollection"] = relationship(
+        "RagCollection",
+        back_populates="documents",
+    )
+
+
+class RagCollectionsRepository(ACLResourceRepositoryMixin[RagCollection]):
+    resource_model = RagCollection
+    resource_type = "rag_collection"
+    supports_only_active = False
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_by_owner(self, owner_id: uuid.UUID) -> list[RagCollection]:
+        result = await self.db.execute(
+            select(RagCollection)
+            .where(RagCollection.owner_id == owner_id)
+            .order_by(RagCollection.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_readable_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[RagCollection]:
+        rows = await self.list_readable_with_edit_for_user(
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+        return [item for item, _ in rows]
+
+    async def list_readable_with_edit_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> list[tuple[RagCollection, bool]]:
+        return await super().list_readable_with_edit_for_user(
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id(
+        self, *, owner_id: uuid.UUID, collection_id: uuid.UUID
+    ) -> RagCollection | None:
+        result = await self.db.execute(
+            select(RagCollection)
+            .where(RagCollection.id == collection_id)
+            .where(RagCollection.owner_id == owner_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_any(self, *, collection_id: uuid.UUID) -> RagCollection | None:
+        result = await self.db.execute(
+            select(RagCollection).where(RagCollection.id == collection_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_readable(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> RagCollection | None:
+        row = await self.get_by_id_with_access_for_user(
+            user_id=user_id,
+            collection_id=collection_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        collection, can_read, _ = row
+        if not can_read:
+            return None
+        return collection
+
+    async def get_by_id_with_access_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> tuple[RagCollection, bool, bool] | None:
+        return await super().get_by_id_with_access_for_user(
+            collection_id,
+            user_id=user_id,
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_by_id_writable(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> RagCollection | None:
+        row = await self.get_by_id_with_access_for_user(
+            user_id=user_id,
+            collection_id=collection_id,
+            user_group_ids=user_group_ids,
+        )
+        if row is None:
+            return None
+        collection, _, can_edit = row
+        if not can_edit:
+            return None
+        return collection
+
+    async def can_write(
+        self,
+        *,
+        user_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> bool:
+        return await ResourcePermissionRepository(self.db).has_access(
+            user_id=user_id,
+            resource_type="rag_collection",
+            resource_id=collection_id,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
+    async def get_writable_ids_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        resource_ids: list[uuid.UUID],
+        user_group_ids: list[uuid.UUID] | None = None,
+    ) -> set[uuid.UUID]:
+        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+            user_id=user_id,
+            resource_type="rag_collection",
+            resource_ids=resource_ids,
+            permission="write",
+            user_group_ids=user_group_ids,
+        )
+
+    async def create(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        name: str,
+        embedding_id: uuid.UUID,
+        metadata: dict[str, Any] | None = None,
+    ) -> RagCollection:
+        collection = RagCollection(
+            owner_id=owner_id,
+            name=name,
+            embedding_id=embedding_id,
+            metadata_=metadata or {},
+        )
+        self.db.add(collection)
+        await self.db.commit()
+        await self.db.refresh(collection)
+        return collection
+
+    async def update(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> RagCollection | None:
+        collection = await self.get_by_id(
+            owner_id=owner_id, collection_id=collection_id
+        )
+        if collection is None:
+            return None
+        if name is not None:
+            collection.name = name
+        if metadata is not None:
+            collection.metadata_ = metadata
+        await self.db.commit()
+        await self.db.refresh(collection)
+        return collection
+
+    async def delete(self, *, owner_id: uuid.UUID, collection_id: uuid.UUID) -> bool:
+        collection = await self.get_by_id(
+            owner_id=owner_id, collection_id=collection_id
+        )
+        if collection is None:
+            return False
+        await ResourcePermissionRepository(self.db).revoke_all_for_resource(
+            resource_type="rag_collection",
+            resource_id=collection.id,
+            no_commit=True,
+        )
+        await self.db.delete(collection)
+        await self.db.commit()
+        return True
+
+
+class RagDocumentsRepository:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_by_id(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> RagDocument | None:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.id == document_id)
+            .where(RagDocument.owner_id == owner_id)
+            .where(RagDocument.collection_id == collection_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_by_collection(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[RagDocument]:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.owner_id == owner_id)
+            .where(RagDocument.collection_id == collection_id)
+            .order_by(RagDocument.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
+    async def list_by_collection_any_owner(
+        self,
+        *,
+        collection_id: uuid.UUID,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[RagDocument]:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.collection_id == collection_id)
+            .order_by(RagDocument.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(result.scalars().all())
+
+    async def get_by_id_any_owner(
+        self,
+        *,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> RagDocument | None:
+        result = await self.db.execute(
+            select(RagDocument)
+            .where(RagDocument.id == document_id)
+            .where(RagDocument.collection_id == collection_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def create(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+        original_name: str,
+        sandbox_path: str | None,
+        file_id: uuid.UUID | None = None,
+        sandbox_provider_id: uuid.UUID | None = None,
+    ) -> RagDocument:
+        doc = RagDocument(
+            id=document_id,
+            owner_id=owner_id,
+            collection_id=collection_id,
+            original_name=original_name,
+            file_id=file_id,
+            sandbox_provider_id=sandbox_provider_id,
+            sandbox_path=sandbox_path,
+        )
+        self.db.add(doc)
+        await self.db.commit()
+        await self.db.refresh(doc)
+        return doc
+
+    async def detach_by_sandbox_provider(
+        self,
+        *,
+        sandbox_provider_id: uuid.UUID,
+    ) -> int:
+        stmt = (
+            update(RagDocument)
+            .where(RagDocument.sandbox_provider_id == sandbox_provider_id)
+            .values(
+                file_id=None,
+                sandbox_provider_id=None,
+                sandbox_path=None,
+            )
+        )
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return int(res.rowcount or 0)
+
+    async def delete(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        collection_id: uuid.UUID,
+        document_id: uuid.UUID,
+    ) -> bool:
+        stmt = (
+            delete(RagDocument)
+            .where(RagDocument.id == document_id)
+            .where(RagDocument.owner_id == owner_id)
+            .where(RagDocument.collection_id == collection_id)
+        )
+        res = await self.db.execute(stmt)
+        await self.db.commit()
+        return bool(res.rowcount)
+
+
+__all__ = [
+    "RagCollection",
+    "RagDocument",
+    "RagCollectionsRepository",
+    "RagDocumentsRepository",
+]

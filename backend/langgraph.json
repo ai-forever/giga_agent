@@ -1,0 +1,22 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": [
+    "."
+  ],
+  "env": ".env",
+  "graphs": {
+    "giga_agent": "giga_agent.agents.run:graph",
+    "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
+    "presentation": "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph:graph",
+    "meme": "giga_agent.modules.subagents_legacy.agents.meme_agent.graph:graph",
+    "lean_canvas": "giga_agent.modules.subagents_legacy.agents.lean_canvas:app",
+    "podcast": "giga_agent.modules.subagents_legacy.agents.podcast.graph:graph"
+  },
+  "auth": {
+    "path": "giga_agent.modules.auth.langgraph_auth:auth"
+  },
+  "http": {
+    "app": "giga_agent.agents.run:app",
+    "mount_prefix": "/api"
+  }
+}
