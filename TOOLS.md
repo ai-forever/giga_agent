@@ -152,7 +152,7 @@ async def get_tools(
     tools = [read_file, list_files]
     
     # Добавить дополнительные инструменты для определенных пользователей
-    if user and user.has_premium:
+    if user and user.settings.get("has_premium", False):
         tools.append(premium_search_tool)
     
     return tools
