@@ -8,35 +8,59 @@ GigaAgent is a universal AI agent chat application. It runs as a set of Docker c
 
 ### Running the application
 
-The entire stack runs via Docker Compose. A `.docker.env` file must exist in the repo root with at least `OPENAI_API_KEY` set (or GigaChat credentials). An env template is at `env_examples/openai/.docker.env.example`.
+The entire stack runs via Docker Compose. A `.env` file must exist in the repo root (see `.env.example`). At minimum set `GIGA_AGENT_SECRET_KEY` and `GIGA_AGENT_HOST_PROJECT_PATH`.
 
-**Dev mode** (hot-reload for backend + frontend):
+**Production mode**:
 ```
-make init_files     # one-time: copies mock data into ./files/
-make build_dev      # builds Docker images
-make up_dev         # starts all containers
+make build    # builds Docker images (requires frontend pre-built, see below)
+make up       # starts all containers
 ```
-App is accessible at `http://localhost:8502`. Frontend dev server with HMR is also on port 8081.
 
-**Production mode**: `make build && make up` (no hot-reload).
+**Dev mode** (hot-reload for backend):
+```
+make build_dev
+make up_dev
+```
+
+App is accessible at `http://localhost:8123`.
+
+### Pre-build step: frontend dist
+
+The backend Docker image (`deployments/local/Dockerfile`) expects the frontend to be pre-built. Before running `make build`, you must:
+```
+cd front && npm ci && npm run build
+cp -r dist ../backend/giga_agent/ui_dist
+```
+Without this, the Docker build will fail with "UI bundle not found".
+
+### Authentication
+
+The app has user authentication. On first startup, an admin user is created automatically:
+- Email: `admin@example.com`
+- Password: `giga_agent_admin`
+
+### First-time LLM configuration
+
+After login, the agent requires LLM configuration via the API or UI settings. Without this, chat messages fail with "User has no default LLM configured". Configure via API:
+1. Get token: `POST /api/agent/auth/token` with `username=admin@example.com&password=giga_agent_admin`
+2. Create connector: `POST /api/agent/connectors` with type `openai` and `settings.api_key`
+3. Create LLM: `POST /api/agent/llms` with connector_id and model_id (e.g. `gpt-4o-mini`)
+4. Set default: `PATCH /api/agent/auth/users/me` with `llm_id`
 
 ### Services
 
-All services are Docker containers. Key ones:
-- `langgraph-api` (port 8000 internal) — core LangGraph agent server
-- `repl` (port 9090 internal) — Jupyter REPL for code execution
-- `tool_server` (port 9091 internal) — proxy server for tools with secrets
-- `giga_agent_server` (port 8822 internal) — tasks API
-- `upload_server` (port 9092 internal) — file uploads
-- `frontend` (port 8502) — Nginx reverse proxy serving the React SPA
-- `frontend-dev` (port 8081, dev mode only) — Vite dev server
-- `aegra-postgres`, `langgraph-redis`, `qdrant` — data stores
+All services are Docker containers:
+- `giga-agent` (port 8000 internal) — unified backend: LangGraph agent + tasks API + tool server
+- `nginx` (port 8123) — reverse proxy serving React SPA + backend API
+- `langgraph-postgres` — PostgreSQL for Aegra state
+- `giga-agent-postgres` — PostgreSQL for GigaAgent data
+- `langgraph-redis` — Redis for pub/sub
+- `qdrant` — vector DB for memory (optional)
 
 ### Linting
 
-- **Python backend** (`backend/graph/`): `cd backend/graph && uv run ruff check .` (install lint group first: `uv sync --group lint`)
-- **Python REPL** (`backend/repl/`): `cd backend/repl && uv run ruff check .` (install lint group: `uv sync --group lint`)
-- **Frontend** (`front/`): `cd front && npx eslint src/`
+- **Python backend**: `cd backend && uv sync --group dev && uv run ruff check .`
+- **Frontend**: `cd front && npx eslint src/`
 - **Frontend formatting**: `cd front && npm run format:check`
 
 ### Building
@@ -46,11 +70,10 @@ All services are Docker containers. Key ones:
 
 ### Non-obvious caveats
 
-- The `backend/graph/Dockerfile` uses base image `mikelarg/aegra:0.0.7` which is a custom LangGraph Platform replacement. It includes its own venv and alembic migrations.
-- `ruff` is in a separate dependency group (`lint`). You must run `uv sync --group lint` before `uv run ruff check .` works.
-- The `.docker.env` file is required but gitignored. Copy from `env_examples/openai/.docker.env.example` or `env_examples/gigachat/.docker.env.example` and fill in API keys.
-- `make init_files` must be run once to populate the `./files/` directory with mock data before containers can start properly.
-- Docker containers need `sudo` if the current user isn't in the `docker` group.
-- Optional service API keys (Tavily, VK, GitHub, etc.) auto-disable their corresponding tools when not set — the app still works without them.
-- The `GIGA_AGENT_MEMORY_ENABLED=1` env var enables Qdrant-based long-term memory. Set to `0` to disable.
+- Backend is now a single package at `backend/` (not the old `backend/graph` + `backend/repl` split).
+- The Dockerfile uses base image `mikelarg/aegra:0.0.9` with Alembic migrations baked in.
+- `ruff` is in the `dev` dependency group: `uv sync --group dev` is needed before linting.
+- The `.env` file is gitignored. Copy from `.env.example` and fill in secrets.
+- `GIGA_AGENT_SECRET_KEY` must be set for JWT auth to work.
+- The sandbox/REPL for code execution requires a sandbox provider (local Docker or E2B). Without it, the code interpreter tool errors with "sandbox provider is not configured". This is expected for a minimal setup.
 - In the Cloud VM, Docker must be started with `sudo dockerd` and configured with `fuse-overlayfs` storage driver and `iptables-legacy`.

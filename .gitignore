@@ -16,4 +16,5 @@ __pycache__
 data
 qdrant_storage
 .giga_agent
+backend/giga_agent/ui_dist
 .cursor
