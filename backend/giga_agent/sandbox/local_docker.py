@@ -334,16 +334,17 @@ class LocalDockerSandbox(JupyterSandbox):
             "volumes": {
                 str(bind_source): {"bind": BUCKET_PREFIX.rstrip("/"), "mode": "rw"}
             },
-            "nano_cpus": int(self.vcpu * 1_000_000_000),
-            "mem_limit": f"{self.memory_limit_mb}m",
-            "mem_reservation": f"{self.memory_reservation_mb}m",
-            "pids_limit": self.pids_limit,
             "shm_size": f"{self.shm_size_mb}m",
             "ulimits": [
                 Ulimit(name="nofile", soft=self.nofile_soft, hard=self.nofile_hard)
             ],
             "read_only": self.enforce_readonly_rootfs,
         }
+        if not settings.giga_agent_local_docker_no_cgroup_limits:
+            run_kwargs["nano_cpus"] = int(self.vcpu * 1_000_000_000)
+            run_kwargs["mem_limit"] = f"{self.memory_limit_mb}m"
+            run_kwargs["mem_reservation"] = f"{self.memory_reservation_mb}m"
+            run_kwargs["pids_limit"] = self.pids_limit
         if docker_network:
             run_kwargs["name"] = self._container_name()
             run_kwargs["network"] = docker_network

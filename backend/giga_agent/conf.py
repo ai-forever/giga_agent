@@ -149,6 +149,9 @@ class Settings(BaseSettings):
     giga_agent_local_docker_readonly_rootfs: bool = Field(
         False, alias="GIGA_AGENT_LOCAL_DOCKER_READONLY_ROOTFS"
     )
+    giga_agent_local_docker_no_cgroup_limits: bool = Field(
+        False, alias="GIGA_AGENT_LOCAL_DOCKER_NO_CGROUP_LIMITS"
+    )
     giga_agent_local_docker_files_path: Path | None = Field(
         None, alias="GIGA_AGENT_LOCAL_DOCKER_FILES_PATH"
     )
