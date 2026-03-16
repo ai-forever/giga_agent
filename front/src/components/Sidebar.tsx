@@ -14,9 +14,7 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-import LogoImage from "../assets/logo.png";
-import LogoWhiteImage from "../assets/logo-white.png";
-import QRImage from "../assets/qr.png";
+import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
 import { API_PREFIX, ragEnabled } from "@/config.ts";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
@@ -52,6 +50,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import DarkLogoSvg from "../assets/dark_theme_GigaAgent.svg?react";
+import LightLogoSvg from "../assets/light_theme_GigaAgent.svg?react";
 
 interface SidebarProps {
   onNewChat: () => void;
@@ -519,6 +519,8 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     }
   };
 
+  const LogoComponent = isDark ? DarkLogoSvg : LightLogoSvg;
+
   return (
     <>
       {/* Overlay (только мобильные) */}
@@ -545,23 +547,23 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         />
       )}
       <div
-        className={
-          "align-middle items-center p-5 top-0 w-full h-[70px] max-[900px]:flex min-[901px]:hidden"
-        }
+        className={[
+          "sticky max-[900px]:bg-card min-[900px]:fixed align-middle items-center p-4 top-0 w-full h-[60px] flex transition-[margin] duration-300 ease-in-out",
+          settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "",
+        ].join(" ")}
       >
-        <div
-          className="h-10 bg-cover transition-[width] duration-300 ease-in-out opacity-0"
-          style={{
-            width: settings.sideBarOpen ? 156 : 40,
-            backgroundImage: `url(${isDark ? LogoImage : LogoWhiteImage})`,
-          }}
+        <LogoComponent
+          className="hidden print:block h-20 w-[150px]"
+          preserveAspectRatio="xMidYMin meet"
+          aria-label="GigaAgent Logo"
         />
         <ChevronRight
           onClick={toggle}
-          className={"opacity-0"}
+          className="print:hidden"
           style={{
             transform: settings.sideBarOpen ? "rotate(180deg)" : "rotate(0)",
             marginLeft: "0.5rem",
+            cursor: "pointer",
           }}
         />
       </div>
@@ -569,7 +571,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       {/* Sidebar */}
       <div
         className={[
-          "fixed top-0 left-0 h-full p-2 pt-5 z-[11] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
+          "fixed top-0 left-0 h-full p-1 pt-2 z-[11] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
           "bg-background border text-card-foreground",
           settings.sideBarOpen ? "translate-x-0" : "",
         ].join(" ")}
@@ -582,18 +584,14 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         onClick={(e) => e.stopPropagation()}
       >
         <div
-          className="h-10 bg-cover transition-[width] duration-300 ease-in-out mb-2 opacity-0"
-          style={{
-            width: settings.sideBarOpen ? 156 : 40,
-            backgroundImage: `url(${isDark ? LogoImage : LogoWhiteImage})`,
-          }}
-        />
-
-        <div
           className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-muted/50"
           onClick={handleNewChat}
         >
-          <Plus size={24} className="mr-2" />
+          <img
+            src={GigaChainLogo}
+            alt="GigaChain"
+            className="w-7 h-7 mr-2 mt-[1px]"
+          />
           Новый чат
         </div>
 
@@ -870,7 +868,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       </AlertDialog>
 
       {/* Opener button */}
-      <div className="fixed top-4 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
+      {/* <div className="fixed top-4 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
         <div
           className="h-10 bg-cover transition-[width] duration-300 ease-in-out cursor-pointer"
           style={{
@@ -890,7 +888,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
             marginLeft: "0.5rem",
           }}
         />
-      </div>
+      </div> */}
     </>
   );
 };

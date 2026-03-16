@@ -127,7 +127,7 @@ const MemoriesPage: React.FC = () => {
   return (
     <div className="container mx-auto bg-card p-5 w-full flex lg:p-5 p-0 lg:mt-0">
       <Card className="max-w-[1000px] w-full mx-auto border-0 shadow-none">
-        <CardContent className="flex flex-col space-y-6 px-6 overflow-y-auto">
+        <CardContent className="flex flex-col space-y-6 px-6 max-[900px]:p-0 overflow-y-auto">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold">Факты о вас</h1>
             <div className="flex gap-2">

@@ -10,6 +10,7 @@ import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_AGENT_PREFIX, API_PREFIX } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
+import { useSettings } from "@/components/Settings.tsx";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -20,6 +21,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
+  const { settings } = useSettings();
   const thread = useStream<GraphState>({
     apiUrl: `${window.location.protocol}//${window.location.host}${API_PREFIX}/`,
     assistantId: "giga_agent",
@@ -181,13 +183,21 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   return (
     <SelectedAttachmentsProvider>
       <div
-        className="flex grow flex-col w-full bg-card overflow-y-auto print:overflow-visible"
+        className={[
+          "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
+          !stableMessages.length ? "justify-center" : "",
+        ].join(" ")}
         ref={containerRef}
         onWheel={markUserScrollIntent}
         onTouchStart={markUserScrollIntent}
         onScroll={handleUserScroll}
       >
-        <div className="grow max-w-[900px] w-full p-5 max-[900px]:p-0  mx-auto flex-col flex-1 bg-card text-card-foreground rounded-lg max-[900px]:shadow-none">
+        <div
+          className={[
+            stableMessages.length ? "grow flex-1 p-7 max-[900px]:p-0" : "",
+            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none",
+          ].join(" ")}
+        >
           <MessageList
             messages={stableMessages ?? []}
             thread={thread}

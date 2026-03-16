@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
 import { constants as zlibConstants } from "zlib";
+import svgr from "vite-plugin-svgr";
 
 export default defineConfig(({ mode }) => {
   const __filename = fileURLToPath(import.meta.url);
@@ -20,6 +21,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       tailwindcss(),
+      svgr(),
       react(),
       compression({
         algorithm: "gzip",

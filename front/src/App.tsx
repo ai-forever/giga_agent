@@ -207,7 +207,7 @@ const App: React.FC = () => {
                           path="/*"
                           element={
                             <ProtectedRoute>
-                              <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto">
+                              <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
                                 <InnerApp />
                               </div>
                             </ProtectedRoute>
