@@ -76,6 +76,12 @@ GigaAgent умеет:
 - `admin@example.com`
 - `giga_agent_admin`
 
+Для начала работы с агентом настройте следующие интеграции в настройках пользователя:
+- Коннекторы (используются в LLM / Embeddings)
+- LLM
+- Embeddings
+- Sandbox
+
 ## Функциональные возможности
 
 ### 💬 Chat & Agent System
