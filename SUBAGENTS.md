@@ -356,36 +356,3 @@ examples/agent_with_subgraph/
 │       └── subgraph.py             # Граф с циклической логикой
 └── pyproject.toml
 ```
-
-## Дополнительные возможности
-
-### Доступ к пользователю в субграфе
-
-```python
-def get_subgraphs(self, user: UserShort | None = None) -> dict[str, str]:
-    """Можно динамически определять субграфы на основе пользователя"""
-    graphs = {"base_graph": "agent.module.subgraph:graph"}
-    
-    if user and user.is_premium:
-        graphs["premium_graph"] = "agent.module.premium_subgraph:graph"
-    
-    return graphs
-```
-
-### Передача конфигурации в субграф
-
-```python
-async for chunk in client.runs.stream(
-    thread_id=thread["thread_id"],
-    assistant_id="example_graph",
-    input=initial_state,
-    config={
-        "configurable": {
-            "max_iterations": 5,
-            "debug_mode": True
-        }
-    },
-    stream_mode="values"
-):
-    # Обработка результатов
-```
