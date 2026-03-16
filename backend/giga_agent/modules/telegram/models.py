@@ -50,6 +50,9 @@ class TelegramThread(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class TelegramBotCreate(BaseModel):
@@ -141,6 +144,24 @@ class TelegramBotRepository:
     async def delete_thread(self, thread: TelegramThread) -> None:
         await self.db.delete(thread)
         await self.db.commit()
+
+    async def touch_thread(self, thread: TelegramThread) -> None:
+        thread.updated_at = datetime.utcnow()
+        await self.db.commit()
+
+    async def delete_expired_threads(
+        self, bot_id: uuid.UUID, max_age_seconds: int
+    ) -> int:
+        from sqlalchemy import delete as sa_delete
+        cutoff = datetime.utcnow() - __import__("datetime").timedelta(seconds=max_age_seconds)
+        result = await self.db.execute(
+            sa_delete(TelegramThread).where(
+                TelegramThread.bot_id == bot_id,
+                TelegramThread.updated_at < cutoff,
+            )
+        )
+        await self.db.commit()
+        return result.rowcount or 0
 
     async def create_thread(
         self,
