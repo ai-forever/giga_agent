@@ -61,6 +61,7 @@ dependencies = [
     "aiofiles>=25.1.0",
     "redis==7.2.1",
     "psycopg2-binary>=2.9.11",
+    "aiogram>=3.26.0",
 ]
 
 [project.scripts]

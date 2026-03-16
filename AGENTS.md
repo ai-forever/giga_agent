@@ -2,6 +2,23 @@
 
 ## Cursor Cloud specific instructions
 
+### Quick start (returning after previous setup)
+
+If Docker is already installed and images built from a previous session:
+```bash
+sudo dockerd &>/tmp/dockerd.log &    # start Docker daemon
+sleep 5
+cd /workspace && sudo docker compose up -d   # start all containers
+```
+App is at `http://localhost:8123`. Login: `admin@example.com` / `giga_agent_admin`.
+
+If images need rebuilding (code changed):
+```bash
+cd /workspace/front && npm ci && npm run build
+cp -r dist ../backend/giga_agent/ui_dist
+cd /workspace && sudo docker compose build && sudo docker compose up -d
+```
+
 ### Project overview
 
 GigaAgent is a universal AI agent chat application. It runs as a set of Docker containers orchestrated via Docker Compose. See `README.md` for full documentation.
