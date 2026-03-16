@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from typing import Any
 
 from aiogram import Bot, Dispatcher, types as tg_types
-from aiogram.enums import ParseMode
+from aiogram.types import BufferedInputFile
 from langgraph_sdk import get_client
 
 from giga_agent.conf import get_settings
@@ -17,6 +18,7 @@ from giga_agent.modules.auth.security import create_access_token
 from giga_agent.modules.telegram.models import (
     TelegramBot as TelegramBotModel,
     TelegramBotRepository,
+    TelegramThread,
 )
 
 logger = get_logger(__name__)
@@ -36,18 +38,15 @@ def _make_token(user_id: uuid.UUID, email: str) -> str:
 
 
 def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
-    """Extract text and image URLs from agent run result.
-
-    Returns (text, image_urls).
-    """
-    messages = result.get("messages", [])
+    """Extract final AI text and image URLs from the run result."""
+    messages = result.get("messages") or []
     text_parts: list[str] = []
     image_urls: list[str] = []
 
     for msg in reversed(messages):
         if not isinstance(msg, dict):
             continue
-        role = msg.get("type", "")
+        role = msg.get("type") or msg.get("role", "")
         if role != "ai":
             continue
         if msg.get("tool_calls"):
@@ -73,22 +72,6 @@ def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
             if text_parts:
                 break
 
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
-        role = msg.get("type", "")
-        if role != "tool":
-            continue
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            try:
-                import json
-                data = json.loads(content)
-                if isinstance(data, dict) and "image_url" in data:
-                    image_urls.append(data["image_url"])
-            except (json.JSONDecodeError, TypeError):
-                pass
-
     return "\n\n".join(text_parts), image_urls
 
 
@@ -110,15 +93,34 @@ class _BotInstance:
                 return
             await self._handle_message(message)
 
+    async def _get_or_create_thread(
+        self, client: Any, repo: TelegramBotRepository, chat_id: int
+    ) -> str:
+        thread_row = await repo.get_thread(self.bot_row.id, chat_id)
+        if thread_row is not None:
+            return thread_row.langgraph_thread_id
+
+        thread = await client.threads.create(
+            metadata={"telegram_chat_id": str(chat_id)},
+        )
+        thread_id = thread["thread_id"]
+        await repo.create_thread(self.bot_row.id, chat_id, thread_id)
+        return thread_id
+
+    async def _reset_thread(
+        self, repo: TelegramBotRepository, chat_id: int
+    ) -> None:
+        """Delete thread mapping so a fresh thread is created next time."""
+        thread_row = await repo.get_thread(self.bot_row.id, chat_id)
+        if thread_row is not None:
+            await repo.delete_thread(thread_row)
+
     async def _handle_message(self, message: tg_types.Message):
         chat_id = message.chat.id
         text = message.text or ""
         user_id = self.bot_row.user_id
 
-        logger.info(
-            "Telegram message from chat %s for user %s: %s",
-            chat_id, user_id, text[:100],
-        )
+        logger.info("Telegram message from chat %s: %s", chat_id, text[:100])
 
         try:
             token = _make_token(user_id, self.user_email)
@@ -130,16 +132,7 @@ class _BotInstance:
             session_factory = await get_session_factory()
             async with session_factory() as session:
                 repo = TelegramBotRepository(session)
-                thread_row = await repo.get_thread(self.bot_row.id, chat_id)
-
-                if thread_row is None:
-                    thread = await client.threads.create(
-                        metadata={"telegram_chat_id": str(chat_id)},
-                    )
-                    thread_id = thread["thread_id"]
-                    await repo.create_thread(self.bot_row.id, chat_id, thread_id)
-                else:
-                    thread_id = thread_row.langgraph_thread_id
+                thread_id = await self._get_or_create_thread(client, repo, chat_id)
 
             await message.chat.do("typing")
 
@@ -150,38 +143,71 @@ class _BotInstance:
                 config={"configurable": {"auto_approve": True}},
             )
 
-            logger.info("Agent run completed for chat %s", chat_id)
+            if not isinstance(result, dict) or not result.get("messages"):
+                logger.warning(
+                    "Empty or unexpected result for chat %s: %s",
+                    chat_id,
+                    str(result)[:500],
+                )
+                async with session_factory() as session:
+                    repo = TelegramBotRepository(session)
+                    await self._reset_thread(repo, chat_id)
+                await message.answer("⚠️ Агент не вернул ответ. Попробуйте ещё раз.")
+                return
 
             response_text, image_urls = _extract_ai_response(result)
+            logger.info(
+                "Response for chat %s: text=%d chars, images=%d",
+                chat_id,
+                len(response_text),
+                len(image_urls),
+            )
 
             if image_urls:
                 for url in image_urls[:5]:
                     try:
-                        if url.startswith("http"):
-                            await message.answer_photo(url)
-                        elif url.startswith("data:image"):
-                            import base64
-                            header, b64data = url.split(",", 1)
-                            photo_bytes = base64.b64decode(b64data)
-                            from aiogram.types import BufferedInputFile
-                            await message.answer_photo(
-                                BufferedInputFile(photo_bytes, filename="image.png")
-                            )
+                        await self._send_image(message, url)
                     except Exception:
-                        logger.warning("Failed to send image to Telegram: %s", url[:80])
+                        logger.warning("Failed to send image to Telegram")
 
             if response_text:
                 for chunk in _split_message(response_text):
                     await message.answer(chunk)
             elif not image_urls:
-                await message.answer("✅ Задача выполнена.")
+                await message.answer("✅ Задача выполнена (агент не вернул текст).")
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Error handling Telegram message for user %s", user_id)
-            try:
-                await message.answer("⚠️ Произошла ошибка при обработке сообщения.")
-            except Exception:
-                pass
+            error_str = str(exc)
+            if "tool_call" in error_str or "tool_calls" in error_str:
+                try:
+                    async with (await get_session_factory())() as session:
+                        repo = TelegramBotRepository(session)
+                        await self._reset_thread(repo, chat_id)
+                except Exception:
+                    pass
+                try:
+                    await message.answer(
+                        "⚠️ Контекст чата повреждён, создан новый. Повторите сообщение."
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    await message.answer("⚠️ Произошла ошибка при обработке сообщения.")
+                except Exception:
+                    pass
+
+    async def _send_image(self, message: tg_types.Message, url: str):
+        if url.startswith("http"):
+            await message.answer_photo(url)
+        elif url.startswith("data:image"):
+            import base64
+            _, b64data = url.split(",", 1)
+            photo_bytes = base64.b64decode(b64data)
+            await message.answer_photo(
+                BufferedInputFile(photo_bytes, filename="image.png")
+            )
 
     async def start(self):
         logger.info(
@@ -249,7 +275,7 @@ class TelegramBotManager:
         from giga_agent.models.users import UserRepository
         user = await UserRepository(session).get_by_id(bot_row.user_id, use_cache=False)
         if user is None:
-            logger.warning("User %s not found for Telegram bot %s", bot_row.user_id, bot_row.id)
+            logger.warning("User %s not found for bot %s", bot_row.user_id, bot_row.id)
             return
 
         try:

@@ -138,6 +138,10 @@ class TelegramBotRepository:
         )
         return result.scalar_one_or_none()
 
+    async def delete_thread(self, thread: TelegramThread) -> None:
+        await self.db.delete(thread)
+        await self.db.commit()
+
     async def create_thread(
         self,
         bot_id: uuid.UUID,
