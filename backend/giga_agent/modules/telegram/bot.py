@@ -117,6 +117,7 @@ class _BotInstance:
             self.bot_row.bot_username or self.bot_row.id,
             self.bot_row.user_id,
         )
+        await self.bot.delete_webhook(drop_pending_updates=True)
         self._task = asyncio.create_task(self._run())
 
     async def _run(self):
