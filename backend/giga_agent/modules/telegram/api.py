@@ -8,7 +8,7 @@ from aiogram import Bot
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from giga_agent.core.db import get_db
+from giga_agent.core.db import get_session
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.models.users import UserShort
@@ -21,7 +21,7 @@ from giga_agent.modules.telegram.models import (
 from giga_agent.modules.telegram.bot import get_bot_manager
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/telegram", tags=["telegram"])
+router = APIRouter(tags=["telegram"])
 
 
 async def _validate_token(token: str) -> str | None:
@@ -37,7 +37,7 @@ async def _validate_token(token: str) -> str | None:
 @router.get("/bot", response_model=TelegramBotResponse | None)
 async def get_bot(
     current_user: UserShort = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     repo = TelegramBotRepository(db)
     bot = await repo.get_by_user(current_user.id)
@@ -50,7 +50,7 @@ async def get_bot(
 async def create_bot(
     body: TelegramBotCreate,
     current_user: UserShort = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     repo = TelegramBotRepository(db)
     existing = await repo.get_by_user(current_user.id)
@@ -79,7 +79,7 @@ async def create_bot(
 async def update_bot(
     body: TelegramBotUpdate,
     current_user: UserShort = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     repo = TelegramBotRepository(db)
     bot = await repo.get_by_user(current_user.id)
@@ -112,7 +112,7 @@ async def update_bot(
 @router.delete("/bot", status_code=204)
 async def delete_bot(
     current_user: UserShort = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     repo = TelegramBotRepository(db)
     bot = await repo.get_by_user(current_user.id)
@@ -127,7 +127,7 @@ async def delete_bot(
 @router.get("/bot/status")
 async def bot_status(
     current_user: UserShort = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_session),
 ):
     repo = TelegramBotRepository(db)
     bot = await repo.get_by_user(current_user.id)

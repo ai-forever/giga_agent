@@ -115,9 +115,10 @@ export const TelegramSettings: React.FC = () => {
   };
 
   const handleDelete = async () => {
-    const ok = await confirm(
-      "Удалить Telegram бота? Все привязки чатов будут потеряны."
-    );
+    const ok = await confirm({
+      description: "Удалить Telegram бота? Все привязки чатов будут потеряны.",
+      variant: "destructive",
+    });
     if (!ok) return;
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/telegram/bot`);
