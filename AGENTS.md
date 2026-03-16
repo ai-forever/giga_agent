@@ -19,6 +19,61 @@ cp -r dist ../backend/giga_agent/ui_dist
 cd /workspace && sudo docker compose build && sudo docker compose up -d
 ```
 
+### First-time Docker install (fresh VM)
+
+```bash
+# Install Docker
+sudo install -m 0755 -d /etc/apt/keyrings
+curl --retry 3 --retry-delay 5 -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt-get install -y fuse-overlayfs iptables
+sudo mkdir -p /etc/docker && printf '%s\n' '{' '  "storage-driver": "fuse-overlayfs"' '}' | sudo tee /etc/docker/daemon.json
+sudo update-alternatives --set iptables /usr/sbin/iptables-legacy
+sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+sudo dockerd &>/tmp/dockerd.log &
+sleep 5
+
+# Create .env
+cd /workspace
+cat > .env << 'EOF'
+GIGA_AGENT_SECRET_KEY="$(python3 -c 'import secrets;print(secrets.token_hex(32))')"
+GIGA_AGENT_HOST_PROJECT_PATH="/workspace"
+EOF
+echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> .env
+
+# Build and start
+mkdir -p .giga_agent
+cd front && npm ci && npm run build && cp -r dist ../backend/giga_agent/ui_dist && cd ..
+sudo docker compose build && sudo docker compose up -d
+sleep 20
+
+# Configure LLM + sandbox via API (one-time after first startup)
+TOKEN=$(curl -s -X POST "http://localhost:8123/api/agent/auth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin@example.com&password=giga_agent_admin" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+CONN_ID=$(curl -s -X POST "http://localhost:8123/api/agent/connectors" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"type\":\"openai\",\"name\":\"OpenAI\",\"settings\":{\"api_key\":\"${OPENAI_API_KEY}\"},\"check_connection\":false}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+LLM_ID=$(curl -s -X POST "http://localhost:8123/api/agent/llms" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"type\":\"openai\",\"connector_id\":\"$CONN_ID\",\"model_id\":\"gpt-4o-mini\",\"name\":\"GPT-4o-mini\",\"check_connection\":false}" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+
+curl -s -X PATCH "http://localhost:8123/api/agent/auth/users/me" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"llm_id\":\"$LLM_ID\"}"
+
+sudo docker pull mikelarg/code-interpreter:0.0.5
+curl -s -X POST "http://localhost:8123/api/agent/sandboxes/providers" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"local_docker","name":"Local Docker","settings":{"memory_limit_mb":512,"memory_reservation_mb":512,"vcpu":0.3,"pids_limit":256,"shm_size_mb":128,"nofile_soft":1024,"nofile_hard":4096,"startup_timeout_sec":30,"max_active_sandboxes":3}}'
+```
+
 ### Project overview
 
 GigaAgent is a universal AI agent chat application. It runs as a set of Docker containers orchestrated via Docker Compose. See `README.md` for full documentation.
