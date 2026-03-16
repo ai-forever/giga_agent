@@ -424,11 +424,6 @@ Runtime компоненты регистрируются динамически
 - Инструменты: [TOOLS.md](TOOLS.md)
 - Observability для локального запуска: [docs/configuration/observability-local.md](docs/configuration/observability-local.md)
 
-Внешние материалы (опционально):
-
-- [RuTube видео на русском](https://rutube.ru/video/c9a416a654723f0b1df23424bd3d9b4d/)
-- [YouTube видео на русском](https://youtu.be/tyeXgCJ090Y?si=WcbITF3DiTo_aBUF)
-
 ## Contributing
 
 PR и issue приветствуются. Для больших изменений лучше заранее описать proposal в issue с ожидаемым эффектом и планом валидации.

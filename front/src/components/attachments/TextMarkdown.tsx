@@ -294,7 +294,7 @@ const markdownComponents = {
     const match = /language-(\w+)/.exec(className || "");
     const additionalStyles: React.CSSProperties = {
       padding: "0.2em 0.5em",
-      display: "inline-block",
+      display: "inline-flex",
       maxWidth: "100%",
     };
     return (

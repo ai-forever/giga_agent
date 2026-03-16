@@ -522,27 +522,28 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   return (
     <>
       {/* Overlay (только мобильные) */}
-      <div
-        onClick={(e) => {
-          const clickX = (e as React.MouseEvent).clientX;
-          const targetEl = e.target as HTMLElement;
+      {settings.sideBarOpen && (
+        <div
+          onClick={(e) => {
+            const clickX = (e as React.MouseEvent).clientX;
+            const targetEl = e.target as HTMLElement;
 
-          if (
-            clickX < SIDEBAR_WIDTH ||
-            targetEl.closest('[role="menu"]') !== null
-          )
-            return;
+            if (
+              clickX < SIDEBAR_WIDTH ||
+              targetEl.closest('[role="menu"]') !== null
+            )
+              return;
 
-          toggle(e);
-        }}
-        className={[
-          "fixed top-0 left-0 h-full w-full bg-black/50 z-10 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
-          settings.sideBarOpen
-            ? "opacity-100 pointer-events-auto"
-            : "opacity-0 pointer-events-none",
-        ].join(" ")}
-      />
-
+            toggle(e);
+          }}
+          className={[
+            "fixed top-0 left-0 h-full w-full bg-black/50 z-10 print:hidden max-[900px]:block min-[901px]:hidden transition-opacity duration-300 ease-in-out",
+            settings.sideBarOpen
+              ? "opacity-100 pointer-events-auto"
+              : "opacity-0 pointer-events-none",
+          ].join(" ")}
+        />
+      )}
       <div
         className={
           "align-middle items-center p-5 top-0 w-full h-[70px] max-[900px]:flex min-[901px]:hidden"
@@ -871,10 +872,15 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       {/* Opener button */}
       <div className="fixed top-4 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
         <div
-          className="h-10 bg-cover transition-[width] duration-300 ease-in-out"
+          className="h-10 bg-cover transition-[width] duration-300 ease-in-out cursor-pointer"
           style={{
             width: settings.sideBarOpen ? 156 : 40,
             backgroundImage: `url(${isDark ? LogoImage : LogoWhiteImage})`,
+          }}
+          onClick={() => {
+            if (window.innerWidth >= 900) {
+              handleNewChat();
+            }
           }}
         />
         <ChevronRight

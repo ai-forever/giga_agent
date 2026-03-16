@@ -4,131 +4,159 @@
 
 Мы поддерживаем три уровня инструментов:
 
-* **LLM‑tools** — функции, которые модель может вызывать напрямую через tool‑calling при выполнении графа. Реализуются в бэкенде графа ([`backend/graph/giga_agent/tools`](backend/graph/giga_agent/tools)), регистрация/включение — в [`config.py`](backend/graph/giga_agent/config.py). Возвращают компактные, сериализуемые результаты. Также могут быть вызваны из REPL-среды.
-* **REPL‑tools** — функции, доступные коду, исполняемому в изолированном REPL. Их задача — дать возможность вызова бэкенд-логики с секретами (токены, env-переменные). Сейчас repl-тулы позволяют вызывать LLM: получать эмбеддинги, делать суммаризацию, анализ и пр. Мы импортируем такие функции в окружение REPL (см. папку [`backend/repl`](backend/repl)).
-* **ToolServer** — серверная прослойка для вызовов, где нужны секреты (API‑ключи/токены) или доступ к внутренней инфраструктуре. И LLM‑tools, и REPL‑tools при необходимости проксируют такие операции через ToolServer; секреты остаются на стороне бэкенда (код сервера — в [`backend/graph`](backend/graph), см. таргет `make run_tool_server` в корне).
-
----
-
-## Готовые инструменты&#x20;
-
-### Поиск и веб‑данные
-
-* **search** — интернет‑поиск через Tavily.
-
-  * **Файл(ы):** [`backend/graph/giga_agent/tools/another.py`](backend/graph/giga_agent/tools/another.py)
-  * **ENV:** `TAVILY_API_KEY`
-* **get\_urls** — получить URL/контент по результатам поиска.
-
-  * **Файл(ы):** [`backend/graph/giga_agent/tools/scraper.py`](backend/graph/giga_agent/tools/scraper.py)
-  * **ENV:** `TAVILY_API_KEY`
-
-### GitHub
-
-* **list\_pull\_requests** — список PR в репозитории.
-* **get\_pull\_request** — детали PR.
-* **get\_workflow\_runs** — статусы GitHub Actions.
-
-  * **Файл(ы):** [`backend/graph/giga_agent/tools/github.py`](backend/graph/giga_agent/tools/github.py)
-  * **ENV:** `GITHUB_TOKEN`
-
-### ВКонтакте (VK)
-
-* **vk\_get\_posts**, **vk\_get\_comments**, **vk\_get\_last\_comments** — выборки постов/комментариев.
-
-  * **Файл(ы):** [`backend/graph/giga_agent/tools/vk.py`](backend/graph/giga_agent/tools/vk.py)
-  * **ENV:** ключи VK (service token / app credentials) `VK_TOKEN`
-
-### Погода
-
-* **weather** — сводка/прогноз через OpenWeatherMap.
-
-  * **Файл(ы):** [`backend/graph/giga_agent/tools/weather.py`](backend/graph/giga_agent/tools/weather.py)
-  * **ENV:** `OPENWEATHERMAP_API_KEY`
-
-### Генерация изображений
-
-* **generate\_image** — провайдеры: GigaChat Kandinsky / FusionBrain (Kandinsky 3.0) / OpenAI DALL‑E or gpt-image-1.
-
-  * **Файл(ы):** [`backend/graph/giga_agent/tools/another.py`](backend/graph/giga_agent/tools/another.py)
-  * **ENV:** `IMAGE_GEN_NAME` + ключи провайдера (`MAIN_GIGACHAT_*` или `KANDINSKY_API_KEY`/`KANDINSKY_SECRET_KEY` или `OPENAI_API_KEY`)
-
-> Примечание: если ключи/ENV не заданы, связанные **service‑tools автоматически отключаются** (не попадут в список доступных для модели).
+* **LLM‑tools** — функции, которые модель может вызывать напрямую через tool‑calling при выполнении графа. 
+* **REPL‑tools** — функции, доступные коду, исполняемому в изолированном REPL. Их задача — дать возможность вызова бэкенд-логики с секретами (токены, env-переменные). Сейчас repl-тулы позволяют вызывать LLM: получать эмбеддинги, делать суммаризацию, анализ и пр.
 
 ---
 
 ## Как добавить **новый LLM‑tool**
 
-**TL;DR:** файл в [`backend/graph/giga_agent/tools/`](backend/graph/giga_agent/tools/) → регистрация в `config.py` → ENV (если нужно) → `make build_graph` → перезапуск.
+**TL;DR:** создайте функцию с декоратором `@tool` → создайте модуль с `BaseModule` → зарегистрируйте модуль в `GigaAgent`.
 
-1. **Создайте модуль**
-   Например, `backend/graph/giga_agent/tools/my_tool.py`
+### Пошаговая инструкция
 
-2. **Опишите tool** (через LangChain Tool или простую функцию‑обёртку):
+1. **Создайте файл с инструментами**
+   
+   Создайте файл `tools.py` в вашем модуле, например `agent/my_module/tools.py`:
 
 ```python
-# backend/graph/giga_agent/tools/my_tool.py
-from typing import TypedDict, Optional
 from langchain_core.tools import tool
+from typing import Optional
 
-class MyToolArgs(TypedDict, total=False):
-    query: str
-    limit: Optional[int]
+@tool
+def read_file(file_path: str, length: int = 100, start_position: int = 0) -> str:
+    """
+    Читает содержимое файла с указанной позиции и длиной.
+    
+    Args:
+        file_path: Путь до файла для чтения
+        length: Максимальное количество символов для чтения (по умолчанию 100)
+        start_position: Позиция начала чтения в файле (по умолчанию 0)
+    
+    Returns:
+        Содержимое файла в виде строки
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            f.seek(start_position)
+            content = f.read(length)
+        return content
+    except FileNotFoundError:
+        return f"Ошибка: Файл '{file_path}' не найден"
+    except Exception as e:
+        return f"Ошибка при чтении файла: {str(e)}"
 
-@tool("my_tool", args_schema=MyToolArgs)
-def my_tool(query: str, limit: int | None = None) -> str:
-    """Короткое точное описание для модели: что делает тул и когда его вызывать."""
-    # 1) валидация
-    # 2) вызов внешних API/ToolServer
-    # 3) возврат краткого результата (LLM «раскроет» в ответ)
-    return "..."
+@tool
+def list_files(directory_path: Optional[str] = None) -> str:
+    """
+    Получает список файлов в указанной директории или в текущей директории.
+    
+    Args:
+        directory_path: Путь к директории (если None, используется текущая директория)
+    
+    Returns:
+        Список файлов в формате строки
+    """
+    # Ваша реализация
+    return "Список файлов"
 ```
 
-3. **Зарегистрируйте тул** в [`backend/graph/giga_agent/config.py`](backend/graph/giga_agent/config.py):
+**Важные моменты:**
+- Используйте декоратор `@tool` из `langchain_core.tools`
+- Обязательно добавьте docstring — он используется моделью для понимания, что делает инструмент
+- Опишите все параметры в формате Google-style docstring
+- Обрабатывайте ошибки и возвращайте понятные сообщения
 
-* добавьте имя в `SERVICE_TOOLS`;
-* если тул зависит от ENV — добавьте в `TOOLS_REQUIRED_ENVS` (включение/отключение по наличию ключей).
+2. **Создайте модуль**
 
-4. **ENV**, если требуется: пропишите переменные в `.env`/`.docker.env` (см. `env_examples/`).
+   Создайте файл `module.py` в том же пакете:
 
-5. **Соберите граф и перезапустите**:
+```python
+from __future__ import annotations
 
-```bash
-make build_graph
-# docker compose up -d   # или локальные команды запуска
+from typing import List
+
+from giga_agent.core.module import BaseModule
+from giga_agent.models import UserShort
+from langchain_core.tools import BaseTool
+
+from .tools import read_file, list_files
+
+
+class MyToolsModule(BaseModule):
+    id: str = "my_tools"  # Уникальный идентификатор модуля
+
+    async def get_tools(
+        self,
+        user: UserShort | None,
+        agent: "BaseAgent",
+    ) -> List[BaseTool]:
+        """Возвращает список инструментов для агента."""
+        return [read_file, list_files]
 ```
 
-6. **Проверьте** в UI (чат): модель должна увидеть `my_tool` по имени/описанию и уметь его вызвать.
+**Ключевые элементы:**
+- Наследуйтесь от `BaseModule`
+- Задайте уникальный `id` для модуля
+- Реализуйте метод `get_tools()`, который возвращает список инструментов
+- Метод `get_tools()` получает информацию о пользователе (`user`) и самом агенте (`agent`), что позволяет динамически настраивать инструменты
 
----
+3. **Зарегистрируйте модуль в агенте**
 
-## Как добавить **новый REPL‑tool**
+   В вашем файле с определением агента (например, `agent.py`):
 
-**TL;DR:** функция в `backend/repl/repl_tools/…` → импорт в инициализацию REPL → (опц.) доступ к API через ToolServer → перезапуск REPL.
+```python
+from giga_agent.agents.giga_agent import GigaAgent
 
-1. **Разместите функцию**
-   например, `backend/repl/repl_tools/my_repl_tool.py`, затем импортируйте её там, где формируется исполняемый неймспейс REPL.
+from .my_module.module import MyToolsModule
 
-2. **ENV**, если нужно: добавьте в `.env`/`.docker.env`.
-3. **Зарегистрируйте тул** в [`backend/graph/giga_agent/config.py`](backend/graph/giga_agent/config.py):
+agent = GigaAgent(modules=[MyToolsModule()])
 
-* добавьте имя в `REPL_TOOLS`;
-
-4. **Соберите граф и перезапустите**:
-
-```bash
-make build_graph
-# docker compose up -d   # или локальные команды запуска
+graph, app = agent.graph, agent.app
 ```
 
-> Типовые REPL‑тулы: `predict_sentiments`, `get_embeddings`, `summarize` — доступны коду, который LLM пишет в REPL, и под капотом сами ходят в LLM/API.
+4. **Проверьте работу**
 
----
+   Запустите агента и проверьте, что инструменты доступны:
+   
+   - Агент должен видеть ваши инструменты в списке доступных tools
+   - Модель должна быть способна вызвать их по имени и описанию
+   - Проверьте логи выполнения, чтобы убедиться, что вызовы проходят корректно
 
-## Управление доступностью
+### Полный пример
 
-* Без нужных ключей сервисные тулы **автоматически скрываются** (через `TOOLS_REQUIRED_ENVS`).
-* Списки активных тулов и агентов централизованно задаются в `config.py` (`TOOLS`, `AGENTS`, `SERVICE_TOOLS`).
+Смотрите рабочий пример в [`examples/agent_with_tools/`](examples/agent_with_tools/):
+
+```
+examples/agent_with_tools/
+├── agent/
+│   ├── __init__.py
+│   ├── agent.py              # Определение агента
+│   └── with_tool/
+│       ├── __init__.py
+│       ├── module.py          # Модуль с get_tools()
+│       └── tools.py           # Определение инструментов
+└── pyproject.toml
+```
+
+### Динамическое подключение инструментов
+
+Метод `get_tools()` позволяет динамически настраивать инструменты на основе пользователя:
+
+```python
+async def get_tools(
+    self,
+    user: UserShort | None,
+    agent: "BaseAgent",
+) -> List[BaseTool]:
+    tools = [read_file, list_files]
+    
+    # Добавить дополнительные инструменты для определенных пользователей
+    if user and user.has_premium:
+        tools.append(premium_search_tool)
+    
+    return tools
+```
 
 ---
 
