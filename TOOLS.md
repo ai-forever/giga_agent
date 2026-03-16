@@ -162,8 +162,4 @@ async def get_tools(
 
 ## Быстрые ссылки
 
-* Каталог LLM‑tools: [`backend/graph/giga_agent/tools/`](backend/graph/giga_agent/tools)
-* Регистрация/включение: [`backend/graph/giga_agent/config.py`](backend/graph/giga_agent/config.py)
-* REPL‑сервис: `backend/repl/…` (добавляйте в `repl_tools/`)
-* Примеры настройки ENV для GigaChat/OpenAI: [`env_examples/`](env_examples)
 * Субагенты: [`SUBAGENTS.md`](SUBAGENTS.md)
