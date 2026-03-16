@@ -35,6 +35,63 @@ def _make_token(user_id: uuid.UUID, email: str) -> str:
     )
 
 
+def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
+    """Extract text and image URLs from agent run result.
+
+    Returns (text, image_urls).
+    """
+    messages = result.get("messages", [])
+    text_parts: list[str] = []
+    image_urls: list[str] = []
+
+    for msg in reversed(messages):
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("type", "")
+        if role != "ai":
+            continue
+        if msg.get("tool_calls"):
+            continue
+
+        content = msg.get("content", "")
+        if isinstance(content, str) and content.strip():
+            text_parts.append(content.strip())
+            break
+        elif isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text" and block.get("text", "").strip():
+                        text_parts.append(block["text"].strip())
+                    elif block.get("type") == "image_url":
+                        url = block.get("image_url", {})
+                        if isinstance(url, str):
+                            image_urls.append(url)
+                        elif isinstance(url, dict) and url.get("url"):
+                            image_urls.append(url["url"])
+                elif isinstance(block, str) and block.strip():
+                    text_parts.append(block.strip())
+            if text_parts:
+                break
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("type", "")
+        if role != "tool":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            try:
+                import json
+                data = json.loads(content)
+                if isinstance(data, dict) and "image_url" in data:
+                    image_urls.append(data["image_url"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    return "\n\n".join(text_parts), image_urls
+
+
 class _BotInstance:
     """Wraps a single aiogram Bot + Dispatcher pair for one user."""
 
@@ -57,6 +114,11 @@ class _BotInstance:
         chat_id = message.chat.id
         text = message.text or ""
         user_id = self.bot_row.user_id
+
+        logger.info(
+            "Telegram message from chat %s for user %s: %s",
+            chat_id, user_id, text[:100],
+        )
 
         try:
             token = _make_token(user_id, self.user_email)
@@ -81,27 +143,37 @@ class _BotInstance:
 
             await message.chat.do("typing")
 
-            response_chunks: list[str] = []
-            async for event in client.runs.stream(
+            result = await client.runs.wait(
                 thread_id=thread_id,
                 assistant_id=ASSISTANT_ID,
                 input={"messages": [{"role": "human", "content": text}]},
-                stream_mode="messages",
                 config={"configurable": {"auto_approve": True}},
-            ):
-                if hasattr(event, "event") and event.event == "messages/complete":
-                    for msg_data in event.data if isinstance(event.data, list) else [event.data]:
-                        if isinstance(msg_data, dict):
-                            role = msg_data.get("type") or msg_data.get("role", "")
-                            content = msg_data.get("content", "")
-                            if role == "ai" and content and not msg_data.get("tool_calls"):
-                                response_chunks.append(content)
+            )
 
-            if response_chunks:
-                full_response = "\n".join(response_chunks)
-                for chunk in _split_message(full_response):
+            logger.info("Agent run completed for chat %s", chat_id)
+
+            response_text, image_urls = _extract_ai_response(result)
+
+            if image_urls:
+                for url in image_urls[:5]:
+                    try:
+                        if url.startswith("http"):
+                            await message.answer_photo(url)
+                        elif url.startswith("data:image"):
+                            import base64
+                            header, b64data = url.split(",", 1)
+                            photo_bytes = base64.b64decode(b64data)
+                            from aiogram.types import BufferedInputFile
+                            await message.answer_photo(
+                                BufferedInputFile(photo_bytes, filename="image.png")
+                            )
+                    except Exception:
+                        logger.warning("Failed to send image to Telegram: %s", url[:80])
+
+            if response_text:
+                for chunk in _split_message(response_text):
                     await message.answer(chunk)
-            else:
+            elif not image_urls:
                 await message.answer("✅ Задача выполнена.")
 
         except Exception:
