@@ -38,9 +38,24 @@ def _make_token(user_id: uuid.UUID, email: str) -> str:
     )
 
 
+_ATTACHMENT_RE = re.compile(
+    r"!\[([^\]]*)\]\(attachment:(/?[^)]+)\)"
+)
+
+
 def _strip_thinking(text: str) -> str:
     """Remove <thinking>...</thinking> blocks from agent output."""
     return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL).strip()
+
+
+def _extract_attachments(text: str) -> tuple[str, list[str]]:
+    """Extract attachment paths and return cleaned text + list of paths."""
+    paths: list[str] = []
+    for match in _ATTACHMENT_RE.finditer(text):
+        paths.append(match.group(2))
+    cleaned = _ATTACHMENT_RE.sub("", text).strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned, paths
 
 
 def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
@@ -184,25 +199,45 @@ class _BotInstance:
                 return
 
             response_text, image_urls = _extract_ai_response(result)
+
+            response_text, attachment_paths = _extract_attachments(response_text)
+
             logger.info(
-                "Response for chat %s: text=%d chars, images=%d",
-                chat_id,
-                len(response_text),
-                len(image_urls),
+                "Response for chat %s: text=%d chars, images=%d, attachments=%d",
+                chat_id, len(response_text), len(image_urls), len(attachment_paths),
             )
 
-            if image_urls:
-                for url in image_urls[:5]:
-                    try:
-                        await self._send_image(message, url)
-                    except Exception:
-                        logger.warning("Failed to send image to Telegram")
+            sent_any = False
+
+            for path in attachment_paths[:10]:
+                try:
+                    file_bytes = await self._download_attachment(token, path)
+                    if file_bytes:
+                        fname = path.rsplit("/", 1)[-1] if "/" in path else path
+                        inp = BufferedInputFile(file_bytes, filename=fname)
+                        lower = fname.lower()
+                        if lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                            await message.answer_photo(inp)
+                        else:
+                            await message.answer_document(inp)
+                        sent_any = True
+                except Exception:
+                    logger.warning("Failed to send attachment %s", path[:80])
+
+            for url in image_urls[:5]:
+                try:
+                    await self._send_image(message, url)
+                    sent_any = True
+                except Exception:
+                    logger.warning("Failed to send image to Telegram")
 
             if response_text:
                 for chunk in _split_message(response_text):
                     await message.answer(chunk)
-            elif not image_urls:
-                await message.answer("✅ Задача выполнена (агент не вернул текст).")
+                sent_any = True
+
+            if not sent_any:
+                await message.answer("✅ Задача выполнена.")
 
         except Exception as exc:
             logger.exception("Error handling Telegram message for user %s", user_id)
@@ -225,6 +260,25 @@ class _BotInstance:
                     await message.answer("⚠️ Произошла ошибка при обработке сообщения.")
                 except Exception:
                     pass
+
+    async def _download_attachment(self, token: str, path: str) -> bytes | None:
+        """Download a file from the agent's file API by sandbox path."""
+        import httpx
+        url = f"{_langgraph_url()}/agent/files/content/by-path"
+        async with httpx.AsyncClient(timeout=30) as http:
+            resp = await http.get(
+                url,
+                params={"path": path},
+                headers={"Authorization": f"Bearer {token}"},
+                follow_redirects=True,
+            )
+            if resp.status_code == 200:
+                return resp.content
+            logger.warning(
+                "Failed to download attachment %s: %d %s",
+                path[:80], resp.status_code, resp.text[:200],
+            )
+            return None
 
     async def _send_image(self, message: tg_types.Message, url: str):
         if url.startswith("http"):

@@ -3,7 +3,12 @@
 import re
 import pytest
 
-from giga_agent.modules.telegram.bot import _extract_ai_response, _strip_thinking, _split_message
+from giga_agent.modules.telegram.bot import (
+    _extract_ai_response,
+    _extract_attachments,
+    _strip_thinking,
+    _split_message,
+)
 
 
 class TestStripThinking:
@@ -131,6 +136,46 @@ class TestExtractAiResponse:
         }
         text, images = _extract_ai_response(result)
         assert text == "Результат умножения 15 на 7 равен 105."
+
+
+class TestExtractAttachments:
+    def test_single_attachment(self):
+        text = "Вот график:\n\n![Парабола](attachment:/bucket/abc/img.png)"
+        cleaned, paths = _extract_attachments(text)
+        assert paths == ["/bucket/abc/img.png"]
+        assert "attachment:" not in cleaned
+        assert "Вот график:" in cleaned
+
+    def test_multiple_attachments(self):
+        text = (
+            "![A](attachment:/bucket/a.png)\n"
+            "Some text\n"
+            "![B](attachment:/bucket/b.jpg)"
+        )
+        cleaned, paths = _extract_attachments(text)
+        assert paths == ["/bucket/a.png", "/bucket/b.jpg"]
+        assert "Some text" in cleaned
+
+    def test_no_attachments(self):
+        text = "Just plain text with no images"
+        cleaned, paths = _extract_attachments(text)
+        assert cleaned == text
+        assert paths == []
+
+    def test_real_world_example(self):
+        text = (
+            "Вот график простой параболы y = x^2:\n\n"
+            "![Парабола](attachment:/bucket/68b6319e-7e55/img--abc.png)"
+        )
+        cleaned, paths = _extract_attachments(text)
+        assert paths == ["/bucket/68b6319e-7e55/img--abc.png"]
+        assert cleaned == "Вот график простой параболы y = x^2:"
+
+    def test_preserves_normal_markdown_images(self):
+        text = "![alt](https://example.com/img.png) and more"
+        cleaned, paths = _extract_attachments(text)
+        assert paths == []
+        assert cleaned == text
 
 
 class TestSplitMessage:
