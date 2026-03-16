@@ -75,5 +75,6 @@ All services are Docker containers:
 - `ruff` is in the `dev` dependency group: `uv sync --group dev` is needed before linting.
 - The `.env` file is gitignored. Copy from `.env.example` and fill in secrets.
 - `GIGA_AGENT_SECRET_KEY` must be set for JWT auth to work.
-- The sandbox/REPL for code execution requires a sandbox provider (local Docker or E2B). Without it, the code interpreter tool errors with "sandbox provider is not configured". This is expected for a minimal setup.
+- The sandbox/REPL for code execution requires a sandbox provider (local Docker or E2B). Create one via the API: `POST /api/agent/sandboxes/providers` with `type=local_docker`.
 - In the Cloud VM, Docker must be started with `sudo dockerd` and configured with `fuse-overlayfs` storage driver and `iptables-legacy`.
+- The Cloud VM's cgroup v2 is in threaded mode, which prevents Docker containers from using memory cgroup limits. The env var `GIGA_AGENT_LOCAL_DOCKER_NO_CGROUP_LIMITS=true` in `docker-compose.yml` disables memory/CPU/pids cgroup limits for sandbox containers to work around this.
