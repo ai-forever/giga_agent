@@ -65,7 +65,15 @@ const LoginPage: React.FC = () => {
     <div className="min-h-screen w-full flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Вход в <img className="w-10 h-10 inline-block" src={LogoWhiteImage} alt="GigaAgent Logo" /> GigaAgent</CardTitle>
+          <CardTitle className="text-2xl">
+            Вход в{" "}
+            <img
+              className="w-10 h-10 inline-block"
+              src={LogoWhiteImage}
+              alt="GigaAgent Logo"
+            />{" "}
+            GigaAgent
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -103,11 +111,7 @@ const LoginPage: React.FC = () => {
               />
             </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isSubmitting}
-            >
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

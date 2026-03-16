@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, Loader2, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import {
+  ChevronDown,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { API_AGENT_PREFIX } from "@/config.ts";
@@ -282,7 +289,8 @@ const AdminGroupsTab: React.FC = () => {
         {!loadingGroups &&
           filteredGroups.map((group) => {
             const members = membersByGroupId[group.id] ?? [];
-            const membersCount = membersByGroupId[group.id]?.length ?? group.users_count;
+            const membersCount =
+              membersByGroupId[group.id]?.length ?? group.users_count;
             const isExpanded = expandedGroupId === group.id;
             const loadingMembers = loadingMembersFor === group.id;
             const selectedUserIds = selectedUserIdsByGroupId[group.id] ?? [];
@@ -291,7 +299,8 @@ const AdminGroupsTab: React.FC = () => {
               (u) => !currentMemberIds.has(u.id),
             );
             const availableUserOptions = availableUsers.map((u) => {
-              const fullName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim();
+              const fullName =
+                `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim();
               return {
                 value: u.id,
                 label: fullName ? `${u.email} (${fullName})` : u.email,
@@ -312,9 +321,7 @@ const AdminGroupsTab: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {membersCount} участник(ов)
-                    </Badge>
+                    <Badge variant="outline">{membersCount} участник(ов)</Badge>
                     <Button
                       type="button"
                       variant="outline"
@@ -371,7 +378,10 @@ const AdminGroupsTab: React.FC = () => {
                         }
                         searchPlaceholder="Поиск пользователя..."
                         emptyText="Пользователи не найдены"
-                        disabled={availableUsers.length === 0 || addingMemberFor === group.id}
+                        disabled={
+                          availableUsers.length === 0 ||
+                          addingMemberFor === group.id
+                        }
                       />
 
                       <Button
@@ -506,7 +516,9 @@ const AdminGroupsTab: React.FC = () => {
         <DialogContent className="w-full max-w-xl">
           <DialogHeader>
             <DialogTitle>Редактировать группу</DialogTitle>
-            <DialogDescription>Обновите название и описание группы</DialogDescription>
+            <DialogDescription>
+              Обновите название и описание группы
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdateGroup} className="space-y-4">
             <div className="space-y-1.5">
@@ -514,7 +526,9 @@ const AdminGroupsTab: React.FC = () => {
               <Input
                 id="admin-edit-group-name"
                 value={editForm.name}
-                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                onChange={(e) =>
+                  setEditForm({ ...editForm, name: e.target.value })
+                }
                 required
                 disabled={updatingGroup}
               />

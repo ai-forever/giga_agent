@@ -44,7 +44,10 @@ export function CollectionActions({
             <CollectionPermissionsDialog collection={collection} />
           )}
           {collection.can_edit && (
-            <DeleteCollectionAlert collection={collection} onDelete={onDelete} />
+            <DeleteCollectionAlert
+              collection={collection}
+              onDelete={onDelete}
+            />
           )}
         </div>
       </PopoverContent>

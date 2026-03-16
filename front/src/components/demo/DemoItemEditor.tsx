@@ -191,8 +191,7 @@ const DemoItemEditor: React.FC<DemoItemEditorProps> = ({ item, itemIdx }) => {
                   if (it.kind === "existing") {
                     const f = it.data!;
                     const fileUrl = buildContentByPathUrl(f.path);
-                    if (f.file_type === "image")
-                      setEnlargedImage(fileUrl);
+                    if (f.file_type === "image") setEnlargedImage(fileUrl);
                     else openLink(fileUrl);
                   } else if (it.previewUrl) {
                     setEnlargedImage(it.previewUrl);

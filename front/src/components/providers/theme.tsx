@@ -38,15 +38,18 @@ export const ThemeProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
     // Начальное значение из настроек пользователя (если уже загружен)
     const savedTheme = user?.settings?.theme as ThemeMode | undefined;
-    if (savedTheme === "light" || savedTheme === "dark" || savedTheme === "system") {
+    if (
+      savedTheme === "light" ||
+      savedTheme === "dark" ||
+      savedTheme === "system"
+    ) {
       return savedTheme;
     }
     return "system";
   });
 
-  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(
-    getSystemPrefersDark
-  );
+  const [systemPrefersDark, setSystemPrefersDark] =
+    useState<boolean>(getSystemPrefersDark);
 
   const didInitRef = useRef<boolean>(false);
 
@@ -54,7 +57,12 @@ export const ThemeProvider: React.FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     if (!user?.settings) return;
     const savedTheme = user.settings.theme as ThemeMode | undefined;
-    if (savedTheme && (savedTheme === "light" || savedTheme === "dark" || savedTheme === "system")) {
+    if (
+      savedTheme &&
+      (savedTheme === "light" ||
+        savedTheme === "dark" ||
+        savedTheme === "system")
+    ) {
       setThemeModeState(savedTheme);
     }
   }, [user]);
@@ -130,7 +138,9 @@ export const ThemeProvider: React.FC<PropsWithChildren> = ({ children }) => {
   }, [systemPrefersDark]);
 
   return (
-    <ThemeContext.Provider value={{ themeMode, setThemeMode, isDark, toggleTheme }}>
+    <ThemeContext.Provider
+      value={{ themeMode, setThemeMode, isDark, toggleTheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );

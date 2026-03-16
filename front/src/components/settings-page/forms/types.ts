@@ -6,7 +6,10 @@ export type ConnectorType = "openai" | "gigachat" | "tavily";
 export type GigaChatApiType = "prod" | "dev";
 
 /** GigaChat scope (authorization scope) */
-export type GigaChatScope = "GIGACHAT_API_PERS" | "GIGACHAT_API_B2B" | "GIGACHAT_API_CORP";
+export type GigaChatScope =
+  | "GIGACHAT_API_PERS"
+  | "GIGACHAT_API_B2B"
+  | "GIGACHAT_API_CORP";
 
 export interface ConnectorSettings {
   base_url?: string;

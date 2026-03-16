@@ -53,7 +53,9 @@ function formatDefaultValue(
   defaultValue: unknown,
 ): string {
   const enumOptions = resolveEnumOptions(property);
-  const matchedOption = enumOptions.find((option) => option.value === defaultValue);
+  const matchedOption = enumOptions.find(
+    (option) => option.value === defaultValue,
+  );
   if (matchedOption) return matchedOption.label;
   if (typeof defaultValue === "string") return defaultValue;
   if (typeof defaultValue === "number" || typeof defaultValue === "boolean") {
@@ -157,7 +159,9 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
           </Select>
           {renderDefaultHint(property)}
           {property.description && (
-            <p className="text-xs text-muted-foreground">{property.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {property.description}
+            </p>
           )}
         </div>
       );
@@ -182,7 +186,9 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
           </div>
           {renderDefaultHint(property)}
           {property.description && (
-            <p className="text-xs text-muted-foreground">{property.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {property.description}
+            </p>
           )}
         </div>
       );
@@ -224,7 +230,9 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
             disabled={disabled}
           />
           {property.description && (
-            <p className="text-xs text-muted-foreground">{property.description}</p>
+            <p className="text-xs text-muted-foreground">
+              {property.description}
+            </p>
           )}
         </div>
       );
@@ -256,7 +264,9 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
           disabled={disabled}
         />
         {property.description && (
-          <p className="text-xs text-muted-foreground">{property.description}</p>
+          <p className="text-xs text-muted-foreground">
+            {property.description}
+          </p>
         )}
       </div>
     );
@@ -288,7 +298,9 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
           {group.title && group.separator && (
             <div className="flex items-center gap-2 pt-2">
               <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">{group.title}</span>
+              <span className="text-xs text-muted-foreground">
+                {group.title}
+              </span>
               <div className="h-px flex-1 bg-border" />
             </div>
           )}

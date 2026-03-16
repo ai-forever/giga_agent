@@ -85,7 +85,7 @@ const WellcomeMessage: React.FC = () => {
       >
         <LogoComponent
           className="mx-auto mb-2 h-16 w-[250px] sm:h-14 sm:w-96 md:h-7 md:w-[250px]"
-          style={{ display: 'block' }}
+          style={{ display: "block" }}
           preserveAspectRatio="xMidYMid slice"
           variants={logoVariants}
           aria-label="GigaAgent Logo"

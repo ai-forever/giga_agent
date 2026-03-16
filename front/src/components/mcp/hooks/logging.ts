@@ -31,15 +31,19 @@ export const logger = {
   },
 
   error(...args: unknown[]) {
-    if (shouldLog(resolveLevel(), "error")) console.error(formatPrefix("error"), ...args);
+    if (shouldLog(resolveLevel(), "error"))
+      console.error(formatPrefix("error"), ...args);
   },
   warn(...args: unknown[]) {
-    if (shouldLog(resolveLevel(), "warn")) console.warn(formatPrefix("warn"), ...args);
+    if (shouldLog(resolveLevel(), "warn"))
+      console.warn(formatPrefix("warn"), ...args);
   },
   info(...args: unknown[]) {
-    if (shouldLog(resolveLevel(), "info")) console.info(formatPrefix("info"), ...args);
+    if (shouldLog(resolveLevel(), "info"))
+      console.info(formatPrefix("info"), ...args);
   },
   debug(...args: unknown[]) {
-    if (shouldLog(resolveLevel(), "debug")) console.debug(formatPrefix("debug"), ...args);
+    if (shouldLog(resolveLevel(), "debug"))
+      console.debug(formatPrefix("debug"), ...args);
   },
 };

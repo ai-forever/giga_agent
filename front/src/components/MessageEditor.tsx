@@ -184,7 +184,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
           const newMessages = matched
             ? [
                 ...prevMessages.slice(0, idx),
-                ({
+                {
                   ...prevMessages[idx],
                   content: messageText,
                   additional_kwargs: {
@@ -193,7 +193,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
                     user_input: messageText,
                     files: allFiles,
                   },
-                } as Message),
+                } as Message,
               ]
             : [...prevMessages, newMessage];
           onCancel();
@@ -291,9 +291,13 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
             >
               {it.kind === "existing" ? (
                 it.data?.file_type === "image" ? (
-                  <ImagePreview src={buildContentByPathUrl(getFilePath(it.data))} />
+                  <ImagePreview
+                    src={buildContentByPathUrl(getFilePath(it.data))}
+                  />
                 ) : (
-                  <span>{it.name ?? (it.data ? getFilePath(it.data) : "")}</span>
+                  <span>
+                    {it.name ?? (it.data ? getFilePath(it.data) : "")}
+                  </span>
                 )
               ) : it.previewUrl ? (
                 <ImagePreview src={it.previewUrl} />

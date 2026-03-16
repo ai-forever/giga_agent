@@ -27,7 +27,9 @@ export function permissionsEqual(
   );
 }
 
-export function hasNonDefaultPermissions(value: ResourcePermissionsDraft): boolean {
+export function hasNonDefaultPermissions(
+  value: ResourcePermissionsDraft,
+): boolean {
   const normalized = normalizePermissions(value);
   return (
     normalized.public_read ||

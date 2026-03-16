@@ -112,7 +112,10 @@ export function CollectionPermissionsDialog({
         />
 
         <DialogFooter>
-          <Button onClick={handleSave} disabled={loading || saving || !hasChanges}>
+          <Button
+            onClick={handleSave}
+            disabled={loading || saving || !hasChanges}
+          >
             Сохранить
           </Button>
         </DialogFooter>

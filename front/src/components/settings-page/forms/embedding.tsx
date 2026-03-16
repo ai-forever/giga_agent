@@ -30,7 +30,6 @@ import { apiClient } from "@/lib/api-client";
 import SchemaFields from "./schema-fields";
 import { compactObject } from "./schema-fields-utils";
 
-
 interface EmbeddingFormProps {
   embedding?: EmbeddingResponse;
   onSave: (data: EmbeddingFormSubmitData) => void | Promise<void>;

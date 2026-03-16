@@ -33,11 +33,13 @@ function SecretInput({
       spellCheck={false}
       data-slot="secret-input"
       className={className}
-      style={{
-        ...style,
-        WebkitTextSecurity: "disc",
-        textSecurity: "disc",
-      } as React.CSSProperties}
+      style={
+        {
+          ...style,
+          WebkitTextSecurity: "disc",
+          textSecurity: "disc",
+        } as React.CSSProperties
+      }
       {...props}
     />
   );

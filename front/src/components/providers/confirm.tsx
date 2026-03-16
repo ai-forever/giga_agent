@@ -58,11 +58,7 @@ export const ConfirmProvider: React.FC<PropsWithChildren> = ({ children }) => {
   }, [activeRequest]);
 
   const showNext = useCallback(() => {
-    if (
-      activeRequest ||
-      isOpen ||
-      queueRef.current.length === 0
-    ) {
+    if (activeRequest || isOpen || queueRef.current.length === 0) {
       return;
     }
     const nextRequest = queueRef.current.shift();
@@ -74,13 +70,10 @@ export const ConfirmProvider: React.FC<PropsWithChildren> = ({ children }) => {
     setIsOpen(true);
   }, [activeRequest, isOpen]);
 
-  const settleCurrent = useCallback(
-    (result: boolean) => {
-      pendingResultRef.current = result;
-      setIsOpen(false);
-    },
-    [],
-  );
+  const settleCurrent = useCallback((result: boolean) => {
+    pendingResultRef.current = result;
+    setIsOpen(false);
+  }, []);
 
   const confirm = useCallback<ConfirmFn>(
     (options) =>

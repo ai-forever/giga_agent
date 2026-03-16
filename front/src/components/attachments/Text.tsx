@@ -3,7 +3,10 @@ import { ChevronUp } from "lucide-react";
 import TextMarkdown from "./TextMarkdown.tsx";
 import { cn } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client.ts";
-import { buildContentByPathPreviewUrl, buildContentByPathUrl } from "./file-utils.ts";
+import {
+  buildContentByPathPreviewUrl,
+  buildContentByPathUrl,
+} from "./file-utils.ts";
 
 interface TextProps {
   id: string;

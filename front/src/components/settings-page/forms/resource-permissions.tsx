@@ -8,10 +8,7 @@ import { apiClient } from "@/lib/api-client";
 import { Label } from "@/components/ui/label";
 import { SearchableMultiSelect } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
-import type {
-  PermissionResourceType,
-  ResourcePermissionsDraft,
-} from "./types";
+import type { PermissionResourceType, ResourcePermissionsDraft } from "./types";
 
 type UserOption = {
   id: string;
@@ -91,7 +88,8 @@ const ResourcePermissions: React.FC<ResourcePermissionsProps> = ({
   const userOptions = useMemo(
     () =>
       users.map((user) => {
-        const fullName = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
+        const fullName =
+          `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
         return {
           value: user.id,
           label: fullName ? `${user.email} (${fullName})` : user.email,
@@ -194,7 +192,10 @@ const ResourcePermissions: React.FC<ResourcePermissionsProps> = ({
               </div>
 
               <div className="flex items-center justify-between rounded-md border border-border p-3">
-                <Label htmlFor="permission-public-read" className="cursor-pointer">
+                <Label
+                  htmlFor="permission-public-read"
+                  className="cursor-pointer"
+                >
                   Публичный доступ на чтение
                 </Label>
                 <Switch
