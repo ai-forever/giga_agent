@@ -34,7 +34,8 @@ def _langgraph_url() -> str:
 
 def _agent_api_base() -> str:
     """Base URL for the agent's own FastAPI routes (mounted at /api)."""
-    return f"{_langgraph_url()}/api{GIGA_AGENT_PREFIX_API}"
+    base = _langgraph_url().rstrip("/")
+    return f"{base}{GIGA_AGENT_PREFIX_API}"
 
 
 def _make_token(user_id: uuid.UUID, email: str) -> str:
@@ -47,6 +48,11 @@ _ATTACHMENT_RE = re.compile(
     r"!\[([^\]]*)\]\(attachment:(/?[^)]+)\)"
 )
 
+_BUCKET_PATH_RE = re.compile(
+    r"(?:`?)(/bucket/[a-f0-9\-]+/[^\s`\"',)]+\.(?:png|jpg|jpeg|gif|webp|mp3|mp4|pdf|svg))(?:`?)",
+    re.IGNORECASE,
+)
+
 
 def _strip_thinking(text: str) -> str:
     return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL).strip()
@@ -56,6 +62,12 @@ def _extract_attachments(text: str) -> tuple[str, list[str]]:
     paths: list[str] = []
     for match in _ATTACHMENT_RE.finditer(text):
         paths.append(match.group(2))
+    # Fallback: GigaChat often mentions /bucket/... paths as plain text
+    if not paths:
+        for match in _BUCKET_PATH_RE.finditer(text):
+            p = match.group(1)
+            if p not in paths:
+                paths.append(p)
     cleaned = _ATTACHMENT_RE.sub("", text).strip()
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned, paths
@@ -96,6 +108,34 @@ def _scan_current_turn_attachments(result: dict) -> list[str]:
         for att in ak.get("attachments") or []:
             if isinstance(att, dict) and att.get("sandbox_path"):
                 p = att["sandbox_path"]
+                if p not in seen:
+                    paths.append(p)
+                    seen.add(p)
+        for att in ak.get("tool_attachments") or []:
+            if isinstance(att, dict) and att.get("sandbox_path"):
+                p = att["sandbox_path"]
+                if p not in seen:
+                    paths.append(p)
+                    seen.add(p)
+        # Scan content for /bucket/ paths (both raw and inside JSON tool output)
+        if isinstance(content, str):
+            text_to_scan = content
+            if content.startswith("{"):
+                try:
+                    import json as _json
+                    tool_data = _json.loads(content)
+                    output = tool_data.get("output", "")
+                    if isinstance(output, str):
+                        text_to_scan = output
+                except Exception:
+                    pass
+            for match in _ATTACHMENT_RE.finditer(text_to_scan):
+                p = match.group(2)
+                if p not in seen:
+                    paths.append(p)
+                    seen.add(p)
+            for match in _BUCKET_PATH_RE.finditer(text_to_scan):
+                p = match.group(1)
                 if p not in seen:
                     paths.append(p)
                     seen.add(p)
@@ -255,6 +295,8 @@ class _BotInstance:
         user_id = self.bot_row.user_id
 
         logger.info("Telegram message from chat %s: %s", chat_id, text[:100])
+        from datetime import datetime, timezone
+        request_start = datetime.now(timezone.utc)
 
         try:
             token = _make_token(user_id, self.user_email)
@@ -304,6 +346,14 @@ class _BotInstance:
                 logger.info("Files for agent: %s", [fd["path"] for fd in file_data])
 
             content = text or ("Прикреплён файл: " + ", ".join(fd.get("original_name", fd["path"]) for fd in file_data) if file_data else "")
+            content += (
+                "\n\n[system: Ответ будет отправлен в Telegram. "
+                "Для графиков и изображений используй matplotlib. "
+                "ОБЯЗАТЕЛЬНО вызывай plt.show() после plt.savefig() — иначе изображение не будет отправлено пользователю. "
+                "Для отображения любого изображения из файла используй: "
+                "from IPython.display import display, Image; display(Image(filename='путь_к_файлу')). "
+                "Не используй plotly — интерактивные графики не поддерживаются в Telegram.]"
+            )
             human_msg: dict[str, Any] = {"role": "human", "content": content}
             if file_data:
                 human_msg["additional_kwargs"] = {
@@ -351,6 +401,16 @@ class _BotInstance:
 
             if not attachment_paths:
                 attachment_paths = _scan_current_turn_attachments(result)
+
+            # Robust fallback: if tool calls happened but no attachments found,
+            # check files API for recently created image files
+            if not attachment_paths and not image_urls:
+                has_tool_calls = any(
+                    isinstance(m, dict) and m.get("type") == "ai" and m.get("tool_calls")
+                    for m in (result.get("messages") or [])[_find_last_human_index(result.get("messages") or []):]
+                )
+                if has_tool_calls:
+                    attachment_paths = await self._find_recent_image_files(token, request_start)
 
             logger.info(
                 "Response for chat %s: text=%d chars, images=%d, attachments=%d",
@@ -411,18 +471,97 @@ class _BotInstance:
 
     async def _download_attachment(self, token: str, path: str) -> bytes | None:
         import httpx
-        url = f"{_agent_api_base()}/files/content/by-path"
+        base = _agent_api_base()
+        headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(timeout=30) as http:
             resp = await http.get(
-                url,
+                f"{base}/files/content/by-path",
                 params={"path": path},
-                headers={"Authorization": f"Bearer {token}"},
+                headers=headers,
                 follow_redirects=True,
             )
             if resp.status_code == 200:
                 return resp.content
-            logger.warning("Failed to download %s: %d", path[:80], resp.status_code)
-            return None
+
+            # Fallback: path suffix may differ after upload; search by UUID prefix
+            filename = path.rsplit("/", 1)[-1] if "/" in path else path
+            uuid_prefix = filename.split("--")[0] if "--" in filename else filename.rsplit(".", 1)[0]
+            if uuid_prefix:
+                try:
+                    files_resp = await http.get(f"{base}/files", headers=headers)
+                    if files_resp.status_code == 200:
+                        for f in files_resp.json():
+                            sp = f.get("sandbox_path", "")
+                            if uuid_prefix in sp and sp != path:
+                                resp2 = await http.get(
+                                    f"{base}/files/content/by-path",
+                                    params={"path": sp},
+                                    headers=headers,
+                                    follow_redirects=True,
+                                )
+                                if resp2.status_code == 200:
+                                    return resp2.content
+                except Exception:
+                    pass
+
+        # Fallback: file may exist in sandbox but not registered in files DB
+        # (e.g. created via plt.savefig() without going through upload mechanism)
+        if path.startswith("/bucket/"):
+            try:
+                from giga_agent.sandbox.manager.facade import SandboxManager
+                from giga_agent.core.db import get_session_factory
+                factory = await get_session_factory()
+                async with factory() as session:
+                    manager = SandboxManager(session)
+                    sandbox = await manager.get_cached_or_db(
+                        user_id=self.bot_row.user_id,
+                    )
+                    result = await sandbox.read_file(path)
+                    if hasattr(result, "data") and result.data:
+                        return result.data
+                    if hasattr(result, "stream"):
+                        chunks = []
+                        async for chunk in result.stream:
+                            chunks.append(chunk)
+                        return b"".join(chunks)
+            except Exception:
+                logger.warning("Sandbox fallback also failed for %s", path[:80])
+
+        logger.warning("Failed to download %s: %d", path[:80], resp.status_code)
+        return None
+
+    async def _find_recent_image_files(self, token: str, since: "datetime") -> list[str]:
+        """Check files API for image files created after `since`."""
+        import httpx
+        base = _agent_api_base()
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            async with httpx.AsyncClient(timeout=15) as http:
+                resp = await http.get(f"{base}/files", headers=headers)
+                if resp.status_code != 200:
+                    return []
+                paths = []
+                for f in resp.json():
+                    ft = f.get("file_type", "")
+                    if ft not in ("image", "plotly_graph"):
+                        continue
+                    created = f.get("created_at", "")
+                    if not created:
+                        continue
+                    from datetime import datetime, timezone
+                    try:
+                        ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                        if ts >= since:
+                            paths.append(f["sandbox_path"])
+                    except Exception:
+                        continue
+                if paths:
+                    logger.info("Found %d recent image files via files API fallback", len(paths))
+                return paths
+        except Exception:
+            return []
 
     async def _send_image(self, message: tg_types.Message, url: str):
         if url.startswith("http"):
