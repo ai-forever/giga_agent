@@ -116,12 +116,20 @@ class _BotInstance:
             await message.answer(
                 "Привет! Я GigaAgent — универсальный AI-агент.\n\n"
                 "Просто напишите мне сообщение, и я отвечу.\n"
+                "Можете отправлять фото, документы и голосовые.\n"
                 "/new — начать новый диалог (сбросить контекст)"
             )
 
         @self.dp.message()
         async def _on_message(message: tg_types.Message):
-            if not message.text:
+            text = message.text or message.caption or ""
+            has_file = bool(
+                message.photo or message.document
+                or message.voice or message.audio
+                or message.video or message.video_note
+                or message.sticker
+            )
+            if not text and not has_file:
                 return
             await self._handle_message(message)
 
@@ -165,9 +173,36 @@ class _BotInstance:
         if thread_row is not None:
             await repo.delete_thread(thread_row)
 
+    async def _upload_tg_file(
+        self, token: str, file_id: str, file_name: str, thread_id: str,
+    ) -> dict | None:
+        """Download file from Telegram and upload to agent file API."""
+        import httpx
+        try:
+            tg_file = await self.bot.get_file(file_id)
+            file_bytes = await self.bot.download_file(tg_file.file_path)
+            if file_bytes is None:
+                return None
+            data = file_bytes.read() if hasattr(file_bytes, "read") else file_bytes
+
+            url = f"{_langgraph_url()}/agent/files/upload"
+            async with httpx.AsyncClient(timeout=60) as http:
+                resp = await http.post(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    data={"thread_id": thread_id},
+                    files={"file": (file_name, data)},
+                )
+                if resp.status_code in (200, 201):
+                    return resp.json()
+                logger.warning("File upload failed: %d %s", resp.status_code, resp.text[:200])
+        except Exception:
+            logger.exception("Failed to upload Telegram file %s", file_name)
+        return None
+
     async def _handle_message(self, message: tg_types.Message):
         chat_id = message.chat.id
-        text = message.text or ""
+        text = message.text or message.caption or ""
         user_id = self.bot_row.user_id
 
         logger.info("Telegram message from chat %s: %s", chat_id, text[:100])
@@ -186,10 +221,48 @@ class _BotInstance:
 
             await message.chat.do("typing")
 
+            uploaded_files: list[dict] = []
+            if message.photo:
+                photo = message.photo[-1]
+                f = await self._upload_tg_file(token, photo.file_id, "photo.jpg", thread_id)
+                if f:
+                    uploaded_files.append(f)
+            if message.document:
+                fname = message.document.file_name or "document"
+                f = await self._upload_tg_file(token, message.document.file_id, fname, thread_id)
+                if f:
+                    uploaded_files.append(f)
+            if message.voice:
+                f = await self._upload_tg_file(token, message.voice.file_id, "voice.ogg", thread_id)
+                if f:
+                    uploaded_files.append(f)
+            if message.audio:
+                fname = message.audio.file_name or "audio.mp3"
+                f = await self._upload_tg_file(token, message.audio.file_id, fname, thread_id)
+                if f:
+                    uploaded_files.append(f)
+            if message.video:
+                fname = message.video.file_name or "video.mp4"
+                f = await self._upload_tg_file(token, message.video.file_id, fname, thread_id)
+                if f:
+                    uploaded_files.append(f)
+
+            file_data = [
+                {"path": f["sandbox_path"], "original_name": f.get("original_name", ""), "file_type": f.get("file_type", "other"), "size": f.get("size", 0)}
+                for f in uploaded_files
+            ]
+
+            human_msg: dict[str, Any] = {"role": "human", "content": text or "Файл прикреплён"}
+            if file_data:
+                human_msg["additional_kwargs"] = {
+                    "user_input": text or "Файл прикреплён",
+                    "files": file_data,
+                }
+
             result = await client.runs.wait(
                 thread_id=thread_id,
                 assistant_id=ASSISTANT_ID,
-                input={"messages": [{"role": "human", "content": text}]},
+                input={"messages": [human_msg]},
             )
 
             for _ in range(10):
