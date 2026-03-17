@@ -60,11 +60,11 @@ GigaAgent умеет:
 
 1. Установите пакет:
   ```bash
-   pip install giga_agent
+   uv add giga_agent
   ```
 2. Запустите dev-сервер:
   ```bash
-   giga_agent run dev
+   uv run giga_agent dev
   ```
 3. Откройте в браузере:
   ```text
