@@ -305,13 +305,32 @@ class _BotInstance:
         request_start = datetime.now(timezone.utc)
 
         try:
+            session_factory = await get_session_factory()
+
+            # --- Contact approval gate ---
+            tg_user = message.from_user
+            async with session_factory() as session:
+                repo = TelegramBotRepository(session)
+                contact = await repo.upsert_contact(
+                    bot_id=self.bot_row.id,
+                    telegram_chat_id=chat_id,
+                    username=tg_user.username if tg_user else None,
+                    first_name=tg_user.first_name if tg_user else None,
+                    last_name=tg_user.last_name if tg_user else None,
+                )
+                if not contact.is_approved:
+                    await message.answer(
+                        "⏳ Ваш контакт ожидает подтверждения. "
+                        "Владелец бота должен одобрить вас в настройках."
+                    )
+                    return
+
             token = _make_token(user_id, self.user_email)
             client = get_client(
                 url=_langgraph_url(),
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-            session_factory = await get_session_factory()
             async with session_factory() as session:
                 repo = TelegramBotRepository(session)
                 thread_id = await self._get_or_create_thread(client, repo, chat_id)
@@ -556,7 +575,7 @@ class _BotInstance:
         logger.warning("Failed to download %s: %d", path[:80], resp.status_code)
         return None
 
-    async def _find_recent_image_files(self, token: str, since: "datetime") -> list[str]:
+    async def _find_recent_image_files(self, token: str, since: Any) -> list[str]:
         """Check files API for image files created after `since`."""
         import httpx
         base = _agent_api_base()

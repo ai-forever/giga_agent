@@ -10,11 +10,14 @@ from giga_agent.core.db import get_session
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.models.users import UserShort
+from pydantic import BaseModel
+
 from giga_agent.modules.telegram.models import (
     TelegramBotCreate,
     TelegramBotUpdate,
     TelegramBotResponse,
     TelegramBotRepository,
+    TelegramContactResponse,
 )
 from giga_agent.modules.telegram.bot import get_bot_manager
 
@@ -139,3 +142,75 @@ async def bot_status(
         "bot_username": bot.bot_username,
         "is_enabled": bot.is_enabled,
     }
+
+
+# --- Contact approval endpoints ---
+
+
+class ContactApprovalUpdate(BaseModel):
+    is_approved: bool
+
+
+@router.get("/contacts", response_model=list[TelegramContactResponse])
+async def list_contacts(
+    current_user: UserShort = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_session),
+):
+    repo = TelegramBotRepository(db)
+    bot = await repo.get_by_user(current_user.id)
+    if bot is None:
+        return []
+    contacts = await repo.get_contacts_for_bot(bot.id)
+    return [TelegramContactResponse.model_validate(c) for c in contacts]
+
+
+@router.patch("/contacts/{contact_id}", response_model=TelegramContactResponse)
+async def update_contact(
+    contact_id: str,
+    body: ContactApprovalUpdate,
+    current_user: UserShort = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_session),
+):
+    import uuid as _uuid
+
+    try:
+        cid = _uuid.UUID(contact_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid contact id")
+
+    repo = TelegramBotRepository(db)
+    bot = await repo.get_by_user(current_user.id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="Bot not configured")
+
+    contact = await repo.get_contact_by_id(cid)
+    if contact is None or contact.bot_id != bot.id:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    updated = await repo.set_contact_approved(cid, body.is_approved)
+    return TelegramContactResponse.model_validate(updated)
+
+
+@router.delete("/contacts/{contact_id}", status_code=204)
+async def delete_contact(
+    contact_id: str,
+    current_user: UserShort = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_session),
+):
+    import uuid as _uuid
+
+    try:
+        cid = _uuid.UUID(contact_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid contact id")
+
+    repo = TelegramBotRepository(db)
+    bot = await repo.get_by_user(current_user.id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="Bot not configured")
+
+    contact = await repo.get_contact_by_id(cid)
+    if contact is None or contact.bot_id != bot.id:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    await repo.delete_contact(contact)

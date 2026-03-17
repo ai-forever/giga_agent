@@ -6,7 +6,7 @@ from typing import Any, TYPE_CHECKING
 
 from giga_agent.core.module import BaseModule
 from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.models import TelegramBot, TelegramThread
+from giga_agent.modules.telegram.models import TelegramBot, TelegramContact, TelegramThread
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
@@ -23,7 +23,7 @@ class TelegramModule(BaseModule):
         return router
 
     def get_models(self, **kwargs: Any) -> list[type]:
-        return [TelegramBot, TelegramThread]
+        return [TelegramBot, TelegramContact, TelegramThread]
 
     async def on_startup(self, session: "AsyncSession", **kwargs: Any):
         from giga_agent.modules.telegram.bot import get_bot_manager

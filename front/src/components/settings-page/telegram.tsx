@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Loader2, Trash2 } from "lucide-react";
+import { Check, Loader2, Trash2, X, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,201 @@ interface BotResponse {
   created_at: string;
   updated_at: string;
 }
+
+interface TelegramContactItem {
+  id: string;
+  bot_id: string;
+  telegram_chat_id: number;
+  telegram_username: string | null;
+  telegram_first_name: string | null;
+  telegram_last_name: string | null;
+  is_approved: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
+  const confirm = useConfirm();
+  const [contacts, setContacts] = useState<TelegramContactItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const fetchContacts = useCallback(async () => {
+    if (!configured) return;
+    setLoading(true);
+    try {
+      const data = await apiClient.get<TelegramContactItem[]>(
+        `${API_AGENT_PREFIX}/telegram/contacts`,
+      );
+      setContacts(data);
+    } catch {
+      /* handled globally */
+    } finally {
+      setLoading(false);
+    }
+  }, [configured]);
+
+  useEffect(() => {
+    fetchContacts();
+  }, [fetchContacts]);
+
+  const handleApprove = async (id: string, approve: boolean) => {
+    setUpdatingId(id);
+    try {
+      await apiClient.patch<TelegramContactItem>(
+        `${API_AGENT_PREFIX}/telegram/contacts/${id}`,
+        { is_approved: approve },
+      );
+      toast.success(approve ? "Контакт подтверждён" : "Доступ отозван");
+      fetchContacts();
+    } catch {
+      /* handled globally */
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (
+      !(await confirm({
+        description: "Удалить этот контакт? Пользователю придётся написать боту заново.",
+        variant: "destructive",
+      }))
+    )
+      return;
+    setUpdatingId(id);
+    try {
+      await apiClient.delete(`${API_AGENT_PREFIX}/telegram/contacts/${id}`);
+      toast.success("Контакт удалён");
+      fetchContacts();
+    } catch {
+      /* handled globally */
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  if (!configured) return null;
+
+  const pending = contacts.filter((c) => !c.is_approved);
+  const approved = contacts.filter((c) => c.is_approved);
+
+  const contactName = (c: TelegramContactItem) => {
+    const parts: string[] = [];
+    if (c.telegram_first_name) parts.push(c.telegram_first_name);
+    if (c.telegram_last_name) parts.push(c.telegram_last_name);
+    if (parts.length) return parts.join(" ");
+    if (c.telegram_username) return `@${c.telegram_username}`;
+    return `chat ${c.telegram_chat_id}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-4 text-muted-foreground text-sm">
+        <Loader2 className="size-4 animate-spin mr-2" />
+        Загрузка контактов...
+      </div>
+    );
+  }
+
+  if (contacts.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-2">
+        Контактов пока нет. Они появятся, когда кто-то напишет вашему боту.
+      </p>
+    );
+  }
+
+  const renderContact = (c: TelegramContactItem) => (
+    <div
+      key={c.id}
+      className="flex items-center gap-3 p-3 border border-border rounded-lg bg-card"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium truncate">{contactName(c)}</span>
+          {c.telegram_username && (
+            <span className="text-muted-foreground text-xs">
+              @{c.telegram_username}
+            </span>
+          )}
+          <Badge variant={c.is_approved ? "default" : "secondary"}>
+            {c.is_approved ? "Подтверждён" : "Ожидает"}
+          </Badge>
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        {!c.is_approved ? (
+          <Button
+            size="sm"
+            variant="default"
+            disabled={updatingId === c.id}
+            onClick={() => handleApprove(c.id, true)}
+            title="Подтвердить"
+          >
+            {updatingId === c.id ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <>
+                <Check className="size-4 mr-1" />
+                Подтвердить
+              </>
+            )}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={updatingId === c.id}
+            onClick={() => handleApprove(c.id, false)}
+            title="Отозвать доступ"
+          >
+            {updatingId === c.id ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <>
+                <X className="size-4 mr-1" />
+                Отозвать
+              </>
+            )}
+          </Button>
+        )}
+        <Button
+          size="icon"
+          variant="ghost"
+          disabled={updatingId === c.id}
+          onClick={() => handleDelete(c.id)}
+          title="Удалить"
+        >
+          <Trash2 className="size-4 text-destructive" />
+        </Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {pending.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+            <UserX className="size-4" />
+            Ожидают подтверждения ({pending.length})
+          </div>
+          {pending.map(renderContact)}
+        </div>
+      )}
+      {approved.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
+            <UserCheck className="size-4" />
+            Подтверждённые ({approved.length})
+          </div>
+          {approved.map(renderContact)}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const TelegramSettings: React.FC = () => {
   const confirm = useConfirm();
@@ -214,6 +409,19 @@ export const TelegramSettings: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {isConfigured && (
+        <div className="space-y-3">
+          <div>
+            <h3 className="font-medium">Контакты</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Пользователи, которые написали вашему боту. Подтвердите контакт,
+              чтобы разрешить общение.
+            </p>
+          </div>
+          <ContactsList configured={isConfigured} />
+        </div>
+      )}
     </div>
   );
 };
