@@ -63,6 +63,7 @@ dependencies = [
     "python-docx>=1.1.0",
     "plotly>=6.0.0",
     "kaleido>=1.0.0",
+    "aiogram>=3.26.0",
 ]
 
 [project.scripts]
