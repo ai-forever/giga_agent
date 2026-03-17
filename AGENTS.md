@@ -140,6 +140,12 @@ All services are Docker containers:
 - **Frontend**: `cd front && npm run build` (runs `tsc` then `vite build`)
 - **Docker images**: `make build` or `make build_dev`
 
+### Tests
+
+```bash
+cd backend && uv run pytest tests/ -v
+```
+
 ### Non-obvious caveats
 
 - Backend is now a single package at `backend/` (not the old `backend/graph` + `backend/repl` split).
@@ -150,3 +156,31 @@ All services are Docker containers:
 - The sandbox/REPL for code execution requires a sandbox provider (local Docker or E2B). Create one via the API: `POST /api/agent/sandboxes/providers` with `type=local_docker`.
 - In the Cloud VM, Docker must be started with `sudo dockerd` and configured with `fuse-overlayfs` storage driver and `iptables-legacy`.
 - The Cloud VM's cgroup v2 is in threaded mode, which prevents Docker containers from using memory cgroup limits. The env var `GIGA_AGENT_LOCAL_DOCKER_NO_CGROUP_LIMITS=true` in `docker-compose.yml` disables memory/CPU/pids cgroup limits for sandbox containers to work around this.
+
+### GigaChat connector
+
+GigaChat supports two auth modes. When configuring via API:
+- **prod** (`gigachat_api_type=prod`): uses `gigachat_credentials` (authorization key from developers.sber.ru). Also needs `gigachat_scope` (default `GIGACHAT_API_PERS`).
+- **dev** (`gigachat_api_type=dev`): uses `gigachat_username` + `gigachat_password` + `gigachat_base_url`. The `base_url` is **required** for dev mode — omitting it causes a validation error.
+
+If the connector returns "Could not obtain GigaChat access token", check that `gigachat_api_type` matches the credentials provided.
+
+### Agent tool approval (human-in-the-loop)
+
+The agent uses `interrupt()` in `ToolResultMiddleware` to pause before executing tools and wait for human approval. In the web UI, the user clicks the green checkmark. The Telegram bot handles this automatically — after `runs.wait()` it checks for pending `tool_calls` and auto-resumes with `Command(resume={"type": "approve"})`. Any other channel integration must implement this same interrupt → resume loop.
+
+### Frontend build is required before Docker build
+
+The backend Dockerfile (`deployments/local/Dockerfile`) copies `backend/giga_agent/` including `ui_dist/`. The hatch build hook (`backend/hatch_build.py`) checks for either `backend/giga_agent/ui_dist/` or `front/dist/`. If neither exists, `pip install .` fails with "UI bundle not found". Always run `cd front && npm run build && cp -r dist ../backend/giga_agent/ui_dist` before `docker compose build`.
+
+### Telegram module
+
+The Telegram integration (`modules/telegram/`) runs aiogram bots inside the main `giga-agent` process. Key behaviors:
+- Each Telegram chat maps to a LangGraph thread (persisted in `telegram_threads` table)
+- `/new` command resets the conversation thread
+- Threads auto-expire after 24 hours of inactivity
+- The bot auto-approves tool calls (no human-in-the-loop in Telegram)
+- Agent responses with `![alt](attachment:/bucket/...)` are parsed: the file is downloaded via the internal API and sent as a Telegram photo/document
+- `<thinking>...</thinking>` blocks from GigaChat are stripped before sending
+- If a thread becomes corrupted (orphaned tool_calls), the bot auto-resets it and asks the user to retry
+- The bot calls `delete_webhook(drop_pending_updates=True)` before starting polling to avoid conflicts with previously set webhooks
