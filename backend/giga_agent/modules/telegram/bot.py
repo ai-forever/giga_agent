@@ -198,6 +198,7 @@ class _BotInstance:
 
         @self.dp.message(Command("start"))
         async def _on_start(message: tg_types.Message):
+            await self._register_contact(message)
             await message.answer(
                 "Привет! Я GigaAgent — универсальный AI-агент.\n\n"
                 "Просто напишите мне сообщение, и я отвечу.\n"
@@ -217,6 +218,23 @@ class _BotInstance:
             if not text and not has_file:
                 return
             await self._handle_message(message)
+
+    async def _register_contact(self, message: tg_types.Message) -> None:
+        """Upsert the sender as a contact (idempotent, never raises)."""
+        try:
+            tg_user = message.from_user
+            session_factory = await get_session_factory()
+            async with session_factory() as session:
+                repo = TelegramBotRepository(session)
+                await repo.upsert_contact(
+                    bot_id=self.bot_row.id,
+                    telegram_chat_id=message.chat.id,
+                    username=tg_user.username if tg_user else None,
+                    first_name=tg_user.first_name if tg_user else None,
+                    last_name=tg_user.last_name if tg_user else None,
+                )
+        except Exception:
+            logger.warning("Failed to register contact for chat %s", message.chat.id)
 
     async def _handle_new(self, message: tg_types.Message):
         chat_id = message.chat.id
@@ -308,17 +326,11 @@ class _BotInstance:
             session_factory = await get_session_factory()
 
             # --- Contact approval gate ---
-            tg_user = message.from_user
+            await self._register_contact(message)
             async with session_factory() as session:
                 repo = TelegramBotRepository(session)
-                contact = await repo.upsert_contact(
-                    bot_id=self.bot_row.id,
-                    telegram_chat_id=chat_id,
-                    username=tg_user.username if tg_user else None,
-                    first_name=tg_user.first_name if tg_user else None,
-                    last_name=tg_user.last_name if tg_user else None,
-                )
-                if not contact.is_approved:
+                contact = await repo.get_contact(self.bot_row.id, chat_id)
+                if contact is None or not contact.is_approved:
                     await message.answer(
                         "⏳ Ваш контакт ожидает подтверждения. "
                         "Владелец бота должен одобрить вас в настройках."

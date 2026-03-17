@@ -62,6 +62,8 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
 
   useEffect(() => {
     fetchContacts();
+    const interval = setInterval(fetchContacts, 5000);
+    return () => clearInterval(interval);
   }, [fetchContacts]);
 
   const handleApprove = async (id: string, approve: boolean) => {
