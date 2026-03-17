@@ -1,10 +1,9 @@
 import uuid
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, BigInteger, select
+from sqlalchemy import String, Boolean, DateTime, Uuid, ForeignKey, BigInteger, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base
 
@@ -25,10 +24,10 @@ class TelegramBot(Base):
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     bot_username: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=text("(CURRENT_TIMESTAMP)")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
+        DateTime(timezone=True), onupdate=datetime.utcnow, server_default=text("(CURRENT_TIMESTAMP)")
     )
 
 
@@ -46,10 +45,10 @@ class TelegramThread(Base):
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
     langgraph_thread_id: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=text("(CURRENT_TIMESTAMP)")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=text("(CURRENT_TIMESTAMP)"), onupdate=datetime.utcnow
     )
 
 
