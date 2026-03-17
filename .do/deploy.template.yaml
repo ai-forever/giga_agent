@@ -1,0 +1,30 @@
+spec:
+  name: giga-agent
+  region: ams
+  services:
+    - name: giga-agent
+      dockerfile_path: .do/Dockerfile
+      source_dir: /
+      git:
+        branch: main
+        repo_clone_url: https://github.com/ai-forever/giga_agent.git
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-2gb
+      http_port: 8080
+      envs:
+        - key: GIGA_AGENT_SECRET_KEY
+          scope: RUN_TIME
+          type: SECRET
+        - key: GIGA_AGENT_ADMIN_EMAIL
+          scope: RUN_TIME
+          value: "admin@example.com"
+        - key: GIGA_AGENT_ADMIN_PASSWORD
+          scope: RUN_TIME
+          type: SECRET
+        - key: DATABASE_URL
+          scope: RUN_TIME
+          value: ${db.DATABASE_URL}
+  databases:
+    - name: db
+      engine: PG
+      production: false
