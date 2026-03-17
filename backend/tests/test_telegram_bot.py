@@ -3,6 +3,7 @@
 from giga_agent.modules.telegram.bot import (
     _extract_ai_response,
     _extract_attachments,
+    _find_last_human_index,
     _scan_current_turn_attachments,
     _strip_thinking,
     _split_message,
@@ -177,6 +178,28 @@ class TestExtractAttachments:
         assert cleaned == text
 
 
+class TestFindLastHumanIndex:
+    def test_finds_last_human(self):
+        messages = [
+            {"type": "human", "content": "first"},
+            {"type": "ai", "content": "resp1"},
+            {"type": "human", "content": "second"},
+            {"type": "ai", "content": "resp2"},
+        ]
+        assert _find_last_human_index(messages) == 2
+
+    def test_single_human(self):
+        messages = [{"type": "human", "content": "only"}]
+        assert _find_last_human_index(messages) == 0
+
+    def test_no_human(self):
+        messages = [{"type": "ai", "content": "orphan"}]
+        assert _find_last_human_index(messages) == 0
+
+    def test_empty(self):
+        assert _find_last_human_index([]) == 0
+
+
 class TestScanCurrentTurnAttachments:
     def test_finds_in_tool_messages(self):
         result = {
@@ -191,12 +214,13 @@ class TestScanCurrentTurnAttachments:
                 {"type": "ai", "content": "Вот ваш мем! Надеюсь понравится."},
             ]
         }
-        paths = _scan_current_turn_attachments(result, prev_message_count=0)
+        paths = _scan_current_turn_attachments(result)
         assert paths == ["/bucket/abc/meme.png"]
 
     def test_finds_in_additional_kwargs_attachments(self):
         result = {
             "messages": [
+                {"type": "human", "content": "start"},
                 {
                     "type": "tool",
                     "content": "done",
@@ -207,17 +231,18 @@ class TestScanCurrentTurnAttachments:
                 {"type": "ai", "content": "Готово"},
             ]
         }
-        paths = _scan_current_turn_attachments(result, prev_message_count=0)
+        paths = _scan_current_turn_attachments(result)
         assert paths == ["/bucket/x/img.png"]
 
     def test_deduplicates(self):
         result = {
             "messages": [
+                {"type": "human", "content": "go"},
                 {"type": "tool", "content": "![a](attachment:/bucket/x.png)"},
                 {"type": "ai", "content": "Вот: ![a](attachment:/bucket/x.png)"},
             ]
         }
-        paths = _scan_current_turn_attachments(result, prev_message_count=0)
+        paths = _scan_current_turn_attachments(result)
         assert paths == ["/bucket/x.png"]
 
     def test_empty(self):
@@ -247,7 +272,7 @@ class TestScanCurrentTurnAttachments:
                 {"type": "ai", "content": "Вот ваш мем!"},
             ]
         }
-        paths = _scan_current_turn_attachments(result, prev_message_count=4)
+        paths = _scan_current_turn_attachments(result)
         assert "/bucket/old/graph.png" not in paths
         assert "/bucket/new/meme.png" in paths
 
@@ -266,8 +291,32 @@ class TestScanCurrentTurnAttachments:
                 {"type": "ai", "content": "![z](attachment:/bucket/t3/c.png)"},
             ]
         }
-        paths = _scan_current_turn_attachments(result, prev_message_count=4)
+        paths = _scan_current_turn_attachments(result)
         assert paths == ["/bucket/t3/c.png"]
+
+    def test_meme_then_text_no_resend(self):
+        """Exact user scenario: meme in turn 1, plain text in turn 2.
+        Turn 2 must NOT resend the meme."""
+        result = {
+            "messages": [
+                # Turn 1: meme generation
+                {"type": "human", "content": "Пришли мем"},
+                {"type": "ai", "content": "", "tool_calls": [{"id": "1", "name": "gen_image"}]},
+                {
+                    "type": "tool",
+                    "content": '{"message": "![мем](attachment:/bucket/meme.png)"}',
+                    "tool_call_id": "1",
+                },
+                {"type": "ai", "content": "Вот ваш мем!"},
+                # Turn 2: plain text question
+                {"type": "human", "content": "Расскажи шутку"},
+                {"type": "ai", "content": "Программист заходит в бар..."},
+            ]
+        }
+        paths = _scan_current_turn_attachments(result)
+        assert paths == [], (
+            "Meme from turn 1 must not appear in turn 2 attachments"
+        )
 
 
 class TestAgentApiBase:

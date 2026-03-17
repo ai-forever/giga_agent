@@ -61,17 +61,28 @@ def _extract_attachments(text: str) -> tuple[str, list[str]]:
     return cleaned, paths
 
 
-def _scan_current_turn_attachments(
-    result: dict, prev_message_count: int = 0,
-) -> list[str]:
-    """Scan only NEW messages (after prev_message_count) for attachment paths.
+def _find_last_human_index(messages: list) -> int:
+    """Return the index of the last human message, or 0 if none found."""
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], dict):
+            msg_type = messages[i].get("type") or messages[i].get("role", "")
+            if msg_type == "human":
+                return i
+    return 0
 
-    This prevents resending attachments from earlier turns.
+
+def _scan_current_turn_attachments(result: dict) -> list[str]:
+    """Scan only the current turn's messages for attachment paths.
+
+    Locates the last human message (start of the current turn) and
+    scans only messages that follow it.  This prevents resending
+    attachments from earlier turns.
     """
     paths: list[str] = []
     seen: set[str] = set()
     messages = result.get("messages") or []
-    for msg in messages[prev_message_count:]:
+    start = _find_last_human_index(messages)
+    for msg in messages[start:]:
         if not isinstance(msg, dict):
             continue
         content = msg.get("content", "")
@@ -300,10 +311,6 @@ class _BotInstance:
                     "files": file_data,
                 }
 
-            prev_state = await client.threads.get_state(thread_id)
-            prev_messages = (prev_state.get("values") or {}).get("messages") or []
-            prev_message_count = len(prev_messages)
-
             result = await client.runs.wait(
                 thread_id=thread_id,
                 assistant_id=ASSISTANT_ID,
@@ -343,9 +350,7 @@ class _BotInstance:
             response_text, attachment_paths = _extract_attachments(response_text)
 
             if not attachment_paths:
-                attachment_paths = _scan_current_turn_attachments(
-                    result, prev_message_count,
-                )
+                attachment_paths = _scan_current_turn_attachments(result)
 
             logger.info(
                 "Response for chat %s: text=%d chars, images=%d, attachments=%d",
