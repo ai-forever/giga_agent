@@ -241,8 +241,14 @@ class _BotInstance:
                 logger.info("Thread for chat %s expired (age=%ds), creating new", chat_id, age)
                 await repo.delete_thread(thread_row)
             else:
-                await repo.touch_thread(thread_row)
-                return thread_row.langgraph_thread_id
+                # Verify thread still exists in LangGraph (in-memory store resets on restart)
+                try:
+                    await client.threads.get(thread_row.langgraph_thread_id)
+                    await repo.touch_thread(thread_row)
+                    return thread_row.langgraph_thread_id
+                except Exception:
+                    logger.info("Thread %s no longer exists in LangGraph, recreating", thread_row.langgraph_thread_id)
+                    await repo.delete_thread(thread_row)
 
         thread = await client.threads.create(
             metadata={"telegram_chat_id": str(chat_id)},
@@ -361,10 +367,15 @@ class _BotInstance:
                     "files": file_data,
                 }
 
-            result = await client.runs.wait(
-                thread_id=thread_id,
-                assistant_id=ASSISTANT_ID,
-                input={"messages": [human_msg]},
+            RUN_TIMEOUT = 90  # seconds per run
+
+            result = await asyncio.wait_for(
+                client.runs.wait(
+                    thread_id=thread_id,
+                    assistant_id=ASSISTANT_ID,
+                    input={"messages": [human_msg]},
+                ),
+                timeout=RUN_TIMEOUT,
             )
 
             for _ in range(10):
@@ -379,11 +390,14 @@ class _BotInstance:
                 if last_ai and last_ai.get("tool_calls"):
                     logger.info("Auto-approving tool calls for chat %s", chat_id)
                     await message.chat.do("typing")
-                    result = await client.runs.wait(
-                        thread_id=thread_id,
-                        assistant_id=ASSISTANT_ID,
-                        input=None,
-                        command={"resume": {"type": "approve"}},
+                    result = await asyncio.wait_for(
+                        client.runs.wait(
+                            thread_id=thread_id,
+                            assistant_id=ASSISTANT_ID,
+                            input=None,
+                            command={"resume": {"type": "approve"}},
+                        ),
+                        timeout=RUN_TIMEOUT,
                     )
                 else:
                     break
@@ -449,6 +463,18 @@ class _BotInstance:
             if not sent_any:
                 await message.answer("✅ Задача выполнена.")
 
+        except asyncio.TimeoutError:
+            logger.warning("Timeout handling Telegram message for user %s (chat %s)", user_id, chat_id)
+            try:
+                async with (await get_session_factory())() as session:
+                    repo = TelegramBotRepository(session)
+                    await self._reset_thread(repo, chat_id)
+            except Exception:
+                pass
+            try:
+                await message.answer("⏱ Время ожидания ответа истекло. Попробуйте ещё раз.")
+            except Exception:
+                pass
         except Exception as exc:
             logger.exception("Error handling Telegram message for user %s", user_id)
             error_str = str(exc)
