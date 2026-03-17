@@ -57,6 +57,30 @@ def _extract_attachments(text: str) -> tuple[str, list[str]]:
     return cleaned, paths
 
 
+def _scan_all_attachments(result: dict) -> list[str]:
+    """Scan ALL messages (ai + tool) for attachment paths."""
+    paths: list[str] = []
+    seen: set[str] = set()
+    for msg in result.get("messages") or []:
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            for match in _ATTACHMENT_RE.finditer(content):
+                p = match.group(2)
+                if p not in seen:
+                    paths.append(p)
+                    seen.add(p)
+        ak = msg.get("additional_kwargs") or {}
+        for att in ak.get("attachments") or []:
+            if isinstance(att, dict) and att.get("sandbox_path"):
+                p = att["sandbox_path"]
+                if p not in seen:
+                    paths.append(p)
+                    seen.add(p)
+    return paths
+
+
 def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
     messages = result.get("messages") or []
     text_parts: list[str] = []
@@ -303,6 +327,10 @@ class _BotInstance:
 
             response_text, image_urls = _extract_ai_response(result)
             response_text, attachment_paths = _extract_attachments(response_text)
+
+            if not attachment_paths:
+                all_paths = _scan_all_attachments(result)
+                attachment_paths = [p for p in all_paths if p not in set(attachment_paths)]
 
             logger.info(
                 "Response for chat %s: text=%d chars, images=%d, attachments=%d",
