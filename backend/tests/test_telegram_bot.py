@@ -320,9 +320,9 @@ class TestScanCurrentTurnAttachments:
 
 
 class TestAgentApiBase:
-    def test_includes_api_prefix(self):
+    def test_includes_agent_prefix(self):
         base = _agent_api_base()
-        assert "/api/" in base or base.endswith("/api/agent") or "/api/agent" in base
+        assert "/agent" in base
 
 
 class TestSplitMessage:
