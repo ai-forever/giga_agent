@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import mimetypes
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast, Awaitable, Literal, Coroutine, Callable
 
-from giga_agent.core.agent.few_shots import FEW_SHOTS
 from langchain_core.messages import (
     AIMessage,
     SystemMessage,
@@ -491,8 +489,9 @@ def create_graph(
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
             llm = await llm_runtime.get_llm()
 
-        if state["messages"] and state["messages"][-1].type == "human":
-            last_message = state["messages"][-1]
+        messages_for_llm = list(state["messages"])
+        if messages_for_llm and messages_for_llm[-1].type == "human":
+            last_message = messages_for_llm[-1]
             user_input = last_message.content
             file_prompt = _build_file_prompt(last_message)
             selected_prompt = _build_selected_prompt(last_message)
@@ -517,7 +516,10 @@ def create_graph(
                 "Действуй по простым шагам!"
                 "Следующий шаг: "
             )
-            last_message.content = "\n".join(final_parts)
+            enriched_message = last_message.model_copy(
+                update={"content": "\n".join(final_parts)}
+            )
+            messages_for_llm[-1] = enriched_message
 
         agent_tools = await agent.get_tools(user)
         mcp_tools = [
@@ -539,7 +541,7 @@ def create_graph(
             model=llm,
             tools=default_tools,
             system_message=system_message,
-            messages=state["messages"],
+            messages=messages_for_llm,
             tool_choice=None,
             state=state,
             runtime=runtime,
