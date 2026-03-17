@@ -6,6 +6,7 @@ import pytest
 from giga_agent.modules.telegram.bot import (
     _extract_ai_response,
     _extract_attachments,
+    _scan_all_attachments,
     _strip_thinking,
     _split_message,
 )
@@ -176,6 +177,53 @@ class TestExtractAttachments:
         cleaned, paths = _extract_attachments(text)
         assert paths == []
         assert cleaned == text
+
+
+class TestScanAllAttachments:
+    def test_finds_in_tool_messages(self):
+        result = {
+            "messages": [
+                {"type": "human", "content": "Нарисуй мем"},
+                {"type": "ai", "content": "", "tool_calls": [{"id": "1", "name": "create_meme"}]},
+                {
+                    "type": "tool",
+                    "content": "Мем создан: ![мем](attachment:/bucket/abc/meme.png)",
+                    "tool_call_id": "1",
+                },
+                {"type": "ai", "content": "Вот ваш мем! Надеюсь понравится."},
+            ]
+        }
+        paths = _scan_all_attachments(result)
+        assert paths == ["/bucket/abc/meme.png"]
+
+    def test_finds_in_additional_kwargs_attachments(self):
+        result = {
+            "messages": [
+                {
+                    "type": "tool",
+                    "content": "done",
+                    "additional_kwargs": {
+                        "attachments": [{"sandbox_path": "/bucket/x/img.png"}]
+                    },
+                },
+                {"type": "ai", "content": "Готово"},
+            ]
+        }
+        paths = _scan_all_attachments(result)
+        assert paths == ["/bucket/x/img.png"]
+
+    def test_deduplicates(self):
+        result = {
+            "messages": [
+                {"type": "tool", "content": "![a](attachment:/bucket/x.png)"},
+                {"type": "ai", "content": "Вот: ![a](attachment:/bucket/x.png)"},
+            ]
+        }
+        paths = _scan_all_attachments(result)
+        assert paths == ["/bucket/x.png"]
+
+    def test_empty(self):
+        assert _scan_all_attachments({"messages": []}) == []
 
 
 class TestSplitMessage:
