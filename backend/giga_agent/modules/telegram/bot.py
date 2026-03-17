@@ -180,10 +180,12 @@ class _BotInstance:
         import httpx
         try:
             tg_file = await self.bot.get_file(file_id)
-            file_bytes = await self.bot.download_file(tg_file.file_path)
-            if file_bytes is None:
+            bio = await self.bot.download_file(tg_file.file_path)
+            if bio is None:
+                logger.warning("Telegram returned None for file %s", file_id)
                 return None
-            data = file_bytes.read() if hasattr(file_bytes, "read") else file_bytes
+            data = bio.read() if hasattr(bio, "read") else bytes(bio)
+            logger.info("Downloaded TG file %s: %d bytes", file_name, len(data))
 
             url = f"{_langgraph_url()}/agent/files/upload"
             async with httpx.AsyncClient(timeout=60) as http:
@@ -194,8 +196,10 @@ class _BotInstance:
                     files={"file": (file_name, data)},
                 )
                 if resp.status_code in (200, 201):
-                    return resp.json()
-                logger.warning("File upload failed: %d %s", resp.status_code, resp.text[:200])
+                    result = resp.json()
+                    logger.info("Uploaded file %s -> %s", file_name, result.get("sandbox_path"))
+                    return result
+                logger.warning("File upload failed: %d %s", resp.status_code, resp.text[:300])
         except Exception:
             logger.exception("Failed to upload Telegram file %s", file_name)
         return None
@@ -251,11 +255,14 @@ class _BotInstance:
                 {"path": f["sandbox_path"], "original_name": f.get("original_name", ""), "file_type": f.get("file_type", "other"), "size": f.get("size", 0)}
                 for f in uploaded_files
             ]
+            if file_data:
+                logger.info("Files for agent: %s", [fd["path"] for fd in file_data])
 
-            human_msg: dict[str, Any] = {"role": "human", "content": text or "Файл прикреплён"}
+            content = text or ("Прикреплён файл: " + ", ".join(fd.get("original_name", fd["path"]) for fd in file_data) if file_data else "")
+            human_msg: dict[str, Any] = {"role": "human", "content": content}
             if file_data:
                 human_msg["additional_kwargs"] = {
-                    "user_input": text or "Файл прикреплён",
+                    "user_input": content,
                     "files": file_data,
                 }
 
