@@ -5,8 +5,7 @@ mkdir -p /data/.giga_agent /data/.langgraph_api
 
 if [ -n "$DATABASE_URL" ]; then
     ASYNCPG_URL="${DATABASE_URL/postgresql:\/\//postgresql+asyncpg:\/\/}"
-    # asyncpg does not recognize sslmode — replace with ssl
-    ASYNCPG_URL="${ASYNCPG_URL/sslmode=/ssl=}"
+    ASYNCPG_URL=$(echo "$ASYNCPG_URL" | sed -E 's/[?&]sslmode=[^&]*//' | sed 's/\?$//')
     export GIGA_AGENT_DATABASE_URL="$ASYNCPG_URL"
     export POSTGRES_URI="${DATABASE_URL/postgresql:\/\//postgres:\/\/}"
 fi
