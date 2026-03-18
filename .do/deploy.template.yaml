@@ -6,7 +6,7 @@ spec:
       dockerfile_path: .do/Dockerfile
       source_dir: /
       github:
-        branch: feature/add-do-integration
+        branch: feature/add-do-integration-simple
         repo: ai-forever/giga_agent
         deploy_on_push: true
       instance_count: 1
