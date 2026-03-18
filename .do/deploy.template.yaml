@@ -5,9 +5,10 @@ spec:
     - name: giga-agent
       dockerfile_path: .do/Dockerfile
       source_dir: /
-      git:
-        branch: main
-        repo_clone_url: https://github.com/ai-forever/giga_agent.git
+      github:
+        branch: feature/add-do-integration
+        repo: ai-forever/giga_agent
+        deploy_on_push: true
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-2gb
       http_port: 8080
