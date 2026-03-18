@@ -35,10 +35,13 @@ spec:
           type: SECRET
         - key: SPACES_ENDPOINT
           scope: RUN_TIME
-          value: "ams3.digitaloceanspaces.com"
+          value: "s3.cloud.ru"
+        - key: SPACES_REGION
+          scope: RUN_TIME
+          value: "ru-central-1"
         - key: SPACES_BUCKET
           scope: RUN_TIME
-          value: "giga-agent-backup"
+          value: "giga-agent-bucket"
         - key: RESTIC_PASSWORD
           scope: RUN_TIME
           type: SECRET

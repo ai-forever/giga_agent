@@ -7,6 +7,7 @@ mkdir -p /data/.giga_agent /data/.langgraph_api
 if [ "${ENABLE_SPACES}" = "true" ] && [ -n "$SPACES_BUCKET" ]; then
     export AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_ACCESS_KEY"
+    export AWS_DEFAULT_REGION="${SPACES_REGION:-us-east-1}"
     export RESTIC_REPOSITORY="s3:https://${SPACES_ENDPOINT}/${SPACES_BUCKET}/giga-agent/restic"
     export RESTIC_PASSWORD="${RESTIC_PASSWORD:-giga-agent-default-key}"
 
