@@ -22,10 +22,23 @@ spec:
         - key: GIGA_AGENT_ADMIN_PASSWORD
           scope: RUN_TIME
           type: SECRET
-        - key: DATABASE_URL
+
+        # Persistence via DO Spaces (set ENABLE_SPACES=true to activate)
+        - key: ENABLE_SPACES
           scope: RUN_TIME
-          value: ${db.DATABASE_URL}
-  databases:
-    - name: db
-      engine: PG
-      production: false
+          value: "false"
+        - key: SPACES_ACCESS_KEY_ID
+          scope: RUN_TIME
+          type: SECRET
+        - key: SPACES_SECRET_ACCESS_KEY
+          scope: RUN_TIME
+          type: SECRET
+        - key: SPACES_ENDPOINT
+          scope: RUN_TIME
+          value: "ams3.digitaloceanspaces.com"
+        - key: SPACES_BUCKET
+          scope: RUN_TIME
+          value: "giga-agent-backup"
+        - key: RESTIC_PASSWORD
+          scope: RUN_TIME
+          type: SECRET
