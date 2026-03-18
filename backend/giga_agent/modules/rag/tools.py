@@ -8,6 +8,7 @@ from typing import Annotated
 from langchain.tools import ToolRuntime, tool
 
 from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
 from giga_agent.embeddings.manager import EmbeddingManager
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
@@ -19,6 +20,8 @@ from giga_agent.vectorstores.qdrant import (
 from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
 from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.core.agent.types import Collection
+
+logger = get_logger(__name__)
 
 
 @tool(
@@ -38,8 +41,8 @@ async def get_documents(
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
     hint = (
-        "Чтобы изучить документ подробнее, прочитай исходный файл по `sandbox_path` "
-        "и возьми фрагмент между `start_index` и `end_index` (при необходимости расширь диапазон)."
+        "Чтобы изучить документ подробнее, используй инструмент read_file с sandbox_path из результата. "
+        "Это позволит прочитать файл целиком и найти нужную информацию."
     )
 
     if runtime is None:
@@ -121,7 +124,79 @@ async def get_documents(
         "limit": limit,
         "documents": documents,
         "hint": hint,
-        "next_step": "Если информации недостаточно, переформулируй запрос и вызови get_documents ещё раз.",
+        "next_step": "Если информации недостаточно, используй read_file(sandbox_path) чтобы прочитать документ целиком, или переформулируй запрос.",
+    }
+
+
+@tool(
+    description="""Читает файл целиком из sandbox пользователя по sandbox_path.
+
+Используй после get_documents, когда нужно увидеть полный текст документа,
+а не только чанки из векторного поиска. Принимает sandbox_path из результата get_documents.""",
+    extras={"repl_skip": True},
+)
+async def read_file(
+    sandbox_path: Annotated[str, "Путь к файлу в sandbox (sandbox_path из результата get_documents)"],
+    runtime: ToolRuntime,
+) -> dict:
+    """Читает файл целиком из sandbox пользователя."""
+    from giga_agent.sandbox.base import ContentResult, StreamResult
+    from giga_agent.sandbox.manager import SandboxManager
+
+    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        try:
+            file_record, result = await manager.read_file_by_path_for_user(
+                user_id=owner_id,
+                sandbox_path=sandbox_path,
+            )
+        except Exception as e:
+            logger.warning("read_file failed for %s: %s", sandbox_path, e)
+            return {"error": str(e), "content": None}
+
+    if isinstance(result, ContentResult):
+        try:
+            text = result.data.decode("utf-8")
+        except UnicodeDecodeError:
+            return {
+                "error": "Файл не является текстовым (бинарный формат)",
+                "file": file_record.original_name,
+                "size": file_record.size,
+                "content": None,
+            }
+    elif isinstance(result, StreamResult):
+        chunks = []
+        async for chunk in result.stream:
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return {
+                "error": "Файл не является текстовым (бинарный формат)",
+                "file": file_record.original_name,
+                "size": file_record.size,
+                "content": None,
+            }
+    else:
+        return {"error": "Файл доступен только по URL, прямое чтение невозможно", "content": None}
+
+    # Ограничим размер возвращаемого текста
+    max_chars = 100_000
+    truncated = len(text) > max_chars
+    if truncated:
+        text = text[:max_chars]
+
+    return {
+        "file": file_record.original_name,
+        "sandbox_path": sandbox_path,
+        "size": file_record.size,
+        "truncated": truncated,
+        "content": text,
     }
 
 
@@ -133,7 +208,10 @@ RAG_PROMPT = """
 ====
 БАЗА ЗНАНИЙ
 
-У тебя есть доступ к документам пользователя через инструмент get_documents.
+У тебя есть доступ к документам пользователя через инструменты:
+- get_documents — семантический (векторный) поиск по чанкам документов
+- read_file — чтение файла целиком по sandbox_path
+
 ВСЕГДА проверяй информацию в базе знаний перед ответом, даже если уверен в своих знаниях.
 
 ДОСТУПНЫЕ КОЛЛЕКЦИИ:
@@ -144,18 +222,20 @@ RAG_PROMPT = """
 1. ПРОСТЫЕ ЗАПРОСЫ (конкретный факт/процедура):
    * Сформулируй query как естественный вопрос с ключевыми терминами
    * Начни с limit=5-10
-   * Если результат неполный → переформулируй (синонимы, другой угол)
+   * Если результат неполный → используй read_file(sandbox_path) чтобы прочитать документ целиком
    * Для смежных коллекций делай отдельные запросы
 
 2. ГЛУБОКИЙ АНАЛИЗ:
-   * Шаг 1: Обзорный запрос -> определи структуру и ключевые термины
-   * Шаг 2: Декомпозиция на аспекты (условия, ограничения, обязательства, риски, процедуры, стоимость)
+   * Шаг 1: Обзорный запрос через get_documents -> определи структуру и ключевые термины
+   * Шаг 2: Используй read_file для полного чтения ключевых документов
    * Шаг 3: Серия целевых запросов по каждому аспекту к базе знаний
    * Шаг 4: Структурированный отчет:
      - Резюме и выводы
      - Ключевые условия/риски с цитатами
      - Вопросы для уточнения
      - Таблица основных параметров
+
+ВАЖНО: Если get_documents нашёл релевантный документ, но информации в чанке недостаточно — ОБЯЗАТЕЛЬНО прочитай файл целиком через read_file(sandbox_path), прежде чем говорить что данных нет.
 
 ЦИТИРОВАНИЕ: Всегда указывай ID документа и, если есть, раздел/пункт/страницу.
 

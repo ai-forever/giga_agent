@@ -15,6 +15,7 @@ from langgraph_sdk import get_client
 from giga_agent.conf import get_settings, GIGA_AGENT_PREFIX_API
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.modules.auth.security import create_access_token
 from giga_agent.modules.telegram.models import (
     TelegramBot as TelegramBotModel,
@@ -398,13 +399,29 @@ class _BotInstance:
                     "files": file_data,
                 }
 
+            # Load user's RAG collections so the agent can search documents
+            collections_payload: list[dict[str, Any]] = []
+            try:
+                async with (await get_session_factory())() as session:
+                    rows = await RagCollectionsRepository(session).list_by_owner(self.bot_row.user_id)
+                    collections_payload = [
+                        {"uuid": str(r.id), "name": r.name, "metadata": r.metadata_ or {}}
+                        for r in rows
+                    ]
+            except Exception:
+                logger.warning("Failed to load RAG collections for user %s", self.bot_row.user_id)
+
+            run_input: dict[str, Any] = {"messages": [human_msg]}
+            if collections_payload:
+                run_input["collections"] = collections_payload
+
             RUN_TIMEOUT = 90  # seconds per run
 
             result = await asyncio.wait_for(
                 client.runs.wait(
                     thread_id=thread_id,
                     assistant_id=ASSISTANT_ID,
-                    input={"messages": [human_msg]},
+                    input=run_input,
                 ),
                 timeout=RUN_TIMEOUT,
             )
@@ -488,7 +505,12 @@ class _BotInstance:
 
             if response_text:
                 for chunk in _split_message(response_text):
-                    await message.answer(chunk)
+                    tg_text = _md_to_tg_markdown_v2(chunk)
+                    try:
+                        await message.answer(tg_text, parse_mode="MarkdownV2")
+                    except Exception:
+                        # Fallback to plain text if formatting fails
+                        await message.answer(chunk)
                 sent_any = True
 
             if not sent_any:
@@ -658,6 +680,58 @@ class _BotInstance:
             except (asyncio.CancelledError, Exception):
                 pass
         await self.bot.session.close()
+
+
+def _md_to_tg_markdown_v2(text: str) -> str:
+    """Convert standard Markdown to Telegram MarkdownV2 format."""
+    # Extract code blocks first to protect them
+    code_blocks: list[str] = []
+
+    def _save_code_block(m: re.Match) -> str:
+        code_blocks.append(m.group(0))
+        return f"\x00CODEBLOCK{len(code_blocks) - 1}\x00"
+
+    text = re.sub(r"```[\s\S]*?```", _save_code_block, text)
+
+    inline_codes: list[str] = []
+
+    def _save_inline_code(m: re.Match) -> str:
+        inline_codes.append(m.group(0))
+        return f"\x00INLINE{len(inline_codes) - 1}\x00"
+
+    text = re.sub(r"`[^`]+`", _save_inline_code, text)
+
+    # Escape special MarkdownV2 characters (except those used for formatting)
+    def _escape(t: str) -> str:
+        return re.sub(r"([_\[\]()~>#+\-=|{}.!\\])", r"\\\1", t)
+
+    # Process bold **text** → *text*
+    parts = re.split(r"(\*\*(?:(?!\*\*).)+\*\*)", text)
+    result_parts: list[str] = []
+    for part in parts:
+        m = re.match(r"^\*\*(.+)\*\*$", part, re.DOTALL)
+        if m:
+            result_parts.append(f"*{_escape(m.group(1))}*")
+        else:
+            # Process italic *text* → _text_ (single asterisks that aren't bold)
+            sub_parts = re.split(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", part)
+            for i, sp in enumerate(sub_parts):
+                if i % 2 == 1:
+                    result_parts.append(f"_{_escape(sp)}_")
+                else:
+                    result_parts.append(_escape(sp))
+
+    text = "".join(result_parts)
+
+    # Restore inline code
+    for i, code in enumerate(inline_codes):
+        text = text.replace(f"\x00INLINE{i}\x00", code)
+
+    # Restore code blocks
+    for i, block in enumerate(code_blocks):
+        text = text.replace(f"\x00CODEBLOCK{i}\x00", block)
+
+    return text
 
 
 def _split_message(text: str, max_len: int = 4096) -> list[str]:
