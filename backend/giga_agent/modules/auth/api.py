@@ -738,9 +738,14 @@ async def patch_user_by_id(
 
     user = await _get_user_model_by_id(db, user_id)
 
-    if user_id == current_user.id and (
-        "is_active" in body.model_fields_set or "is_superuser" in body.model_fields_set
-    ):
+    changes_current_user_flags = (
+        ("is_active" in body.model_fields_set and body.is_active != user.is_active)
+        or (
+            "is_superuser" in body.model_fields_set
+            and body.is_superuser != user.is_superuser
+        )
+    )
+    if user_id == current_user.id and changes_current_user_flags:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Cannot change is_active or is_superuser for current user",
