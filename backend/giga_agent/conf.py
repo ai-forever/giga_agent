@@ -143,6 +143,24 @@ class Settings(BaseSettings):
     giga_agent_local_docker_files_path: Path | None = Field(
         None, alias="GIGA_AGENT_LOCAL_DOCKER_FILES_PATH"
     )
+    giga_agent_local_jupyter_startup_timeout_sec: int = Field(
+        20, alias="GIGA_AGENT_LOCAL_JUPYTER_STARTUP_TIMEOUT_SEC"
+    )
+    giga_agent_local_jupyter_graceful_shutdown_timeout_sec: int = Field(
+        5, alias="GIGA_AGENT_LOCAL_JUPYTER_GRACEFUL_SHUTDOWN_TIMEOUT_SEC"
+    )
+    giga_agent_local_jupyter_working_dir: Path | None = Field(
+        None, alias="GIGA_AGENT_LOCAL_JUPYTER_WORKING_DIR"
+    )
+    giga_agent_local_jupyter_files_path: Path | None = Field(
+        None, alias="GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH"
+    )
+    giga_agent_local_jupyter_runtime_dir: Path | None = Field(
+        None, alias="GIGA_AGENT_LOCAL_JUPYTER_RUNTIME_DIR"
+    )
+    giga_agent_local_jupyter_python_executable: str | None = Field(
+        None, alias="GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE"
+    )
 
     giga_agent_qdrant_pool_size: int | None = Field(
         None, alias="GIGA_AGENT_QDRANT_POOL_SIZE"
@@ -219,6 +237,9 @@ class Settings(BaseSettings):
         "giga_agent_project_root",
         "giga_agent_host_project_path",
         "giga_agent_local_docker_files_path",
+        "giga_agent_local_jupyter_working_dir",
+        "giga_agent_local_jupyter_files_path",
+        "giga_agent_local_jupyter_runtime_dir",
         mode="after",
     )
     @classmethod
@@ -276,6 +297,19 @@ class Settings(BaseSettings):
     @field_validator("giga_agent_sandbox_orphan_sweeper_concurrency", mode="after")
     @classmethod
     def _min_orphan_concurrency(cls, value: int) -> int:
+        return max(value, 1)
+
+    @field_validator("giga_agent_local_jupyter_startup_timeout_sec", mode="after")
+    @classmethod
+    def _min_local_jupyter_startup_timeout(cls, value: int) -> int:
+        return max(value, 1)
+
+    @field_validator(
+        "giga_agent_local_jupyter_graceful_shutdown_timeout_sec",
+        mode="after",
+    )
+    @classmethod
+    def _min_local_jupyter_shutdown_timeout(cls, value: int) -> int:
         return max(value, 1)
 
     @field_validator("giga_agent_scraper_total_concurrency", mode="after")

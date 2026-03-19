@@ -38,6 +38,7 @@ class SandboxProviderType(str, Enum):
     DAYTONA = "daytona"
     MODAL = "modal"
     LOCAL_DOCKER = "local_docker"
+    LOCAL_JUPYTER = "local_jupyter"
 
 
 class SandboxStatus(str, Enum):

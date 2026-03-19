@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import Any, AsyncGenerator, Optional, Dict
 import aiohttp
 import websockets
 from pydantic import Field, PrivateAttr
@@ -48,7 +48,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             pass
         return False
 
-    async def _ensure_kernel(self):
+    async def _ensure_kernel(self) -> None:
         async with aiohttp.ClientSession() as session:
             if self._kernel_id:
                 # Check if alive
@@ -71,8 +71,14 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                 self._kernel_id = data["id"]
 
     async def run_code(
-        self, code: str, kernel_id: Optional[str] = None
-    ) -> AsyncGenerator[Dict[str, Any], str]:
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        del kwargs
         if kernel_id is None:
             self._kernel_id = str(uuid.uuid4())
         else:
@@ -105,7 +111,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                     "silent": False,
                     "store_history": True,
                     "user_expressions": {},
-                    "allow_stdin": True,
+                    "allow_stdin": allow_stdin,
                     "stop_on_error": True,
                 },
                 "channel": "shell",

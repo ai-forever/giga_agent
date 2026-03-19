@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "giga-agent"
 version = "0.1.0"
 description = "Modular Agent Framework"
-readme = "README.md"
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
@@ -50,7 +50,6 @@ dependencies = [
     "beautifulsoup4>=4.14.3",
     "pdfminer-six>=20260107",
     "lxml>=6.0.2",
-    "unstructured[docx]>=0.18.32",
     "psycopg[binary]>=3.3.3",
     "httpx>=0.28.1",
     "langchain-text-splitters>=1.1.1",
@@ -66,12 +65,21 @@ dependencies = [
 [project.scripts]
 giga_agent = "giga_agent.cli:app"
 
+[project.optional-dependencies]
+jupyter = [
+    "jupyter-server>=2.0.0",
+    "ipykernel>=6.0.0",
+]
+
 [tool.hatch.build.force-include]
 "giga_agent/alembic.ini" = "giga_agent/alembic.ini"
 "giga_agent/migrations/script.py.mako" = "giga_agent/migrations/script.py.mako"
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
+
+[tool.hatch.metadata.hooks.custom]
+path = "hatch_metadata.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["giga_agent"]

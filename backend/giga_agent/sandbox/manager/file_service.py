@@ -5,6 +5,7 @@ from pathlib import PurePosixPath
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.logging import get_logger
+from giga_agent.models import UserRepository
 from giga_agent.models.file import File, FileRepository, FileType
 from giga_agent.models.sandbox import SandboxRepository, SandboxProviderRepository
 from giga_agent.sandbox.base import FileReadResult
@@ -271,9 +272,26 @@ class SandboxFileService:
             sandbox_path=sandbox_path,
         )
         if file is None:
-            raise FileNotFoundForUserError(
-                f"File with path '{sandbox_path}' not found for user {user_id}"
+            user = await UserRepository.get_cached_or_db(user_id=user_id, session=self.db)
+            runtime, provider = await self._resolve_runtime_for_file(
+                user_id=user_id,
+                provider_id=user.sandbox_provider_id,
+                sandbox_path=sandbox_path,
+                for_op="read",
             )
+            file_id = uuid.uuid4()
+            try:
+                result = await runtime.read_file(sandbox_path=sandbox_path)
+            except FileNotFoundError as e:
+                raise FileNotFoundForUserError(str(e)) from e
+            except PermissionError as e:
+                raise FileAccessError(str(e)) from e
+            except Exception as e:
+                raise StorageOperationError(
+                    f"Failed to read file '{sandbox_path}' (id={file_id}): {e}"
+                ) from e
+
+            return File(id=file_id, owner_id=user_id, sandbox_path=sandbox_path), result
 
         return await self.read_file_for_user(
             user_id=user_id,

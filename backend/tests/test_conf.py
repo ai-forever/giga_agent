@@ -47,3 +47,29 @@ class ConfSettingsTests(unittest.TestCase):
         with self._patched_env({}, clear=True):
             settings = get_settings()
             self.assertEqual(settings.giga_agent_log_level, "INFO")
+
+    def test_reads_local_jupyter_settings(self):
+        with self._patched_env(
+            {
+                "GIGA_AGENT_LOCAL_JUPYTER_STARTUP_TIMEOUT_SEC": "42",
+                "GIGA_AGENT_LOCAL_JUPYTER_GRACEFUL_SHUTDOWN_TIMEOUT_SEC": "7",
+                "GIGA_AGENT_LOCAL_JUPYTER_WORKING_DIR": "~/workdir",
+                "GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH": "~/files",
+                "GIGA_AGENT_LOCAL_JUPYTER_RUNTIME_DIR": "~/runtime",
+                "GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE": "/usr/bin/python3",
+            },
+            clear=True,
+        ):
+            settings = get_settings()
+            self.assertEqual(settings.giga_agent_local_jupyter_startup_timeout_sec, 42)
+            self.assertEqual(
+                settings.giga_agent_local_jupyter_graceful_shutdown_timeout_sec,
+                7,
+            )
+            self.assertTrue(str(settings.giga_agent_local_jupyter_working_dir).endswith("workdir"))
+            self.assertTrue(str(settings.giga_agent_local_jupyter_files_path).endswith("files"))
+            self.assertTrue(str(settings.giga_agent_local_jupyter_runtime_dir).endswith("runtime"))
+            self.assertEqual(
+                settings.giga_agent_local_jupyter_python_executable,
+                "/usr/bin/python3",
+            )
