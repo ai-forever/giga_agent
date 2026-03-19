@@ -12,6 +12,9 @@ spec:
       instance_count: 1
       instance_size_slug: apps-s-1vcpu-2gb
       http_port: 8080
+      health_check:
+        initial_delay_seconds: 300
+        failure_threshold: 30
       envs:
         - key: GIGA_AGENT_SECRET_KEY
           scope: RUN_TIME
