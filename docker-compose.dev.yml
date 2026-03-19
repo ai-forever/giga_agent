@@ -89,7 +89,6 @@ services:
     networks:
       - giga-agent-net
     environment:
-      HOME: /tmp
       MEM0_DIR: /tmp/.mem0
       # Use the mounted backend sources in dev.
       PYTHONPATH: /app/backend

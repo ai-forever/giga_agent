@@ -91,7 +91,6 @@ services:
     networks:
       - giga-agent-net
     environment:
-      HOME: /tmp
       MEM0_DIR: /tmp/.mem0
       AEGRA_CONFIG: /app/config/langgraph.json
       AUTH_TYPE: custom

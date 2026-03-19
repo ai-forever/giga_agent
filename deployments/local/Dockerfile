@@ -2,8 +2,10 @@ FROM mikelarg/aegra:0.0.9
 
 USER root
 
-# scikit-learn wheels require libgomp at runtime
+# scikit-learn wheels require libgomp at runtime.
+# ffmpeg is required by pydub to export podcast audio to mp3.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
