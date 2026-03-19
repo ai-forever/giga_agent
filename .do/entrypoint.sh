@@ -3,7 +3,7 @@ set -e
 
 mkdir -p /data/.giga_agent /data/.langgraph_api
 
-# --- Restic / DO Spaces persistence ---
+# --- Restic / Spaces persistence ---
 if [ "${ENABLE_SPACES}" = "true" ] && [ -n "$SPACES_BUCKET" ]; then
     export AWS_ACCESS_KEY_ID="$SPACES_ACCESS_KEY_ID"
     export AWS_SECRET_ACCESS_KEY="$SPACES_SECRET_ACCESS_KEY"

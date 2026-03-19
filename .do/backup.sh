@@ -1,5 +1,5 @@
 #!/bin/bash
-# Single restic backup of .giga_agent and .langgraph_api to DO Spaces
+# Single restic backup of .giga_agent and .langgraph_api to Spaces
 set -e
 
 if [ -z "$RESTIC_REPOSITORY" ] || [ -z "$RESTIC_PASSWORD" ]; then

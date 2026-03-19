@@ -6,7 +6,7 @@ spec:
       dockerfile_path: .do/Dockerfile
       source_dir: /
       github:
-        branch: feature/add-do-integration-simple
+        branch: main
         repo: ai-forever/giga_agent
         deploy_on_push: true
       instance_count: 1
@@ -28,7 +28,7 @@ spec:
           scope: RUN_TIME
           type: SECRET
 
-        # Persistence via DO Spaces (set ENABLE_SPACES=true to activate)
+        # Persistence via Spaces (set ENABLE_SPACES=true to activate)
         - key: ENABLE_SPACES
           scope: RUN_TIME
           value: "false"
