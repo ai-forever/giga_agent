@@ -15,6 +15,8 @@ spec:
       health_check:
         initial_delay_seconds: 300
         failure_threshold: 30
+        http_path: /ok
+        port: 8080
       envs:
         - key: GIGA_AGENT_SECRET_KEY
           scope: RUN_TIME
