@@ -9,6 +9,7 @@ import {
   Brain,
   Settings,
   Sparkles,
+  Box,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,8 +50,16 @@ const STEPS: OnboardingStep[] = [
     icon: <Brain className="size-6" />,
   },
   {
+    id: "sandbox",
+    title: "Шаг 3: Sandbox",
+    description:
+      "Настройте провайдер изолированной среды выполнения кода (Sandbox). Без него агент не сможет запускать код, работать с файлами и использовать большинство инструментов.",
+    settingsTab: "sandbox",
+    icon: <Box className="size-6" />,
+  },
+  {
     id: "general",
-    title: "Шаг 3: Основные настройки",
+    title: "Шаг 4: Основные настройки",
     description:
       "Выберите модель по умолчанию и другие базовые настройки. Это определит, какая модель будет использоваться в чате.",
     settingsTab: "general",
@@ -60,7 +69,7 @@ const STEPS: OnboardingStep[] = [
     id: "done",
     title: "Готово!",
     description:
-      "Настройка завершена. Теперь вы можете начать общение с агентом. Дополнительные настройки (Embeddings, Search, Sandbox) доступны в разделе Настройки.",
+      "Настройка завершена. Теперь вы можете начать общение с агентом. Дополнительные настройки (Embeddings, Search, Image) доступны в разделе Настройки.",
     settingsTab: null,
     icon: <Check className="size-6" />,
   },
@@ -111,7 +120,6 @@ const OnboardingWizard: React.FC = () => {
     if (isLast) {
       markOnboardingComplete();
       setVisible(false);
-      navigate("/");
       return;
     }
     const next = currentStep + 1;
