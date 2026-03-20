@@ -1,0 +1,52 @@
+spec:
+  name: giga-agent
+  region: ams
+  services:
+    - name: giga-agent
+      dockerfile_path: .do/Dockerfile
+      source_dir: /
+      github:
+        branch: main
+        repo: ai-forever/giga_agent
+        deploy_on_push: true
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-2gb
+      http_port: 8080
+      health_check:
+        initial_delay_seconds: 300
+        failure_threshold: 30
+        http_path: /ok
+        port: 8080
+      envs:
+        - key: GIGA_AGENT_SECRET_KEY
+          scope: RUN_TIME
+          type: SECRET
+        - key: GIGA_AGENT_ADMIN_EMAIL
+          scope: RUN_TIME
+          value: "admin@example.com"
+        - key: GIGA_AGENT_ADMIN_PASSWORD
+          scope: RUN_TIME
+          type: SECRET
+
+        # Persistence via Spaces (set ENABLE_SPACES=true to activate)
+        - key: ENABLE_SPACES
+          scope: RUN_TIME
+          value: "false"
+        - key: SPACES_ACCESS_KEY_ID
+          scope: RUN_TIME
+          type: SECRET
+        - key: SPACES_SECRET_ACCESS_KEY
+          scope: RUN_TIME
+          type: SECRET
+        - key: SPACES_ENDPOINT
+          scope: RUN_TIME
+          value: "s3.cloud.ru"
+        - key: SPACES_REGION
+          scope: RUN_TIME
+          value: "ru-central-1"
+        - key: SPACES_BUCKET
+          scope: RUN_TIME
+          value: "giga-agent-bucket"
+        - key: RESTIC_PASSWORD
+          scope: RUN_TIME
+          type: SECRET
