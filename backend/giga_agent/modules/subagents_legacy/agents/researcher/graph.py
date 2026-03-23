@@ -2,6 +2,7 @@ import uuid
 from typing import Literal
 
 from deepagents import create_deep_agent
+from langchain.agents import create_agent
 from langchain.tools import ToolRuntime
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import tool
@@ -200,6 +201,8 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
         result = await search_engine.search([query])
         return "\n\n".join(normalize_search_result(item) for item in result)
 
+    _sub_recursion_limit = 150
+
     research_sub_agent = {
         "name": "research-agent",
         "description": (
@@ -210,8 +213,12 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
             "а затем вызывать нескольких исследовательских агентов, "
             "по одному для каждого подвопроса."
         ),
-        "system_prompt": sub_research_prompt,
-        "tools": [internet_search],
+        "runnable": create_agent(
+            llm,
+            system_prompt=sub_research_prompt,
+            tools=[internet_search],
+            name="research-agent",
+        ).with_config({"recursion_limit": _sub_recursion_limit}),
     }
 
     critique_sub_agent = {
@@ -221,7 +228,12 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
             "Предоставьте этому агенту информацию о том, как вы хотите, "
             "чтобы он критиковал отчёт."
         ),
-        "system_prompt": sub_critique_prompt,
+        "runnable": create_agent(
+            llm,
+            system_prompt=sub_critique_prompt,
+            tools=[],
+            name="critique-agent",
+        ).with_config({"recursion_limit": _sub_recursion_limit}),
     }
 
     agent = create_deep_agent(
