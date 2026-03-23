@@ -2,6 +2,7 @@
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { BrowserOAuthClientProvider } from "../hooks/auth/browser-provider.js";
 import { StoredState } from "@/components/mcp/hooks/auth/types.ts"; // Adjust path
+import { APP_ROOT_PATH } from "@/config";
 
 /**
  * Handles the OAuth callback using the SDK's auth() function.
@@ -110,14 +111,7 @@ export async function onMcpAuthorization() {
         console.warn(
           `${logPrefix} No opener window detected. Redirecting to root.`,
         );
-        // Try to determine the base path from the current URL
-        // e.g., if we're at /inspector/oauth/callback, redirect to /inspector
-        const pathParts = window.location.pathname.split("/").filter(Boolean);
-        const basePath =
-          pathParts.length > 0 && pathParts[pathParts.length - 1] === "callback"
-            ? "/" + pathParts.slice(0, -2).join("/")
-            : "/";
-        window.location.href = basePath || "/";
+        window.location.href = APP_ROOT_PATH;
       }
       // Clean up state ONLY on success and after notifying opener
       localStorage.removeItem(stateKey);

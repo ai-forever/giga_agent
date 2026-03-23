@@ -23,7 +23,10 @@ from giga_agent.sandbox.base import (
 )
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.local_jupyter.dependencies import ensure_jupyter_dependencies
-from giga_agent.sandbox.local_jupyter.manager import get_local_jupyter_server_manager
+from giga_agent.sandbox.local_jupyter.manager import (
+    LOCAL_JUPYTER_KERNEL_NAME,
+    get_local_jupyter_server_manager,
+)
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 from giga_agent.sandbox.registry import SandboxRegistry
 
@@ -116,6 +119,9 @@ class LocalJupyterSandbox(JupyterSandbox):
             "base_url": self.base_url or None,
         }
         return {key: value for key, value in settings.items() if value is not None}
+
+    def _get_kernel_request_payload(self) -> dict[str, Any] | None:
+        return {"name": LOCAL_JUPYTER_KERNEL_NAME}
 
     async def up(self) -> None:
         ensure_jupyter_dependencies()

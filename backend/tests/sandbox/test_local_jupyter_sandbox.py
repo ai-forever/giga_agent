@@ -10,7 +10,10 @@ from giga_agent.conf import reset_settings_cache
 from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.base import ContentResult
 from giga_agent.sandbox.local_jupyter.dependencies import MissingDependenciesError
-from giga_agent.sandbox.local_jupyter.manager import LocalJupyterHandle
+from giga_agent.sandbox.local_jupyter.manager import (
+    LOCAL_JUPYTER_KERNEL_NAME,
+    LocalJupyterHandle,
+)
 from giga_agent.sandbox.local_jupyter.runtime import LocalJupyterSandbox
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 
@@ -59,6 +62,13 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.base_url, handle.base_url)
         self.assertEqual(runtime.jupyter_token, handle.token)
         self.assertEqual(runtime.external_id, str(handle.pid))
+
+    async def test_local_jupyter_requests_dedicated_kernel(self):
+        runtime = LocalJupyterSandbox(owner_id=uuid.uuid4())
+        self.assertEqual(
+            runtime._get_kernel_request_payload(),
+            {"name": LOCAL_JUPYTER_KERNEL_NAME},
+        )
 
     async def test_upload_read_delete_bucket_file(self):
         owner_id = uuid.uuid4()

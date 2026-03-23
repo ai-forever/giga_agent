@@ -1,6 +1,7 @@
 import sys
 import types
 import unittest
+import asyncio
 from urllib.parse import quote
 from unittest.mock import patch
 
@@ -36,13 +37,14 @@ class CLISubgraphsTests(unittest.TestCase):
     def test_dev_passes_merged_graphs_to_run_server(self):
         captured = {}
 
-        def _run_server(host, port, reload, graphs, auth=None, http=None):
+        def _run_server(host, port, reload, graphs, auth=None, http=None, **kwargs):
             captured["host"] = host
             captured["port"] = port
             captured["reload"] = reload
             captured["graphs"] = graphs
             captured["auth"] = auth
             captured["http"] = http
+            captured["kwargs"] = kwargs
 
         graph = self._make_agent_graph(
             modules=[
@@ -85,6 +87,7 @@ class CLISubgraphsTests(unittest.TestCase):
                 "app": "giga_agent.agents.run:app",
             },
         )
+        self.assertEqual(captured["kwargs"]["timeout_graceful_shutdown"], 3)
 
     def test_dev_uses_default_graph_and_app_path(self):
         graph = self._make_agent_graph(modules=[])
@@ -137,3 +140,28 @@ class CLISubgraphsTests(unittest.TestCase):
 
         self.assertIn("Duplicate subgraph key 'landing'", str(exc.exception))
         apply_migrations.assert_not_called()
+
+    def test_dev_no_reload_disposes_engine_after_run_server_returns(self):
+        graph = self._make_agent_graph(modules=[])
+        dispose_coro = object()
+
+        with patch.dict(
+            sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
+        ), patch(
+            "giga_agent.cli.load_graph_and_app_from_string",
+            return_value=(graph, FastAPI()),
+        ), patch(
+            "giga_agent.cli.apply_migrations"
+        ), patch(
+            "giga_agent.core.cache.setup_cache"
+        ), patch(
+            "giga_agent.core.db.dispose_engine",
+            return_value=dispose_coro,
+        ) as dispose_engine, patch(
+            "giga_agent.cli.asyncio.run"
+        ) as asyncio_run:
+            dev(no_reload=True)
+
+        dispose_engine.assert_called_once_with()
+        asyncio_run.assert_called_once()
+        self.assertTrue(asyncio.iscoroutine(asyncio_run.call_args.args[0]))

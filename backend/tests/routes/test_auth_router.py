@@ -1235,6 +1235,7 @@ class AuthRouterTests(unittest.TestCase):
 
     def test_patch_user_by_id_returns_422_for_self_flags_update(self):
         target = self._user_model()
+        target.is_superuser = True
         target.id = self.user.id
 
         with patch(

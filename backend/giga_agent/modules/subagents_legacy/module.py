@@ -91,7 +91,7 @@ class SubAgentLegacyModule(BaseModule):
         caps = get_legacy_capabilities(user)
         tools: list[BaseTool] = []
 
-        if caps.has_llm and caps.has_search:
+        if caps.has_llm:
             tools.extend([lean_canvas])
 
         if caps.has_search:

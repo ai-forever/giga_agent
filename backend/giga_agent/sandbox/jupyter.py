@@ -26,6 +26,9 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             headers.update(self.headers)
         return headers
 
+    def _get_kernel_request_payload(self) -> Dict[str, Any] | None:
+        return None
+
     async def up(self) -> None:
         """
         JupyterSandbox подключается к уже существующему экземпляру,
@@ -63,8 +66,11 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                     pass
 
             # Create new kernel
+            payload = self._get_kernel_request_payload()
             async with session.post(
-                f"{self.base_url}/api/kernels", headers=self._get_headers()
+                f"{self.base_url}/api/kernels",
+                headers=self._get_headers(),
+                json=payload,
             ) as r:
                 r.raise_for_status()
                 data = await r.json()
@@ -153,7 +159,6 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                         "data": content["data"],
                     }
                 elif msg_type == "input_request":
-                    # Wait for input from the consumer of the generator
                     user_input = yield {
                         "type": "input_request",
                         "prompt": content.get("prompt", ""),

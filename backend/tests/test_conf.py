@@ -48,6 +48,26 @@ class ConfSettingsTests(unittest.TestCase):
             settings = get_settings()
             self.assertEqual(settings.giga_agent_log_level, "INFO")
 
+    def test_gigachat_from_env_disabled_by_default(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertFalse(settings.giga_agent_gigachat_from_env)
+
+    def test_reads_gigachat_from_env_flag(self):
+        with self._patched_env({"GIGA_AGENT_GIGACHAT_FROM_ENV": "1"}, clear=True):
+            settings = get_settings()
+            self.assertTrue(settings.giga_agent_gigachat_from_env)
+
+    def test_gigachat_skip_cache_token_disabled_by_default(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertFalse(settings.giga_agent_gigachat_skip_cache_token)
+
+    def test_reads_gigachat_skip_cache_token_flag(self):
+        with self._patched_env({"GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN": "1"}, clear=True):
+            settings = get_settings()
+            self.assertTrue(settings.giga_agent_gigachat_skip_cache_token)
+
     def test_reads_local_jupyter_settings(self):
         with self._patched_env(
             {

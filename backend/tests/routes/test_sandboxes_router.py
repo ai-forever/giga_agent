@@ -527,7 +527,7 @@ class SandboxesRouterTests(unittest.TestCase):
             response = self.client.get("/sandboxes/providers/types")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), ["e2b", "local_docker", "local_jupyter"])
+        self.assertEqual(response.json(), ["e2b"])
 
     def test_get_provider_types_shows_local_for_superuser_when_enabled(self):
         with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(

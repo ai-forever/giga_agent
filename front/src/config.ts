@@ -1,3 +1,103 @@
+interface RuntimeConfig {
+  baseUrl?: string;
+  basePath?: string;
+  apiBasePath?: string;
+  apiAgentBasePath?: string;
+}
+
+declare global {
+  interface Window {
+    __GIGA_AGENT_CONFIG__?: RuntimeConfig;
+  }
+}
+
+export const runtimeConfig: RuntimeConfig =
+  typeof window !== "undefined" ? (window.__GIGA_AGENT_CONFIG__ ?? {}) : {};
+
+function normalizeBasePath(value: string | undefined): string {
+  if (!value) {
+    return "/";
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") {
+    return "/";
+  }
+
+  return `/${trimmed.replace(/^\/+|\/+$/g, "")}`;
+}
+
+function normalizeAbsoluteBaseUrl(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin}${normalizedPath}`;
+  } catch {
+    return null;
+  }
+}
+
+function toTrailingSlashPath(value: string): string {
+  return value === "/" ? "/" : `${value}/`;
+}
+
+function joinBasePath(basePath: string, suffix: string): string {
+  const normalizedBasePath = normalizeBasePath(basePath);
+  const normalizedSuffix = suffix.replace(/^\/+/, "");
+  if (!normalizedSuffix) {
+    return normalizedBasePath;
+  }
+  if (normalizedBasePath === "/") {
+    return `/${normalizedSuffix}`;
+  }
+  return `${normalizedBasePath}/${normalizedSuffix}`;
+}
+
+const configuredBaseUrl = normalizeAbsoluteBaseUrl(runtimeConfig.baseUrl);
+const configuredBasePath = normalizeBasePath(
+  runtimeConfig.basePath ??
+    (configuredBaseUrl ? new URL(configuredBaseUrl).pathname : "/"),
+);
+
+export const UI_BASENAME = configuredBasePath === "/" ? "" : configuredBasePath;
+export const APP_BASE_PATH = configuredBasePath;
+export const APP_ROOT_PATH = toTrailingSlashPath(APP_BASE_PATH);
+export const APP_BASE_URL =
+  configuredBaseUrl ??
+  new URL(toTrailingSlashPath(APP_BASE_PATH), window.location.origin)
+    .toString()
+    .replace(/\/$/, "");
+
+const configuredApiBasePath = runtimeConfig.apiBasePath
+  ? normalizeBasePath(runtimeConfig.apiBasePath)
+  : joinBasePath(APP_BASE_PATH, "api");
+
+const configuredApiBaseUrl = normalizeAbsoluteBaseUrl(
+  configuredBaseUrl
+    ? new URL("api/", `${APP_BASE_URL}/`).toString()
+    : new URL(
+        toTrailingSlashPath(configuredApiBasePath),
+        window.location.origin,
+      ).toString(),
+);
+
+export const API_BASE_URL =
+  configuredApiBaseUrl ?? `${window.location.origin}/api`;
+export const API_PREFIX = API_BASE_URL;
+export const API_AGENT_PREFIX = `${API_BASE_URL}/agent`;
+
 export const TOOL_MAP = {
   lean_canvas: "Агент по созданию Lean Canvas",
   python: "Код-интерпретатор",
@@ -78,8 +178,6 @@ export const PROGRESS_AGENTS = {
 export const BROWSER_USE_NAME = "browser_task";
 
 export const TIME_TO_NEXT_TASK = 15;
-export const API_PREFIX = "/api";
-export const API_AGENT_PREFIX = `${API_PREFIX}/agent`;
 
 export const MCP_PROXY_URL: string | undefined = import.meta.env
   ?.VITE_MCP_PROXY_URL;

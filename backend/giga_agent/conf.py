@@ -4,6 +4,8 @@ from functools import lru_cache
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
+from urllib.parse import urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +19,7 @@ class Settings(BaseSettings):
     )
 
     giga_agent_prefix_api: str = Field("/agent", alias="GIGA_AGENT_PREFIX_API")
+    giga_agent_base_url: str | None = Field(None, alias="GIGA_AGENT_BASE_URL")
     giga_agent_frontend_dir: str | None = Field(None, alias="GIGA_AGENT_FRONTEND_DIR")
     giga_agent_ui: bool = Field(True, alias="GIGA_AGENT_UI")
     giga_agent_ui_prefix: Optional[str] = Field(None, alias="GIGA_AGENT_UI_PREFIX")
@@ -58,6 +61,12 @@ class Settings(BaseSettings):
     )
     giga_agent_log_format: str | None = Field(None, alias="GIGA_AGENT_LOG_FORMAT")
     giga_agent_log_json: bool = Field(False, alias="GIGA_AGENT_LOG_JSON")
+    giga_agent_gigachat_from_env: bool = Field(
+        False, alias="GIGA_AGENT_GIGACHAT_FROM_ENV"
+    )
+    giga_agent_gigachat_skip_cache_token: bool = Field(
+        False, alias="GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN"
+    )
 
     giga_agent_auth_algorithm: str = Field("HS256", alias="GIGA_AGENT_AUTH_ALGORITHM")
     giga_agent_admin_email: str = Field(
@@ -217,6 +226,21 @@ class Settings(BaseSettings):
     def _normalize_prefix(cls, value: str) -> str:
         return (value or "/agent").rstrip("/")
 
+    @field_validator("giga_agent_base_url", mode="after")
+    @classmethod
+    def _normalize_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        parsed = urlsplit(cleaned)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("GIGA_AGENT_BASE_URL must be a valid http(s) URL")
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, "", ""),
+        )
+
     @field_validator("giga_agent_frontend_dir", mode="after")
     @classmethod
     def _normalize_frontend_dir(cls, value: str | None) -> str | None:
@@ -340,9 +364,14 @@ def get_local_docker_max_active_sandboxes_from_env() -> int | None:
 
 GIGA_AGENT_PREFIX_API = get_settings().giga_agent_prefix_api
 GIGA_PREFIX_API = GIGA_AGENT_PREFIX_API
+GIGA_AGENT_BASE_URL = get_settings().giga_agent_base_url
 GIGA_AGENT_FRONTEND_DIR = get_settings().giga_agent_frontend_dir
 GIGA_AGENT_UI = get_settings().giga_agent_ui
 GIGA_AGENT_UI_PREFIX = get_settings().giga_agent_ui_prefix
+GIGA_AGENT_GIGACHAT_FROM_ENV = get_settings().giga_agent_gigachat_from_env
+GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN = (
+    get_settings().giga_agent_gigachat_skip_cache_token
+)
 
 GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED = (
     get_settings().giga_agent_sandbox_idle_sweeper_enabled

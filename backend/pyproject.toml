@@ -69,6 +69,38 @@ giga_agent = "giga_agent.cli:app"
 jupyter = [
     "jupyter-server>=2.0.0",
     "ipykernel>=6.0.0",
+    "numpy>=2.0.0",
+    "pandas>=2.2.0",
+    "matplotlib>=3.9.0",
+    "seaborn>=0.13.0",
+    "plotly>=6.0.0",
+    "openpyxl>=3.1.0",
+    "sympy>=1.13.0",
+    "python-docx>=1.1.0",
+    "kaleido>=1.0.0",
+]
+jupyter-full = [
+    "jupyter-server>=2.0.0",
+    "ipykernel>=6.0.0",
+    "numpy>=2.0.0",
+    "pandas>=2.2.0",
+    "matplotlib>=3.9.0",
+    "seaborn>=0.13.0",
+    "plotly>=6.0.0",
+    "openpyxl>=3.1.0",
+    "sympy>=1.13.0",
+    "python-docx>=1.1.0",
+    "kaleido>=1.0.0",
+    "opencv-python>=4.11.0",
+    "librosa>=0.11.0",
+    "spacy>=3.8.2; python_version<'3.13'",
+    "nltk>=3.9.0",
+    "xarray>=2025.0.0",
+    "scikit-image>=0.25.0",
+    "bokeh>=3.7.0",
+    "imageio>=2.37.0",
+    "soundfile>=0.13.0",
+    "xlrd>=2.0.0",
 ]
 
 [tool.hatch.build.force-include]
