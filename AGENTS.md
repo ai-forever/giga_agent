@@ -36,3 +36,5 @@ See `backend/AGENTS.md` section 2 for full command reference. Quick summary:
 - The `uv` package manager must be installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`); it is not part of the standard system packages.
 - Python 3.12 is required (see `backend/.python-version`).
 - Node.js 22 is required for the frontend.
+- Auth API endpoint is `/api/agent/auth/token` (OAuth2 form POST with `username` + `password`), not `/api/auth/token`. Module routes are prefixed with `/agent/{module.id}`.
+- The backend has ~53 pre-existing ruff lint warnings and 1 pre-existing test failure (`test_patch_user_by_id_returns_422_for_self_flags_update`). These are not caused by new changes.
