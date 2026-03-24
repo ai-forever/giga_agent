@@ -1,6 +1,6 @@
 import unittest
 
-from giga_agent.modules.rag.services.document_processor import process_document
+from giga_agent.modules.rag.services.document_processor import SUPPORTED_MIMETYPES, process_document
 
 
 class _DummyUploadFile:
@@ -44,4 +44,36 @@ class RagDocumentProcessorTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(end, start)
             self.assertLessEqual(end, len(full_text))
             self.assertEqual(full_text[start:end], d.page_content)
+
+    async def test_process_markdown_document(self) -> None:
+        md_text = "# Заголовок\n\nТекст параграфа с **жирным** и *курсивом*.\n\n- Пункт 1\n- Пункт 2\n"
+        dummy = _DummyUploadFile(
+            filename="readme.md",
+            content_type="text/markdown",
+            content=md_text.encode("utf-8"),
+        )
+
+        file_id, full_text, docs = await process_document(dummy)
+
+        self.assertTrue(file_id)
+        self.assertEqual(full_text, md_text.strip())
+        self.assertGreater(len(docs), 0)
+
+    async def test_process_markdown_with_octet_stream_fallback(self) -> None:
+        md_text = "# Test\n\nContent here.\n"
+        dummy = _DummyUploadFile(
+            filename="notes.md",
+            content_type="application/octet-stream",
+            content=md_text.encode("utf-8"),
+        )
+
+        file_id, full_text, docs = await process_document(dummy)
+
+        self.assertTrue(file_id)
+        self.assertEqual(full_text, md_text.strip())
+        self.assertGreater(len(docs), 0)
+
+    def test_markdown_mimetypes_in_supported_list(self) -> None:
+        self.assertIn("text/markdown", SUPPORTED_MIMETYPES)
+        self.assertIn("text/x-markdown", SUPPORTED_MIMETYPES)
 

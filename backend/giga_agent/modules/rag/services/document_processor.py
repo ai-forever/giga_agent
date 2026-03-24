@@ -1,3 +1,4 @@
+import mimetypes
 import uuid
 
 from fastapi import UploadFile
@@ -16,6 +17,8 @@ logger = get_logger(__name__)
 HANDLERS = {
     "application/pdf": PDFMinerParser(),
     "text/plain": TextParser(),
+    "text/markdown": TextParser(),
+    "text/x-markdown": TextParser(),
     "text/html": BS4HTMLParser(),
     "application/msword": MsWordParser(),
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
@@ -56,7 +59,12 @@ async def process_document(
         file_uuid = file_id if isinstance(file_id, uuid.UUID) else uuid.UUID(str(file_id))
 
     contents = await file.read()
-    blob = Blob(data=contents, mimetype=file.content_type or "text/plain")
+    content_type = file.content_type
+    if not content_type or content_type == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(file.filename or "")
+        if guessed:
+            content_type = guessed
+    blob = Blob(data=contents, mimetype=content_type or "text/plain")
 
     docs = MIMETYPE_BASED_PARSER.parse(blob)
     full_text = "\n\n".join((d.page_content or "") for d in docs).strip()
