@@ -105,6 +105,10 @@ class _AsyncKandinskyClient:
         request_id = await self.generate(prompt, width, height, style, negative_prompt)
         return await self.check_generation(request_id)
 
+    async def aclose(self) -> None:
+        """Закрыть HTTP-клиент."""
+        await self.client.aclose()
+
 
 @ImageGeneratorRegistry.register("fusion_brain")
 class FusionBrainImageGen(BaseImageGenerator):
@@ -130,6 +134,10 @@ class FusionBrainImageGen(BaseImageGenerator):
             )
         self._api = _AsyncKandinskyClient(api_key=api_key, secret_key=secret_key)
         await super().init()
+
+    async def cleanup(self) -> None:
+        if self._api is not None:
+            await self._api.aclose()
 
     async def _generate_image(
         self,

@@ -82,7 +82,10 @@ async def gen_image(
 
         generator = await _resolve_generator_for_user(user, session=session)
 
-    image_b64 = await generator.generate_image(prompt, width, height)
+    try:
+        image_b64 = await generator.generate_image(prompt, width, height)
+    finally:
+        await generator.cleanup()
 
     upload_prefix = _resolve_upload_prefix(runtime)
     image_bytes = base64.b64decode(image_b64)
