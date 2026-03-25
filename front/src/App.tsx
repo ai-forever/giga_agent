@@ -29,6 +29,7 @@ import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
+import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import { API_BASE_URL_KEY } from "@/lib/api-client";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
@@ -115,6 +116,7 @@ const InnerApp: React.FC = () => {
           onThreadReady={handleThreadReady}
         />
       </MainContent>
+      <OnboardingWizard />
     </>
   );
 };
