@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 
 from langchain_core.tools import BaseTool
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule
@@ -19,6 +20,8 @@ class ScraperModule(BaseModule):
 
     @staticmethod
     def _is_enabled(user: UserShort | None) -> bool:
+        if get_settings().giga_agent_scraper_disabled:
+            return False
         if user is None:
             return False
         return (user.fast_llm_id or user.llm_id) is not None

@@ -15,7 +15,7 @@ from typing import Annotated
 
 import typer
 
-from giga_agent.conf import reset_settings_cache
+from giga_agent.conf import GIGA_AGENT_BASE_URL, reset_settings_cache
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.process_supervisor import get_process_supervisor
 
@@ -53,7 +53,7 @@ def _ensure_dev_secret_key_env() -> None:
 
 
 def _print_startup_banner(*, host: str, port: int) -> None:
-    url = f"http://{host}:{port}"
+    url = GIGA_AGENT_BASE_URL if GIGA_AGENT_BASE_URL else f"http://{host}:{port}"
     ascii_art = r"""
    ____ _                _                    _   
   / ___(_) __ _  __ _   / \   __ _  ___ _ __ | |_ 

@@ -118,6 +118,7 @@ class GigaChatConnector(BaseConnector):
                 "base_url": base_url,
                 "user": self.gigachat_username,
                 "password": self.gigachat_password,
+                "verify_ssl_certs": False,
                 "streaming": True,
             }
 
@@ -131,7 +132,7 @@ class GigaChatConnector(BaseConnector):
 
     async def check_connection(self) -> bool:
         if self._is_from_env_mode():
-            llm = GigaChat()
+            llm = GigaChat(verify_ssl_certs=False)
             await llm.aget_models()
             return True
 

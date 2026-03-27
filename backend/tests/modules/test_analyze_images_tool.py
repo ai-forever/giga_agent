@@ -210,3 +210,141 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(message.content)
         self.assertEqual(payload["analysis"], "analysis")
         llm_runtime.analyze_image.assert_awaited_once()
+
+    async def test_analyze_image_converts_plotly_json_before_analysis(self):
+        owner_id = uuid.uuid4()
+        runtime = self._runtime(owner_id)
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        llm_runtime = types.SimpleNamespace(
+            can_analyze_image=lambda: True,
+            analyze_image=AsyncMock(return_value="chart analysis"),
+            model_id="gpt-4o",
+        )
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        with patch(
+            "giga_agent.modules.analyze_images.tool.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool.SandboxManager.read_file_by_path_for_user",
+            AsyncMock(
+                return_value=(
+                    object(),
+                    ContentResult(
+                        data=json.dumps(
+                            {"data": [{"type": "bar", "x": ["A"], "y": [1]}], "layout": {}}
+                        ).encode("utf-8"),
+                        media_type="application/json",
+                    ),
+                )
+            ),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool._plotly_json_to_png_bytes",
+            return_value=self._png_bytes(),
+        ) as plotly_to_png, patch(
+            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
+            AsyncMock(return_value=user),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
+            AsyncMock(return_value=llm_runtime),
+        ):
+            assert analyze_image.coroutine is not None
+            message = await analyze_image.coroutine(
+                image_path="/runs/test/chart.plotly.json",
+                prompt="describe",
+                runtime=runtime,
+            )
+
+        payload = json.loads(message.content)
+        self.assertEqual(payload["analysis"], "chart analysis")
+        plotly_to_png.assert_called_once()
+        llm_runtime.analyze_image.assert_awaited_once_with(
+            prompt="describe",
+            image_bytes=ANY,
+            mime_type="image/jpg",
+        )
+
+    async def test_analyze_image_raises_for_non_plotly_json(self):
+        owner_id = uuid.uuid4()
+        runtime = self._runtime(owner_id)
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        with patch(
+            "giga_agent.modules.analyze_images.tool.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool.SandboxManager.read_file_by_path_for_user",
+            AsyncMock(
+                return_value=(
+                    object(),
+                    ContentResult(
+                        data=json.dumps({"status": "ok"}).encode("utf-8"),
+                        media_type="application/json",
+                    ),
+                )
+            ),
+        ):
+            assert analyze_image.coroutine is not None
+            with self.assertRaisesRegex(ValueError, "Plotly JSON"):
+                await analyze_image.coroutine(
+                    image_path="/runs/test/data.json",
+                    prompt="describe",
+                    runtime=runtime,
+                )
+
+    async def test_analyze_image_converts_plotly_json_by_path_when_mime_is_generic(self):
+        owner_id = uuid.uuid4()
+        runtime = self._runtime(owner_id)
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        llm_runtime = types.SimpleNamespace(
+            can_analyze_image=lambda: True,
+            analyze_image=AsyncMock(return_value="chart analysis"),
+            model_id="gpt-4o",
+        )
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        with patch(
+            "giga_agent.modules.analyze_images.tool.get_session_factory",
+            AsyncMock(return_value=lambda: _session_context()),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool.SandboxManager.read_file_by_path_for_user",
+            AsyncMock(
+                return_value=(
+                    object(),
+                    ContentResult(
+                        data=json.dumps(
+                            {"data": [{"type": "scatter", "x": [1], "y": [2]}], "layout": {}}
+                        ).encode("utf-8"),
+                        media_type="application/octet-stream",
+                    ),
+                )
+            ),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool._plotly_json_to_png_bytes",
+            return_value=self._png_bytes(),
+        ) as plotly_to_png, patch(
+            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
+            AsyncMock(return_value=user),
+        ), patch(
+            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
+            AsyncMock(return_value=llm_runtime),
+        ):
+            assert analyze_image.coroutine is not None
+            message = await analyze_image.coroutine(
+                image_path="/runs/test/chart.plotly.json",
+                prompt="describe",
+                runtime=runtime,
+            )
+
+        payload = json.loads(message.content)
+        self.assertEqual(payload["analysis"], "chart analysis")
+        plotly_to_png.assert_called_once()

@@ -4,12 +4,12 @@ import uuid
 from fastapi import UploadFile
 from langchain_community.document_loaders.parsers import BS4HTMLParser, PDFMinerParser
 from langchain_community.document_loaders.parsers.generic import MimeTypeBasedParser
-# from langchain_community.document_loaders.parsers.msword import MsWordParser
 from langchain_community.document_loaders.parsers.txt import TextParser
 from langchain_core.documents.base import Blob, Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from giga_agent.core.logging import get_logger
+from giga_agent.modules.rag.services.doc_parser import CustomDocxParser
 
 logger = get_logger(__name__)
 
@@ -20,10 +20,10 @@ HANDLERS = {
     "text/markdown": TextParser(),
     "text/x-markdown": TextParser(),
     "text/html": BS4HTMLParser(),
-    # "application/msword": MsWordParser(),
-    # "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
-    #     MsWordParser()
-    # ),
+    "application/msword": CustomDocxParser(),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
+        CustomDocxParser()
+    ),
 }
 
 SUPPORTED_MIMETYPES = sorted(HANDLERS.keys())
