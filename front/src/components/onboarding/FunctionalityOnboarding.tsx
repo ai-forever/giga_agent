@@ -76,7 +76,7 @@ const STARTUP_STEPS: Step[] = [
     placement: "right",
     title: "История диалогов",
     content:
-      'Все диалоги сохраняются в боковой панели. Вы можете переключаться между ними, переименовывать и удалять. Для нового диалога нажмите «Новый чат».',
+      "Все диалоги сохраняются в боковой панели. Вы можете переключаться между ними, переименовывать и удалять. Для нового диалога нажмите «Новый чат».",
     skipBeacon: true,
     targetWaitTimeout: 2000,
     data: { icon: <MessageSquare className="size-6" /> },
@@ -188,11 +188,7 @@ const CustomTooltip: React.FC<TooltipRenderProps> = ({
                 Пропустить
               </Button>
             )}
-            <Button
-              size="sm"
-              onClick={primaryProps.onClick}
-              className="gap-1"
-            >
+            <Button size="sm" onClick={primaryProps.onClick} className="gap-1">
               {isLastStep ? (
                 <>
                   {size <= 3 ? "Готово" : "Начать работу"}
@@ -277,7 +273,9 @@ const RuntimeTip: React.FC<{
     let resizeObserver: ResizeObserver | null = null;
 
     const updatePosition = () => {
-      const target = document.querySelector(targetSelector) as HTMLElement | null;
+      const target = document.querySelector(
+        targetSelector,
+      ) as HTMLElement | null;
       const card = cardRef.current;
       if (!target || !card) {
         setPosition(null);
@@ -295,7 +293,8 @@ const RuntimeTip: React.FC<{
       const targetCenterY = rect.top + rect.height / 2;
 
       const canPlaceLeft = rect.left - cardWidth - gap >= margin;
-      const canPlaceRight = rect.right + cardWidth + gap <= viewportWidth - margin;
+      const canPlaceRight =
+        rect.right + cardWidth + gap <= viewportWidth - margin;
       const canPlaceTop = rect.top - cardHeight - gap >= margin;
       const canPlaceBottom =
         rect.bottom + cardHeight + gap <= viewportHeight - margin;
@@ -331,8 +330,12 @@ const RuntimeTip: React.FC<{
         margin,
         Math.min(rawLeft, viewportWidth - cardWidth - margin),
       );
-      const top = side === "top" ? rect.top - cardHeight - gap : rect.bottom + gap;
-      const arrowLeft = Math.max(16, Math.min(targetCenterX - left, cardWidth - 16));
+      const top =
+        side === "top" ? rect.top - cardHeight - gap : rect.bottom + gap;
+      const arrowLeft = Math.max(
+        16,
+        Math.min(targetCenterX - left, cardWidth - 16),
+      );
       setPosition({ left, top, arrowLeft, side });
     };
 
@@ -440,12 +443,8 @@ const JOYRIDE_OPTIONS = {
 const FunctionalityOnboarding: React.FC = () => {
   const location = useLocation();
   const { settings, setSettings } = useSettings();
-  const {
-    isTipComplete,
-    markTipComplete,
-    tourActive,
-    setTourActive,
-  } = useFunctionalityOnboarding();
+  const { isTipComplete, markTipComplete, tourActive, setTourActive } =
+    useFunctionalityOnboarding();
 
   const isChatRoute =
     location.pathname === "/" || location.pathname.startsWith("/threads/");
@@ -610,7 +609,6 @@ const FunctionalityOnboarding: React.FC = () => {
           onDismiss={() => markTipComplete(TIP_IDS.ATTACHMENT_SELECTION)}
         />
       )}
-
     </>
   );
 };

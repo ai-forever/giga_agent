@@ -11,9 +11,7 @@ type TipsMap = Record<string, boolean>;
 
 function loadTips(): TipsMap {
   try {
-    return JSON.parse(
-      localStorage.getItem(TIPS_STORAGE_KEY) || "{}",
-    );
+    return JSON.parse(localStorage.getItem(TIPS_STORAGE_KEY) || "{}");
   } catch {
     return {};
   }

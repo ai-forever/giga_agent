@@ -394,7 +394,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               type="button"
               onClick={handleSend}
               disabled={
-                thread?.isLoading || isMCPLoading || !message.trim() || isUploading
+                thread?.isLoading ||
+                isMCPLoading ||
+                !message.trim() ||
+                isUploading
               }
               title="Отправить"
               className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
