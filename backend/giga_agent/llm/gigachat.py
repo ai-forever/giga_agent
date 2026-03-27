@@ -78,6 +78,7 @@ class GigaChatRuntime(BaseLLMRuntime):
             "temperature": settings.get("temperature"),
             "max_tokens": settings.get("max_tokens", 1280000),
             "top_p": settings.get("top_p"),
+            "streaming": True,
             "profanity_check": False,
             "timeout": 60,
         }

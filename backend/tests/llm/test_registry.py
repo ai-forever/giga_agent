@@ -69,3 +69,19 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(models), 1)
         self.assertEqual(models[0].id, "GigaChat")
+
+    async def test_gigachat_runtime_enables_streaming(self):
+        mock_llm = types.SimpleNamespace()
+        with patch(
+            "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
+            AsyncMock(return_value="tok"),
+        ), patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm) as mocked_ctor:
+            connector = GigaChatConnector(
+                gigachat_api_type="prod",
+                gigachat_credentials="token",
+            )
+            runtime = GigaChatRuntime(connector=connector, model_id="GigaChat")
+            llm = await runtime.get_llm()
+
+        self.assertIs(llm, mock_llm)
+        self.assertTrue(mocked_ctor.call_args.kwargs["streaming"])
