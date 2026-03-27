@@ -30,6 +30,21 @@ class MissingDependenciesError(ValueError):
             "install": JUPYTER_INSTALL_COMMAND,
         }
 
+    def to_validation_detail(self) -> list[dict[str, object]]:
+        missing_modules = ", ".join(self.missing_modules)
+        return [
+            {
+                "type": "value_error.missing_dependencies",
+                "loc": ["body", "settings"],
+                "msg": (
+                    f"{self}. Missing modules: {missing_modules}"
+                    if missing_modules
+                    else str(self)
+                ),
+                "ctx": self.to_detail(),
+            }
+        ]
+
 
 def get_missing_jupyter_modules() -> list[str]:
     missing_modules: list[str] = []

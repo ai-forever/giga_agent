@@ -4,6 +4,7 @@ import types
 import unittest
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from giga_agent.conf import reset_settings_cache
@@ -36,6 +37,35 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(MissingDependenciesError):
                 await LocalJupyterSandbox.validate_settings({})
+
+    async def test_legacy_settings_fields_are_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
+            {"GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH": tmp_dir},
+            clear=False,
+        ), patch(
+            "giga_agent.sandbox.local_jupyter.runtime.ensure_jupyter_dependencies",
+            return_value=None,
+        ):
+            validated = await LocalJupyterSandbox.validate_settings(
+                {
+                    "startup_timeout_sec": 45,
+                    "graceful_shutdown_timeout_sec": 10,
+                    "working_dir": "/tmp/workdir",
+                    "files_path": "/tmp/legacy-files",
+                    "python_executable": "/tmp/python",
+                }
+            )
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                startup_timeout_sec=45,
+                graceful_shutdown_timeout_sec=10,
+                working_dir="/tmp/workdir",
+                files_path="/tmp/legacy-files",
+                python_executable="/tmp/python",
+            )
+
+        self.assertEqual(validated, {})
+        self.assertEqual(runtime._sandbox_root_dir, Path(tmp_dir).resolve())
 
     async def test_up_uses_singleton_manager_handle(self):
         handle = LocalJupyterHandle(

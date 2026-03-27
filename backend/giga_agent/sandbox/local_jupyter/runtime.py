@@ -40,28 +40,6 @@ class LocalJupyterSandbox(JupyterSandbox):
         default=None,
         description="Sandbox owner id injected by runtime factory",
     )
-    startup_timeout_sec: int = Field(
-        default_factory=lambda: get_settings().giga_agent_local_jupyter_startup_timeout_sec,
-        description="Timeout in seconds to wait for managed Jupyter startup",
-    )
-    graceful_shutdown_timeout_sec: int = Field(
-        default_factory=lambda: (
-            get_settings().giga_agent_local_jupyter_graceful_shutdown_timeout_sec
-        ),
-        description="Graceful shutdown timeout for managed Jupyter process",
-    )
-    working_dir: str | None = Field(
-        default_factory=lambda: get_settings().giga_agent_local_jupyter_working_dir,
-        description="Working directory for the managed local Jupyter server",
-    )
-    files_path: str | None = Field(
-        default_factory=lambda: get_settings().giga_agent_local_jupyter_files_path,
-        description="Root directory for persisted local sandbox files",
-    )
-    python_executable: str | None = Field(
-        default_factory=lambda: get_settings().giga_agent_local_jupyter_python_executable,
-        description="Python executable used to start the managed Jupyter server",
-    )
     external_id: str | None = Field(
         default=None,
         description="Managed Jupyter process pid",
@@ -90,7 +68,7 @@ class LocalJupyterSandbox(JupyterSandbox):
         if self.jupyter_token:
             self._token = self.jupyter_token
 
-        root_dir_raw = self.files_path
+        root_dir_raw = get_settings().giga_agent_local_jupyter_files_path
         if root_dir_raw:
             self._sandbox_root_dir = Path(root_dir_raw).expanduser().resolve()
         else:
@@ -102,12 +80,6 @@ class LocalJupyterSandbox(JupyterSandbox):
     async def validate_settings(cls, settings: dict) -> dict:
         validated = await super().validate_settings(settings)
         ensure_jupyter_dependencies()
-
-        for path_key in ("working_dir", "files_path", "python_executable"):
-            raw_value = validated.get(path_key)
-            if isinstance(raw_value, str):
-                cleaned = raw_value.strip()
-                validated[path_key] = cleaned or None
 
         return validated
 

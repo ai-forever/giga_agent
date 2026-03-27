@@ -144,7 +144,7 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
                 result = await connector.check_connection()
 
         self.assertTrue(result)
-        mocked_llm.assert_called_once_with()
+        mocked_llm.assert_called_once_with(verify_ssl_certs=False)
         mock_llm.aget_models.assert_awaited_once()
 
     async def test_tavily_env_fallback(self):

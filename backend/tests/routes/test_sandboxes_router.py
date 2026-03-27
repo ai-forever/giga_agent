@@ -623,12 +623,24 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertEqual(
             response.json()["detail"],
-            {
-                "error": "missing_dependencies",
-                "provider_type": "local_jupyter",
-                "missing": ["jupyter_server", "ipykernel"],
-                "install": 'pip install -U "giga-agent[jupyter]"',
-            },
+            [
+                {
+                    "type": "value_error.missing_dependencies",
+                    "loc": ["body", "settings"],
+                    "msg": (
+                        "Required Jupyter dependencies are not installed. "
+                        "Install them with: pip install -U "
+                        '"giga-agent[jupyter]". Missing modules: '
+                        "jupyter_server, ipykernel"
+                    ),
+                    "ctx": {
+                        "error": "missing_dependencies",
+                        "provider_type": "local_jupyter",
+                        "missing": ["jupyter_server", "ipykernel"],
+                        "install": 'pip install -U "giga-agent[jupyter]"',
+                    },
+                }
+            ],
         )
 
     def test_patch_provider_allows_null_name_and_invalidates_cache(self):
