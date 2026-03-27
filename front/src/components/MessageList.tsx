@@ -25,7 +25,10 @@ const MessageList: React.FC<MessageListProps> = ({
 }) => {
   const lastMessage = messages.at(-1);
   return (
-    <div className="flex-1 p-5 max-[900px]:p-0" style={{ overflowAnchor: "none" }}>
+    <div
+      className="flex-1 p-5 max-[900px]:p-0"
+      style={{ overflowAnchor: "none" }}
+    >
       {children}
       {messages.length === 0 && !notShowWelcomeMessage ? (
         <WellcomeMessage />
