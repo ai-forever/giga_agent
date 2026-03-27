@@ -30,13 +30,13 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.engine.dispose()
 
-    async def _create_user(self, email: str) -> User:
+    async def _create_user(self, email: str, *, is_superuser: bool = False) -> User:
         async with self.session_factory() as session:
             user = User(
                 email=email,
                 hashed_password="hash",
                 is_active=True,
-                is_superuser=False,
+                is_superuser=is_superuser,
             )
             session.add(user)
             await session.commit()
@@ -124,6 +124,15 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             user_in_db.sandbox_provider_id = provider.id
             await session.commit()
 
+            manager = SandboxManager(session)
+            resolved = await manager._resolve_provider(user_id=user.id, provider_id=None)
+            self.assertEqual(resolved.id, provider.id)
+
+    async def test_resolve_provider_allows_local_provider_for_non_admin_user(self):
+        user = await self._create_user("m1d@example.com")
+        provider = await self._create_provider(user.id, provider_type="local_jupyter")
+
+        async with self.session_factory() as session:
             manager = SandboxManager(session)
             resolved = await manager._resolve_provider(user_id=user.id, provider_id=None)
             self.assertEqual(resolved.id, provider.id)
@@ -258,7 +267,7 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_files_for_user_creates_db_records_in_input_order(self):
         user = await self._create_user("m6@example.com")
-        provider = await self._create_provider(user.id)
+        await self._create_provider(user.id)
         runtime = types.SimpleNamespace(
             upload_file=AsyncMock(
                 side_effect=[

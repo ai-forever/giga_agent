@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import Any, AsyncGenerator, Optional, Dict
 import aiohttp
 import websockets
 from pydantic import Field, PrivateAttr
@@ -26,6 +26,9 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             headers.update(self.headers)
         return headers
 
+    def _get_kernel_request_payload(self) -> Dict[str, Any] | None:
+        return None
+
     async def up(self) -> None:
         """
         JupyterSandbox подключается к уже существующему экземпляру,
@@ -48,7 +51,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             pass
         return False
 
-    async def _ensure_kernel(self):
+    async def _ensure_kernel(self) -> None:
         async with aiohttp.ClientSession() as session:
             if self._kernel_id:
                 # Check if alive
@@ -63,16 +66,25 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                     pass
 
             # Create new kernel
+            payload = self._get_kernel_request_payload()
             async with session.post(
-                f"{self.base_url}/api/kernels", headers=self._get_headers()
+                f"{self.base_url}/api/kernels",
+                headers=self._get_headers(),
+                json=payload,
             ) as r:
                 r.raise_for_status()
                 data = await r.json()
                 self._kernel_id = data["id"]
 
     async def run_code(
-        self, code: str, kernel_id: Optional[str] = None
-    ) -> AsyncGenerator[Dict[str, Any], str]:
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        del kwargs
         if kernel_id is None:
             self._kernel_id = str(uuid.uuid4())
         else:
@@ -105,7 +117,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                     "silent": False,
                     "store_history": True,
                     "user_expressions": {},
-                    "allow_stdin": True,
+                    "allow_stdin": allow_stdin,
                     "stop_on_error": True,
                 },
                 "channel": "shell",
@@ -147,7 +159,6 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                         "data": content["data"],
                     }
                 elif msg_type == "input_request":
-                    # Wait for input from the consumer of the generator
                     user_input = yield {
                         "type": "input_request",
                         "prompt": content.get("prompt", ""),

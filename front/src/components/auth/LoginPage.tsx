@@ -5,37 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
-import { motion, type Variants } from "framer-motion";
 import LogoWhiteImage from "@/assets/gigachain_logo.svg";
-
-const curve: [number, number, number, number] = [0.19, 1, 0.22, 1];
-
-const transitions = {
-  logo: {
-    duration: 0.4,
-    ease: curve,
-  },
-};
-
-const logoVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.7, rotate: -6, filter: "grayscale(10)" },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    rotate: 0,
-    filter: "grayscale(0)",
-    transition: transitions.logo,
-  },
-};
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();

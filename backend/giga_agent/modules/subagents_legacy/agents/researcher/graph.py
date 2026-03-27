@@ -137,7 +137,7 @@ research_instructions = """Вы — опытный исследователь. �
 
 ## `internet_search`
 
-Используйте это для запуска интернет-поиска по заданному запросу. Вы можете указать количество результатов, тему и необходимость включения исходного контента.
+Используйте это для запуска интернет-поиска по заданному запросу.
 """  # noqa: E501
 
 
@@ -189,14 +189,9 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
     @tool
     async def internet_search(
         query: str,
-        max_results: int = 10,
-        topic: Literal["general", "news", "finance"] = "general",
-        include_raw_content: bool = False,
     ):
         """Функция поиска в интернете"""
-        _ = (max_results, topic, include_raw_content)
-        result = await search_engine.search([query])
-        return "\n\n".join(normalize_search_result(item) for item in result)
+        return await search_engine.search([query])
 
     research_sub_agent = {
         "name": "research-agent",

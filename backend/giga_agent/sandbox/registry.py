@@ -4,10 +4,13 @@ from pydantic import BaseModel
 
 from giga_agent.conf import get_settings
 from giga_agent.sandbox.base import BaseSandbox
+from giga_agent.sandbox.access import (
+    LOCAL_DOCKER_PROVIDER,
+    LOCAL_JUPYTER_PROVIDER,
+)
 from giga_agent.core.logging import get_logger
 
 logger = get_logger(__name__)
-LOCAL_DOCKER_PROVIDER = "local_docker"
 
 
 class SandboxRegistry:
@@ -33,7 +36,7 @@ class SandboxRegistry:
 
     @classmethod
     def is_provider_enabled(cls, provider_type: str) -> bool:
-        if provider_type != LOCAL_DOCKER_PROVIDER:
+        if provider_type not in {LOCAL_DOCKER_PROVIDER, LOCAL_JUPYTER_PROVIDER}:
             return True
         return get_settings().giga_agent_local_sandbox_enabled
 

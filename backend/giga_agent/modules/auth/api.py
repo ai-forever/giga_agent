@@ -8,6 +8,7 @@ from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,8 +113,6 @@ async def get_current_active_user(
 
 
 # ============ Pydantic схемы для API ============
-
-from pydantic import BaseModel
 
 
 class Token(BaseModel):

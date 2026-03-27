@@ -74,7 +74,7 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
           buildContentByPathPreviewUrl(path),
           {
             attachAuth: true,
-            credentials: "omit",
+            credentials: "same-origin",
             showError: false,
           },
         );

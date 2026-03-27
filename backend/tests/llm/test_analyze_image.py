@@ -39,7 +39,8 @@ class _BaseRuntimeStub(BaseLLMRuntime):
 class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_base_runtime_analyze_image_sends_base64_data_url(self):
         llm_stub = types.SimpleNamespace(
-            ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="ok"))
+            ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="ok")),
+            with_config=lambda **kwargs: llm_stub
         )
         _BaseRuntimeStub._llm_stub = llm_stub
         runtime = _BaseRuntimeStub(

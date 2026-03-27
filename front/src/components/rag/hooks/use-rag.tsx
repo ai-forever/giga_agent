@@ -366,9 +366,7 @@ export function useRag(): UseRagReturn {
         `${API_AGENT_PREFIX}/rag/collections/${selectedCollection.uuid}/documents/${encodeURIComponent(id)}`,
       );
 
-      setDocuments((prevDocs) =>
-        prevDocs.filter((doc) => doc.metadata.file_id !== id),
-      );
+      setDocuments((prevDocs) => prevDocs.filter((doc) => doc.id !== id));
     },
     [selectedCollection],
   );

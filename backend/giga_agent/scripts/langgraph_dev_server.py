@@ -7,6 +7,7 @@ reliably stop the whole reload/worker tree on Ctrl+C/SIGTERM.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger, setup_cli_logging
 
 logger = get_logger(__name__)
+_DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC = 3
 
 
 def _is_truthy_env(value: str | None) -> bool:
@@ -43,6 +45,7 @@ def _patch_uvicorn_log_suppression(*, desired_level: str) -> None:
 
     orig_uvicorn_run = uvicorn.run
 
+    @functools.wraps(orig_uvicorn_run)
     def _uvicorn_run_with_suppression(*args, **kwargs):
         # Allow overriding the ASGI app target while still using LangGraph's
         # environment patching and server bootstrap logic.
@@ -155,6 +158,7 @@ def main() -> int:
         auth={"path": auth_path},
         http=http_config,
         allow_blocking=True,
+        timeout_graceful_shutdown=_DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC,
     )
 
     return 0

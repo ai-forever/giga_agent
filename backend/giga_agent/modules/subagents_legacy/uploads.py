@@ -26,15 +26,18 @@ class LegacyUploadFileSpec(TypedDict):
 
 def build_file_content_by_path_api() -> str:
     settings = get_settings()
-    host = (settings.giga_agent_host or "").strip().rstrip("/")
-    port = (settings.giga_agent_port or "").strip()
-
-    if host and port:
-        base = f"{host}:{port}"
-    elif host:
-        base = host
+    if settings.giga_agent_base_url:
+        base = settings.giga_agent_base_url.strip().rstrip("/")
     else:
-        base = ""
+        host = (settings.giga_agent_host or "").strip().rstrip("/")
+        port = (settings.giga_agent_port or "").strip()
+
+        if host and port:
+            base = f"{host}:{port}"
+        elif host:
+            base = host
+        else:
+            base = ""
 
     if base:
         return f"{base}/api{GIGA_PREFIX_API}/files/content/by-path"

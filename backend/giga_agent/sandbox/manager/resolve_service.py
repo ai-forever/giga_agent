@@ -43,7 +43,6 @@ class SandboxResolveService:
                 owner_id=user_id,
                 provider_id=cached.provider.id,
             )
-
         return await cls(session).get_or_create_for_user(
             user_id=user_id,
             provider_id=provider_id,

@@ -115,6 +115,7 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         image_url = f"data:{mime_type};base64,{image_b64}"
         llm = await self.get_llm()
+        llm = llm.with_config(tags=["nostream"])
         response = await llm.ainvoke(
             [
                 HumanMessage(

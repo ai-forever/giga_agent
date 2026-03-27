@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "giga-agent"
-version = "0.1.0"
+version = "0.1.1"
 description = "Modular Agent Framework"
-readme = "README.md"
+dynamic = ["readme"]
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
@@ -50,7 +50,6 @@ dependencies = [
     "beautifulsoup4>=4.14.3",
     "pdfminer-six>=20260107",
     "lxml>=6.0.2",
-    "unstructured[docx]>=0.18.32",
     "psycopg[binary]>=3.3.3",
     "httpx>=0.28.1",
     "langchain-text-splitters>=1.1.1",
@@ -61,10 +60,47 @@ dependencies = [
     "aiofiles>=25.1.0",
     "redis==7.2.1",
     "psycopg2-binary>=2.9.11",
+    "python-docx>=1.1.0",
+    "plotly>=6.0.0",
+    "kaleido>=1.0.0",
 ]
 
 [project.scripts]
 giga_agent = "giga_agent.cli:app"
+
+[project.optional-dependencies]
+jupyter = [
+    "jupyter-server>=2.0.0",
+    "ipykernel>=6.0.0",
+    "numpy>=2.0.0",
+    "pandas>=2.2.0",
+    "matplotlib>=3.9.0",
+    "seaborn>=0.13.0",
+    "openpyxl>=3.1.0",
+    "sympy>=1.13.0",
+    "python-docx>=1.1.0",
+]
+jupyter-full = [
+    "jupyter-server>=2.0.0",
+    "ipykernel>=6.0.0",
+    "numpy>=2.0.0",
+    "pandas>=2.2.0",
+    "matplotlib>=3.9.0",
+    "seaborn>=0.13.0",
+    "openpyxl>=3.1.0",
+    "sympy>=1.13.0",
+    "python-docx>=1.1.0",
+    "opencv-python>=4.11.0",
+    "librosa>=0.11.0",
+    "spacy>=3.8.2; python_version<'3.13'",
+    "nltk>=3.9.0",
+    "xarray>=2025.0.0",
+    "scikit-image>=0.25.0",
+    "bokeh>=3.7.0",
+    "imageio>=2.37.0",
+    "soundfile>=0.13.0",
+    "xlrd>=2.0.0",
+]
 
 [tool.hatch.build.force-include]
 "giga_agent/alembic.ini" = "giga_agent/alembic.ini"
@@ -72,6 +108,9 @@ giga_agent = "giga_agent.cli:app"
 
 [tool.hatch.build.hooks.custom]
 path = "hatch_build.py"
+
+[tool.hatch.metadata.hooks.custom]
+path = "hatch_metadata.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["giga_agent"]

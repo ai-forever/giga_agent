@@ -1,5 +1,4 @@
 import { API_AGENT_PREFIX } from "@/config.ts";
-import { resolveApiUrl } from "@/lib/api-client";
 
 export type AttachmentFileType =
   | "plotly_graph"
@@ -26,14 +25,10 @@ export const resolveAttachmentPath = (value: PathLike): string => {
 };
 
 export const buildContentByPathUrl = (path: string): string =>
-  resolveApiUrl(
-    `${API_AGENT_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}`,
-  );
+  `${API_AGENT_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}`;
 
 export const buildContentByPathPreviewUrl = (path: string): string =>
-  resolveApiUrl(
-    `${API_AGENT_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}&redirect_result=json`,
-  );
+  `${API_AGENT_PREFIX}/files/content/by-path?path=${encodeURIComponent(path)}&redirect_result=json`;
 
 export const inferAttachmentTypeFromPath = (
   path: string,

@@ -7,8 +7,6 @@ import {
   Route,
   Routes,
   useLocation,
-  useNavigate,
-  useSearchParams,
 } from "react-router-dom";
 import Sidebar from "./components/Sidebar.tsx";
 import DemoSettings from "./components/demo/DemoSettings.tsx";
@@ -29,8 +27,8 @@ import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
+import { runtimeConfig, UI_BASENAME } from "@/config";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
-import { API_BASE_URL_KEY } from "@/lib/api-client";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
   const trimmed = input.trim();
@@ -49,24 +47,6 @@ const normalizeHttpBaseUrl = (input: string): string | null => {
   } catch {
     return null;
   }
-};
-
-const BaseUrlRoute: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const rawUrl = searchParams.get("url");
-    if (rawUrl) {
-      const normalizedUrl = normalizeHttpBaseUrl(rawUrl);
-      if (normalizedUrl) {
-        localStorage.setItem(API_BASE_URL_KEY, normalizedUrl);
-      }
-    }
-    navigate("/", { replace: true });
-  }, [navigate, searchParams]);
-
-  return null;
 };
 
 const InnerApp: React.FC = () => {
@@ -192,7 +172,7 @@ MainContent.displayName = "MainContent";
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={runtimeConfig.basePath || undefined}>
       <AuthProvider>
         <ThemeProvider>
           <ConfirmProvider>
@@ -204,7 +184,6 @@ const App: React.FC = () => {
                     <UserInfoProvider>
                       <Routes>
                         <Route path="/login" element={<LoginPage />} />
-                        <Route path="/base" element={<BaseUrlRoute />} />
                         <Route
                           path="/*"
                           element={
