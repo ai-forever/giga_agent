@@ -49,6 +49,7 @@ const Image: React.FC<ImageProps> = ({ id, path, alt }) => {
     <SelectableContainer>
       <SelectorButton
         aria-label="select-attachment"
+        data-onboarding="response-attachment-selector"
         $isGraph={false}
         $selected={selected}
         onClick={(e) => {

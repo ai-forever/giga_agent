@@ -570,6 +570,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
       {/* Sidebar */}
       <div
+        data-onboarding="sidebar"
         className={[
           "fixed top-0 left-0 h-full p-1 pt-2 z-[11] transition-transform duration-300 ease-in-out print:hidden flex flex-col",
           "bg-background border text-card-foreground",

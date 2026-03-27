@@ -158,6 +158,7 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
     <SelectableContainer>
       <SelectorButton
         aria-label="select-attachment"
+        data-onboarding="response-attachment-selector"
         $isGraph={true}
         $selected={selected}
         onClick={(e) => {

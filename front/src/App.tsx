@@ -30,6 +30,8 @@ import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
+import FunctionalityOnboarding from "@/components/onboarding/FunctionalityOnboarding";
+import { FunctionalityOnboardingProvider } from "@/components/onboarding/FunctionalityOnboardingContext";
 import { API_BASE_URL_KEY } from "@/lib/api-client";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
@@ -106,7 +108,7 @@ const InnerApp: React.FC = () => {
   }
 
   return (
-    <>
+    <FunctionalityOnboardingProvider>
       <Sidebar onNewChat={handleNavigateAndReload} />
       <MainContent>
         <AppRoutes
@@ -117,7 +119,8 @@ const InnerApp: React.FC = () => {
         />
       </MainContent>
       <OnboardingWizard />
-    </>
+      <FunctionalityOnboarding />
+    </FunctionalityOnboardingProvider>
   );
 };
 

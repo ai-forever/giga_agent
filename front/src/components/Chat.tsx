@@ -1,4 +1,4 @@
-import React, { useEffect, useImperativeHandle, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { useStableMessages } from "../hooks/useStableMessages";
@@ -48,6 +48,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   });
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRootRef = useRef<HTMLElement | null>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
   const userScrollIntentRef = useRef<boolean>(false);
@@ -59,6 +60,28 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       !/chrome|android/i.test(navigator.userAgent),
   );
   const firstSroll = useRef<boolean>(false);
+  const stableMessages = useStableMessages(thread);
+
+  const resolveScrollRoot = (): HTMLElement | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+
+    let current: HTMLElement | null = container.parentElement;
+    while (current) {
+      const style = window.getComputedStyle(current);
+      const canScrollY = /(auto|scroll)/.test(style.overflowY);
+      if (canScrollY && current.scrollHeight > current.clientHeight) {
+        return current;
+      }
+      current = current.parentElement;
+    }
+
+    return document.scrollingElement as HTMLElement | null;
+  };
+
+  useEffect(() => {
+    scrollRootRef.current = resolveScrollRoot();
+  }, [stableMessages.length]);
 
   useEffect(() => {
     onThreadReady?.(thread as unknown as UseStream<GraphState>);
@@ -69,8 +92,6 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       onThreadIdChange?.(threadId);
     }
   }, [threadId, onThreadIdChange]);
-
-  const stableMessages = useStableMessages(thread);
 
   const aiCountRef = useRef<{ threadId: string | null; aiCount: number }>({
     threadId: null,
@@ -100,9 +121,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
 
-  // Наблюдаем за «сентинелом» внизу списка, чтобы понять, включать ли авто-скролл
   useEffect(() => {
-    const root = containerRef.current;
+    const root = scrollRootRef.current;
     const sentinel = bottomSentinelRef.current;
     if (!root || !sentinel) return;
 
@@ -125,18 +145,18 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       }
       observer.disconnect();
     };
-  }, []);
+  }, [stableMessages.length]);
 
   const maybeAutoScroll = () => {
-    const el = containerRef.current;
+    const el = scrollRootRef.current;
     if (!el) return;
     if (!autoScrollEnabledRef.current) return;
     if (rafIdRef.current !== null) return; // коалесцируем множественные вызовы за кадр
     rafIdRef.current = window.requestAnimationFrame(() => {
       rafIdRef.current = null;
-      const current = containerRef.current;
+      const current = scrollRootRef.current;
       if (!current) return;
-      if (isSafariRef.current || firstSroll) {
+      if (isSafariRef.current || firstSroll.current) {
         // Safari: избегаем smooth, чтобы не было скачков вверх
         current.scrollTop = current.scrollHeight;
       } else {
@@ -157,7 +177,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   };
 
   const handleUserScroll = () => {
-    const el = containerRef.current;
+    const el = scrollRootRef.current;
     if (!el) return;
     if (!userScrollIntentRef.current) return;
     const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;
@@ -167,18 +187,24 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     }
   };
 
-  // useImperativeHandle(ref, () => ({
-  //   scrollToBottom: () => {
-  //     const current = containerRef.current;
-  //     if (!current) return;
-  //     if (isSafariRef.current) {
-  //       // Safari: избегаем smooth, чтобы не было скачков вверх
-  //       current.scrollTop = current.scrollHeight;
-  //     } else {
-  //       current.scrollTo({ top: current.scrollHeight, behavior: "smooth" });
-  //     }
-  //   },
-  // }));
+  useEffect(() => {
+    const root = scrollRootRef.current;
+    if (!root) return;
+
+    const onWheel = () => markUserScrollIntent();
+    const onTouchStart = () => markUserScrollIntent();
+    const onScroll = () => handleUserScroll();
+
+    root.addEventListener("wheel", onWheel, { passive: true });
+    root.addEventListener("touchstart", onTouchStart, { passive: true });
+    root.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      root.removeEventListener("wheel", onWheel);
+      root.removeEventListener("touchstart", onTouchStart);
+      root.removeEventListener("scroll", onScroll);
+    };
+  }, [stableMessages.length]);
 
   return (
     <SelectedAttachmentsProvider>
@@ -188,9 +214,6 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
           !stableMessages.length ? "justify-center" : "",
         ].join(" ")}
         ref={containerRef}
-        onWheel={markUserScrollIntent}
-        onTouchStart={markUserScrollIntent}
-        onScroll={handleUserScroll}
       >
         <div
           className={[

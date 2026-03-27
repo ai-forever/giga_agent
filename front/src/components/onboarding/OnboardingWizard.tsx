@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const ONBOARDING_COMPLETE_KEY = "onboarding_complete";
+const ONBOARDING_COMPLETE_KEY = "setup_complete";
 
 interface OnboardingStep {
   id: string;
@@ -81,6 +81,7 @@ export const isOnboardingComplete = (): boolean => {
 
 export const markOnboardingComplete = (): void => {
   localStorage.setItem(ONBOARDING_COMPLETE_KEY, "true");
+  window.dispatchEvent(new CustomEvent("setup-state-change"));
 };
 
 export const resetOnboarding = (): void => {

@@ -7,9 +7,19 @@ import { TOOL_MAP } from "../config.ts";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState, GraphTemplate } from "../interfaces.ts";
 import MessageEditor from "./MessageEditor.tsx";
-import { ChevronLeft, ChevronRight, Pencil, RefreshCw } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import TextMarkdown from "./attachments/TextMarkdown.tsx";
+import { AnimatePresence, motion } from "framer-motion";
+import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { BROWSER_USE_NAME } from "@/config.ts";
 
 function BranchSwitcher({
   thread,
@@ -77,7 +87,9 @@ const Message: React.FC<MessageProps> = ({
   const [displayed, setDisplayed] = useState<string>("");
   const [edit, setEdit] = useState<boolean>(false);
   const [showEdit, setShowEdit] = useState<boolean>(false);
+  const [isApprovalLoading, setIsApprovalLoading] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
+  const { mcpTools } = useUserInfo();
 
   const idxRef = useRef<number>(0);
 
@@ -178,6 +190,69 @@ const Message: React.FC<MessageProps> = ({
     );
   };
 
+  const isCurrentInterruptMessage =
+    message.type === "ai" &&
+    !!thread?.interrupt?.value &&
+    ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+    // @ts-ignore
+    !!message.tool_calls?.length &&
+    thread?.messages.at(-1)?.id === message.id;
+
+  const handleInterruptAction = async (type: "comment" | "approve") => {
+    if (!thread?.interrupt?.value || isApprovalLoading) return;
+    const interruptType = thread.interrupt.value.type;
+
+    if (
+      type === "approve" &&
+      interruptType === "tool_call" &&
+      thread.interrupt.value.tools
+    ) {
+      const mcpToolMap = Object.fromEntries(
+        mcpTools.map((tool) => [tool.name, tool]),
+      );
+      const toolCalls = thread.interrupt.value.tools;
+      setIsApprovalLoading(true);
+      const results = await Promise.all(
+        toolCalls.map((call) =>
+          mcpToolMap[call.name].callTool(call.args).catch((e) => e),
+        ),
+      );
+      setIsApprovalLoading(false);
+
+      thread.submit(undefined, {
+        command: {
+          resume: {
+            type,
+            results: results.map((result, index) => ({
+              result,
+              id: toolCalls[index].id,
+            })),
+          },
+        },
+        onDisconnect:
+          // @ts-ignore
+          thread?.messages.at(-1).tool_calls?.[0]?.name === BROWSER_USE_NAME
+            ? "cancel"
+            : "continue",
+      });
+      return;
+    }
+
+    thread.submit(undefined, {
+      command: {
+        resume: {
+          type,
+          message: "",
+        },
+      },
+      onDisconnect:
+        // @ts-ignore
+        thread?.messages.at(-1).tool_calls?.[0]?.name === BROWSER_USE_NAME
+          ? "cancel"
+          : "continue",
+    });
+  };
+
   return (
     <div
       style={{ marginBottom: "20px", padding: "0 20px" }}
@@ -257,6 +332,90 @@ const Message: React.FC<MessageProps> = ({
               }
             </div>
           </div>
+          {isCurrentInterruptMessage && (
+            <motion.div
+              layout
+              className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
+            >
+              <motion.button
+                layout
+                animate={{
+                  backgroundPosition: ["0% 0%", "100% 100%"],
+                }}
+                transition={{
+                  layout: {
+                    type: "spring",
+                    stiffness: 500,
+                    damping: 35,
+                  },
+                  backgroundPosition: {
+                    duration: 2.8,
+                    repeat: Infinity,
+                    repeatType: "mirror",
+                    ease: "linear",
+                  },
+                }}
+                onClick={() => void handleInterruptAction("comment")}
+                disabled={thread?.isLoading || isApprovalLoading}
+                title="Отменить выполнение"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(135deg, #dc2626, #ef4444, #b91c1c)",
+                  backgroundSize: "220% 220%",
+                }}
+                className="w-9 h-9 p-0 rounded-full text-white flex items-center justify-center transition-[filter] hover:brightness-110 disabled:opacity-67"
+              >
+                <X />
+              </motion.button>
+              <AnimatePresence mode="popLayout">
+                <motion.button
+                  key="approve-inline-btn"
+                  layout
+                  initial={{ x: 24, scale: 1, opacity: 1 }}
+                  animate={{
+                    x: 0,
+                    scale: 1,
+                    opacity: 1,
+                    backgroundPosition: ["0% 0%", "100% 100%"],
+                  }}
+                  exit={{ x: 24, scale: 1, opacity: 1 }}
+                  transition={{
+                    layout: {
+                      type: "spring",
+                      stiffness: 500,
+                      damping: 35,
+                    },
+                    x: {
+                      type: "spring",
+                      stiffness: 500,
+                      damping: 35,
+                    },
+                    backgroundPosition: {
+                      duration: 2.8,
+                      repeat: Infinity,
+                      repeatType: "mirror",
+                      ease: "linear",
+                    },
+                  }}
+                  onClick={() => void handleInterruptAction("approve")}
+                  disabled={thread?.isLoading || isApprovalLoading}
+                  title="Подтвердить выполнение"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(135deg, #16a34a, #22c55e, #15803d)",
+                    backgroundSize: "220% 220%",
+                  }}
+                  className="w-9 h-9 p-0 rounded-full text-white flex items-center justify-center transition-[filter] hover:brightness-110 disabled:opacity-67"
+                >
+                  {isApprovalLoading ? (
+                    <RefreshCw className="size-4 animate-spin" />
+                  ) : (
+                    <Check />
+                  )}
+                </motion.button>
+              </AnimatePresence>
+            </motion.div>
+          )}
           {
             //@ts-ignore
             message.additional_kwargs &&
