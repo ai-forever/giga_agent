@@ -354,10 +354,17 @@ class ToolResultMiddleware(AgentMiddleware):
         )
 
         if value.get("type") == "comment":
-            tool_message = (
-                "Пользователь оставил комментарий к твоему вызову инструмента. "
-                f'Прочитай его и реши, как действовать дальше: "{value.get("message")}"'
-            )
+            user_message = value.get("message")
+            if user_message:
+                tool_message = (
+                    "Пользователь оставил комментарий к твоему вызову инструмента. "
+                    f'Прочитай его и реши, как действовать дальше: "{user_message}"'
+                )
+            else:
+                tool_message = (
+                    "Пользователь отменил вызов инструмента без комментария. "
+                    "Не выполняй этот вызов. Спроси пользователя, чем можешь помочь."
+                )
             tools_response = [
                 ToolMessage(
                     tool_call_id=action.get("id", str(uuid.uuid4())),
