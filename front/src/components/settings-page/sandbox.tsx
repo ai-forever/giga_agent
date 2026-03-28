@@ -607,7 +607,7 @@ export const SandboxSettings: React.FC = () => {
             </Label>
             <Input
               id="provider-name"
-              placeholder="Мой E2B провайдер"
+              placeholder="Название провайдера"
               value={providerName}
               onChange={(e) => setProviderName(e.target.value)}
               disabled={saving}
