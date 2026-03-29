@@ -15,7 +15,8 @@ WORKDIR /backend
 COPY backend/pyproject.toml ./pyproject.toml
 COPY backend/hatch_build.py ./hatch_build.py
 COPY backend/hatch_metadata.py ./hatch_metadata.py
-COPY backend/README.md ./README.md
+COPY README.md ./README.md
+COPY README.md /README.md
 
 # Copy the actual backend package (includes `giga_agent/ui_dist`)
 COPY backend/giga_agent/ ./giga_agent/
