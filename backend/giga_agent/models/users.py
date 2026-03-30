@@ -196,6 +196,18 @@ class UserShort(UserBase):
         from_attributes = True
 
 
+class FilledSecretStatus(BaseModel):
+    filled: bool
+
+
+class UserSelfResponse(UserBase):
+    id: uuid.UUID
+    secrets: dict[str, str | FilledSecretStatus] | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class UserUpdate(BaseModel):
     """Схема для частичного обновления полей пользователя."""
 
@@ -274,7 +286,6 @@ class UserRepository:
 
     async def get_by_email(self, email: str) -> User | None:
         """Получить пользователя по email"""
-        u = await self.db.execute(select(User))
         result = await self.db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
