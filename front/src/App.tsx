@@ -31,7 +31,6 @@ import { runtimeConfig, UI_BASENAME } from "@/config";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import FunctionalityOnboarding from "@/components/onboarding/FunctionalityOnboarding";
 import { FunctionalityOnboardingProvider } from "@/components/onboarding/FunctionalityOnboardingContext";
-import { API_BASE_URL_KEY } from "@/lib/api-client";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
   const trimmed = input.trim();

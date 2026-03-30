@@ -84,12 +84,12 @@ class GigaChatRuntime(BaseLLMRuntime):
             llm_kwargs["access_token"] = await get_gigachat_access_token_cached(
                 self.connector
             )
+        llm_kwargs["streaming"] = True
         settings = self._settings_payload()
         model_kwargs = {
             "temperature": settings.get("temperature"),
             "max_tokens": settings.get("max_tokens", 1280000),
             "top_p": settings.get("top_p"),
-            "streaming": True,
             "profanity_check": False,
             "timeout": 60,
         }
