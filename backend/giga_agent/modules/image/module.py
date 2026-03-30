@@ -31,9 +31,6 @@ class ImageModule(BaseModule):
         if not self._is_enabled(user):
             return None
 
-        assert user is not None
-        assert user.image_generator_id is not None
-
         factory = await get_session_factory()
         async with factory() as session:
             record = await ImageGeneratorRepository.get_cached_or_db(
@@ -43,8 +40,6 @@ class ImageModule(BaseModule):
         if record is None:
             return None
         if not record.is_active:
-            return None
-        if record.owner_id != user.id:
             return None
 
         try:
