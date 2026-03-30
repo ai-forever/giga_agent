@@ -115,7 +115,7 @@ class GigaChatRuntime(BaseLLMRuntime):
             (f"{uuid.uuid4().hex}{extension}", image_bytes),
             purpose="general",
         )
-        response = await llm.ainvoke(
+        response = await llm.with_config(tags=["nostream"]).ainvoke(
             [
                 HumanMessage(
                     content=[
