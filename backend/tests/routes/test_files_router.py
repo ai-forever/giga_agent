@@ -258,21 +258,6 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(body["kind"], "redirect")
         self.assertEqual(body["url"], "https://signed.example.local/by-path")
 
-    def test_read_by_path_missing_returns_404(self):
-        with patch(
-            "giga_agent.routes.files.FileRepository.get_by_path_readable",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.files.FileRepository.get_by_path_any_owner",
-            AsyncMock(return_value=None),
-        ):
-            response = self.client.get(
-                "/files/content/by-path",
-                params={"path": "/missing/file.txt"},
-            )
-
-        self.assertEqual(response.status_code, 404)
-
     def test_delete_file_calls_manager(self):
         file_id = uuid.uuid4()
         with patch(

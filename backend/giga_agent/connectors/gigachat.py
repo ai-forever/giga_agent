@@ -9,6 +9,7 @@ from gigachat.settings import BASE_URL as GIGACHAT_DEFAULT_BASE_URL
 from langchain_gigachat import GigaChat
 from pydantic import AliasChoices, Field
 
+from giga_agent.conf import get_settings
 from giga_agent.connectors.base import BaseConnector
 from giga_agent.connectors.registry import ConnectorRegistry
 
@@ -44,8 +45,17 @@ class GigaChatConnector(BaseConnector):
         validation_alias=AliasChoices("gigachat_auth_url", "auth_url"),
     )
 
+    def _is_from_env_mode(self) -> bool:
+        return (
+            get_settings().giga_agent_gigachat_from_env
+            and not self.model_fields_set
+        )
+
     @classmethod
     async def validate_settings(cls, settings: dict[str, Any]) -> dict[str, Any]:
+        if get_settings().giga_agent_gigachat_from_env and not (settings or {}):
+            return {}
+
         raw_base_url = str(
             (settings or {}).get("gigachat_base_url")
             or (settings or {}).get("base_url")
@@ -85,6 +95,9 @@ class GigaChatConnector(BaseConnector):
         return validated
 
     def get_connection_kwargs(self) -> dict[str, Any] | None:
+        if self._is_from_env_mode():
+            return {"verify_ssl_certs": False, "streaming": True}
+
         api_type = str(self.gigachat_api_type or "prod").strip().lower()
 
         if api_type == "prod":
@@ -94,6 +107,7 @@ class GigaChatConnector(BaseConnector):
                 "credentials": self.gigachat_credentials or None,
                 "scope": self.gigachat_scope or "GIGACHAT_API_PERS",
                 "verify_ssl_certs": False,
+                "streaming": True
             }
 
         if api_type == "dev":
@@ -104,6 +118,8 @@ class GigaChatConnector(BaseConnector):
                 "base_url": base_url,
                 "user": self.gigachat_username,
                 "password": self.gigachat_password,
+                "verify_ssl_certs": False,
+                "streaming": True,
             }
 
         return None
@@ -115,6 +131,11 @@ class GigaChatConnector(BaseConnector):
         return GigaChat(model="GigaChat", **kwargs)
 
     async def check_connection(self) -> bool:
+        if self._is_from_env_mode():
+            llm = GigaChat(verify_ssl_certs=False)
+            await llm.aget_models()
+            return True
+
         kwargs = self.get_connection_kwargs()
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'gigachat'")

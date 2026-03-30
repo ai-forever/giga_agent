@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import inspect
@@ -44,6 +45,12 @@ _DISPLAY_MIME_CONFIG: dict[str, tuple[str, str, str]] = {
 }
 
 _REPL_TOOL_INPUT_PREFIX = "__GIGA_REPL_TOOL_CALL__:"
+_SHELL_NO_CHUNK_TIMEOUT_SEC = 20
+_SHELL_INTERACTIVE_HINT = (
+    "Команда, вероятно, требует интерактивного ввода. "
+    "Этот shell-инструмент не поддерживает stdin. Используй неинтерактивные "
+    "флаги, например: --yes, -y, --no-interactive, CI=1."
+)
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -640,8 +647,29 @@ async def shell(
     shell_code = f"!{command}" if "\n" not in command else f"%%bash\n{command}"
     outputs: list[str] = []
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    code_iter = sandbox_runtime.run_code(
+        shell_code,
+        kernel_id=kernel_id,
+        allow_stdin=False,
+    )
 
-    async for chunk in sandbox_runtime.run_code(shell_code, kernel_id=kernel_id):
+    while True:
+        try:
+            chunk = await asyncio.wait_for(
+                anext(code_iter),
+                timeout=_SHELL_NO_CHUNK_TIMEOUT_SEC,
+            )
+        except StopAsyncIteration:
+            break
+        except TimeoutError:
+            await code_iter.aclose()
+            outputs.append(
+                "Команда прервана: слишком долго не было ни одного нового чанка "
+                f"вывода ({_SHELL_NO_CHUNK_TIMEOUT_SEC} сек). "
+                + _SHELL_INTERACTIVE_HINT
+            )
+            break
+
         chunk_type = chunk.get("type")
         if chunk_type in ("stdout", "stderr"):
             text = chunk.get("text", "")
@@ -662,6 +690,17 @@ async def shell(
             traceback_lines = chunk.get("traceback", [])
             clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
             outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
+            normalized_error = f"{ename}: {evalue}\n{clean_tb}".lower()
+            if (
+                "stdinnotimplementederror" in normalized_error
+                or "does not support input requests" in normalized_error
+                or "raw_input was called" in normalized_error
+            ):
+                outputs.append(_SHELL_INTERACTIVE_HINT)
+        elif chunk_type == "input_request":
+            await code_iter.aclose()
+            outputs.append(_SHELL_INTERACTIVE_HINT)
+            break
     kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
 
     result = "\n".join(outputs).strip()

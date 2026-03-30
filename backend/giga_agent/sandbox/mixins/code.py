@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import Any, AsyncGenerator
 
 
 class CodeMixin(ABC):
@@ -7,13 +7,20 @@ class CodeMixin(ABC):
 
     @abstractmethod
     async def run_code(
-        self, code: str, kernel_id: Optional[str] = None
-    ) -> AsyncGenerator[Dict[str, Any], str]:
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
         """
         Запускает выполнение кода.
 
         :param code: Исходный код для выполнения.
         :param kernel_id: Kernel ID.
+        :param allow_stdin: Разрешить ли интерактивный stdin во время выполнения.
+        :param kwargs: Дополнительные параметры выполнения, поддерживаемые реализацией.
         :return: Асинхронный генератор, возвращающий результаты выполнения.
         """
         pass

@@ -210,17 +210,17 @@ async def read_file_content_by_path(
     ),
 ):
     repo = FileRepository(db)
+    manager = SandboxManager(db)
     readable_file = await repo.get_by_path_readable(
         user_id=current_user.id,
         sandbox_path=path,
     )
     if readable_file is None:
-        existing = await repo.get_by_path_any_owner(sandbox_path=path)
-        if existing is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        file, result = await manager.read_file_by_path_for_user(
+            user_id=current_user.id, sandbox_path=path
+        )
+        return _build_file_response(file, result, redirect_result=redirect_result)
 
-    manager = SandboxManager(db)
     try:
         file, result = await manager.read_file_for_user(
             user_id=readable_file.owner_id,

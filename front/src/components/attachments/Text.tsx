@@ -34,7 +34,7 @@ const Text: React.FC<TextProps> = ({ id, path }) => {
           buildContentByPathPreviewUrl(path),
           {
             attachAuth: true,
-            credentials: "omit",
+            credentials: "same-origin",
             showError: false,
           },
         );

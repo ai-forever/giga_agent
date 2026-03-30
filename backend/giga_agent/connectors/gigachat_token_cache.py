@@ -7,6 +7,7 @@ from typing import Any
 
 from cashews import cache
 
+from giga_agent.conf import get_settings
 from giga_agent.connectors.base import BaseConnector
 
 
@@ -66,36 +67,54 @@ async def get_gigachat_access_token_cached(
             if isinstance(cached, str) and cached.strip():
                 return cached
 
-        obj = api_object if api_object is not None else connector_runtime.get_api_object()
-
-        token_data = None
-        delay_sec = 0.5
-        attempts = max(1, int(max_rate_limit_retries) + 1)
-        for attempt_idx in range(attempts):
-            try:
-                if hasattr(obj, "aget_token"):
-                    token_data = await obj.aget_token()
-                else:
-                    inner = getattr(obj, "_client", None)
-                    if inner is not None and hasattr(inner, "aget_token"):
-                        token_data = await inner.aget_token()
-                break
-            except Exception as e:
-                if RateLimitError is None or not isinstance(e, RateLimitError):
-                    raise
-                if attempt_idx >= attempts - 1:
-                    raise
-                await asyncio.sleep(delay_sec)
-                delay_sec = min(delay_sec * 2, 2)
-
-        access_token = getattr(token_data, "access_token", None) if token_data is not None else None
-        if not access_token and isinstance(token_data, dict):
-            access_token = token_data.get("access_token")
-
-        token_str = str(access_token or "").strip()
-        if not token_str:
-            raise ValueError("Could not obtain GigaChat access token from connector runtime")
-
+        token_str = await get_gigachat_access_token_uncached(
+            connector_runtime,
+            api_object=api_object,
+            max_rate_limit_retries=max_rate_limit_retries,
+        )
         await cache.set(key, token_str, expire="5m")
         return token_str
+
+
+def should_skip_gigachat_token_cache() -> bool:
+    return get_settings().giga_agent_gigachat_skip_cache_token
+
+
+async def get_gigachat_access_token_uncached(
+    connector_runtime: BaseConnector,
+    *,
+    api_object: Any | None = None,
+    max_rate_limit_retries: int = 3,
+) -> str:
+    obj = api_object if api_object is not None else connector_runtime.get_api_object()
+
+    token_data = None
+    delay_sec = 0.5
+    attempts = max(1, int(max_rate_limit_retries) + 1)
+    for attempt_idx in range(attempts):
+        try:
+            if hasattr(obj, "aget_token"):
+                token_data = await obj.aget_token()
+            else:
+                inner = getattr(obj, "_client", None)
+                if inner is not None and hasattr(inner, "aget_token"):
+                    token_data = await inner.aget_token()
+            break
+        except Exception as e:
+            if RateLimitError is None or not isinstance(e, RateLimitError):
+                raise
+            if attempt_idx >= attempts - 1:
+                raise
+            await asyncio.sleep(delay_sec)
+            delay_sec = min(delay_sec * 2, 2)
+
+    access_token = getattr(token_data, "access_token", None) if token_data is not None else None
+    if not access_token and isinstance(token_data, dict):
+        access_token = token_data.get("access_token")
+
+    token_str = str(access_token or "").strip()
+    if not token_str:
+        raise ValueError("Could not obtain GigaChat access token from connector runtime")
+
+    return token_str
 

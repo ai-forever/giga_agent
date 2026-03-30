@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
-import { API_PREFIX, ragEnabled } from "@/config.ts";
+import { API_BASE_URL, ragEnabled } from "@/config.ts";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { Client } from "@langchain/langgraph-sdk";
@@ -71,20 +71,16 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     return match ? decodeURIComponent(match[1]) : null;
   }, [location.pathname]);
 
-  const langGraphApiUrl = useMemo(() => {
-    return `${window.location.protocol}//${window.location.host}${API_PREFIX}/`;
-  }, []);
-
   const langGraphClient = useMemo(() => {
     if (!token) return null;
     return new Client({
-      apiUrl: langGraphApiUrl,
+      apiUrl: API_BASE_URL,
       apiKey: token,
       defaultHeaders: {
         Authorization: `Bearer ${token}`,
       },
     });
-  }, [langGraphApiUrl, token]);
+  }, [token]);
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);

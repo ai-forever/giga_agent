@@ -9,7 +9,10 @@ from langchain_gigachat import GigaChat, GigaChatEmbeddings
 from pydantic import Field, PrivateAttr
 
 from giga_agent.connectors.base import BaseConnector
-from giga_agent.connectors.gigachat_token_cache import get_gigachat_access_token_cached
+from giga_agent.connectors.gigachat_token_cache import (
+    get_gigachat_access_token_cached,
+    should_skip_gigachat_token_cache,
+)
 from giga_agent.embeddings.base import (
     AvailableEmbeddingModel,
     BaseEmbeddingRuntime,
@@ -57,8 +60,12 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
             return []
 
         try:
-            token = await get_gigachat_access_token_cached(connector)
-            llm = GigaChat(**kwargs, access_token=token)
+            llm_kwargs = dict(kwargs)
+            if not should_skip_gigachat_token_cache():
+                llm_kwargs["access_token"] = await get_gigachat_access_token_cached(
+                    connector
+                )
+            llm = GigaChat(**llm_kwargs)
             models = [
                 AvailableEmbeddingModel(
                     id=model.id_,
@@ -76,7 +83,6 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
         connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
             raise ValueError("Invalid connection settings for GigaChat embedding runtime")
-        token = await get_gigachat_access_token_cached(self.connector)
         settings = self._settings_payload()
         client_kwargs: dict[str, Any] = {
             "model": self.model_id,
@@ -87,8 +93,11 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
             "password": connection_kwargs.get("password"),
             "verify_ssl_certs": connection_kwargs.get("verify_ssl_certs"),
             "timeout": settings.get("timeout"),
-            "access_token": token,
         }
+        if not should_skip_gigachat_token_cache():
+            client_kwargs["access_token"] = await get_gigachat_access_token_cached(
+                self.connector
+            )
 
         extra = settings.get("extra")
         if isinstance(extra, dict):

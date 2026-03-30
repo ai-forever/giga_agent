@@ -119,6 +119,10 @@ class BaseAgent(BaseModel):
 
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
+            from giga_agent.sandbox.local_jupyter.manager import (
+                get_local_jupyter_server_manager,
+            )
+
             if not (os.getenv("GIGA_AGENT_SECRET_KEY") or "").strip():
                 raise Exception(
                     "GIGA_AGENT_SECRET_KEY is not set. Please set env secret key."
@@ -138,6 +142,7 @@ class BaseAgent(BaseModel):
                     await self._idle_sandbox_sweeper.stop()
                 if self._orphan_sandbox_sweeper is not None:
                     await self._orphan_sandbox_sweeper.stop()
+                await get_local_jupyter_server_manager().stop()
                 stack = getattr(_app.state, "_ui_resources_stack", None)
                 if stack is not None:
                     stack.close()
@@ -145,6 +150,11 @@ class BaseAgent(BaseModel):
 
         self._app = FastAPI(lifespan=_lifespan)
         self._app.state.agent = self
+        from giga_agent.sandbox.local_jupyter.manager import (
+            get_local_jupyter_server_manager,
+        )
+
+        self._app.state.local_jupyter_server_manager = get_local_jupyter_server_manager()
         api_router.prefix = GIGA_AGENT_PREFIX_API
 
         # Подключаем core routes

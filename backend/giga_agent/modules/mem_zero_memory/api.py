@@ -1,4 +1,6 @@
-from typing import Annotated
+import inspect
+from datetime import datetime
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +27,15 @@ def _require_embeddings(user: UserShort) -> None:
         )
 
 
+def _memory_sort_key(memory_item: dict[str, Any]) -> tuple[int, str]:
+    timestamp = memory_item.get("created_at") or memory_item.get("updated_at")
+    if isinstance(timestamp, datetime):
+        return 1, timestamp.isoformat()
+    if isinstance(timestamp, str):
+        return 1, timestamp
+    return 0, ""
+
+
 @router.get("/memories")
 async def get_memories(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
@@ -36,7 +47,17 @@ async def get_memories(
     except MemZeroEmbeddingsNotConfigured as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     memories = await memory.get_all(user_id=str(current_user.id))
-    return {"results": await memories["results"]}
+    results = memories.get("results", [])
+    if inspect.iscoroutine(results):
+        results = await results
+    if not isinstance(results, list):
+        results = []
+    sorted_results = sorted(
+        (item for item in results if isinstance(item, dict)),
+        key=_memory_sort_key,
+        reverse=True,
+    )
+    return {"results": sorted_results}
 
 
 @router.delete("/memories")

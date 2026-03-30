@@ -65,6 +65,10 @@ GigaAgent умеет:
   ```bash
    uv add giga_agent
   ```
+  Для локального sandbox через Jupyter установите optional extra:
+  ```bash
+   pip install -U "giga-agent[jupyter]"
+  ```
 2. Запустите dev-сервер:
   ```bash
    uv run giga_agent dev
@@ -141,6 +145,15 @@ GigaAgent включает **13 готовых модулей** для разн�
 - **Преимущества:** Автомасштабирование, управляемая инфраструктура
 - **Недостатки:** Зависимость от внешнего сервиса
 
+#### Local Jupyter
+
+- **Описание:** Singleton Jupyter server на машине хоста с выполнением кода через локальный Python
+- **Установка:** `pip install -U "giga-agent[jupyter]"`
+- **Создание provider:** только superuser
+- **Использование provider:** может быть доступно другим пользователям по ACL/шарингу
+- **Критичное предупреждение:** пользователи, которым доступен такой provider, получают доступ к хостовой машине. Это включает выполнение кода и чтение файлов хоста через `local_jupyter`.
+- **Рекомендация:** используйте только в доверенной среде и не шарьте `local_jupyter` provider недоверенным пользователям
+
 ### 🤖 Субагенты (Legacy)
 
 Специализированные агенты для прикладных задач:
@@ -172,7 +185,7 @@ GigaAgent включает **13 готовых модулей** для разн�
   - Read access — просмотр
   - Owner — полный контроль
 - **JWT Tokens** — безопасная аутентификация через cookie или Bearer header
-- **Superuser Role** — административные привилегии (local docker, admin panel)
+- **Superuser Role** — административные привилегии (создание local sandbox providers, admin panel)
 
 ### 🔌 Интеграции
 
@@ -264,6 +277,7 @@ Docker-сценарий оставляем как второй quick start (дл
    Минимально проверьте/заполните:
   - `GIGA_AGENT_SECRET_KEY`
   - `GIGA_AGENT_HOST_PROJECT_PATH` (абсолютный путь до репозитория на хосте; важен для local docker sandbox)
+  - `GIGA_AGENT_LOCAL_JUPYTER_WORKING_DIR` / `GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH` при необходимости переопределить директории singleton Jupyter server
 2. (Опционально) скачайте image для code interpreter:
   ```bash
    docker image pull mikelarg/code-interpreter:0.0.5
@@ -306,6 +320,7 @@ make up_dev
 - **[Qdrant](https://qdrant.tech/)** — векторное хранилище для RAG и Mem0
 - **[E2B](https://e2b.dev/)** — облачные sandboxes для безопасного выполнения кода
 - **Docker SDK** — управление локальными sandbox-контейнерами
+- **Jupyter Server** — optional extra `giga-agent[jupyter]` для admin-only `local_jupyter` sandbox с одним singleton-процессом на агент
 
 ### Frontend
 

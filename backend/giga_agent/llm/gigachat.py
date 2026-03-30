@@ -11,7 +11,10 @@ from langchain_core.messages import HumanMessage
 from pydantic import PrivateAttr
 
 from giga_agent.connectors.base import BaseConnector
-from giga_agent.connectors.gigachat_token_cache import get_gigachat_access_token_cached
+from giga_agent.connectors.gigachat_token_cache import (
+    get_gigachat_access_token_cached,
+    should_skip_gigachat_token_cache,
+)
 from giga_agent.llm.base import AvailableModel, BaseLLMRuntime, ModelFetchError
 from giga_agent.llm.registry import LLMRegistry
 
@@ -53,8 +56,12 @@ class GigaChatRuntime(BaseLLMRuntime):
             return []
 
         try:
-            token = await get_gigachat_access_token_cached(connector)
-            llm = GigaChat(**kwargs, access_token=token)
+            llm_kwargs = dict(kwargs)
+            if not should_skip_gigachat_token_cache():
+                llm_kwargs["access_token"] = await get_gigachat_access_token_cached(
+                    connector
+                )
+            llm = GigaChat(**llm_kwargs)
             return [
                 AvailableModel(
                     id=model.id_,
@@ -72,7 +79,11 @@ class GigaChatRuntime(BaseLLMRuntime):
             raise ValueError(
                 f"Invalid connection settings for connector {self.connector.__class__.__name__}"
             )
-        token = await get_gigachat_access_token_cached(self.connector)
+        llm_kwargs = dict(connection_kwargs)
+        if not should_skip_gigachat_token_cache():
+            llm_kwargs["access_token"] = await get_gigachat_access_token_cached(
+                self.connector
+            )
         settings = self._settings_payload()
         model_kwargs = {
             "temperature": settings.get("temperature"),
@@ -85,8 +96,7 @@ class GigaChatRuntime(BaseLLMRuntime):
         clean_model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
         return GigaChat(
             model=self.model_id,
-            **connection_kwargs,
-            access_token=token,
+            **llm_kwargs,
             **clean_model_kwargs,
         )
 
