@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    base: "./",
+    base: "/",
     plugins: [
       tailwindcss(),
       svgr(),

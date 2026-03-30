@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 from contextlib import ExitStack
 from importlib.resources import as_file, files
-import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -127,7 +128,12 @@ def _build_runtime_config(request: Request) -> dict[str, str]:
 def _render_index(index: Path, request: Request) -> HTMLResponse:
     html = index.read_text(encoding="utf-8")
     base_path = _resolve_ui_base_path(request)
-    html = html.replace("<head>", f'<head>\n    <base href="{base_path}"/>', 1)
+    html = re.sub(
+        r'<base\s+href="[^"]*"\s*/?>',
+        f'<base href="{base_path}"/>',
+        html,
+        count=1,
+    )
     return HTMLResponse(html)
 
 

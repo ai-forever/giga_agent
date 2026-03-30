@@ -16,6 +16,8 @@ services:
       args:
         VITE_MCP_PROXY_URL: /proxy
         VITE_LOG_LEVEL: info
+    environment:
+      GIGA_AGENT_BASE_URL: ${GIGA_AGENT_BASE_URL:-/}
     depends_on:
       giga-agent:
         condition: service_started
