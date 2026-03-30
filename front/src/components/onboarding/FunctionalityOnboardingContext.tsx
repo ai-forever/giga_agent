@@ -1,24 +1,30 @@
 import React, { createContext, useContext, useState, useCallback } from "react";
-
-const TIPS_STORAGE_KEY = "feature_guidance_state";
+import {
+  clearOnboardingState,
+  getOnboardingState,
+  updateOnboardingState,
+} from "./onboardingState";
 
 export const TIP_IDS = {
-  STARTUP_TOUR: "startup_tour",
-  ATTACHMENT_SELECTION: "attachment_selection",
+  CHAT_FEATURE_TOUR: "chat_feature_tour_seen",
+  RESPONSE_ATTACHMENT_TIP: "response_attachment_tip_seen",
 } as const;
 
 type TipsMap = Record<string, boolean>;
 
 function loadTips(): TipsMap {
-  try {
-    return JSON.parse(localStorage.getItem(TIPS_STORAGE_KEY) || "{}");
-  } catch {
-    return {};
-  }
+  const state = getOnboardingState();
+  return {
+    [TIP_IDS.CHAT_FEATURE_TOUR]: state.chat_feature_tour_seen,
+    [TIP_IDS.RESPONSE_ATTACHMENT_TIP]: state.response_attachment_tip_seen,
+  };
 }
 
 function persistTips(tips: TipsMap) {
-  localStorage.setItem(TIPS_STORAGE_KEY, JSON.stringify(tips));
+  updateOnboardingState({
+    chat_feature_tour_seen: !!tips[TIP_IDS.CHAT_FEATURE_TOUR],
+    response_attachment_tip_seen: !!tips[TIP_IDS.RESPONSE_ATTACHMENT_TIP],
+  });
 }
 
 interface FunctionalityOnboardingContextValue {
@@ -70,5 +76,5 @@ export const FunctionalityOnboardingProvider: React.FC<{
 };
 
 export const resetAllOnboardingTips = (): void => {
-  localStorage.removeItem(TIPS_STORAGE_KEY);
+  clearOnboardingState();
 };

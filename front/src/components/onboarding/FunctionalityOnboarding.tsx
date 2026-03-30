@@ -9,49 +9,15 @@ import {
   EventData,
 } from "react-joyride";
 import { useLocation } from "react-router-dom";
-import {
-  ArrowRight,
-  ArrowLeft,
-  Check,
-  Sparkles,
-  Paperclip,
-  ToggleRight,
-  Settings2,
-  MessageSquare,
-  X,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isOnboardingComplete } from "./OnboardingWizard";
 import {
   useFunctionalityOnboarding,
   TIP_IDS,
 } from "./FunctionalityOnboardingContext";
-import { useSettings } from "@/components/Settings";
-
-const SIDEBAR_STEP_INDEX = 4;
-
-// ── Startup tour steps (6 total) ────────────────────────────────────────────
+// ── Startup tour steps ──────────────────────────────────────────────────────
 
 const STARTUP_STEPS: Step[] = [
-  {
-    target: "body",
-    placement: "center",
-    title: "Знакомство с интерфейсом",
-    content:
-      "Давайте познакомимся с основными возможностями чата. Мы покажем, где находятся ключевые функции.",
-    skipBeacon: true,
-    data: { icon: <Sparkles className="size-6" /> },
-  },
-  {
-    target: '[data-onboarding="attachments-btn"]',
-    placement: "right",
-    title: "Вложения",
-    content:
-      "Прикрепляйте файлы к сообщениям: изображения, документы, код и другие файлы. Агент сможет их анализировать и использовать в ответе.",
-    skipBeacon: true,
-    spotlightPadding: 2,
-    data: { icon: <Paperclip className="size-6" /> },
-  },
   {
     target: '[data-onboarding="autonomy-switch"]',
     placement: "bottom",
@@ -59,7 +25,6 @@ const STARTUP_STEPS: Step[] = [
     content:
       "Когда этот режим включён, агент автоматически подтверждает промежуточные действия без ожидания вашего ответа. Отключите, если хотите контролировать каждый шаг.",
     skipBeacon: true,
-    data: { icon: <ToggleRight className="size-6" /> },
   },
   {
     target: '[data-onboarding="gear-menu-btn"]',
@@ -69,26 +34,6 @@ const STARTUP_STEPS: Step[] = [
       "В этом меню находятся персонализация ответов, подключение инструментов (MCP) и выбор документов для RAG. Откройте его, чтобы познакомиться с каждой функцией.",
     skipBeacon: true,
     spotlightPadding: 2,
-    data: { icon: <Settings2 className="size-6" /> },
-  },
-  {
-    target: '[data-onboarding="sidebar"]',
-    placement: "right",
-    title: "История диалогов",
-    content:
-      "Все диалоги сохраняются в боковой панели. Вы можете переключаться между ними, переименовывать и удалять. Для нового диалога нажмите «Новый чат».",
-    skipBeacon: true,
-    targetWaitTimeout: 2000,
-    data: { icon: <MessageSquare className="size-6" /> },
-  },
-  {
-    target: "body",
-    placement: "center",
-    title: "Всё готово!",
-    content:
-      "Теперь вы знакомы с основными возможностями. Начните диалог с агентом — просто введите сообщение. Удачной работы!",
-    skipBeacon: true,
-    data: { icon: <Check className="size-6" /> },
   },
 ];
 
@@ -99,114 +44,56 @@ const CustomTooltip: React.FC<TooltipRenderProps> = ({
   isLastStep,
   size,
   step,
-  backProps,
   skipProps,
   primaryProps,
   tooltipProps,
 }) => {
-  const stepData = step.data as { icon?: React.ReactNode } | undefined;
-
   return (
     <div
       role={tooltipProps.role}
       aria-modal={tooltipProps["aria-modal"]}
-      className="bg-card border border-border rounded-xl shadow-2xl overflow-hidden w-[420px] max-w-[calc(100vw-2rem)]"
+      className="bg-card dark:bg-zinc-800 border border-border rounded-xl shadow-xl overflow-hidden w-[340px] max-w-[calc(100vw-1rem)]"
       style={{ position: "relative", zIndex: 11010 }}
     >
-      <div className="h-1 bg-muted">
-        <div
-          className="h-full bg-primary transition-all duration-300 ease-in-out"
-          style={{ width: `${(index / Math.max(size - 1, 1)) * 100}%` }}
-        />
-      </div>
-
-      <div className="p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1.5">
-            {Array.from({ length: size }).map((_, i) => (
-              <div
-                key={i}
-                className={`size-1.5 rounded-full transition-colors ${
-                  i === index
-                    ? "bg-primary"
-                    : i < index
-                      ? "bg-primary/40"
-                      : "bg-muted-foreground/20"
-                }`}
-              />
-            ))}
-          </div>
-          <button
-            onClick={skipProps.onClick}
-            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Пропустить"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        <div className="flex items-start gap-3">
-          {stepData?.icon && (
-            <div className="flex-shrink-0 mt-0.5 text-primary">
-              {stepData.icon}
+      <div className="p-4">
+        <div className="min-w-0 mb-1.5 flex items-start justify-between gap-2">
+          {step.title ? (
+            <h3 className="font-semibold text-sm leading-snug">
+              {step.title as string}
+            </h3>
+          ) : (
+            <div />
+          )}
+          {size > 1 && (
+            <div className="text-xs text-muted-foreground shrink-0">
+              {index + 1}/{size}
             </div>
           )}
-          <div className="min-w-0">
-            {step.title && (
-              <h3 className="font-semibold text-base mb-1">
-                {step.title as string}
-              </h3>
-            )}
-            <div className="text-sm text-muted-foreground leading-relaxed">
-              {step.content}
-            </div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground leading-relaxed">
+            {step.content}
           </div>
         </div>
 
-        <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-          <div>
-            {index > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={backProps.onClick}
-                className="gap-1"
-              >
-                <ArrowLeft className="size-4" />
-                Назад
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {!isLastStep && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={skipProps.onClick}
-                className="text-muted-foreground"
-              >
-                Пропустить
-              </Button>
-            )}
-            <Button size="sm" onClick={primaryProps.onClick} className="gap-1">
-              {isLastStep ? (
-                <>
-                  {size <= 3 ? "Готово" : "Начать работу"}
-                  <Check className="size-4" />
-                </>
-              ) : index === 0 && size > 3 ? (
-                <>
-                  Начнём
-                  <ArrowRight className="size-4" />
-                </>
-              ) : (
-                <>
-                  Далее
-                  <ArrowRight className="size-4" />
-                </>
-              )}
+        <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-border">
+          {!isLastStep && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={skipProps.onClick}
+              className="h-8 text-xs text-muted-foreground"
+            >
+              Пропустить
             </Button>
-          </div>
+          )}
+          <Button
+            size="sm"
+            onClick={primaryProps.onClick}
+            className="h-8 text-xs"
+          >
+            {isLastStep ? "Понятно" : "Дальше"}
+          </Button>
         </div>
       </div>
     </div>
@@ -247,14 +134,12 @@ function useElementPresent(selector: string | null): boolean {
 const RuntimeTip: React.FC<{
   title: string;
   description: string;
-  icon: React.ReactNode;
   targetSelector: string;
   preferredSide?: "left" | "right" | "top" | "bottom";
   onDismiss: () => void;
 }> = ({
   title,
   description,
-  icon,
   targetSelector,
   preferredSide = "bottom",
   onDismiss,
@@ -365,17 +250,17 @@ const RuntimeTip: React.FC<{
   return (
     <div
       ref={cardRef}
-      className="fixed z-[9999] w-[360px] max-w-[calc(100vw-1rem)] animate-in fade-in zoom-in-95 duration-200"
+      className="fixed z-[9999] w-[320px] max-w-[calc(100vw-1rem)] animate-in fade-in zoom-in-95 duration-200"
       style={{
         left: position?.left ?? 0,
         top: position?.top ?? 0,
         visibility: position ? "visible" : "hidden",
       }}
     >
-      <div className="relative bg-card border border-border rounded-xl shadow-lg p-4">
+      <div className="relative bg-card dark:bg-zinc-800 border border-border rounded-xl shadow-xl p-4">
         {position && (
           <div
-            className="absolute size-3 bg-card border-border rotate-45"
+            className="absolute size-3 bg-card dark:bg-zinc-800 border-border rotate-45"
             style={
               position.side === "top" || position.side === "bottom"
                 ? {
@@ -397,28 +282,14 @@ const RuntimeTip: React.FC<{
             }
           />
         )}
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 text-primary mt-0.5">{icon}</div>
-          <div className="min-w-0 flex-1">
-            <h4 className="text-sm font-semibold mb-1">{title}</h4>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {description}
-            </p>
-          </div>
-          <button
-            onClick={onDismiss}
-            className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 cursor-pointer"
-          >
-            <X className="size-4" />
-          </button>
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-semibold mb-1">{title}</h4>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {description}
+          </p>
         </div>
         <div className="mt-3 flex justify-end">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-xs h-7"
-            onClick={onDismiss}
-          >
+          <Button size="sm" className="h-8 text-xs" onClick={onDismiss}>
             Понятно
           </Button>
         </div>
@@ -435,14 +306,13 @@ const JOYRIDE_OPTIONS = {
   blockTargetInteraction: false,
   skipScroll: true,
   skipBeacon: true,
-  overlayColor: "rgba(0, 0, 0, 0.5)",
+  overlayColor: "transparent",
   zIndex: 11000,
   targetWaitTimeout: 2000,
 };
 
 const FunctionalityOnboarding: React.FC = () => {
   const location = useLocation();
-  const { settings, setSettings } = useSettings();
   const { isTipComplete, markTipComplete, tourActive, setTourActive } =
     useFunctionalityOnboarding();
 
@@ -460,7 +330,7 @@ const FunctionalityOnboarding: React.FC = () => {
     if (
       isChatRoute &&
       isOnboardingComplete() &&
-      !isTipComplete(TIP_IDS.STARTUP_TOUR)
+      !isTipComplete(TIP_IDS.CHAT_FEATURE_TOUR)
     ) {
       const timer = setTimeout(() => {
         setStartupRun(true);
@@ -475,7 +345,7 @@ const FunctionalityOnboarding: React.FC = () => {
       if (
         isChatRoute &&
         isOnboardingComplete() &&
-        !isTipComplete(TIP_IDS.STARTUP_TOUR)
+        !isTipComplete(TIP_IDS.CHAT_FEATURE_TOUR)
       ) {
         setTimeout(() => {
           setStartupRun(true);
@@ -495,21 +365,15 @@ const FunctionalityOnboarding: React.FC = () => {
   }, [isChatRoute, startupRun, setTourActive]);
 
   const finishStartup = useCallback(() => {
-    markTipComplete(TIP_IDS.STARTUP_TOUR);
+    markTipComplete(TIP_IDS.CHAT_FEATURE_TOUR);
     setStartupRun(false);
     setStartupStep(0);
     setTourActive(false);
   }, [markTipComplete, setTourActive]);
 
-  const advanceStartup = useCallback(
-    (_from: number, to: number) => {
-      if (to === SIDEBAR_STEP_INDEX && !settings.sideBarOpen) {
-        setSettings((prev) => ({ ...prev, sideBarOpen: true }));
-      }
-      setStartupStep(to);
-    },
-    [settings.sideBarOpen, setSettings],
-  );
+  const advanceStartup = useCallback((_from: number, to: number) => {
+    setStartupStep(to);
+  }, []);
 
   const handleStartupEvent = useCallback(
     (data: EventData) => {
@@ -559,14 +423,6 @@ const FunctionalityOnboarding: React.FC = () => {
           advanceStartup(cur, cur + 1);
         }
       }
-
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        if (startupRun) {
-          const cur = startupStepRef.current;
-          if (cur > 0) advanceStartup(cur, cur - 1);
-        }
-      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -576,7 +432,9 @@ const FunctionalityOnboarding: React.FC = () => {
   // ── Runtime tips (detected via DOM observation) ─────────────────────────
 
   const watchAttachments =
-    isChatRoute && !tourActive && !isTipComplete(TIP_IDS.ATTACHMENT_SELECTION);
+    isChatRoute &&
+    !tourActive &&
+    !isTipComplete(TIP_IDS.RESPONSE_ATTACHMENT_TIP);
   const attachmentPresent = useElementPresent(
     watchAttachments ? '[aria-label="select-attachment"]' : null,
   );
@@ -603,10 +461,9 @@ const FunctionalityOnboarding: React.FC = () => {
         <RuntimeTip
           title="Выбор вложений из ответа"
           description="Когда агент генерирует изображения или графики, вы можете выбрать их (кликнув на чекбокс) и отправить обратно как контекст для следующего сообщения."
-          icon={<Check className="size-5" />}
           targetSelector='[data-onboarding="response-attachment-selector"], [aria-label="select-attachment"]'
           preferredSide="left"
-          onDismiss={() => markTipComplete(TIP_IDS.ATTACHMENT_SELECTION)}
+          onDismiss={() => markTipComplete(TIP_IDS.RESPONSE_ATTACHMENT_TIP)}
         />
       )}
     </>
