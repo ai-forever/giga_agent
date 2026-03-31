@@ -26,12 +26,18 @@ from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.modules.repl.tools import python, shell
 from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
 from giga_agent.core.logging import get_logger
+from pydantic import BaseModel, Field
 
 logger = get_logger(__name__)
 
 
 def _is_valid_python_identifier(name: str) -> bool:
     return bool(name and name.isidentifier() and not keyword.iskeyword(name))
+
+
+class ToolUse(BaseModel):
+    recipient_name: str = Field(description="Имя инструмента, который будет вызван")
+    parameters: str = Field(description="JSON-строка с параметрами инструмента")
 
 
 def get_user_secrets_prompt(user: UserShort):
