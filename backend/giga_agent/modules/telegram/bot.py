@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import uuid
 from typing import Any
@@ -11,12 +12,20 @@ from aiogram import Bot, Dispatcher, types as tg_types
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
 from langgraph_sdk import get_client
+from plotly import io as plotly_io
 
 from giga_agent.conf import get_settings, GIGA_AGENT_PREFIX_API
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.modules.auth.security import create_access_token
+from giga_agent.modules.telegram.message_tool import (
+    TELEGRAM_MESSAGE_TOOL_CHANNEL,
+    TELEGRAM_MESSAGE_TOOL_NAME,
+    TelegramMessageToolPayload,
+    build_telegram_message_tool_schema,
+    parse_telegram_message_tool_payload,
+)
 from giga_agent.modules.telegram.models import (
     TelegramBot as TelegramBotModel,
     TelegramBotRepository,
@@ -26,11 +35,12 @@ logger = get_logger(__name__)
 
 ASSISTANT_ID = "giga_agent"
 THREAD_TTL_SECONDS = 24 * 60 * 60
+_MESSAGE_TOOL_CALLBACK_PREFIX = "ga_msg:"
 
 
 def _langgraph_url() -> str:
     settings = get_settings()
-    return settings.giga_agent_langgraph_api_url or "http://localhost:8000"
+    return settings.giga_agent_langgraph_api_url or "http://localhost:9090/api/"
 
 
 def _agent_api_base() -> str:
@@ -182,6 +192,128 @@ def _extract_ai_response(result: dict) -> tuple[str, list[str]]:
     return "\n\n".join(text_parts), image_urls
 
 
+def _looks_like_plotly_figure(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return False
+
+    layout = payload.get("layout")
+    if layout is not None and not isinstance(layout, dict):
+        return False
+
+    frames = payload.get("frames")
+    if frames is not None and not isinstance(frames, list):
+        return False
+
+    allowed_keys = {"data", "layout", "frames", "config"}
+    return bool(set(payload).intersection({"data", "layout", "frames"})) and set(
+        payload
+    ).issubset(allowed_keys)
+
+
+def _plotly_json_to_png_bytes(*, payload_bytes: bytes) -> bytes | None:
+    try:
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if not _looks_like_plotly_figure(payload):
+        return None
+
+    try:
+        figure = plotly_io.from_json(json.dumps(payload, ensure_ascii=False))
+        return figure.to_image(format="png")
+    except ValueError:
+        return None
+
+
+def _state_get(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _is_telegram_message_tool_call(action: Any) -> bool:
+    if not isinstance(action, dict):
+        return False
+    if action.get("name") != TELEGRAM_MESSAGE_TOOL_NAME:
+        return False
+    return isinstance(action.get("args") or {}, dict)
+
+
+def _find_pending_message_tool_call(thread_state: Any) -> dict[str, Any] | None:
+    interrupts = _state_get(thread_state, "interrupts", []) or []
+    for interrupt_item in interrupts:
+        value = _state_get(interrupt_item, "value", {}) or {}
+        if not isinstance(value, dict) or value.get("type") != "tool_call":
+            continue
+        for tool_call in value.get("tools") or []:
+            if _is_telegram_message_tool_call(tool_call):
+                return tool_call
+    return None
+
+
+def _describe_uploaded_files(file_data: list[dict[str, Any]]) -> str:
+    if not file_data:
+        return ""
+    names = [fd.get("original_name", "") or fd["path"] for fd in file_data]
+    return "Прикреплён файл: " + ", ".join(names)
+
+
+def _build_message_tool_result_parts(
+    *,
+    prompt: TelegramMessageToolPayload,
+    response_text: str,
+    file_data: list[dict[str, Any]],
+    message: tg_types.Message | None,
+    auto_response: bool = False,
+    selected_button: str = "",
+) -> list[dict[str, str]]:
+    button_texts = {
+        button.text
+        for button in prompt.buttons
+        if button.kind == "callback" and button.text
+    }
+    if not selected_button and response_text in button_texts:
+        selected_button = response_text
+
+    if auto_response:
+        payload = {"message": "Ты отправил уведомление пользователю (expect_response: false). Если тебе нужен ответ от пользователя, отправляй с expect_response: true."}
+    else:
+        payload = {
+            "channel": TELEGRAM_MESSAGE_TOOL_CHANNEL,
+            "kind": "message_response",
+            "content": response_text,
+            "selected_button": selected_button,
+            "response_format": prompt.response_format,
+            "files": file_data,
+            "auto_response": auto_response,
+            "telegram_chat_id": message.chat.id if message else 0,
+            "telegram_message_id": message.message_id if message else 0,
+            "telegram_user": {
+                "id": message.from_user.id if message and message.from_user else 0,
+                "username": (
+                    message.from_user.username if message and message.from_user else ""
+                ),
+                "first_name": (
+                    message.from_user.first_name if message and message.from_user else ""
+                ),
+                "last_name": (
+                    message.from_user.last_name if message and message.from_user else ""
+                ),
+            },
+        }
+    return [
+        {
+            "type": "text",
+            "text": json.dumps(payload, ensure_ascii=False),
+        }
+    ]
+
+
 class _BotInstance:
 
     def __init__(self, bot_row: TelegramBotModel, user_email: str):
@@ -206,6 +338,10 @@ class _BotInstance:
                 "Можете отправлять фото, документы и голосовые.\n"
                 "/new — начать новый диалог (сбросить контекст)"
             )
+
+        @self.dp.callback_query()
+        async def _on_callback_query(callback: tg_types.CallbackQuery):
+            await self._handle_callback_query(callback)
 
         @self.dp.message()
         async def _on_message(message: tg_types.Message):
@@ -243,7 +379,10 @@ class _BotInstance:
         async with session_factory() as session:
             repo = TelegramBotRepository(session)
             await self._reset_thread(repo, chat_id)
-        await message.answer("🔄 Контекст сброшен. Начнём новый диалог!")
+        await message.answer(
+            "🔄 Контекст сброшен. Начнём новый диалог!",
+            reply_markup=tg_types.ReplyKeyboardRemove(),
+        )
 
     async def _get_or_create_thread(
         self, client: Any, repo: TelegramBotRepository, chat_id: int
@@ -314,6 +453,514 @@ class _BotInstance:
             logger.exception("Failed to upload Telegram file %s", file_name)
         return None
 
+    async def _collect_incoming_files(
+        self,
+        message: tg_types.Message,
+        token: str,
+        thread_id: str,
+    ) -> list[dict[str, Any]]:
+        uploaded_files: list[dict[str, Any]] = []
+        if message.photo:
+            photo = message.photo[-1]
+            f = await self._upload_tg_file(token, photo.file_id, "photo.jpg", thread_id)
+            if f:
+                uploaded_files.append(f)
+        if message.document:
+            fname = message.document.file_name or "document"
+            f = await self._upload_tg_file(token, message.document.file_id, fname, thread_id)
+            if f:
+                uploaded_files.append(f)
+        if message.voice:
+            f = await self._upload_tg_file(token, message.voice.file_id, "voice.ogg", thread_id)
+            if f:
+                uploaded_files.append(f)
+        if message.audio:
+            fname = message.audio.file_name or "audio.mp3"
+            f = await self._upload_tg_file(token, message.audio.file_id, fname, thread_id)
+            if f:
+                uploaded_files.append(f)
+        if message.video:
+            fname = message.video.file_name or "video.mp4"
+            f = await self._upload_tg_file(token, message.video.file_id, fname, thread_id)
+            if f:
+                uploaded_files.append(f)
+        return [
+            {
+                "path": f["sandbox_path"],
+                "original_name": f.get("original_name", ""),
+                "file_type": f.get("file_type", "other"),
+                "size": f.get("size", 0),
+            }
+            for f in uploaded_files
+        ]
+
+    async def _load_collections_payload(self) -> list[dict[str, Any]]:
+        collections_payload: list[dict[str, Any]] = []
+        try:
+            async with (await get_session_factory())() as session:
+                rows = await RagCollectionsRepository(session).list_by_owner(
+                    self.bot_row.user_id,
+                )
+                collections_payload = [
+                    {"uuid": str(r.id), "name": r.name, "metadata": r.metadata_ or {}}
+                    for r in rows
+                ]
+        except Exception:
+            logger.warning(
+                "Failed to load RAG collections for user %s",
+                self.bot_row.user_id,
+            )
+        return collections_payload
+
+    async def _get_pending_message_tool_call(
+        self,
+        client: Any,
+        thread_id: str,
+    ) -> dict[str, Any] | None:
+        try:
+            thread_state = await client.threads.get_state(thread_id)
+        except Exception:
+            logger.debug("Failed to fetch thread state for %s", thread_id, exc_info=True)
+            return None
+        return _find_pending_message_tool_call(thread_state)
+
+    def _build_inline_callback_data(self, button_index: int) -> str:
+        return f"{_MESSAGE_TOOL_CALLBACK_PREFIX}{button_index}"
+
+    def _parse_inline_callback_data(self, data: str | None) -> int | None:
+        if not isinstance(data, str) or not data.startswith(_MESSAGE_TOOL_CALLBACK_PREFIX):
+            return None
+        raw_index = data[len(_MESSAGE_TOOL_CALLBACK_PREFIX):]
+        if not raw_index.isdigit():
+            return None
+        return int(raw_index)
+
+    def _build_prompt_reply_markup(
+        self,
+        prompt: TelegramMessageToolPayload,
+    ) -> tg_types.InlineKeyboardMarkup | None:
+        keyboard: list[list[tg_types.InlineKeyboardButton]] = []
+        current_row: list[tg_types.InlineKeyboardButton] = []
+        current_row_text_len = 0
+        for index, button in enumerate(prompt.buttons):
+            if not button.text:
+                continue
+            if button.kind == "url" and button.url:
+                inline_button = tg_types.InlineKeyboardButton(
+                    text=button.text,
+                    url=button.url,
+                )
+            else:
+                inline_button = tg_types.InlineKeyboardButton(
+                    text=button.text,
+                    callback_data=self._build_inline_callback_data(index),
+                )
+            button_text_len = len(button.text)
+            should_wrap = bool(
+                current_row
+                and (
+                    len(current_row) >= 4
+                    or current_row_text_len + button_text_len > 20
+                )
+            )
+            if should_wrap:
+                keyboard.append(current_row)
+                current_row = []
+                current_row_text_len = 0
+
+            current_row.append(inline_button)
+            current_row_text_len += button_text_len
+
+        if current_row:
+            keyboard.append(current_row)
+
+        if not keyboard:
+            return None
+        return tg_types.InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+    def _resolve_callback_button(
+        self,
+        prompt: TelegramMessageToolPayload,
+        callback_data: str | None,
+    ) -> tuple[str, str] | None:
+        button_index = self._parse_inline_callback_data(callback_data)
+        if button_index is None:
+            return None
+        buttons = [button for button in prompt.buttons if button.text]
+        if button_index < 0 or button_index >= len(buttons):
+            return None
+        button = buttons[button_index]
+        if button.kind == "url":
+            return None
+        response_text = button.value or button.text
+        return button.text, response_text
+
+    def _convert_plotly_attachment(
+        self,
+        *,
+        file_bytes: bytes,
+        filename: str,
+    ) -> tuple[bytes, str, bool]:
+        lower = filename.lower()
+        if not (lower.endswith(".plotly.json") or lower.endswith("plotly.json")):
+            return file_bytes, filename, False
+
+        png_bytes = _plotly_json_to_png_bytes(payload_bytes=file_bytes)
+        if not png_bytes:
+            return file_bytes, filename, False
+
+        png_name = re.sub(r"(?i)\.plotly\.json$", ".png", filename)
+        if png_name == filename:
+            png_name = re.sub(r"(?i)\.json$", ".png", filename)
+        if png_name == filename:
+            png_name = f"{filename}.png"
+        return png_bytes, png_name, True
+
+    async def _send_message_tool_prompt(
+        self,
+        message: tg_types.Message,
+        token: str,
+        tool_call: dict[str, Any],
+    ) -> None:
+        prompt = parse_telegram_message_tool_payload(tool_call.get("args"))
+        for attachment in prompt.attachments:
+            file_bytes = await self._download_attachment(token, attachment.path)
+            if not file_bytes:
+                continue
+            filename = attachment.filename or attachment.path.rsplit("/", 1)[-1]
+            file_bytes, filename, rendered_from_plotly = self._convert_plotly_attachment(
+                file_bytes=file_bytes,
+                filename=filename,
+            )
+            input_file = BufferedInputFile(file_bytes, filename=filename)
+            caption = attachment.caption or None
+            kind = attachment.kind
+            if rendered_from_plotly or kind == "image":
+                await message.answer_photo(input_file, caption=caption)
+            elif kind == "audio":
+                await message.answer_audio(input_file, caption=caption)
+            elif kind == "video":
+                await message.answer_video(input_file, caption=caption)
+            else:
+                await message.answer_document(input_file, caption=caption)
+
+        reply_markup = self._build_prompt_reply_markup(prompt)
+        chunks = _split_message(prompt.content)
+        for idx, chunk in enumerate(chunks):
+            is_last = idx == len(chunks) - 1
+            markup = reply_markup if is_last else None
+            tg_text = _md_to_tg_markdown_v2(chunk)
+            try:
+                await message.answer(
+                    tg_text,
+                    parse_mode="MarkdownV2",
+                    reply_markup=markup,
+                    disable_web_page_preview=prompt.disable_web_page_preview,
+                )
+            except Exception:
+                await message.answer(
+                    chunk,
+                    reply_markup=markup,
+                    disable_web_page_preview=prompt.disable_web_page_preview,
+                )
+
+    async def _continue_run_until_ready(
+        self,
+        *,
+        message: tg_types.Message,
+        client: Any,
+        thread_id: str,
+        token: str,
+        result: Any,
+        run_timeout: int,
+    ) -> dict[str, Any] | None:
+        for _ in range(10):
+            if not isinstance(result, dict):
+                return None
+
+            pending_message_tool = await self._get_pending_message_tool_call(
+                client,
+                thread_id,
+            )
+            if pending_message_tool is not None:
+                prompt = parse_telegram_message_tool_payload(
+                    pending_message_tool.get("args"),
+                )
+                await self._send_message_tool_prompt(message, token, pending_message_tool)
+                if not prompt.expect_response:
+                    result = await self._resume_message_tool_call(
+                        message=message,
+                        client=client,
+                        thread_id=thread_id,
+                        pending_tool_call=pending_message_tool,
+                        prompt=prompt,
+                        response_text="",
+                        file_data=[],
+                        run_timeout=run_timeout,
+                        auto_response=True,
+                    )
+                    continue
+                return None
+
+            msgs = result.get("messages", [])
+            last_ai = None
+            for m in reversed(msgs):
+                if isinstance(m, dict) and m.get("type") == "ai":
+                    last_ai = m
+                    break
+            if last_ai and last_ai.get("tool_calls"):
+                logger.info("Auto-approving tool calls for chat %s", message.chat.id)
+                await message.chat.do("typing")
+                result = await asyncio.wait_for(
+                    client.runs.wait(
+                        thread_id=thread_id,
+                        assistant_id=ASSISTANT_ID,
+                        input=None,
+                        command={"resume": {"type": "approve"}},
+                    ),
+                    timeout=run_timeout,
+                )
+                continue
+            return result
+        return result if isinstance(result, dict) else None
+
+    async def _resume_message_tool_call(
+        self,
+        *,
+        message: tg_types.Message,
+        client: Any,
+        thread_id: str,
+        pending_tool_call: dict[str, Any],
+        prompt: TelegramMessageToolPayload,
+        response_text: str,
+        file_data: list[dict[str, Any]],
+        run_timeout: int,
+        auto_response: bool = False,
+        selected_button: str = "",
+    ) -> dict[str, Any]:
+        tool_result = {
+            "content": _build_message_tool_result_parts(
+                prompt=prompt,
+                response_text=response_text,
+                file_data=file_data,
+                message=message,
+                auto_response=auto_response,
+                selected_button=selected_button,
+            ),
+        }
+        await message.chat.do("typing")
+        return await asyncio.wait_for(
+            client.runs.wait(
+                thread_id=thread_id,
+                assistant_id=ASSISTANT_ID,
+                input=None,
+                command={
+                    "resume": {
+                        "type": "tool_call",
+                        "results": [
+                            {
+                                "id": pending_tool_call.get("id"),
+                                "result": tool_result,
+                            },
+                        ],
+                    },
+                },
+            ),
+            timeout=run_timeout,
+        )
+
+    async def _resume_pending_message_tool(
+        self,
+        *,
+        message: tg_types.Message,
+        client: Any,
+        thread_id: str,
+        token: str,
+        pending_tool_call: dict[str, Any],
+        run_timeout: int,
+    ) -> dict[str, Any] | None:
+        file_data = await self._collect_incoming_files(message, token, thread_id)
+        text = message.text or message.caption or ""
+        response_text = text or _describe_uploaded_files(file_data)
+        prompt = parse_telegram_message_tool_payload(pending_tool_call.get("args"))
+        result = await self._resume_message_tool_call(
+            message=message,
+            client=client,
+            thread_id=thread_id,
+            pending_tool_call=pending_tool_call,
+            prompt=prompt,
+            response_text=response_text,
+            file_data=file_data,
+            run_timeout=run_timeout,
+        )
+        return await self._continue_run_until_ready(
+            message=message,
+            client=client,
+            thread_id=thread_id,
+            token=token,
+            result=result,
+            run_timeout=run_timeout,
+        )
+
+    async def _send_run_result(
+        self,
+        *,
+        message: tg_types.Message,
+        token: str,
+        result: dict[str, Any],
+        request_start: Any,
+    ) -> None:
+        response_text, image_urls = _extract_ai_response(result)
+        response_text, attachment_paths = _extract_attachments(response_text)
+
+        if not attachment_paths:
+            attachment_paths = _scan_current_turn_attachments(result)
+
+        # Robust fallback: if tool calls happened but no attachments found,
+        # check files API for recently created image files
+        if not attachment_paths and not image_urls:
+            has_tool_calls = any(
+                isinstance(m, dict) and m.get("type") == "ai" and m.get("tool_calls")
+                for m in (result.get("messages") or [])[
+                    _find_last_human_index(result.get("messages") or [])
+                :]
+            )
+            if has_tool_calls:
+                attachment_paths = await self._find_recent_image_files(
+                    token,
+                    request_start,
+                )
+
+        logger.info(
+            "Response for chat %s: text=%d chars, images=%d, attachments=%d",
+            message.chat.id,
+            len(response_text),
+            len(image_urls),
+            len(attachment_paths),
+        )
+
+        sent_any = False
+
+        for path in attachment_paths[:10]:
+            try:
+                file_bytes = await self._download_attachment(token, path)
+                if file_bytes:
+                    fname = path.rsplit("/", 1)[-1] if "/" in path else path
+                    file_bytes, fname, rendered_from_plotly = self._convert_plotly_attachment(
+                        file_bytes=file_bytes,
+                        filename=fname,
+                    )
+                    inp = BufferedInputFile(file_bytes, filename=fname)
+                    lower = fname.lower()
+                    if rendered_from_plotly or lower.endswith(
+                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                    ):
+                        await message.answer_photo(inp)
+                    else:
+                        await message.answer_document(inp)
+                    sent_any = True
+            except Exception:
+                logger.warning("Failed to send attachment %s", path[:80])
+
+        for url in image_urls[:5]:
+            try:
+                await self._send_image(message, url)
+                sent_any = True
+            except Exception:
+                logger.warning("Failed to send image to Telegram")
+
+        if response_text:
+            for chunk in _split_message(response_text):
+                tg_text = _md_to_tg_markdown_v2(chunk)
+                try:
+                    await message.answer(tg_text, parse_mode="MarkdownV2")
+                except Exception:
+                    # Fallback to plain text if formatting fails
+                    await message.answer(chunk)
+            sent_any = True
+
+        if not sent_any:
+            await message.answer("✅ Задача выполнена.")
+
+    async def _handle_callback_query(self, callback: tg_types.CallbackQuery) -> None:
+        message = callback.message
+        if message is None:
+            await callback.answer()
+            return
+
+        chat_id = message.chat.id
+        user_id = self.bot_row.user_id
+        from datetime import datetime, timezone
+        request_start = datetime.now(timezone.utc)
+
+        try:
+            session_factory = await get_session_factory()
+            await self._register_contact(message)
+            async with session_factory() as session:
+                repo = TelegramBotRepository(session)
+                contact = await repo.get_contact(self.bot_row.id, chat_id)
+                if contact is None or not contact.is_approved:
+                    await callback.answer("Контакт не подтверждён", show_alert=True)
+                    return
+
+            token = _make_token(user_id, self.user_email)
+            client = get_client(
+                url=_langgraph_url(),
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            async with session_factory() as session:
+                repo = TelegramBotRepository(session)
+                thread_id = await self._get_or_create_thread(client, repo, chat_id)
+
+            pending_tool_call = await self._get_pending_message_tool_call(client, thread_id)
+            if pending_tool_call is None:
+                await callback.answer("Ожидание ответа уже завершено")
+                return
+
+            prompt = parse_telegram_message_tool_payload(pending_tool_call.get("args"))
+            resolved = self._resolve_callback_button(prompt, callback.data)
+            if resolved is None:
+                await callback.answer("Кнопка больше неактуальна", show_alert=True)
+                return
+
+            selected_button, response_text = resolved
+            await callback.answer()
+            result = await self._resume_message_tool_call(
+                message=message,
+                client=client,
+                thread_id=thread_id,
+                pending_tool_call=pending_tool_call,
+                prompt=prompt,
+                response_text=response_text,
+                file_data=[],
+                run_timeout=90,
+                selected_button=selected_button,
+            )
+            result = await self._continue_run_until_ready(
+                message=message,
+                client=client,
+                thread_id=thread_id,
+                token=token,
+                result=result,
+                run_timeout=90,
+            )
+            if isinstance(result, dict) and result.get("messages"):
+                await self._send_run_result(
+                    message=message,
+                    token=token,
+                    result=result,
+                    request_start=request_start,
+                )
+        except asyncio.TimeoutError:
+            await callback.answer("Истекло время ожидания", show_alert=True)
+        except Exception:
+            logger.exception("Error handling Telegram callback for user %s", user_id)
+            try:
+                await callback.answer("Не удалось обработать нажатие", show_alert=True)
+            except Exception:
+                pass
+
     async def _handle_message(self, message: tg_types.Message):
         chat_id = message.chat.id
         text = message.text or message.caption or ""
@@ -340,7 +987,7 @@ class _BotInstance:
 
             token = _make_token(user_id, self.user_email)
             client = get_client(
-                url=_langgraph_url(),
+                url="http://localhost:9090/api/",
                 headers={"Authorization": f"Bearer {token}"},
             )
 
@@ -348,107 +995,70 @@ class _BotInstance:
                 repo = TelegramBotRepository(session)
                 thread_id = await self._get_or_create_thread(client, repo, chat_id)
 
-            await message.chat.do("typing")
-
-            uploaded_files: list[dict] = []
-            if message.photo:
-                photo = message.photo[-1]
-                f = await self._upload_tg_file(token, photo.file_id, "photo.jpg", thread_id)
-                if f:
-                    uploaded_files.append(f)
-            if message.document:
-                fname = message.document.file_name or "document"
-                f = await self._upload_tg_file(token, message.document.file_id, fname, thread_id)
-                if f:
-                    uploaded_files.append(f)
-            if message.voice:
-                f = await self._upload_tg_file(token, message.voice.file_id, "voice.ogg", thread_id)
-                if f:
-                    uploaded_files.append(f)
-            if message.audio:
-                fname = message.audio.file_name or "audio.mp3"
-                f = await self._upload_tg_file(token, message.audio.file_id, fname, thread_id)
-                if f:
-                    uploaded_files.append(f)
-            if message.video:
-                fname = message.video.file_name or "video.mp4"
-                f = await self._upload_tg_file(token, message.video.file_id, fname, thread_id)
-                if f:
-                    uploaded_files.append(f)
-
-            file_data = [
-                {"path": f["sandbox_path"], "original_name": f.get("original_name", ""), "file_type": f.get("file_type", "other"), "size": f.get("size", 0)}
-                for f in uploaded_files
-            ]
-            if file_data:
-                logger.info("Files for agent: %s", [fd["path"] for fd in file_data])
-
-            content = text or ("Прикреплён файл: " + ", ".join(fd.get("original_name", fd["path"]) for fd in file_data) if file_data else "")
-            content += (
-                "\n\n[system: Ответ будет отправлен в Telegram. "
-                "Для графиков и изображений используй matplotlib. "
-                "ОБЯЗАТЕЛЬНО вызывай plt.show() после plt.savefig() — иначе изображение не будет отправлено пользователю. "
-                "Для отображения любого изображения из файла используй: "
-                "from IPython.display import display, Image; display(Image(filename='путь_к_файлу')). "
-                "Не используй plotly — интерактивные графики не поддерживаются в Telegram.]"
-            )
-            human_msg: dict[str, Any] = {"role": "human", "content": content}
-            if file_data:
-                human_msg["additional_kwargs"] = {
-                    "user_input": content,
-                    "files": file_data,
-                }
-
-            # Load user's RAG collections so the agent can search documents
-            collections_payload: list[dict[str, Any]] = []
-            try:
-                async with (await get_session_factory())() as session:
-                    rows = await RagCollectionsRepository(session).list_by_owner(self.bot_row.user_id)
-                    collections_payload = [
-                        {"uuid": str(r.id), "name": r.name, "metadata": r.metadata_ or {}}
-                        for r in rows
-                    ]
-            except Exception:
-                logger.warning("Failed to load RAG collections for user %s", self.bot_row.user_id)
-
-            run_input: dict[str, Any] = {"messages": [human_msg]}
-            if collections_payload:
-                run_input["collections"] = collections_payload
-
             RUN_TIMEOUT = 90  # seconds per run
 
-            result = await asyncio.wait_for(
-                client.runs.wait(
-                    thread_id=thread_id,
-                    assistant_id=ASSISTANT_ID,
-                    input=run_input,
-                ),
-                timeout=RUN_TIMEOUT,
+            pending_message_tool = await self._get_pending_message_tool_call(
+                client,
+                thread_id,
             )
+            if pending_message_tool is not None:
+                result = await self._resume_pending_message_tool(
+                    message=message,
+                    client=client,
+                    thread_id=thread_id,
+                    token=token,
+                    pending_tool_call=pending_message_tool,
+                    run_timeout=RUN_TIMEOUT,
+                )
+                if result is None:
+                    return
+            else:
+                await message.chat.do("typing")
+                file_data = await self._collect_incoming_files(message, token, thread_id)
+                if file_data:
+                    logger.info("Files for agent: %s", [fd["path"] for fd in file_data])
 
-            for _ in range(10):
-                if not isinstance(result, dict):
-                    break
-                msgs = result.get("messages", [])
-                last_ai = None
-                for m in reversed(msgs):
-                    if isinstance(m, dict) and m.get("type") == "ai":
-                        last_ai = m
-                        break
-                if last_ai and last_ai.get("tool_calls"):
-                    logger.info("Auto-approving tool calls for chat %s", chat_id)
-                    await message.chat.do("typing")
-                    result = await asyncio.wait_for(
-                        client.runs.wait(
-                            thread_id=thread_id,
-                            assistant_id=ASSISTANT_ID,
-                            input=None,
-                            command={"resume": {"type": "approve"}},
-                        ),
-                        timeout=RUN_TIMEOUT,
-                    )
-                else:
-                    break
+                content = text or _describe_uploaded_files(file_data)
+                content += (
+                    "\n\n[system: Ответ будет отправлен в Telegram. "
+                    "Если ты выполняешь долгую операцию, например вызываешь субагентов, то вызови message тул с уведомлением о том, что будешь делать с except_response=False"
+                    "Активно планируй и следуй своему плану! Всегда перед вызовом тулов размышляй над задачей и пиши размышления в тег <thinking>"
+                    "Действуй по простым шагам!"
+                    "Следующий шаг: "
+                )
+                human_msg: dict[str, Any] = {"role": "human", "content": content}
+                if file_data:
+                    human_msg["additional_kwargs"] = {
+                        "user_input": content,
+                        "files": file_data,
+                    }
+
+                run_input: dict[str, Any] = {
+                    "messages": [human_msg],
+                    "mcp_tools": [build_telegram_message_tool_schema()],
+                }
+                collections_payload = await self._load_collections_payload()
+                if collections_payload:
+                    run_input["collections"] = collections_payload
+
+                result = await asyncio.wait_for(
+                    client.runs.wait(
+                        thread_id=thread_id,
+                        assistant_id=ASSISTANT_ID,
+                        input=run_input,
+                    ),
+                    timeout=RUN_TIMEOUT,
+                )
+                result = await self._continue_run_until_ready(
+                    message=message,
+                    client=client,
+                    thread_id=thread_id,
+                    token=token,
+                    result=result,
+                    run_timeout=RUN_TIMEOUT,
+                )
+                if result is None:
+                    return
 
             if not isinstance(result, dict) or not result.get("messages"):
                 logger.warning("Empty result for chat %s: %s", chat_id, str(result)[:500])
@@ -457,64 +1067,12 @@ class _BotInstance:
                     await self._reset_thread(repo, chat_id)
                 await message.answer("⚠️ Агент не вернул ответ. Попробуйте ещё раз.")
                 return
-
-            response_text, image_urls = _extract_ai_response(result)
-            response_text, attachment_paths = _extract_attachments(response_text)
-
-            if not attachment_paths:
-                attachment_paths = _scan_current_turn_attachments(result)
-
-            # Robust fallback: if tool calls happened but no attachments found,
-            # check files API for recently created image files
-            if not attachment_paths and not image_urls:
-                has_tool_calls = any(
-                    isinstance(m, dict) and m.get("type") == "ai" and m.get("tool_calls")
-                    for m in (result.get("messages") or [])[_find_last_human_index(result.get("messages") or []):]
-                )
-                if has_tool_calls:
-                    attachment_paths = await self._find_recent_image_files(token, request_start)
-
-            logger.info(
-                "Response for chat %s: text=%d chars, images=%d, attachments=%d",
-                chat_id, len(response_text), len(image_urls), len(attachment_paths),
+            await self._send_run_result(
+                message=message,
+                token=token,
+                result=result,
+                request_start=request_start,
             )
-
-            sent_any = False
-
-            for path in attachment_paths[:10]:
-                try:
-                    file_bytes = await self._download_attachment(token, path)
-                    if file_bytes:
-                        fname = path.rsplit("/", 1)[-1] if "/" in path else path
-                        inp = BufferedInputFile(file_bytes, filename=fname)
-                        lower = fname.lower()
-                        if lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
-                            await message.answer_photo(inp)
-                        else:
-                            await message.answer_document(inp)
-                        sent_any = True
-                except Exception:
-                    logger.warning("Failed to send attachment %s", path[:80])
-
-            for url in image_urls[:5]:
-                try:
-                    await self._send_image(message, url)
-                    sent_any = True
-                except Exception:
-                    logger.warning("Failed to send image to Telegram")
-
-            if response_text:
-                for chunk in _split_message(response_text):
-                    tg_text = _md_to_tg_markdown_v2(chunk)
-                    try:
-                        await message.answer(tg_text, parse_mode="MarkdownV2")
-                    except Exception:
-                        # Fallback to plain text if formatting fails
-                        await message.answer(chunk)
-                sent_any = True
-
-            if not sent_any:
-                await message.answer("✅ Задача выполнена.")
 
         except asyncio.TimeoutError:
             logger.warning("Timeout handling Telegram message for user %s (chat %s)", user_id, chat_id)
