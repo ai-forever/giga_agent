@@ -64,6 +64,8 @@ class TelegramContact(Base):
         index=True,
     )
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    telegram_chat_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    telegram_chat_title: Mapped[str | None] = mapped_column(String, nullable=True)
     telegram_username: Mapped[str | None] = mapped_column(String, nullable=True)
     telegram_first_name: Mapped[str | None] = mapped_column(String, nullable=True)
     telegram_last_name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -95,14 +97,15 @@ class TelegramBotResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TelegramContactResponse(BaseModel):
     id: uuid.UUID
     bot_id: uuid.UUID
     telegram_chat_id: int
+    telegram_chat_type: str | None = None
+    telegram_chat_title: str | None = None
     telegram_username: str | None = None
     telegram_first_name: str | None = None
     telegram_last_name: str | None = None
@@ -110,8 +113,7 @@ class TelegramContactResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TelegramBotRepository:
@@ -246,12 +248,16 @@ class TelegramBotRepository:
         self,
         bot_id: uuid.UUID,
         telegram_chat_id: int,
+        chat_type: str | None = None,
+        chat_title: str | None = None,
         username: str | None = None,
         first_name: str | None = None,
         last_name: str | None = None,
     ) -> TelegramContact:
         existing = await self.get_contact(bot_id, telegram_chat_id)
         if existing is not None:
+            existing.telegram_chat_type = chat_type
+            existing.telegram_chat_title = chat_title
             existing.telegram_username = username
             existing.telegram_first_name = first_name
             existing.telegram_last_name = last_name
@@ -261,6 +267,8 @@ class TelegramBotRepository:
         contact = TelegramContact(
             bot_id=bot_id,
             telegram_chat_id=telegram_chat_id,
+            telegram_chat_type=chat_type,
+            telegram_chat_title=chat_title,
             telegram_username=username,
             telegram_first_name=first_name,
             telegram_last_name=last_name,
@@ -275,6 +283,17 @@ class TelegramBotRepository:
         self, contact_id: uuid.UUID, approved: bool
     ) -> TelegramContact | None:
         contact = await self.get_contact_by_id(contact_id)
+        if contact is None:
+            return None
+        contact.is_approved = approved
+        await self.db.commit()
+        await self.db.refresh(contact)
+        return contact
+
+    async def set_contact_approved_by_chat_id(
+        self, bot_id: uuid.UUID, telegram_chat_id: int, approved: bool
+    ) -> TelegramContact | None:
+        contact = await self.get_contact(bot_id, telegram_chat_id)
         if contact is None:
             return None
         contact.is_approved = approved

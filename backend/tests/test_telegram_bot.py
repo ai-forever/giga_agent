@@ -1,6 +1,6 @@
 """Tests for the Telegram bot response extraction and message handling logic."""
 
-from giga_agent.modules.telegram.bot import (
+from giga_agent.modules.telegram.utils import (
     _extract_ai_response,
     _extract_attachments,
     _find_last_human_index,
@@ -62,7 +62,11 @@ class TestExtractAiResponse:
         result = {
             "messages": [
                 {"type": "human", "content": "calc"},
-                {"type": "ai", "content": "", "tool_calls": [{"id": "1", "name": "python"}]},
+                {
+                    "type": "ai",
+                    "content": "",
+                    "tool_calls": [{"id": "1", "name": "python"}],
+                },
                 {"type": "tool", "content": "42", "tool_call_id": "1"},
                 {"type": "ai", "content": "The answer is 42."},
             ]
@@ -125,7 +129,9 @@ class TestExtractAiResponse:
                 {
                     "type": "ai",
                     "content": "<thinking>\nPlan: use code\n</thinking>\n",
-                    "tool_calls": [{"id": "c1", "name": "python", "args": {"code": "15*7"}}],
+                    "tool_calls": [
+                        {"id": "c1", "name": "python", "args": {"code": "15*7"}}
+                    ],
                 },
                 {"type": "tool", "content": '{"result": 105}', "tool_call_id": "c1"},
                 {
@@ -148,9 +154,7 @@ class TestExtractAttachments:
 
     def test_multiple_attachments(self):
         text = (
-            "![A](attachment:/bucket/a.png)\n"
-            "Some text\n"
-            "![B](attachment:/bucket/b.jpg)"
+            "![A](attachment:/bucket/a.png)\nSome text\n![B](attachment:/bucket/b.jpg)"
         )
         cleaned, paths = _extract_attachments(text)
         assert paths == ["/bucket/a.png", "/bucket/b.jpg"]
@@ -205,7 +209,11 @@ class TestScanCurrentTurnAttachments:
         result = {
             "messages": [
                 {"type": "human", "content": "Нарисуй мем"},
-                {"type": "ai", "content": "", "tool_calls": [{"id": "1", "name": "create_meme"}]},
+                {
+                    "type": "ai",
+                    "content": "",
+                    "tool_calls": [{"id": "1", "name": "create_meme"}],
+                },
                 {
                     "type": "tool",
                     "content": "Мем создан: ![мем](attachment:/bucket/abc/meme.png)",
@@ -254,7 +262,11 @@ class TestScanCurrentTurnAttachments:
             "messages": [
                 # Turn 1 (old)
                 {"type": "human", "content": "Нарисуй график"},
-                {"type": "ai", "content": "", "tool_calls": [{"id": "1", "name": "python"}]},
+                {
+                    "type": "ai",
+                    "content": "",
+                    "tool_calls": [{"id": "1", "name": "python"}],
+                },
                 {
                     "type": "tool",
                     "content": "![graph](attachment:/bucket/old/graph.png)",
@@ -263,7 +275,11 @@ class TestScanCurrentTurnAttachments:
                 {"type": "ai", "content": "![graph](attachment:/bucket/old/graph.png)"},
                 # Turn 2 (current)
                 {"type": "human", "content": "Нарисуй мем"},
-                {"type": "ai", "content": "", "tool_calls": [{"id": "2", "name": "gen_image"}]},
+                {
+                    "type": "ai",
+                    "content": "",
+                    "tool_calls": [{"id": "2", "name": "gen_image"}],
+                },
                 {
                     "type": "tool",
                     "content": "![мем](attachment:/bucket/new/meme.png)",
@@ -301,7 +317,11 @@ class TestScanCurrentTurnAttachments:
             "messages": [
                 # Turn 1: meme generation
                 {"type": "human", "content": "Пришли мем"},
-                {"type": "ai", "content": "", "tool_calls": [{"id": "1", "name": "gen_image"}]},
+                {
+                    "type": "ai",
+                    "content": "",
+                    "tool_calls": [{"id": "1", "name": "gen_image"}],
+                },
                 {
                     "type": "tool",
                     "content": '{"message": "![мем](attachment:/bucket/meme.png)"}',
@@ -314,9 +334,7 @@ class TestScanCurrentTurnAttachments:
             ]
         }
         paths = _scan_current_turn_attachments(result)
-        assert paths == [], (
-            "Meme from turn 1 must not appear in turn 2 attachments"
-        )
+        assert paths == [], "Meme from turn 1 must not appear in turn 2 attachments"
 
 
 class TestAgentApiBase:
