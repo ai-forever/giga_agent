@@ -1,6 +1,7 @@
-import React, { useEffect, useImperativeHandle, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
+import Spinner from "./Spinner";
 import { useStableMessages } from "../hooks/useStableMessages";
 import { GraphState } from "../interfaces";
 import { useNavigate, useParams } from "react-router-dom";
@@ -44,6 +45,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       });
     },
   });
+  console.log(thread);
+
 
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
@@ -69,6 +72,10 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [threadId, onThreadIdChange]);
 
   const stableMessages = useStableMessages(thread);
+  const isThreadLoading =
+    Boolean(threadId) && thread.isThreadLoading;
+  const previousThreadLoadingRef = useRef(isThreadLoading);
+  const shouldScrollAfterLoadRef = useRef(false);
 
   const aiCountRef = useRef<{ threadId: string | null; aiCount: number }>({
     threadId: null,
@@ -97,6 +104,34 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
 
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
+
+  useEffect(() => {
+    if (previousThreadLoadingRef.current && !isThreadLoading) {
+      shouldScrollAfterLoadRef.current = true;
+    }
+
+    previousThreadLoadingRef.current = isThreadLoading;
+  }, [isThreadLoading]);
+
+  useEffect(() => {
+    if (isThreadLoading) return;
+    if (!shouldScrollAfterLoadRef.current) return;
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        bottomSentinelRef.current?.scrollIntoView({ block: "end" });
+
+        const current = containerRef.current;
+        if (current) {
+          current.scrollTop = current.scrollHeight;
+        }
+
+        autoScrollEnabledRef.current = true;
+        firstSroll.current = true;
+        shouldScrollAfterLoadRef.current = false;
+      });
+    });
+  }, [isThreadLoading, stableMessages.length]);
 
   // Наблюдаем за «сентинелом» внизу списка, чтобы понять, включать ли авто-скролл
   useEffect(() => {
@@ -134,7 +169,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       rafIdRef.current = null;
       const current = containerRef.current;
       if (!current) return;
-      if (isSafariRef.current || firstSroll) {
+      if (isSafariRef.current || firstSroll.current) {
         // Safari: избегаем smooth, чтобы не было скачков вверх
         current.scrollTop = current.scrollHeight;
       } else {
@@ -192,22 +227,24 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       >
         <div
           className={[
-            stableMessages.length ? "grow flex-1 p-7 max-[900px]:p-0" : "",
+            stableMessages.length || isThreadLoading ? "grow flex-1 p-7 max-[900px]:p-0" : "",
             "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none",
           ].join(" ")}
         >
-          <MessageList
-            messages={stableMessages ?? []}
-            thread={thread}
-            maybeAutoScroll={maybeAutoScroll}
-          />
+          {!isThreadLoading && (
+            <MessageList
+              messages={stableMessages ?? []}
+              thread={thread}
+              maybeAutoScroll={maybeAutoScroll}
+            />
+          )}
         </div>
-        <div ref={bottomSentinelRef} style={{ height: 1 }} />
 
         <InputArea
           // @ts-ignore
           thread={thread}
         />
+              <div ref={bottomSentinelRef} style={{ height: 1 }} />
       </div>
     </SelectedAttachmentsProvider>
   );
