@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import Spinner from "./Spinner";
@@ -117,8 +118,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     if (isThreadLoading) return;
     if (!shouldScrollAfterLoadRef.current) return;
 
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
         bottomSentinelRef.current?.scrollIntoView({ block: "end" });
 
         const current = containerRef.current;
@@ -129,8 +129,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
         autoScrollEnabledRef.current = true;
         firstSroll.current = true;
         shouldScrollAfterLoadRef.current = false;
-      });
-    });
+    }, 200);
   }, [isThreadLoading, stableMessages.length]);
 
   // Наблюдаем за «сентинелом» внизу списка, чтобы понять, включать ли авто-скролл
@@ -232,11 +231,17 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
           ].join(" ")}
         >
           {!isThreadLoading && (
-            <MessageList
-              messages={stableMessages ?? []}
-              thread={thread}
-              maybeAutoScroll={maybeAutoScroll}
-            />
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
+            >
+              <MessageList
+                messages={stableMessages ?? []}
+                thread={thread}
+                maybeAutoScroll={maybeAutoScroll}
+              />
+            </motion.div>
           )}
         </div>
 
