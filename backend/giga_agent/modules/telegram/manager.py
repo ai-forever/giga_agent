@@ -7,7 +7,7 @@ from typing import Any
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.bot import _BotInstance
+from giga_agent.modules.telegram.app import TelegramBotApp
 from giga_agent.modules.telegram.models import (
     TelegramBot as TelegramBotModel,
     TelegramBotRepository,
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 class TelegramBotManager:
     def __init__(self):
-        self._bots: dict[uuid.UUID, _BotInstance] = {}
+        self._bots: dict[uuid.UUID, TelegramBotApp] = {}
 
     async def start_all(self):
         session_factory = await get_session_factory()
@@ -40,7 +40,7 @@ class TelegramBotManager:
             return
 
         try:
-            instance = _BotInstance(bot_row, user.email)
+            instance = TelegramBotApp(bot_row, user.email)
             bot_info = await instance.bot.get_me()
             if bot_row.bot_username != bot_info.username:
                 bot_row.bot_username = bot_info.username

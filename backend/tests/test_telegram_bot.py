@@ -3,7 +3,9 @@
 from giga_agent.modules.telegram.utils import (
     _extract_ai_response,
     _extract_attachments,
+    _extract_text_media,
     _find_last_human_index,
+    _md_to_tg_markdown_v2,
     _scan_current_turn_attachments,
     _strip_thinking,
     _split_message,
@@ -180,6 +182,115 @@ class TestExtractAttachments:
         cleaned, paths = _extract_attachments(text)
         assert paths == []
         assert cleaned == text
+
+
+class TestExtractTextMedia:
+    def test_extracts_markdown_image_url(self):
+        text = "Смотри:\n\n![alt](https://example.com/image.png)\n\nГотово"
+        parts = _extract_text_media(text)
+        assert parts == [
+            {"kind": "text", "value": "Смотри:"},
+            {"kind": "image_url", "value": "https://example.com/image.png"},
+            {"kind": "text", "value": "Готово"},
+        ]
+
+    def test_extracts_raw_image_url(self):
+        text = "Результат: https://example.com/chart.webp?size=large\n\nОписание ниже"
+        parts = _extract_text_media(text)
+        assert parts == [
+            {"kind": "text", "value": "Результат:"},
+            {
+                "kind": "image_url",
+                "value": "https://example.com/chart.webp?size=large",
+            },
+            {"kind": "text", "value": "Описание ниже"},
+        ]
+
+    def test_extracts_mixed_attachments_and_urls(self):
+        text = (
+            "Вот материалы:\n"
+            "![plot](attachment:/bucket/x/plot.png)\n"
+            "![preview](https://example.com/preview.jpg)"
+        )
+        parts = _extract_text_media(text)
+        assert parts == [
+            {"kind": "text", "value": "Вот материалы:"},
+            {"kind": "attachment_path", "value": "/bucket/x/plot.png"},
+            {"kind": "image_url", "value": "https://example.com/preview.jpg"},
+        ]
+
+    def test_preserves_message_part_order(self):
+        text = "тест\n![test](attachment:tralala.jpg)\nтест"
+        parts = _extract_text_media(text)
+        assert parts == [
+            {"kind": "text", "value": "тест"},
+            {"kind": "attachment_path", "value": "tralala.jpg"},
+            {"kind": "text", "value": "тест"},
+        ]
+
+
+class TestTelegramMarkdownConversion:
+    def test_preserves_markdown_blockquote_marker(self):
+        text = "> Первая строка\n> Вторая строка!"
+
+        assert _md_to_tg_markdown_v2(text) == "> Первая строка\n> Вторая строка\\!"
+
+    def test_converts_markdown_headers_to_bold(self):
+        text = "# Заголовок\n\n## Подзаголовок"
+
+        assert _md_to_tg_markdown_v2(text) == "*Заголовок*\n\n*Подзаголовок*"
+
+    def test_wraps_markdown_table_in_code_block(self):
+        text = (
+            "Результаты:\n\n"
+            "| Name | Value |\n"
+            "| --- | --- |\n"
+            "| alpha | 1 |\n"
+            "| beta | 2 |\n"
+        )
+
+        assert _md_to_tg_markdown_v2(text) == (
+            "Результаты:\n\n"
+            "```\n"
+            "| Name | Value |\n"
+            "| --- | --- |\n"
+            "| alpha | 1 |\n"
+            "| beta | 2 |\n"
+            "```"
+        )
+
+    def test_preserves_text_after_wrapped_markdown_table(self):
+        text = (
+            "Результаты:\n\n"
+            "| Name | Value |\n"
+            "| --- | --- |\n"
+            "| alpha | 1 |\n"
+            "\n"
+            "Итог!"
+        )
+
+        assert _md_to_tg_markdown_v2(text) == (
+            "Результаты:\n\n"
+            "```\n"
+            "| Name | Value |\n"
+            "| --- | --- |\n"
+            "| alpha | 1 |\n"
+            "```\n"
+            "Итог\\!"
+        )
+
+    def test_promotes_long_dialogue_quote_to_blockquote(self):
+        text = (
+            "Мерседес паркуется у 'Черного Орла'. "
+            'Бригадир за баром: "Тайлер? Слышал. Покажите товар лицом. '
+            'Драка или деньги." Толпа ревет.'
+        )
+
+        assert _md_to_tg_markdown_v2(text) == (
+            "Мерседес паркуется у 'Черного Орла'\\. Бригадир за баром:\n"
+            "> Тайлер? Слышал\\. Покажите товар лицом\\. Драка или деньги\\.\n"
+            "Толпа ревет\\."
+        )
 
 
 class TestFindLastHumanIndex:

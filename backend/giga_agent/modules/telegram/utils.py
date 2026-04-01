@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from aiogram import types as tg_types
 from plotly import io as plotly_io
@@ -24,6 +24,21 @@ _BUCKET_PATH_RE = re.compile(
     r"(?:`?)(/bucket/[a-f0-9\-]+/[^\s`\"',)]+\.(?:png|jpg|jpeg|gif|webp|mp3|mp4|pdf|svg))(?:`?)",
     re.IGNORECASE,
 )
+
+_MARKDOWN_IMAGE_URL_RE = re.compile(
+    r"!\[([^\]]*)\]\(((?:https?://|data:image/)[^)]+)\)",
+    re.IGNORECASE,
+)
+
+_RAW_IMAGE_URL_RE = re.compile(
+    r"(?P<url>https?://[^\s<>'\"`()]+?\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s<>'\"`()]+)?)|(?P<data>data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)",
+    re.IGNORECASE,
+)
+
+
+class TelegramTextMediaPart(TypedDict):
+    kind: Literal["text", "image_url", "attachment_path"]
+    value: str
 
 
 def _langgraph_url() -> str:
@@ -62,6 +77,57 @@ def _extract_attachments(text: str) -> tuple[str, list[str]]:
     return cleaned, paths
 
 
+def _normalize_text_media_text(text: str) -> str:
+    normalized = re.sub(r"[ \t]+\n", "\n", text)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
+
+
+def _extract_text_media(text: str) -> list[TelegramTextMediaPart]:
+    candidates: list[tuple[int, int, str, str]] = []
+
+    for match in _ATTACHMENT_RE.finditer(text):
+        candidates.append((match.start(), match.end(), "attachment_path", match.group(2)))
+
+    for match in _MARKDOWN_IMAGE_URL_RE.finditer(text):
+        candidates.append((match.start(), match.end(), "image_url", match.group(2)))
+
+    for match in _RAW_IMAGE_URL_RE.finditer(text):
+        candidates.append(
+            (
+                match.start(),
+                match.end(),
+                "image_url",
+                match.group("url") or match.group("data") or "",
+            )
+        )
+
+    if not any(kind == "attachment_path" for _, _, kind, _ in candidates):
+        for match in _BUCKET_PATH_RE.finditer(text):
+            candidates.append((match.start(), match.end(), "attachment_path", match.group(1)))
+
+    parts: list[TelegramTextMediaPart] = []
+    last_end = 0
+
+    for start, end, kind, value in sorted(candidates, key=lambda item: (item[0], item[1])):
+        if start < last_end:
+            continue
+
+        text_part = _normalize_text_media_text(text[last_end:start])
+        if text_part:
+            parts.append({"kind": "text", "value": text_part})
+
+        if value:
+            parts.append({"kind": kind, "value": value})
+        last_end = end
+
+    tail_text = _normalize_text_media_text(text[last_end:])
+    if tail_text:
+        parts.append({"kind": "text", "value": tail_text})
+
+    return parts
+
+
 def _find_last_human_index(messages: list) -> int:
     """Return the index of the last human message, or 0 if none found."""
     for i in range(len(messages) - 1, -1, -1):
@@ -80,6 +146,8 @@ def _scan_current_turn_attachments(result: dict) -> list[str]:
     start = _find_last_human_index(messages)
     for msg in messages[start:]:
         if not isinstance(msg, dict):
+            continue
+        if msg.get("type") == "human":
             continue
         content = msg.get("content", "")
         if isinstance(content, str):
@@ -247,6 +315,9 @@ def _build_message_tool_result_parts(
     response_text: str,
     file_data: list[dict[str, Any]],
     message: tg_types.Message | None,
+    message_context: dict[str, Any] | None = None,
+    attachment_paths: list[str] | None = None,
+    reply_context: dict[str, Any] | None = None,
     auto_response: bool = False,
     selected_button: str = "",
 ) -> list[dict[str, str]]:
@@ -272,6 +343,9 @@ def _build_message_tool_result_parts(
             "selected_button": selected_button,
             "response_format": prompt.response_format,
             "files": file_data,
+            "message_context": message_context or {},
+            "attachments": attachment_paths or [],
+            "reply": reply_context or {},
             "auto_response": auto_response,
             "telegram_chat_id": message.chat.id if message else 0,
             "telegram_message_id": message.message_id if message else 0,
@@ -302,10 +376,40 @@ def _md_to_tg_markdown_v2(text: str) -> str:
     """Convert standard Markdown to Telegram MarkdownV2 format."""
     code_blocks: list[str] = []
 
+    def _replace_markdown_headers(value: str) -> str:
+        header_re = re.compile(r"(?m)^(#{1,6})[ \t]+(.+?)[ \t]*$")
+
+        def _replace(match: re.Match) -> str:
+            title = re.sub(r"[ \t]+#+[ \t]*$", "", match.group(2))
+            return f"**{title}**"
+
+        return header_re.sub(_replace, value)
+
+    def _wrap_markdown_table_blocks(value: str) -> str:
+        table_block_re = re.compile(
+            r"(?m)(?P<prefix>^|\n\n)"
+            r"(?P<table>"
+            r" {0,3}\|(?P<table_head>.+)\|[ \t]*\n"
+            r" {0,3}\|(?P<table_align> *[-:]+[-| :]*)\|[ \t]*\n"
+            r"(?P<table_body>(?: {0,3}\|.*\|[ \t]*(?:\n|$))*)"
+            r")"
+            r"(?P<suffix>\n*)"
+        )
+
+        def _replace(match: re.Match) -> str:
+            return (
+                f"{match.group('prefix')}```\n"
+                f"{match.group('table')}```\n{match.group('suffix')}"
+            )
+
+        return table_block_re.sub(_replace, value)
+
     def _save_code_block(match: re.Match) -> str:
         code_blocks.append(match.group(0))
         return f"\x00CODEBLOCK{len(code_blocks) - 1}\x00"
 
+    text = _replace_markdown_headers(text)
+    text = _wrap_markdown_table_blocks(text)
     text = re.sub(r"```[\s\S]*?```", _save_code_block, text)
 
     inline_codes: list[str] = []

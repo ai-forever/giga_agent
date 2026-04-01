@@ -64,6 +64,7 @@ dependencies = [
     "plotly>=6.0.0",
     "kaleido>=1.0.0",
     "aiogram>=3.26.0",
+    "google-genai>=1.66.0",
 ]
 
 [project.scripts]

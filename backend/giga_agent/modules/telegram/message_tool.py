@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -34,6 +35,16 @@ class TelegramMessageToolPayload(BaseModel):
     expect_response: bool = True
     response_format: Literal["text", "single_choice", "multi_choice"] = "text"
     disable_web_page_preview: bool = False
+
+
+def _normalize_message_tool_value(value: object) -> object:
+    if isinstance(value, str):
+        return html.unescape(value.replace("\\r\\n", "\n").replace("\\n", "\n"))
+    if isinstance(value, list):
+        return [_normalize_message_tool_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalize_message_tool_value(item) for key, item in value.items()}
+    return value
 
 
 def build_telegram_message_tool_schema() -> dict[str, object]:
@@ -141,4 +152,6 @@ def build_telegram_message_tool_schema() -> dict[str, object]:
 def parse_telegram_message_tool_payload(
     raw_args: dict[str, object] | None,
 ) -> TelegramMessageToolPayload:
-    return TelegramMessageToolPayload.model_validate(raw_args or {})
+    normalized_args = _normalize_message_tool_value(dict(raw_args or {}))
+    normalized_args["content"] = normalized_args.get("content", "")
+    return TelegramMessageToolPayload.model_validate(normalized_args)
