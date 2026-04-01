@@ -157,14 +157,17 @@ class MemZeroModule(BaseModule):
                 memory = await get_memory_for_user(user=user, session=session)
             except MemZeroEmbeddingsNotConfigured:
                 return None
-
-        retrieved_memories = await memory.search(
-            query=task, user_id=str(user.id), limit=5
-        )
-        formatted = format_memories(retrieved_memories)
-        if not formatted.strip():
-            return None
-        return f"<memory>{formatted}</memory>\n"
+        try:
+            retrieved_memories = await memory.search(
+                query=task, user_id=str(user.id), limit=5
+            )
+            formatted = format_memories(retrieved_memories)
+            if not formatted.strip():
+                return None
+            return f"<memory>{formatted}</memory>\n"
+        except Exception as e:
+            logger.exception(f"Failed to retrieve memory {e}")
+            return ""
 
     def get_middleware(self, **kwargs: Any) -> AgentMiddleware:
         _ = kwargs

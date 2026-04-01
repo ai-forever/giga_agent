@@ -31,6 +31,8 @@ interface TelegramContactItem {
   id: string;
   bot_id: string;
   telegram_chat_id: number;
+  telegram_chat_type: string | null;
+  telegram_chat_title: string | null;
   telegram_username: string | null;
   telegram_first_name: string | null;
   telegram_last_name: string | null;
@@ -43,7 +45,7 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
   const confirm = useConfirm();
   const [contacts, setContacts] = useState<TelegramContactItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingKey, setUpdatingKey] = useState<string | null>(null);
 
   const fetchContacts = useCallback(async () => {
     if (!configured) return;
@@ -66,11 +68,12 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
     return () => clearInterval(interval);
   }, [fetchContacts]);
 
-  const handleApprove = async (id: string, approve: boolean) => {
-    setUpdatingId(id);
+  const handleApprove = async (chatId: number, approve: boolean) => {
+    const actionKey = `approve:${chatId}`;
+    setUpdatingKey(actionKey);
     try {
       await apiClient.patch<TelegramContactItem>(
-        `${API_AGENT_PREFIX}/telegram/contacts/${id}`,
+        `${API_AGENT_PREFIX}/telegram/contacts/by-chat/${chatId}`,
         { is_approved: approve },
       );
       toast.success(approve ? "Контакт подтверждён" : "Доступ отозван");
@@ -78,7 +81,7 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
     } catch {
       /* handled globally */
     } finally {
-      setUpdatingId(null);
+      setUpdatingKey(null);
     }
   };
 
@@ -90,7 +93,8 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
       }))
     )
       return;
-    setUpdatingId(id);
+    const actionKey = `delete:${id}`;
+    setUpdatingKey(actionKey);
     try {
       await apiClient.delete(`${API_AGENT_PREFIX}/telegram/contacts/${id}`);
       toast.success("Контакт удалён");
@@ -98,7 +102,7 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
     } catch {
       /* handled globally */
     } finally {
-      setUpdatingId(null);
+      setUpdatingKey(null);
     }
   };
 
@@ -108,6 +112,11 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
   const approved = contacts.filter((c) => c.is_approved);
 
   const contactName = (c: TelegramContactItem) => {
+    if (c.telegram_chat_type && c.telegram_chat_type !== "private") {
+      if (c.telegram_chat_title) return c.telegram_chat_title;
+      if (c.telegram_username) return `@${c.telegram_username}`;
+      return `chat ${c.telegram_chat_id}`;
+    }
     const parts: string[] = [];
     if (c.telegram_first_name) parts.push(c.telegram_first_name);
     if (c.telegram_last_name) parts.push(c.telegram_last_name);
@@ -150,17 +159,21 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
             {c.is_approved ? "Подтверждён" : "Ожидает"}
           </Badge>
         </div>
+        <div className="text-xs text-muted-foreground mt-1">
+          chat_id: {c.telegram_chat_id}
+          {c.telegram_chat_type ? ` • ${c.telegram_chat_type}` : ""}
+        </div>
       </div>
       <div className="flex items-center gap-1">
         {!c.is_approved ? (
           <Button
             size="sm"
             variant="default"
-            disabled={updatingId === c.id}
-            onClick={() => handleApprove(c.id, true)}
+            disabled={updatingKey === `approve:${c.telegram_chat_id}`}
+            onClick={() => handleApprove(c.telegram_chat_id, true)}
             title="Подтвердить"
           >
-            {updatingId === c.id ? (
+            {updatingKey === `approve:${c.telegram_chat_id}` ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <>
@@ -173,11 +186,11 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
           <Button
             size="sm"
             variant="outline"
-            disabled={updatingId === c.id}
-            onClick={() => handleApprove(c.id, false)}
+            disabled={updatingKey === `approve:${c.telegram_chat_id}`}
+            onClick={() => handleApprove(c.telegram_chat_id, false)}
             title="Отозвать доступ"
           >
-            {updatingId === c.id ? (
+            {updatingKey === `approve:${c.telegram_chat_id}` ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (
               <>
@@ -190,7 +203,7 @@ const ContactsList: React.FC<{ configured: boolean }> = ({ configured }) => {
         <Button
           size="icon"
           variant="ghost"
-          disabled={updatingId === c.id}
+          disabled={updatingKey === `delete:${c.id}`}
           onClick={() => handleDelete(c.id)}
           title="Удалить"
         >

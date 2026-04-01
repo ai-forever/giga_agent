@@ -5,6 +5,8 @@ import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
+from aiogram.types import BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats
+
 from giga_agent.modules.telegram.bot import _BotInstance
 from giga_agent.modules.telegram.message_tool import (
     TELEGRAM_MESSAGE_TOOL_NAME,
@@ -22,10 +24,27 @@ def _bot_instance() -> _BotInstance:
     return _BotInstance(bot_row=bot_row, user_email="owner@example.com")
 
 
-def _message(text: str = "hello") -> types.SimpleNamespace:
+def _message(
+    text: str = "hello",
+    *,
+    message_id: int = 77,
+    chat_id: int = 42,
+    chat_type: str = "private",
+    chat_title: str | None = None,
+    chat_username: str | None = None,
+    from_user_id: int = 1001,
+    from_username: str = "telegram_user",
+    from_first_name: str = "Telegram",
+    from_last_name: str = "User",
+    entities: list[types.SimpleNamespace] | None = None,
+    caption_entities: list[types.SimpleNamespace] | None = None,
+    reply_to_message: types.SimpleNamespace | None = None,
+) -> types.SimpleNamespace:
     return types.SimpleNamespace(
         text=text,
         caption=None,
+        entities=entities,
+        caption_entities=caption_entities,
         photo=None,
         document=None,
         voice=None,
@@ -33,14 +52,23 @@ def _message(text: str = "hello") -> types.SimpleNamespace:
         video=None,
         video_note=None,
         sticker=None,
-        message_id=77,
-        chat=types.SimpleNamespace(id=42, do=AsyncMock()),
-        from_user=types.SimpleNamespace(
-            id=1001,
-            username="telegram_user",
-            first_name="Telegram",
-            last_name="User",
+        message_id=message_id,
+        chat=types.SimpleNamespace(
+            id=chat_id,
+            type=chat_type,
+            title=chat_title,
+            username=chat_username,
+            first_name=from_first_name if chat_type == "private" else None,
+            last_name=from_last_name if chat_type == "private" else None,
+            do=AsyncMock(),
         ),
+        from_user=types.SimpleNamespace(
+            id=from_user_id,
+            username=from_username,
+            first_name=from_first_name,
+            last_name=from_last_name,
+        ),
+        reply_to_message=reply_to_message,
         answer=AsyncMock(),
         answer_photo=AsyncMock(),
         answer_document=AsyncMock(),
@@ -53,7 +81,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
     def test_schema_is_json_schema_safe(self):
         schema = build_telegram_message_tool_schema()
         serialized = json.dumps(schema, ensure_ascii=False)
-        button_properties = schema["inputSchema"]["properties"]["buttons"]["items"]["properties"]
+        button_properties = schema["inputSchema"]["properties"]["buttons"]["items"][
+            "properties"
+        ]
 
         self.assertEqual(schema["name"], TELEGRAM_MESSAGE_TOOL_NAME)
         self.assertIn("inputSchema", schema)
@@ -70,7 +100,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         }
         client = types.SimpleNamespace(runs=types.SimpleNamespace(wait=AsyncMock()))
 
-        instance._get_pending_message_tool_call = AsyncMock(return_value=pending_call)
+        instance._get_pending_message_tool_calls = AsyncMock(return_value=[pending_call])
         instance._send_message_tool_prompt = AsyncMock()
 
         result = await instance._continue_run_until_ready(
@@ -95,6 +125,68 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             message,
             "token",
             pending_call,
+            None,
+            include_reply_markup=True,
+        )
+        client.runs.wait.assert_not_awaited()
+
+    async def test_continue_run_sends_all_pending_message_interrupts(self):
+        instance = _bot_instance()
+        message = _message()
+        first_pending_call = {
+            "id": "call-1",
+            "name": TELEGRAM_MESSAGE_TOOL_NAME,
+            "args": {"content": "Сначала покажи инструкцию"},
+        }
+        second_pending_call = {
+            "id": "call-2",
+            "name": TELEGRAM_MESSAGE_TOOL_NAME,
+            "args": {"content": "Теперь задай вопрос"},
+        }
+        client = types.SimpleNamespace(runs=types.SimpleNamespace(wait=AsyncMock()))
+
+        instance._get_pending_message_tool_calls = AsyncMock(
+            return_value=[first_pending_call, second_pending_call]
+        )
+        instance._send_message_tool_prompt = AsyncMock()
+
+        result = await instance._continue_run_until_ready(
+            message=message,
+            client=client,
+            thread_id="thread-1",
+            token="token",
+            result={
+                "messages": [
+                    {
+                        "type": "ai",
+                        "content": "",
+                        "tool_calls": [first_pending_call, second_pending_call],
+                    },
+                ],
+            },
+            run_timeout=30,
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(instance._send_message_tool_prompt.await_count, 2)
+        self.assertEqual(
+            instance._send_message_tool_prompt.await_args_list,
+            [
+                unittest.mock.call(
+                    message,
+                    "token",
+                    first_pending_call,
+                    None,
+                    include_reply_markup=False,
+                ),
+                unittest.mock.call(
+                    message,
+                    "token",
+                    second_pending_call,
+                    None,
+                    include_reply_markup=True,
+                ),
+            ],
         )
         client.runs.wait.assert_not_awaited()
 
@@ -117,8 +209,8 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             ),
         )
 
-        instance._get_pending_message_tool_call = AsyncMock(
-            side_effect=[pending_call, None],
+        instance._get_pending_message_tool_calls = AsyncMock(
+            side_effect=[[pending_call], []],
         )
         instance._send_message_tool_prompt = AsyncMock()
 
@@ -144,10 +236,14 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             message,
             "token",
             pending_call,
+            None,
+            include_reply_markup=True,
         )
         resume_payload = client.runs.wait.await_args.kwargs["command"]["resume"]
         self.assertEqual(resume_payload["type"], "tool_call")
-        payload = json.loads(resume_payload["results"][0]["result"]["content"][0]["text"])
+        payload = json.loads(
+            resume_payload["results"][0]["result"]["content"][0]["text"]
+        )
         self.assertEqual(payload["content"], "")
         self.assertFalse(payload["expect_response"])
         self.assertIn("expect_response=False", payload["message"])
@@ -167,7 +263,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         }
         client = types.SimpleNamespace(
             runs=types.SimpleNamespace(
-                wait=AsyncMock(return_value={"messages": [{"type": "ai", "content": "ok"}]}),
+                wait=AsyncMock(
+                    return_value={"messages": [{"type": "ai", "content": "ok"}]}
+                ),
             ),
         )
 
@@ -190,7 +288,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             client=client,
             thread_id="thread-1",
             token="token",
-            pending_tool_call=pending_call,
+            pending_tool_calls=[pending_call],
             run_timeout=30,
         )
 
@@ -207,12 +305,60 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["response_format"], "single_choice")
         self.assertEqual(payload["files"][0]["path"], "/bucket/reply.txt")
 
+    async def test_resume_pending_message_tool_fills_only_last_tool_call(self):
+        instance = _bot_instance()
+        message = _message("Финальный ответ")
+        first_pending_call = {
+            "id": "call-1",
+            "name": TELEGRAM_MESSAGE_TOOL_NAME,
+            "args": {"content": "Сначала отправь уведомление"},
+        }
+        second_pending_call = {
+            "id": "call-2",
+            "name": TELEGRAM_MESSAGE_TOOL_NAME,
+            "args": {"content": "Теперь ответь на вопрос"},
+        }
+        client = types.SimpleNamespace(
+            runs=types.SimpleNamespace(
+                wait=AsyncMock(return_value={"messages": [{"type": "ai", "content": "ok"}]})
+            )
+        )
+
+        instance._collect_incoming_files = AsyncMock(return_value=[])
+        instance._continue_run_until_ready = AsyncMock(
+            return_value={"messages": [{"type": "ai", "content": "ok"}]},
+        )
+
+        result = await instance._resume_pending_message_tool(
+            message=message,
+            client=client,
+            thread_id="thread-1",
+            token="token",
+            pending_tool_calls=[first_pending_call, second_pending_call],
+            run_timeout=30,
+        )
+
+        self.assertEqual(result, {"messages": [{"type": "ai", "content": "ok"}]})
+        resume_payload = client.runs.wait.await_args.kwargs["command"]["resume"]
+        self.assertEqual(
+            [tool_result["id"] for tool_result in resume_payload["results"]],
+            ["call-1", "call-2"],
+        )
+        self.assertEqual(resume_payload["results"][0]["result"], {})
+        second_payload = json.loads(
+            resume_payload["results"][1]["result"]["content"][0]["text"]
+        )
+        self.assertEqual(second_payload["content"], "Финальный ответ")
+        self.assertEqual(second_payload["telegram_chat_id"], message.chat.id)
+
     def test_build_prompt_reply_markup_uses_inline_buttons_only(self):
         instance = _bot_instance()
         prompt = types.SimpleNamespace(
             buttons=[
                 types.SimpleNamespace(text="Да", kind="callback", url=""),
-                types.SimpleNamespace(text="Документация", kind="url", url="https://example.com"),
+                types.SimpleNamespace(
+                    text="Документация", kind="url", url="https://example.com"
+                ),
             ],
         )
 
@@ -248,7 +394,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         prompt = types.SimpleNamespace(
             buttons=[
                 types.SimpleNamespace(text="Коротко", kind="callback", url=""),
-                types.SimpleNamespace(text="Очень длинная кнопка", kind="callback", url=""),
+                types.SimpleNamespace(
+                    text="Очень длинная кнопка", kind="callback", url=""
+                ),
             ],
         )
 
@@ -260,12 +408,123 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(markup.inline_keyboard[0][0].text, "Коротко")
         self.assertEqual(markup.inline_keyboard[1][0].text, "Очень длинная кнопка")
 
+    def test_should_process_message_ignores_group_message_without_mention(self):
+        instance = _bot_instance()
+        message = _message(
+            "Всем привет",
+            chat_type="group",
+            chat_title="Ops Room",
+        )
+
+        self.assertFalse(instance._should_process_message(message))
+
+    def test_should_process_message_accepts_group_message_with_mention(self):
+        instance = _bot_instance()
+        message = _message(
+            "@test_bot помоги",
+            chat_type="supergroup",
+            chat_title="Ops Room",
+            entities=[
+                types.SimpleNamespace(
+                    type="mention",
+                    offset=0,
+                    length=len("@test_bot"),
+                )
+            ],
+        )
+
+        self.assertTrue(instance._should_process_message(message))
+
+    def test_strip_bot_mentions_removes_bot_tag_from_text(self):
+        instance = _bot_instance()
+
+        self.assertEqual(
+            instance._strip_bot_mentions("@test_bot помоги с отчётом"),
+            "помоги с отчётом",
+        )
+
+    async def test_set_commands_registers_private_and_group_scopes(self):
+        instance = _bot_instance()
+        instance.bot.set_my_commands = AsyncMock()
+
+        await instance._set_commands()
+
+        self.assertEqual(instance.bot.set_my_commands.await_count, 2)
+
+        private_call = instance.bot.set_my_commands.await_args_list[0]
+        private_commands = private_call.args[0]
+        private_scope = private_call.kwargs["scope"]
+        self.assertIsInstance(private_scope, BotCommandScopeAllPrivateChats)
+        self.assertEqual(
+            [command.command for command in private_commands],
+            ["start", "new", "message"],
+        )
+
+        group_call = instance.bot.set_my_commands.await_args_list[1]
+        group_commands = group_call.args[0]
+        group_scope = group_call.kwargs["scope"]
+        self.assertIsInstance(group_scope, BotCommandScopeAllGroupChats)
+        self.assertEqual(
+            [command.command for command in group_commands],
+            ["new", "message"],
+        )
+
+    async def test_handle_message_command_requires_text_or_attachment(self):
+        instance = _bot_instance()
+        message = _message("/message", chat_type="supergroup", chat_title="Ops Room")
+
+        await instance._handle_message_command(message)
+
+        message.answer.assert_awaited_once_with(
+            "После /message нужен текст или вложение для обработки."
+        )
+
+    async def test_handle_message_command_processes_text_after_command(self):
+        instance = _bot_instance()
+        command_message = _message(
+            "/message Помоги с задачей",
+            chat_id=-1001234567890,
+            chat_type="supergroup",
+            chat_title="Ops Room",
+            message_id=92,
+        )
+        instance._handle_message = AsyncMock()
+
+        await instance._handle_message_command(command_message)
+
+        instance._handle_message.assert_awaited_once_with(
+            command_message,
+            force_process=True,
+            text_override="Помоги с задачей",
+        )
+
+    async def test_handle_message_command_allows_attachments_without_text(self):
+        instance = _bot_instance()
+        command_message = _message(
+            "/message",
+            chat_id=-1001234567890,
+            chat_type="supergroup",
+            chat_title="Ops Room",
+            message_id=92,
+        )
+        command_message.document = types.SimpleNamespace(file_id="doc-1", file_name="task.txt")
+        instance._handle_message = AsyncMock()
+
+        await instance._handle_message_command(command_message)
+
+        instance._handle_message.assert_awaited_once_with(
+            command_message,
+            force_process=True,
+            text_override="",
+        )
+
     async def test_handle_callback_query_resumes_message_tool(self):
         instance = _bot_instance()
         message = _message("")
         callback = types.SimpleNamespace(
             data="ga_msg:0",
             message=message,
+            from_user=message.from_user,
             answer=AsyncMock(),
         )
         contact = types.SimpleNamespace(is_approved=True)
@@ -286,34 +545,121 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         instance._register_contact = AsyncMock()
         instance._get_or_create_thread = AsyncMock(return_value="thread-1")
-        instance._get_pending_message_tool_call = AsyncMock(return_value=pending_call)
+        instance._get_pending_message_tool_calls = AsyncMock(return_value=[pending_call])
         instance._continue_run_until_ready = AsyncMock(
             return_value={"messages": [{"type": "ai", "content": "Готово"}]},
         )
-        instance._resume_message_tool_call = AsyncMock(return_value={"messages": []})
+        instance._resume_message_tool_calls = AsyncMock(return_value={"messages": []})
         instance._send_run_result = AsyncMock()
 
-        with patch(
-            "giga_agent.modules.telegram.bot.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.telegram.bot.TelegramBotRepository",
-            return_value=repo,
-        ), patch(
-            "giga_agent.modules.telegram.bot.get_client",
-            return_value=client,
-        ), patch(
-            "giga_agent.modules.telegram.bot._make_token",
-            return_value="token",
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.get_client",
+                return_value=client,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot._make_token",
+                return_value="token",
+            ),
         ):
             await instance._handle_callback_query(callback)
 
         callback.answer.assert_awaited()
-        instance._resume_message_tool_call.assert_awaited_once()
+        instance._resume_message_tool_calls.assert_awaited_once()
         instance._send_run_result.assert_awaited_once()
-        kwargs = instance._resume_message_tool_call.await_args.kwargs
+        kwargs = instance._resume_message_tool_calls.await_args.kwargs
         self.assertEqual(kwargs["response_text"], "confirm")
         self.assertEqual(kwargs["selected_button"], "Да")
+
+    async def test_register_contact_uses_group_chat_metadata(self):
+        instance = _bot_instance()
+        message = _message(
+            "hello",
+            chat_id=-1001234567890,
+            chat_type="supergroup",
+            chat_title="GigaAgent Team",
+            chat_username="giga_agent_team",
+            from_user_id=5001,
+        )
+        repo = types.SimpleNamespace(upsert_contact=AsyncMock())
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+        ):
+            await instance._register_contact(message)
+
+        repo.upsert_contact.assert_awaited_once_with(
+            bot_id=instance.bot_row.id,
+            telegram_chat_id=-1001234567890,
+            chat_type="supergroup",
+            chat_title="GigaAgent Team",
+            username="giga_agent_team",
+            first_name=None,
+            last_name=None,
+        )
+
+    async def test_handle_callback_query_blocks_unapproved_group_chat(self):
+        instance = _bot_instance()
+        message = _message(
+            "",
+            chat_id=-1002003004005,
+            chat_type="group",
+            chat_title="Ops Room",
+            from_user_id=7001,
+        )
+        callback = types.SimpleNamespace(
+            data="ga_msg:0",
+            message=message,
+            answer=AsyncMock(),
+        )
+        contact = types.SimpleNamespace(is_approved=False)
+        repo = types.SimpleNamespace(get_contact=AsyncMock(return_value=contact))
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        instance._register_contact = AsyncMock()
+        instance._get_or_create_thread = AsyncMock()
+        instance._resume_message_tool_calls = AsyncMock()
+
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+        ):
+            await instance._handle_callback_query(callback)
+
+        callback.answer.assert_awaited_once_with(
+            "Контакт не подтверждён",
+            show_alert=True,
+        )
+        instance._get_or_create_thread.assert_not_awaited()
+        instance._resume_message_tool_calls.assert_not_awaited()
 
     async def test_handle_message_injects_message_tool_schema_into_run_input(self):
         instance = _bot_instance()
@@ -339,25 +685,30 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         instance._register_contact = AsyncMock()
         instance._get_or_create_thread = AsyncMock(return_value="thread-1")
-        instance._get_pending_message_tool_call = AsyncMock(return_value=None)
+        instance._get_pending_message_tool_calls = AsyncMock(return_value=[])
         instance._collect_incoming_files = AsyncMock(return_value=[])
         instance._load_collections_payload = AsyncMock(return_value=[])
         instance._continue_run_until_ready = AsyncMock(
             side_effect=lambda **kwargs: kwargs["result"],
         )
 
-        with patch(
-            "giga_agent.modules.telegram.bot.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.telegram.bot.TelegramBotRepository",
-            return_value=repo,
-        ), patch(
-            "giga_agent.modules.telegram.bot.get_client",
-            return_value=client,
-        ), patch(
-            "giga_agent.modules.telegram.bot._make_token",
-            return_value="token",
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.get_client",
+                return_value=client,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot._make_token",
+                return_value="token",
+            ),
         ):
             await instance._handle_message(message)
 
@@ -366,6 +717,317 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run_input["mcp_tools"], [build_telegram_message_tool_schema()])
         self.assertEqual(run_input["messages"][0]["role"], "human")
         message.answer.assert_awaited()
+
+    async def test_handle_message_includes_reply_context_and_sender_metadata(self):
+        instance = _bot_instance()
+        reply_message = _message(
+            "Исходное сообщение",
+            message_id=76,
+            from_user_id=2001,
+            from_username="alice",
+            from_first_name="Alice",
+            from_last_name="A",
+        )
+        message = _message(
+            "Ответ с уточнением",
+            reply_to_message=reply_message,
+            from_user_id=2002,
+            from_username="bob",
+            from_first_name="Bob",
+            from_last_name="B",
+        )
+        contact = types.SimpleNamespace(is_approved=True)
+        repo = types.SimpleNamespace(get_contact=AsyncMock(return_value=contact))
+        client = types.SimpleNamespace(
+            runs=types.SimpleNamespace(
+                wait=AsyncMock(
+                    return_value={
+                        "messages": [
+                            {"type": "human", "content": "ok"},
+                            {"type": "ai", "content": "Готово"},
+                        ],
+                    }
+                )
+            )
+        )
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        instance._register_contact = AsyncMock()
+        instance._get_or_create_thread = AsyncMock(return_value="thread-1")
+        instance._get_pending_message_tool_calls = AsyncMock(return_value=[])
+        instance._collect_incoming_files = AsyncMock(
+            side_effect=[
+                [
+                    {
+                        "path": "/bucket/reply/report.pdf",
+                        "original_name": "report.pdf",
+                        "file_type": "other",
+                        "size": 10,
+                    }
+                ],
+                [
+                    {
+                        "path": "/bucket/current/photo.jpg",
+                        "original_name": "photo.jpg",
+                        "file_type": "image",
+                        "size": 20,
+                    }
+                ],
+            ]
+        )
+        instance._load_collections_payload = AsyncMock(return_value=[])
+        instance._continue_run_until_ready = AsyncMock(
+            side_effect=lambda **kwargs: kwargs["result"]
+        )
+
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.get_client",
+                return_value=client,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot._make_token",
+                return_value="token",
+            ),
+        ):
+            await instance._handle_message(message)
+
+        run_input = client.runs.wait.await_args.kwargs["input"]
+        human_message = run_input["messages"][0]
+        self.assertIn("Прикрепено сообщение:", human_message["content"])
+        self.assertIn("Ник: @alice", human_message["content"])
+        self.assertIn("Имя: Alice A", human_message["content"])
+        self.assertIn("Исходное сообщение", human_message["content"])
+        self.assertIn("Входящее сообщение к агенту:", human_message["content"])
+        self.assertIn("Ник: @bob", human_message["content"])
+        self.assertIn("Имя: Bob B", human_message["content"])
+        self.assertIn("Ответ с уточнением", human_message["content"])
+        self.assertEqual(
+            human_message["additional_kwargs"]["files"],
+            [
+                {
+                    "path": "/bucket/reply/report.pdf",
+                    "original_name": "report.pdf",
+                    "file_type": "other",
+                    "size": 10,
+                },
+                {
+                    "path": "/bucket/current/photo.jpg",
+                    "original_name": "photo.jpg",
+                    "file_type": "image",
+                    "size": 20,
+                },
+            ],
+        )
+
+    async def test_handle_message_blocks_unapproved_group_chat(self):
+        instance = _bot_instance()
+        message = _message(
+            "@test_bot Привет, команда",
+            chat_id=-1005550001112,
+            chat_type="supergroup",
+            chat_title="GigaAgent QA",
+            from_user_id=3101,
+            entities=[
+                types.SimpleNamespace(
+                    type="mention",
+                    offset=0,
+                    length=len("@test_bot"),
+                )
+            ],
+        )
+        contact = types.SimpleNamespace(is_approved=False)
+        repo = types.SimpleNamespace(get_contact=AsyncMock(return_value=contact))
+        client = types.SimpleNamespace(runs=types.SimpleNamespace(wait=AsyncMock()))
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        instance._register_contact = AsyncMock()
+        instance._get_or_create_thread = AsyncMock()
+
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.get_client",
+                return_value=client,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot._make_token",
+                return_value="token",
+            ),
+        ):
+            await instance._handle_message(message)
+
+        message.answer.assert_awaited_once_with(
+            "⏳ Ваш контакт ожидает подтверждения. "
+            "Владелец бота должен одобрить вас в настройках."
+        )
+        instance._get_or_create_thread.assert_not_awaited()
+        client.runs.wait.assert_not_awaited()
+
+    async def test_handle_message_uses_shared_group_chat_access_for_different_users(self):
+        instance = _bot_instance()
+        group_chat_id = -1005550001113
+        first_message = _message(
+            "@test_bot Первый участник",
+            chat_id=group_chat_id,
+            chat_type="supergroup",
+            chat_title="GigaAgent QA",
+            from_user_id=3101,
+            from_username="alice",
+            from_first_name="Alice",
+            from_last_name="A",
+            entities=[
+                types.SimpleNamespace(
+                    type="mention",
+                    offset=0,
+                    length=len("@test_bot"),
+                )
+            ],
+        )
+        second_message = _message(
+            "@test_bot Второй участник",
+            chat_id=group_chat_id,
+            chat_type="supergroup",
+            chat_title="GigaAgent QA",
+            from_user_id=3102,
+            from_username="bob",
+            from_first_name="Bob",
+            from_last_name="B",
+            entities=[
+                types.SimpleNamespace(
+                    type="mention",
+                    offset=0,
+                    length=len("@test_bot"),
+                )
+            ],
+        )
+        contact = types.SimpleNamespace(is_approved=True)
+        repo = types.SimpleNamespace(get_contact=AsyncMock(return_value=contact))
+        client = types.SimpleNamespace(
+            runs=types.SimpleNamespace(
+                wait=AsyncMock(
+                    side_effect=[
+                        {
+                            "messages": [
+                                {"type": "human", "content": "Первый участник"},
+                                {"type": "ai", "content": "Ответ 1"},
+                            ],
+                        },
+                        {
+                            "messages": [
+                                {"type": "human", "content": "Второй участник"},
+                                {"type": "ai", "content": "Ответ 2"},
+                            ],
+                        },
+                    ]
+                ),
+            ),
+        )
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        instance._register_contact = AsyncMock()
+        instance._get_or_create_thread = AsyncMock(return_value="thread-group")
+        instance._get_pending_message_tool_calls = AsyncMock(return_value=[])
+        instance._collect_incoming_files = AsyncMock(return_value=[])
+        instance._load_collections_payload = AsyncMock(return_value=[])
+        instance._continue_run_until_ready = AsyncMock(
+            side_effect=lambda **kwargs: kwargs["result"]
+        )
+
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.TelegramBotRepository",
+                return_value=repo,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot.get_client",
+                return_value=client,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot._make_token",
+                return_value="token",
+            ),
+        ):
+            await instance._handle_message(first_message)
+            await instance._handle_message(second_message)
+
+        self.assertEqual(repo.get_contact.await_count, 2)
+        self.assertEqual(
+            repo.get_contact.await_args_list,
+            [
+                unittest.mock.call(instance.bot_row.id, group_chat_id),
+                unittest.mock.call(instance.bot_row.id, group_chat_id),
+            ],
+        )
+        self.assertEqual(
+            instance._get_or_create_thread.await_args_list,
+            [
+                unittest.mock.call(client, repo, 3101),
+                unittest.mock.call(client, repo, 3102),
+            ],
+        )
+        self.assertEqual(client.runs.wait.await_count, 2)
+        first_message.answer.assert_awaited()
+        second_message.answer.assert_awaited()
+
+    async def test_handle_message_ignores_group_message_without_mention(self):
+        instance = _bot_instance()
+        message = _message(
+            "Привет, команда",
+            chat_id=-1005550001114,
+            chat_type="supergroup",
+            chat_title="GigaAgent QA",
+            from_user_id=3101,
+        )
+        client = types.SimpleNamespace(runs=types.SimpleNamespace(wait=AsyncMock()))
+
+        instance._register_contact = AsyncMock()
+        instance._get_or_create_thread = AsyncMock()
+
+        with (
+            patch(
+                "giga_agent.modules.telegram.bot.get_client",
+                return_value=client,
+            ),
+            patch(
+                "giga_agent.modules.telegram.bot._make_token",
+                return_value="token",
+            ),
+        ):
+            await instance._handle_message(message)
+
+        instance._register_contact.assert_not_awaited()
+        instance._get_or_create_thread.assert_not_awaited()
+        client.runs.wait.assert_not_awaited()
+        message.answer.assert_not_awaited()
 
     async def test_send_message_tool_prompt_renders_plotly_json_as_photo(self):
         instance = _bot_instance()
@@ -423,3 +1085,24 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         message.answer_photo.assert_awaited_once()
         message.answer_document.assert_not_awaited()
+
+    async def test_send_run_result_replies_to_target_message(self):
+        instance = _bot_instance()
+        message = _message()
+        result = {
+            "messages": [
+                {"type": "human", "content": "Покажи статус"},
+                {"type": "ai", "content": "Готово"},
+            ],
+        }
+
+        await instance._send_run_result(
+            message=message,
+            token="token",
+            result=result,
+            request_start=object(),
+            reply_to_message_id=321,
+        )
+
+        reply_parameters = message.answer.await_args.kwargs["reply_parameters"]
+        self.assertEqual(reply_parameters.message_id, 321)

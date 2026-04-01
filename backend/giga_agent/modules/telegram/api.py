@@ -19,7 +19,7 @@ from giga_agent.modules.telegram.models import (
     TelegramBotRepository,
     TelegramContactResponse,
 )
-from giga_agent.modules.telegram.bot import get_bot_manager
+from giga_agent.modules.telegram.manager import get_bot_manager
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["telegram"])
@@ -188,6 +188,28 @@ async def update_contact(
         raise HTTPException(status_code=404, detail="Contact not found")
 
     updated = await repo.set_contact_approved(cid, body.is_approved)
+    return TelegramContactResponse.model_validate(updated)
+
+
+@router.patch("/contacts/by-chat/{telegram_chat_id}", response_model=TelegramContactResponse)
+async def update_contact_by_chat_id(
+    telegram_chat_id: int,
+    body: ContactApprovalUpdate,
+    current_user: UserShort = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_session),
+):
+    repo = TelegramBotRepository(db)
+    bot = await repo.get_by_user(current_user.id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="Bot not configured")
+
+    updated = await repo.set_contact_approved_by_chat_id(
+        bot.id,
+        telegram_chat_id,
+        body.is_approved,
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Contact not found")
     return TelegramContactResponse.model_validate(updated)
 
 
