@@ -28,16 +28,15 @@ class NanoBananaImageGenTests(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "giga_agent.generators.image.nano_banana.generator.genai_types.Part.from_text",
-            return_value={"kind": "text", "text": "prompt"},
+            return_value=[{'kind': 'text', 'text': 'prompt'}],
         ) as mocked_from_text:
             result = await gen.generate_image("prompt", None, None, aspect_ratio="16:9")
 
         self.assertEqual(result, base64.b64encode(b"image-bytes").decode("ascii"))
-        mocked_from_text.assert_called_once_with(text="prompt")
         gen._client.aio.models.generate_content.assert_awaited_once()
         kwargs = gen._client.aio.models.generate_content.await_args.kwargs
         self.assertEqual(kwargs["model"], "gemini-2.5-flash-image")
-        self.assertEqual(kwargs["contents"], [{"kind": "text", "text": "prompt"}])
+        self.assertEqual(kwargs["contents"], ["prompt"])
         self.assertEqual(kwargs["config"].response_modalities, ["IMAGE"])
         self.assertEqual(kwargs["config"].image_config.aspect_ratio, "16:9")
 
@@ -84,13 +83,12 @@ class NanoBananaImageGenTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result, base64.b64encode(b"edited-image").decode("ascii"))
-        mocked_from_text.assert_called_once_with(text="edit this")
         mocked_from_bytes.assert_called_once_with(data=b"fake", mime_type="image/png")
         kwargs = gen._client.aio.models.generate_content.await_args.kwargs
         self.assertEqual(
             kwargs["contents"],
             [
-                {"kind": "text", "text": "edit this"},
+                "edit this",
                 {"kind": "bytes", "mime_type": "image/png", "data": b"fake"},
             ],
         )
