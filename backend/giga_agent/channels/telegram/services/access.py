@@ -7,22 +7,25 @@ from typing import Any
 
 from aiogram import Bot, types as tg_types
 
+from giga_agent.channels.telegram.constants import GROUP_CHAT_TYPES, SUPPORTED_CHAT_TYPES
+from giga_agent.channels.telegram.runtime import (
+    get_bot_username,
+    get_contact_external_user_id,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.constants import GROUP_CHAT_TYPES, SUPPORTED_CHAT_TYPES
-from giga_agent.modules.telegram.models import TelegramBot as TelegramBotModel
-from giga_agent.modules.telegram.models import TelegramBotRepository
+from giga_agent.models.channel import ChannelBot, ChannelBotRepository
 
 logger = get_logger(__name__)
 
 
 class TelegramAccessService:
-    def __init__(self, *, bot_row: TelegramBotModel, bot: Bot):
+    def __init__(self, *, bot_row: ChannelBot, bot: Bot):
         self.bot_row = bot_row
         self.bot = bot
 
     def strip_bot_mentions(self, text: str) -> str:
-        username = self.bot_row.bot_username
+        username = get_bot_username(self.bot_row)
         if not text or not username:
             return text
 
@@ -39,7 +42,7 @@ class TelegramAccessService:
         if not text:
             return text
 
-        bot_username = re.escape(self.bot_row.bot_username or "")
+        bot_username = re.escape(get_bot_username(self.bot_row) or "")
         command_pattern = rf"^/{re.escape(command)}(?:@{bot_username})?(?:\s+|$)"
         stripped = re.sub(command_pattern, "", text, count=1, flags=re.IGNORECASE)
         stripped = re.sub(r"^[ \t]+", "", stripped)
@@ -74,7 +77,7 @@ class TelegramAccessService:
         reply_user = getattr(reply_message, "from_user", None)
         if reply_user is not None and getattr(reply_user, "is_bot", False):
             reply_username = getattr(reply_user, "username", None)
-            bot_username = self.bot_row.bot_username
+            bot_username = get_bot_username(self.bot_row)
             if bot_username and reply_username:
                 if reply_username.lower() == bot_username.lower():
                     return True
@@ -86,7 +89,7 @@ class TelegramAccessService:
         entities = list(getattr(message, "entities", None) or []) + list(
             getattr(message, "caption_entities", None) or []
         )
-        username = (self.bot_row.bot_username or "").lower()
+        username = (get_bot_username(self.bot_row) or "").lower()
         if not username:
             return False
 
@@ -117,10 +120,11 @@ class TelegramAccessService:
             contact_payload = self._build_contact_payload(message)
             session_factory = await get_session_factory()
             async with session_factory() as session:
-                repo = TelegramBotRepository(session)
+                repo = ChannelBotRepository(session)
                 await repo.upsert_contact(
                     bot_id=self.bot_row.id,
-                    telegram_chat_id=message.chat.id,
+                    external_chat_id=str(message.chat.id),
+                    external_user_id=get_contact_external_user_id(message),
                     **contact_payload,
                 )
         except Exception:

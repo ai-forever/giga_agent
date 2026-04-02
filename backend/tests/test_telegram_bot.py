@@ -1,6 +1,6 @@
 """Tests for the Telegram bot response extraction and message handling logic."""
 
-from giga_agent.modules.telegram.utils import (
+from giga_agent.channels.telegram.utils import (
     _extract_ai_response,
     _extract_attachments,
     _extract_text_media,
@@ -279,7 +279,7 @@ class TestTelegramMarkdownConversion:
             "Итог\\!"
         )
 
-    def test_promotes_long_dialogue_quote_to_blockquote(self):
+    def test_preserves_long_dialogue_quote_inline(self):
         text = (
             "Мерседес паркуется у 'Черного Орла'. "
             'Бригадир за баром: "Тайлер? Слышал. Покажите товар лицом. '
@@ -287,8 +287,8 @@ class TestTelegramMarkdownConversion:
         )
 
         assert _md_to_tg_markdown_v2(text) == (
-            "Мерседес паркуется у 'Черного Орла'\\. Бригадир за баром:\n"
-            "> Тайлер? Слышал\\. Покажите товар лицом\\. Драка или деньги\\.\n"
+            "Мерседес паркуется у 'Черного Орла'\\. Бригадир за баром: "
+            '"Тайлер? Слышал\\. Покажите товар лицом\\. Драка или деньги\\." '
             "Толпа ревет\\."
         )
 

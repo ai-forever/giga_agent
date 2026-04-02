@@ -6,25 +6,53 @@ import asyncio
 
 from aiogram import Bot, Dispatcher, types as tg_types
 from aiogram.filters import Command
-from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+)
 
+from giga_agent.channels.telegram.handlers.callbacks import TelegramCallbackHandlers
+from giga_agent.channels.telegram.handlers.messages import TelegramMessageHandlers
+from giga_agent.channels.telegram.runtime import get_bot_token
+from giga_agent.channels.telegram.services.access import TelegramAccessService
+from giga_agent.channels.telegram.services.media import TelegramMediaService
+from giga_agent.channels.telegram.services.message_tool_runtime import (
+    TelegramMessageToolRuntime,
+)
+from giga_agent.channels.telegram.services.threads import TelegramThreadService
 from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.handlers.callbacks import TelegramCallbackHandlers
-from giga_agent.modules.telegram.handlers.messages import TelegramMessageHandlers
-from giga_agent.modules.telegram.models import TelegramBot as TelegramBotModel
-from giga_agent.modules.telegram.services.access import TelegramAccessService
-from giga_agent.modules.telegram.services.media import TelegramMediaService
-from giga_agent.modules.telegram.services.message_tool_runtime import TelegramMessageToolRuntime
-from giga_agent.modules.telegram.services.threads import TelegramThreadService
+from giga_agent.models.channel import ChannelBot
 
 logger = get_logger(__name__)
 
 
+def _has_supported_attachment(message: tg_types.Message | None) -> bool:
+    if message is None:
+        return False
+    return bool(
+        message.photo
+        or message.document
+        or message.voice
+        or message.audio
+        or message.video
+        or message.video_note
+        or message.sticker
+    )
+
+
+def _has_processable_reply_content(message: tg_types.Message | None) -> bool:
+    if message is None:
+        return False
+    text = message.text or message.caption or ""
+    return bool(text or _has_supported_attachment(message))
+
+
 class TelegramBotApp:
-    def __init__(self, bot_row: TelegramBotModel, user_email: str):
+    def __init__(self, bot_row: ChannelBot, user_email: str):
         self.bot_row = bot_row
         self.user_email = user_email
-        self.bot = Bot(token=bot_row.bot_token)
+        self.bot = Bot(token=get_bot_token(bot_row))
         self.dp = Dispatcher()
         self._task: asyncio.Task | None = None
 
@@ -60,7 +88,7 @@ class TelegramBotApp:
 
         @self.dp.message(Command("message"))
         async def _on_message_command(message: tg_types.Message):
-            await self.message_handlers.handle_message_command(message)
+            await self.handle_message_command(message)
 
         @self.dp.message(Command("start"))
         async def _on_start(message: tg_types.Message):
@@ -92,7 +120,20 @@ class TelegramBotApp:
         await self.message_handlers.handle_new(message)
 
     async def handle_message_command(self, message: tg_types.Message) -> None:
-        await self.message_handlers.handle_message_command(message)
+        command_text = self.access_service.strip_command_prefix(
+            message.text or message.caption or "",
+            "message",
+        )
+        has_reply_content = _has_processable_reply_content(message.reply_to_message)
+        if not command_text and not _has_supported_attachment(message) and not has_reply_content:
+            await message.answer("После /message нужен текст или вложение для обработки.")
+            return
+
+        await self.message_handlers.handle_message(
+            message,
+            force_process=True,
+            text_override=command_text,
+        )
 
     async def handle_message(
         self,

@@ -499,6 +499,7 @@ def create_graph(
                 user=user,
                 task=user_input,
                 state=state,
+                config=config,
             )
 
             final_parts = [

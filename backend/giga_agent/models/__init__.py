@@ -110,6 +110,20 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionsPayload,
     ResourcePermissionRepository,
 )
+from giga_agent.models.channel import (
+    ChannelBot,
+    ChannelThread,
+    ChannelContact,
+    ChannelBotBase,
+    ChannelBotCreate,
+    ChannelBotUpdate,
+    ChannelBotResponse,
+    ChannelTypeMeta,
+    ChannelContactApprovalUpdate,
+    ChannelThreadResponse,
+    ChannelContactResponse,
+    ChannelBotRepository,
+)
 
 __all__ = [
     # Users
@@ -205,4 +219,17 @@ __all__ = [
     "ResourcePermission",
     "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
+    # Channels
+    "ChannelBot",
+    "ChannelThread",
+    "ChannelContact",
+    "ChannelBotBase",
+    "ChannelBotCreate",
+    "ChannelBotUpdate",
+    "ChannelBotResponse",
+    "ChannelTypeMeta",
+    "ChannelContactApprovalUpdate",
+    "ChannelThreadResponse",
+    "ChannelContactResponse",
+    "ChannelBotRepository",
 ]
