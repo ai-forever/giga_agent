@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -281,7 +281,7 @@ class ChannelBotRepository:
         return thread
 
     async def touch_thread(self, thread: ChannelThread) -> None:
-        thread.updated_at = datetime.utcnow()
+        thread.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
 
     async def delete_thread(self, thread: ChannelThread) -> None:
@@ -294,7 +294,7 @@ class ChannelBotRepository:
         bot_id: uuid.UUID,
         max_age_seconds: int,
     ) -> int:
-        cutoff = datetime.utcnow() - timedelta(seconds=max_age_seconds)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
         result = await self.db.execute(
             delete(ChannelThread).where(
                 ChannelThread.bot_id == bot_id,
