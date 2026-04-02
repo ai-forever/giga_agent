@@ -11,11 +11,8 @@ import httpx
 from aiogram import Bot, types as tg_types
 from aiogram.types import BufferedInputFile
 
-from giga_agent.core.db import get_session_factory
-from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.message_context import build_reply_kwargs
-from giga_agent.modules.telegram.models import TelegramBot as TelegramBotModel
-from giga_agent.modules.telegram.utils import (
+from giga_agent.channels.telegram.message_context import build_reply_kwargs
+from giga_agent.channels.telegram.utils import (
     TelegramTextMediaPart,
     _agent_api_base,
     _extract_ai_response,
@@ -24,6 +21,9 @@ from giga_agent.modules.telegram.utils import (
     _plotly_json_to_png_bytes,
     _split_message,
 )
+from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
+from giga_agent.models.channel import ChannelBot
 
 logger = get_logger(__name__)
 
@@ -50,7 +50,7 @@ def _convert_plotly_attachment(
 
 
 class TelegramMediaService:
-    def __init__(self, *, bot: Bot, bot_row: TelegramBotModel):
+    def __init__(self, *, bot: Bot, bot_row: ChannelBot):
         self.bot = bot
         self.bot_row = bot_row
 

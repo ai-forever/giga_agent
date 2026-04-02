@@ -7,19 +7,19 @@ from typing import Any
 
 from langgraph_sdk import get_client
 
+from giga_agent.channels.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECONDS
+from giga_agent.channels.telegram.runtime import get_thread_external_user_id
+from giga_agent.channels.telegram.utils import _langgraph_url, _make_token
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.models.channel import ChannelBot, ChannelBotRepository
 from giga_agent.models.rag import RagCollectionsRepository
-from giga_agent.modules.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECONDS
-from giga_agent.modules.telegram.models import TelegramBot as TelegramBotModel
-from giga_agent.modules.telegram.models import TelegramBotRepository
-from giga_agent.modules.telegram.utils import _langgraph_url, _make_token
 
 logger = get_logger(__name__)
 
 
 class TelegramThreadService:
-    def __init__(self, *, bot_row: TelegramBotModel, user_email: str):
+    def __init__(self, *, bot_row: ChannelBot, user_email: str):
         self.bot_row = bot_row
         self.user_email = user_email
 
@@ -36,13 +36,21 @@ class TelegramThreadService:
             headers={"Authorization": f"Bearer {token}"},
         )
 
+    def resolve_external_user_id(self, message: Any) -> str | None:
+        return get_thread_external_user_id(message)
+
     async def get_or_create_thread(
         self,
         client: Any,
-        repo: TelegramBotRepository,
+        repo: ChannelBotRepository,
         chat_id: int,
+        external_user_id: str | None = None,
     ) -> str:
-        thread_row = await repo.get_thread(self.bot_row.id, chat_id)
+        thread_row = await repo.get_thread(
+            self.bot_row.id,
+            str(chat_id),
+            external_user_id,
+        )
         if thread_row is not None:
             expired = False
             age = 0.0
@@ -72,13 +80,30 @@ class TelegramThreadService:
                     )
                     await repo.delete_thread(thread_row)
 
-        thread = await client.threads.create(metadata={"telegram_chat_id": str(chat_id)})
+        metadata = {"telegram_chat_id": str(chat_id)}
+        if external_user_id is not None:
+            metadata["telegram_user_id"] = external_user_id
+        thread = await client.threads.create(metadata=metadata)
         thread_id = thread["thread_id"]
-        await repo.create_thread(self.bot_row.id, chat_id, thread_id)
+        await repo.create_thread(
+            bot_id=self.bot_row.id,
+            external_chat_id=str(chat_id),
+            external_user_id=external_user_id,
+            langgraph_thread_id=thread_id,
+        )
         return thread_id
 
-    async def reset_thread(self, repo: TelegramBotRepository, chat_id: int) -> None:
-        thread_row = await repo.get_thread(self.bot_row.id, chat_id)
+    async def reset_thread(
+        self,
+        repo: ChannelBotRepository,
+        chat_id: int,
+        external_user_id: str | None = None,
+    ) -> None:
+        thread_row = await repo.get_thread(
+            self.bot_row.id,
+            str(chat_id),
+            external_user_id,
+        )
         if thread_row is not None:
             await repo.delete_thread(thread_row)
 

@@ -8,21 +8,20 @@ from typing import Any
 
 from aiogram import types as tg_types
 
-from giga_agent.core.db import get_session_factory
-from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.message_context import (
+from giga_agent.channels.telegram.message_context import (
     build_message_context,
     build_reply_kwargs,
 )
-from giga_agent.modules.telegram.message_tool import build_telegram_message_tool_schema
-from giga_agent.modules.telegram.models import TelegramBot as TelegramBotModel
-from giga_agent.modules.telegram.models import TelegramBotRepository
-from giga_agent.modules.telegram.services.access import TelegramAccessService
-from giga_agent.modules.telegram.services.media import TelegramMediaService
-from giga_agent.modules.telegram.services.message_tool_runtime import (
+from giga_agent.channels.telegram.message_tool import build_telegram_message_tool_schema
+from giga_agent.channels.telegram.services.access import TelegramAccessService
+from giga_agent.channels.telegram.services.media import TelegramMediaService
+from giga_agent.channels.telegram.services.message_tool_runtime import (
     TelegramMessageToolRuntime,
 )
-from giga_agent.modules.telegram.services.threads import TelegramThreadService
+from giga_agent.channels.telegram.services.threads import TelegramThreadService
+from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
+from giga_agent.models.channel import ChannelBot, ChannelBotRepository
 
 logger = get_logger(__name__)
 
@@ -31,7 +30,7 @@ class TelegramMessageHandlers:
     def __init__(
         self,
         *,
-        bot_row: TelegramBotModel,
+        bot_row: ChannelBot,
         access_service: TelegramAccessService,
         thread_service: TelegramThreadService,
         media_service: TelegramMediaService,
@@ -57,33 +56,18 @@ class TelegramMessageHandlers:
     async def handle_new(self, message: tg_types.Message) -> None:
         if not await self.access_service.ensure_supported_chat(message):
             return
-        chat_id = message.from_user.id
         session_factory = await get_session_factory()
+        external_user_id = self.thread_service.resolve_external_user_id(message)
         async with session_factory() as session:
-            repo = TelegramBotRepository(session)
-            await self.thread_service.reset_thread(repo, chat_id)
+            repo = ChannelBotRepository(session)
+            await self.thread_service.reset_thread(
+                repo,
+                message.chat.id,
+                external_user_id,
+            )
         await message.answer(
             "🔄 Контекст сброшен. Начнём новый диалог!",
             reply_markup=tg_types.ReplyKeyboardRemove(),
-        )
-
-    async def handle_message_command(self, message: tg_types.Message) -> None:
-        if not await self.access_service.ensure_supported_chat(message):
-            return
-
-        command_text = self.access_service.strip_command_prefix(
-            message.text or message.caption or "",
-            "message",
-        )
-        has_file = _has_supported_attachment(message)
-        if not command_text and not has_file:
-            await message.answer("После /message нужен текст или вложение для обработки.")
-            return
-
-        await self.handle_message(
-            message,
-            force_process=True,
-            text_override=command_text,
         )
 
     async def handle_message(
@@ -119,8 +103,8 @@ class TelegramMessageHandlers:
 
             await self.access_service.register_contact(contact_message)
             async with session_factory() as session:
-                repo = TelegramBotRepository(session)
-                contact = await repo.get_contact(self.bot_row.id, chat_id)
+                repo = ChannelBotRepository(session)
+                contact = await repo.get_contact(self.bot_row.id, str(chat_id))
                 if contact is None or not contact.is_approved:
                     await message.answer(
                         "⏳ Ваш контакт ожидает подтверждения. "
@@ -131,13 +115,15 @@ class TelegramMessageHandlers:
 
             token = self.thread_service.create_token()
             client = self.thread_service.create_client(token)
+            external_user_id = self.thread_service.resolve_external_user_id(message)
 
             async with session_factory() as session:
-                repo = TelegramBotRepository(session)
+                repo = ChannelBotRepository(session)
                 thread_id = await self.thread_service.get_or_create_thread(
                     client,
                     repo,
-                    message.from_user.id,
+                    chat_id,
+                    external_user_id,
                 )
 
             run_timeout = 90
@@ -159,6 +145,13 @@ class TelegramMessageHandlers:
                 )
                 if result is None:
                     return
+            elif await self.message_tool_runtime.has_active_run(client, thread_id):
+                await message.answer(
+                    "⏳ Бот ещё обрабатывает предыдущее сообщение. "
+                    "Дождитесь завершения работы и попробуйте снова.",
+                    **reply_kwargs,
+                )
+                return
             else:
                 await message.chat.do("typing")
                 reply_message = getattr(message, "reply_to_message", None)
@@ -181,7 +174,7 @@ class TelegramMessageHandlers:
                 if all_file_data:
                     logger.info(
                         "Files for agent: %s",
-                        [file_data["path"] for file_data in all_file_data],
+                        [item["path"] for item in all_file_data],
                     )
 
                 content_parts = [
@@ -232,6 +225,7 @@ class TelegramMessageHandlers:
                         thread_id=thread_id,
                         assistant_id=self.thread_service.assistant_id,
                         input=run_input,
+                        config={"disable_memory": True},
                     ),
                     timeout=run_timeout,
                 )
@@ -254,8 +248,12 @@ class TelegramMessageHandlers:
                     str(result)[:500],
                 )
                 async with session_factory() as session:
-                    repo = TelegramBotRepository(session)
-                    await self.thread_service.reset_thread(repo, chat_id)
+                    repo = ChannelBotRepository(session)
+                    await self.thread_service.reset_thread(
+                        repo,
+                        chat_id,
+                        external_user_id,
+                    )
                 await message.answer(
                     "⚠️ Агент не вернул ответ. Попробуйте ещё раз.",
                     **reply_kwargs,
@@ -278,8 +276,12 @@ class TelegramMessageHandlers:
             )
             try:
                 async with (await get_session_factory())() as session:
-                    repo = TelegramBotRepository(session)
-                    await self.thread_service.reset_thread(repo, chat_id)
+                    repo = ChannelBotRepository(session)
+                    await self.thread_service.reset_thread(
+                        repo,
+                        chat_id,
+                        self.thread_service.resolve_external_user_id(message),
+                    )
             except Exception:
                 pass
             try:
@@ -295,8 +297,12 @@ class TelegramMessageHandlers:
             if "tool_call" in error_str or "function call" in error_str:
                 try:
                     async with (await get_session_factory())() as session:
-                        repo = TelegramBotRepository(session)
-                        await self.thread_service.reset_thread(repo, chat_id)
+                        repo = ChannelBotRepository(session)
+                        await self.thread_service.reset_thread(
+                            repo,
+                            chat_id,
+                            self.thread_service.resolve_external_user_id(message),
+                        )
                 except Exception:
                     pass
                 try:

@@ -8,26 +8,29 @@ from typing import Any
 from aiogram import types as tg_types
 from aiogram.types import BufferedInputFile
 
-from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.message_context import (
+from giga_agent.channels.telegram.constants import (
+    ASSISTANT_ID,
+    MESSAGE_TOOL_CALLBACK_PREFIX,
+)
+from giga_agent.channels.telegram.message_context import (
     build_message_context_payload,
     build_reply_kwargs,
 )
-from giga_agent.modules.telegram.constants import ASSISTANT_ID, MESSAGE_TOOL_CALLBACK_PREFIX
-from giga_agent.modules.telegram.message_tool import (
+from giga_agent.channels.telegram.message_tool import (
     TelegramMessageToolPayload,
     parse_telegram_message_tool_payload,
 )
-from giga_agent.modules.telegram.services.media import (
+from giga_agent.channels.telegram.services.media import (
     TelegramMediaService,
     _convert_plotly_attachment,
 )
-from giga_agent.modules.telegram.utils import (
+from giga_agent.channels.telegram.utils import (
     _build_message_tool_result_parts,
     _describe_uploaded_files,
     _extract_text_media,
     _find_pending_message_tool_calls,
 )
+from giga_agent.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -105,6 +108,29 @@ def _resolve_callback_button(
 class TelegramMessageToolRuntime:
     def __init__(self, *, media_service: TelegramMediaService):
         self.media_service = media_service
+
+    async def has_active_run(
+        self,
+        client: Any,
+        thread_id: str,
+    ) -> bool:
+        try:
+            running_runs = await client.runs.list(
+                thread_id,
+                limit=1,
+                status="running",
+            )
+            if running_runs:
+                return True
+            pending_runs = await client.runs.list(
+                thread_id,
+                limit=1,
+                status="pending",
+            )
+        except Exception:
+            logger.debug("Failed to fetch runs for %s", thread_id, exc_info=True)
+            return False
+        return bool(pending_runs)
 
     async def get_pending_message_tool_call(
         self,
@@ -245,6 +271,7 @@ class TelegramMessageToolRuntime:
                         assistant_id=ASSISTANT_ID,
                         input=None,
                         command={"resume": {"type": "approve"}},
+                        config={"disable_memory": True},
                     ),
                     timeout=run_timeout,
                 )
@@ -343,6 +370,7 @@ class TelegramMessageToolRuntime:
                         "results": results,
                     },
                 },
+                config={"disable_memory": True},
             ),
             timeout=run_timeout,
         )

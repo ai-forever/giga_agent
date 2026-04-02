@@ -66,13 +66,13 @@ def build_telegram_message_tool_schema() -> dict[str, object]:
                 },
                 "buttons": {
                     "type": "array",
-                    "description": "Optional inline Telegram buttons. Row layout is chosen automatically.",
+                    "description": "Telegram inline buttons",
                     "items": {
                         "type": "object",
                         "properties": {
                             "text": {
                                 "type": "string",
-                                "description": "Visible button text.",
+                                "description": "Visible button text",
                             },
                             "kind": {
                                 "type": "string",

@@ -10,13 +10,13 @@ from typing import Any, Literal, TypedDict
 from aiogram import types as tg_types
 from plotly import io as plotly_io
 
-from giga_agent.conf import GIGA_AGENT_PREFIX_API, get_settings
-from giga_agent.modules.auth.security import create_access_token
-from giga_agent.modules.telegram.message_tool import (
+from giga_agent.channels.telegram.message_tool import (
     TELEGRAM_MESSAGE_TOOL_CHANNEL,
     TELEGRAM_MESSAGE_TOOL_NAME,
     TelegramMessageToolPayload,
 )
+from giga_agent.conf import GIGA_AGENT_PREFIX_API, get_settings
+from giga_agent.modules.auth.security import create_access_token
 
 _ATTACHMENT_RE = re.compile(r"!\[([^\]]*)\]\(attachment:(/?[^)]+)\)")
 
@@ -66,7 +66,6 @@ def _extract_attachments(text: str) -> tuple[str, list[str]]:
     paths: list[str] = []
     for match in _ATTACHMENT_RE.finditer(text):
         paths.append(match.group(2))
-    # Fallback: GigaChat often mentions /bucket/... paths as plain text
     if not paths:
         for match in _BUCKET_PATH_RE.finditer(text):
             p = match.group(1)
@@ -169,7 +168,6 @@ def _scan_current_turn_attachments(result: dict) -> list[str]:
                 if p not in seen:
                     paths.append(p)
                     seen.add(p)
-        # Scan content for /bucket/ paths (both raw and inside JSON tool output)
         if isinstance(content, str):
             text_to_scan = content
             if content.startswith("{"):
@@ -421,7 +419,7 @@ def _md_to_tg_markdown_v2(text: str) -> str:
     text = re.sub(r"`[^`]+`", _save_inline_code, text)
 
     def _escape(value: str) -> str:
-        return re.sub(r"([_\[\]()~>#+\-=|{}.!\\])", r"\\\1", value)
+        return re.sub(r"([_\[\]()~#+\-=|{}.!\\])", r"\\\1", value)
 
     parts = re.split(r"(\*\*(?:(?!\*\*).)+\*\*)", text)
     result_parts: list[str] = []
@@ -445,7 +443,8 @@ def _md_to_tg_markdown_v2(text: str) -> str:
     for i, block in enumerate(code_blocks):
         text = text.replace(f"\x00CODEBLOCK{i}\x00", block)
 
-    return text
+    text = re.sub(r"```\n\n+", "```\n", text)
+    return text.rstrip("\n")
 
 
 def _split_message(text: str, max_len: int = 4096) -> list[str]:

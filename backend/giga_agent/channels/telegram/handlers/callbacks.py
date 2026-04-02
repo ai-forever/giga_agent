@@ -7,18 +7,17 @@ from datetime import datetime, timezone
 
 from aiogram import types as tg_types
 
-from giga_agent.core.db import get_session_factory
-from giga_agent.core.logging import get_logger
-from giga_agent.modules.telegram.message_tool import parse_telegram_message_tool_payload
-from giga_agent.modules.telegram.models import TelegramBot as TelegramBotModel
-from giga_agent.modules.telegram.models import TelegramBotRepository
-from giga_agent.modules.telegram.services.access import TelegramAccessService
-from giga_agent.modules.telegram.services.media import TelegramMediaService
-from giga_agent.modules.telegram.services.message_tool_runtime import (
+from giga_agent.channels.telegram.message_tool import parse_telegram_message_tool_payload
+from giga_agent.channels.telegram.services.access import TelegramAccessService
+from giga_agent.channels.telegram.services.media import TelegramMediaService
+from giga_agent.channels.telegram.services.message_tool_runtime import (
     TelegramMessageToolRuntime,
     _resolve_callback_button,
 )
-from giga_agent.modules.telegram.services.threads import TelegramThreadService
+from giga_agent.channels.telegram.services.threads import TelegramThreadService
+from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
+from giga_agent.models.channel import ChannelBot, ChannelBotRepository
 
 logger = get_logger(__name__)
 
@@ -27,7 +26,7 @@ class TelegramCallbackHandlers:
     def __init__(
         self,
         *,
-        bot_row: TelegramBotModel,
+        bot_row: ChannelBot,
         access_service: TelegramAccessService,
         thread_service: TelegramThreadService,
         media_service: TelegramMediaService,
@@ -55,21 +54,23 @@ class TelegramCallbackHandlers:
             session_factory = await get_session_factory()
             await self.access_service.register_contact(message)
             async with session_factory() as session:
-                repo = TelegramBotRepository(session)
-                contact = await repo.get_contact(self.bot_row.id, chat_id)
+                repo = ChannelBotRepository(session)
+                contact = await repo.get_contact(self.bot_row.id, str(chat_id))
                 if contact is None or not contact.is_approved:
                     await callback.answer("Контакт не подтверждён", show_alert=True)
                     return
 
             token = self.thread_service.create_token()
             client = self.thread_service.create_client(token)
+            external_user_id = self.thread_service.resolve_external_user_id(message)
 
             async with session_factory() as session:
-                repo = TelegramBotRepository(session)
+                repo = ChannelBotRepository(session)
                 thread_id = await self.thread_service.get_or_create_thread(
                     client,
                     repo,
-                    callback.from_user.id,
+                    chat_id,
+                    external_user_id,
                 )
 
             pending_tool_calls = (

@@ -10,7 +10,7 @@ import { SandboxSettings } from "./sandbox";
 import { ImageGeneratorsSettings } from "./image-generators";
 import { SearchEnginesSettings } from "./search-engines";
 import { ConnectorsSettings } from "./connectors";
-import { TelegramSettings } from "./telegram";
+import { ChannelsSettings } from "./channels";
 
 const SETTINGS_TABS = [
   "general",
@@ -20,7 +20,7 @@ const SETTINGS_TABS = [
   "sandbox",
   "image",
   "search",
-  "telegram",
+  "channels",
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -46,7 +46,7 @@ const SettingsPage: React.FC = () => {
     { id: "image", label: "Image" },
     { id: "search", label: "Поиск" },
     { id: "sandbox", label: "Sandbox" },
-    { id: "telegram", label: "Telegram" },
+    { id: "channels", label: "Каналы" },
   ];
 
   const renderContent = () => {
@@ -65,8 +65,8 @@ const SettingsPage: React.FC = () => {
         return <SearchEnginesSettings />;
       case "sandbox":
         return <SandboxSettings />;
-      case "telegram":
-        return <TelegramSettings />;
+      case "channels":
+        return <ChannelsSettings />;
       default:
         return null;
     }

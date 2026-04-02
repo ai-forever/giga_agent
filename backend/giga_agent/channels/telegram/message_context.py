@@ -6,7 +6,7 @@ from typing import Any
 
 from aiogram import types as tg_types
 
-from giga_agent.modules.telegram.utils import _describe_uploaded_files
+from giga_agent.channels.telegram.utils import _describe_uploaded_files
 
 
 def _format_message_author(message: tg_types.Message | None) -> tuple[str, str]:

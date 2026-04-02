@@ -170,6 +170,38 @@ export interface SearchEngineTypeMeta {
   requires_connector: boolean;
 }
 
+export type ChannelSettings = Record<string, unknown>;
+
+export interface ChannelBotResponse {
+  id: string;
+  user_id: string;
+  channel_type: string;
+  bot_username: string | null;
+  settings: ChannelSettings;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelContactResponse {
+  id: string;
+  bot_id: string;
+  external_chat_id: string;
+  external_user_id: string | null;
+  chat_type: string | null;
+  chat_title: string | null;
+  username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  is_approved: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelTypeMeta {
+  type: string;
+}
+
 export type PermissionResourceType =
   | "connector"
   | "llm"

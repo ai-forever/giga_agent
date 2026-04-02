@@ -7,12 +7,14 @@ from unittest.mock import AsyncMock, patch
 
 from aiogram.types import BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats
 
-from giga_agent.modules.telegram.app import TelegramBotApp
-from giga_agent.modules.telegram.services.message_tool_runtime import _build_prompt_reply_markup
-from giga_agent.modules.telegram.message_tool import (
+from giga_agent.channels.telegram.app import TelegramBotApp
+from giga_agent.channels.telegram.message_tool import (
     TELEGRAM_MESSAGE_TOOL_NAME,
     build_telegram_message_tool_schema,
     parse_telegram_message_tool_payload,
+)
+from giga_agent.channels.telegram.services.message_tool_runtime import (
+    _build_prompt_reply_markup,
 )
 
 
@@ -627,6 +629,33 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             text_override="",
         )
 
+    async def test_handle_message_command_allows_reply_content_without_text(self):
+        app = _bot_app()
+        reply_message = _message(
+            "Посмотри на это сообщение",
+            message_id=91,
+            chat_id=-1001234567890,
+            chat_type="supergroup",
+            chat_title="Ops Room",
+        )
+        command_message = _message(
+            "/message",
+            chat_id=-1001234567890,
+            chat_type="supergroup",
+            chat_title="Ops Room",
+            message_id=92,
+            reply_to_message=reply_message,
+        )
+        app.message_handlers.handle_message = AsyncMock()
+
+        await app.handle_message_command(command_message)
+
+        app.message_handlers.handle_message.assert_awaited_once_with(
+            command_message,
+            force_process=True,
+            text_override="",
+        )
+
     async def test_handle_callback_query_resumes_message_tool(self):
         app = _bot_app()
         message = _message("")
@@ -665,11 +694,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.handlers.callbacks.get_session_factory",
+                "giga_agent.channels.telegram.handlers.callbacks.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.handlers.callbacks.TelegramBotRepository",
+                "giga_agent.channels.telegram.handlers.callbacks.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -700,11 +729,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.services.access.get_session_factory",
+                "giga_agent.channels.telegram.services.access.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.services.access.TelegramBotRepository",
+                "giga_agent.channels.telegram.services.access.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -712,7 +741,8 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         repo.upsert_contact.assert_awaited_once_with(
             bot_id=app.bot_row.id,
-            telegram_chat_id=-1001234567890,
+            external_chat_id="-1001234567890",
+            external_user_id=None,
             chat_type="supergroup",
             chat_title="GigaAgent Team",
             username="giga_agent_team",
@@ -747,11 +777,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.handlers.callbacks.get_session_factory",
+                "giga_agent.channels.telegram.handlers.callbacks.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.handlers.callbacks.TelegramBotRepository",
+                "giga_agent.channels.telegram.handlers.callbacks.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -799,11 +829,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.handlers.messages.get_session_factory",
+                "giga_agent.channels.telegram.handlers.messages.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.handlers.messages.TelegramBotRepository",
+                "giga_agent.channels.telegram.handlers.messages.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -884,11 +914,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.handlers.messages.get_session_factory",
+                "giga_agent.channels.telegram.handlers.messages.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.handlers.messages.TelegramBotRepository",
+                "giga_agent.channels.telegram.handlers.messages.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -922,6 +952,51 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_handle_message_asks_user_to_wait_for_running_bot(self):
+        app = _bot_app()
+        message = _message("Привет")
+        contact = types.SimpleNamespace(is_approved=True)
+        repo = types.SimpleNamespace(get_contact=AsyncMock(return_value=contact))
+        client = types.SimpleNamespace(
+            runs=types.SimpleNamespace(
+                wait=AsyncMock(),
+                list=AsyncMock(
+                    side_effect=[
+                        [{"run_id": "run-1", "status": "running"}],
+                    ]
+                ),
+            )
+        )
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        app.access_service.register_contact = AsyncMock()
+        app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-1")
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[])
+        app.thread_service.create_client = lambda token: client
+        app.thread_service.create_token = lambda: "token"
+
+        with (
+            patch(
+                "giga_agent.channels.telegram.handlers.messages.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.channels.telegram.handlers.messages.ChannelBotRepository",
+                return_value=repo,
+            ),
+        ):
+            await app.handle_message(message)
+
+        message.answer.assert_awaited_once_with(
+            "⏳ Бот ещё обрабатывает предыдущее сообщение. "
+            "Дождитесь завершения работы и попробуйте снова."
+        )
+        client.runs.wait.assert_not_awaited()
+        message.chat.do.assert_not_awaited()
+
     async def test_handle_message_blocks_unapproved_group_chat(self):
         app = _bot_app()
         message = _message(
@@ -951,11 +1026,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.handlers.messages.get_session_factory",
+                "giga_agent.channels.telegram.handlers.messages.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.handlers.messages.TelegramBotRepository",
+                "giga_agent.channels.telegram.handlers.messages.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -1045,11 +1120,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "giga_agent.modules.telegram.handlers.messages.get_session_factory",
+                "giga_agent.channels.telegram.handlers.messages.get_session_factory",
                 AsyncMock(return_value=lambda: _session_context()),
             ),
             patch(
-                "giga_agent.modules.telegram.handlers.messages.TelegramBotRepository",
+                "giga_agent.channels.telegram.handlers.messages.ChannelBotRepository",
                 return_value=repo,
             ),
         ):
@@ -1060,15 +1135,15 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             repo.get_contact.await_args_list,
             [
-                unittest.mock.call(app.bot_row.id, group_chat_id),
-                unittest.mock.call(app.bot_row.id, group_chat_id),
+                unittest.mock.call(app.bot_row.id, str(group_chat_id)),
+                unittest.mock.call(app.bot_row.id, str(group_chat_id)),
             ],
         )
         self.assertEqual(
             app.thread_service.get_or_create_thread.await_args_list,
             [
-                unittest.mock.call(client, repo, 3101),
-                unittest.mock.call(client, repo, 3102),
+                unittest.mock.call(client, repo, group_chat_id, "3101"),
+                unittest.mock.call(client, repo, group_chat_id, "3102"),
             ],
         )
         self.assertEqual(client.runs.wait.await_count, 2)
@@ -1111,7 +1186,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch(
-            "giga_agent.modules.telegram.services.message_tool_runtime._convert_plotly_attachment",
+            "giga_agent.channels.telegram.services.message_tool_runtime._convert_plotly_attachment",
             return_value=(b"png-bytes", "chart.png", True),
         ):
             await app.message_tool_runtime.send_message_tool_prompt(message, "token", tool_call)
@@ -1236,7 +1311,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch(
-            "giga_agent.modules.telegram.services.media._convert_plotly_attachment",
+            "giga_agent.channels.telegram.services.media._convert_plotly_attachment",
             return_value=(b"png-bytes", "chart.png", True),
         ):
             await app.media_service.send_run_result(

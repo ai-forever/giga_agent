@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from giga_agent.modules.telegram.app import TelegramBotApp
+from giga_agent.channels.telegram.app import TelegramBotApp
 
 __all__ = ["TelegramBotApp"]

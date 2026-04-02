@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
-from giga_agent.modules.telegram.services.media import TelegramMediaService
-from giga_agent.modules.telegram.services.threads import TelegramThreadService
+from giga_agent.channels.telegram.services.media import TelegramMediaService
+from giga_agent.channels.telegram.services.threads import TelegramThreadService
 
 
 def _bot_row():
@@ -55,7 +55,12 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
         client.threads.create.assert_awaited_once_with(
             metadata={"telegram_chat_id": "42"}
         )
-        repo.create_thread.assert_awaited_once_with(bot_row.id, 42, "thread-new")
+        repo.create_thread.assert_awaited_once_with(
+            bot_id=bot_row.id,
+            external_chat_id="42",
+            external_user_id=None,
+            langgraph_thread_id="thread-new",
+        )
 
     async def test_thread_service_recreates_missing_langgraph_thread(self):
         bot_row = _bot_row()
@@ -82,7 +87,12 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(thread_id, "thread-new")
         repo.delete_thread.assert_awaited_once_with(existing_thread)
         repo.touch_thread.assert_not_awaited()
-        repo.create_thread.assert_awaited_once_with(bot_row.id, 99, "thread-new")
+        repo.create_thread.assert_awaited_once_with(
+            bot_id=bot_row.id,
+            external_chat_id="99",
+            external_user_id=None,
+            langgraph_thread_id="thread-new",
+        )
 
     async def test_media_service_download_attachment_uses_files_api_fallback(self):
         bot_row = _bot_row()
@@ -114,7 +124,7 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError(f"Unexpected request: {url} {params}")
 
         with patch(
-            "giga_agent.modules.telegram.services.media.httpx.AsyncClient",
+            "giga_agent.channels.telegram.services.media.httpx.AsyncClient",
             return_value=_FakeAsyncClient(),
         ):
             content = await service.download_attachment(
@@ -161,7 +171,7 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         with patch(
-            "giga_agent.modules.telegram.services.media.httpx.AsyncClient",
+            "giga_agent.channels.telegram.services.media.httpx.AsyncClient",
             return_value=_FakeAsyncClient(),
         ):
             paths = await service.find_recent_image_files(

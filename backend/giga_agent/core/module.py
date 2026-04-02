@@ -3,6 +3,7 @@ import inspect
 from typing import TYPE_CHECKING, Any, Optional, List, TypedDict, Literal
 from typing_extensions import override
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict, PrivateAttr
 from langchain_core.load.serializable import Serializable
 from langchain_core.tools import BaseTool
@@ -96,12 +97,14 @@ class BaseModule(Serializable):
         task: str,
         state: "AgentState",
         agent: "BaseAgent",
+        config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> str | None:
         """
         Возвращает расширение пользовательской задачи, которое будет добавлено
         в подготовленный user prompt перед запуском модели.
         """
+        _ = config
         return None
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
