@@ -33,7 +33,6 @@ _MEM0_EMBEDDING_SUBSCRIBE_LOCK = asyncio.Lock()
 def _is_memory_disabled(config: RunnableConfig | None) -> bool:
     if not config:
         return False
-    print(config)
     configurable = config.get("configurable")
     return isinstance(configurable, dict) and configurable.get("disable_memory") is True
 
