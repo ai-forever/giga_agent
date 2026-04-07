@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "giga-agent"
-version = "0.1.3"
+version = "0.1.4"
 description = "Modular Agent Framework"
 dynamic = ["readme"]
 requires-python = ">=3.11"
@@ -116,6 +116,11 @@ path = "hatch_metadata.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["giga_agent"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "/additional_data",
+]
 
 [tool.hatch.build.targets.sdist.force-include]
 "../front/dist" = "giga_agent/ui_dist"
