@@ -55,7 +55,7 @@ dependencies = [
     "langchain-text-splitters>=1.1.1",
     "langchain-postgres>=0.0.17",
     "langchain-qdrant>=1.1.0",
-    "mem0ai>=0.1.115",
+    "mem0ai==0.1.115",
     "scikit-learn==1.6.1",
     "aiofiles>=25.1.0",
     "redis==7.2.1",

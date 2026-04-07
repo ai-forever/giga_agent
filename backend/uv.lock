@@ -1551,7 +1551,7 @@ wheels = [
 
 [[package]]
 name = "giga-agent"
-version = "0.1.1"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },
@@ -1687,7 +1687,7 @@ requires-dist = [
     { name = "markdownify", specifier = ">=1.2.2" },
     { name = "matplotlib", marker = "extra == 'jupyter'", specifier = ">=3.9.0" },
     { name = "matplotlib", marker = "extra == 'jupyter-full'", specifier = ">=3.9.0" },
-    { name = "mem0ai", specifier = ">=0.1.115" },
+    { name = "mem0ai", specifier = "==0.1.115" },
     { name = "nltk", marker = "extra == 'jupyter-full'", specifier = ">=3.9.0" },
     { name = "numpy", marker = "extra == 'jupyter'", specifier = ">=2.0.0" },
     { name = "numpy", marker = "extra == 'jupyter-full'", specifier = ">=2.0.0" },
