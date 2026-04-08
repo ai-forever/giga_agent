@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
-import Spinner from "./Spinner";
 import { useStableMessages } from "../hooks/useStableMessages";
 import { GraphState } from "../interfaces";
 import { useNavigate, useParams } from "react-router-dom";
@@ -23,6 +22,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
   const suppressNextThreadLoadingRef = useRef(false);
+  const suppressedThreadIdRef = useRef<string | null>(null);
+  const suppressedThreadLoadingStartedRef = useRef(false);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
     assistantId: "giga_agent",
@@ -37,6 +38,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     },
     onThreadId: (nextThreadId: string) => {
       suppressNextThreadLoadingRef.current = !threadId;
+      suppressedThreadIdRef.current = !threadId ? nextThreadId : null;
+      suppressedThreadLoadingStartedRef.current = false;
       onThreadIdChange?.(nextThreadId);
       navigate(`/threads/${nextThreadId}`);
     },
@@ -48,9 +51,6 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       });
     },
   });
-  console.log(thread);
-
-
   const containerRef = useRef<HTMLDivElement>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
   const bottomSentinelRef = useRef<HTMLDivElement>(null);
@@ -75,30 +75,12 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [threadId, onThreadIdChange]);
 
   const stableMessages = useStableMessages(thread);
-  const previousRouteThreadIdRef = useRef<string | null>(threadId ?? null);
-  const [shouldShowThreadLoading, setShouldShowThreadLoading] = useState(false);
-  const isThreadLoading = shouldShowThreadLoading && thread.isThreadLoading;
+  const isThreadLoading =
+    Boolean(threadId) &&
+    thread.isThreadLoading &&
+    !(suppressNextThreadLoadingRef.current && suppressedThreadIdRef.current === threadId);
   const previousThreadLoadingRef = useRef(isThreadLoading);
   const shouldScrollAfterLoadRef = useRef(false);
-
-  useEffect(() => {
-    const currentThreadId = threadId ?? null;
-    const previousThreadId = previousRouteThreadIdRef.current;
-    const didThreadChange = currentThreadId !== previousThreadId;
-    const shouldSuppressLoadingForNewThreadCreation = Boolean(
-      !previousThreadId &&
-        currentThreadId &&
-        suppressNextThreadLoadingRef.current,
-    );
-
-    if (didThreadChange) {
-      setShouldShowThreadLoading(
-        Boolean(currentThreadId) && !shouldSuppressLoadingForNewThreadCreation,
-      );
-      suppressNextThreadLoadingRef.current = false;
-      previousRouteThreadIdRef.current = currentThreadId;
-    }
-  }, [threadId]);
 
   const aiCountRef = useRef<{ threadId: string | null; aiCount: number }>({
     threadId: null,
@@ -137,10 +119,27 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [isThreadLoading]);
 
   useEffect(() => {
-    if (!thread.isThreadLoading) {
-      setShouldShowThreadLoading(false);
+    if (
+      threadId &&
+      suppressNextThreadLoadingRef.current &&
+      suppressedThreadIdRef.current === threadId &&
+      thread.isThreadLoading
+    ) {
+      suppressedThreadLoadingStartedRef.current = true;
     }
-  }, [thread.isThreadLoading]);
+
+    if (
+      threadId &&
+      suppressNextThreadLoadingRef.current &&
+      suppressedThreadIdRef.current === threadId &&
+      suppressedThreadLoadingStartedRef.current &&
+      !thread.isThreadLoading
+    ) {
+      suppressNextThreadLoadingRef.current = false;
+      suppressedThreadIdRef.current = null;
+      suppressedThreadLoadingStartedRef.current = false;
+    }
+  }, [threadId, thread.isThreadLoading]);
 
   useEffect(() => {
     if (isThreadLoading) return;

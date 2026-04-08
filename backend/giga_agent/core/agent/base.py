@@ -232,12 +232,15 @@ class BaseAgent(BaseModel):
         return middlewares
 
     async def get_prompt(
-        self, user: UserShort, state: AgentState | None = None
+        self,
+        user: UserShort,
+        state: AgentState | None = None,
+        config: RunnableConfig | None = None,
     ) -> str:
         modules_prompts = []
         for module in self._agent_modules:
             instructions = await module.get_instructions(
-                user=user, agent=self, state=state
+                user=user, agent=self, state=state, config=config
             )
             if instructions:
                 modules_prompts.append(instructions)

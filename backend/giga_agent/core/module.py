@@ -83,12 +83,14 @@ class BaseModule(Serializable):
         user: UserShort | None,
         agent: "BaseAgent",
         state: Optional["AgentState"] = None,
+        config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> str | None:
         """
         Возвращает строку с инструкциями (system prompt), которые модуль
         добавляет к системному промпту агента. Возвращает None если инструкций нет.
         """
+        _ = config
         return None
 
     async def extend_task(

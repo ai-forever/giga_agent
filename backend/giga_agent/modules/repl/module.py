@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import keyword
-import uuid
 from typing import Any, List, Coroutine, Optional
 
 from giga_agent.modules.repl.repl_tools.llm import summarize
@@ -12,17 +11,16 @@ from giga_agent.modules.repl.repl_tools.sentiment import (
     get_embeddings,
 )
 from giga_agent.modules.repl.repl_tools.utils import describe_repl_tool
-from langchain_core.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
-from langgraph.runtime import Runtime
+from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
-from giga_agent.core.agent.middleware import AgentMiddleware
-from giga_agent.core.agent.types import AgentState, Context
+from giga_agent.core.agent.types import AgentState
 from giga_agent.core.db import get_session_factory
-from giga_agent.models.users import UserShort, UserRepository
-from giga_agent.sandbox.manager import SandboxManager
+from giga_agent.models.users import UserShort
+from giga_agent.sandbox.manager import ProviderNotFoundError, SandboxManager
+from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 from giga_agent.modules.repl.tools import python, shell
 from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
 from giga_agent.core.logging import get_logger
@@ -94,6 +92,50 @@ def generate_repl_tools_description(repl_tools: List[Coroutine], tools: List[Bas
 """
 
 
+async def get_sandbox_prompt(
+    user: UserShort,
+    agent: BaseAgent,
+    state: Optional[AgentState] = None,
+    config: RunnableConfig | None = None,
+    **kwargs: Any,
+) -> str:
+    session_factory = await get_session_factory()
+
+    try:
+        async with session_factory() as session:
+            resolved = await SandboxManager.get_cached_or_db(
+                user_id=user.id,
+                session=session,
+            )
+    except ProviderNotFoundError:
+        return ""
+    except Exception as e:
+        logger.warning(
+            "failed_to_resolve_sandbox_prompt user_id=%s reason=%s",
+            user.id,
+            e,
+        )
+        return ""
+
+    try:
+        runtime = SandboxRuntimeFactory.build(resolved.provider, resolved.sandbox)
+        return runtime.get_prompt(
+            user=user,
+            agent=agent,
+            state=state,
+            config=config,
+            **kwargs,
+        )
+    except Exception as e:
+        logger.warning(
+            "failed_to_build_sandbox_prompt user_id=%s provider_type=%s reason=%s",
+            user.id,
+            resolved.provider.type,
+            e,
+        )
+        return ""
+
+
 class ReplModule(BaseModule):
     """
     Модуль REPL для выполнения Python кода.
@@ -120,11 +162,19 @@ class ReplModule(BaseModule):
         user: UserShort,
         agent: BaseAgent,
         state: Optional[AgentState] = None,
+        config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> str | None:
-        _ = state, kwargs
+        sandbox_prompt = await get_sandbox_prompt(
+            user,
+            agent=agent,
+            state=state,
+            config=config,
+            **kwargs,
+        )
         return (
             JUPYTER_REPL_INSTRUCTIONS
+            + sandbox_prompt
             + get_user_secrets_prompt(user)
             + generate_repl_tools_description(
                 self._repl_tools, await agent.get_tools(user)
