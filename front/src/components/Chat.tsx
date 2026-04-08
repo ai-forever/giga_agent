@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
@@ -22,6 +22,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
+  const suppressNextThreadLoadingRef = useRef(false);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
     assistantId: "giga_agent",
@@ -34,9 +35,10 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     defaultHeaders: {
       Authorization: `Bearer ${token}`,
     },
-    onThreadId: (threadId: string) => {
-      onThreadIdChange?.(threadId);
-      navigate(`/threads/${threadId}`);
+    onThreadId: (nextThreadId: string) => {
+      suppressNextThreadLoadingRef.current = !threadId;
+      onThreadIdChange?.(nextThreadId);
+      navigate(`/threads/${nextThreadId}`);
     },
     onCustomEvent: (event, options) => {
       options.mutate((prev) => {
@@ -73,10 +75,30 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [threadId, onThreadIdChange]);
 
   const stableMessages = useStableMessages(thread);
-  const isThreadLoading =
-    Boolean(threadId) && thread.isThreadLoading;
+  const previousRouteThreadIdRef = useRef<string | null>(threadId ?? null);
+  const [shouldShowThreadLoading, setShouldShowThreadLoading] = useState(false);
+  const isThreadLoading = shouldShowThreadLoading && thread.isThreadLoading;
   const previousThreadLoadingRef = useRef(isThreadLoading);
   const shouldScrollAfterLoadRef = useRef(false);
+
+  useEffect(() => {
+    const currentThreadId = threadId ?? null;
+    const previousThreadId = previousRouteThreadIdRef.current;
+    const didThreadChange = currentThreadId !== previousThreadId;
+    const shouldSuppressLoadingForNewThreadCreation = Boolean(
+      !previousThreadId &&
+        currentThreadId &&
+        suppressNextThreadLoadingRef.current,
+    );
+
+    if (didThreadChange) {
+      setShouldShowThreadLoading(
+        Boolean(currentThreadId) && !shouldSuppressLoadingForNewThreadCreation,
+      );
+      suppressNextThreadLoadingRef.current = false;
+      previousRouteThreadIdRef.current = currentThreadId;
+    }
+  }, [threadId]);
 
   const aiCountRef = useRef<{ threadId: string | null; aiCount: number }>({
     threadId: null,
@@ -113,6 +135,12 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
 
     previousThreadLoadingRef.current = isThreadLoading;
   }, [isThreadLoading]);
+
+  useEffect(() => {
+    if (!thread.isThreadLoading) {
+      setShouldShowThreadLoading(false);
+    }
+  }, [thread.isThreadLoading]);
 
   useEffect(() => {
     if (isThreadLoading) return;
