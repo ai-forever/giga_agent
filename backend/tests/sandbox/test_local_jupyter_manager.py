@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -12,7 +13,9 @@ from giga_agent.sandbox.local_jupyter.manager import (
     LOCAL_JUPYTER_KERNEL_NAME,
     LocalJupyterHandle,
     LocalJupyterServerManager,
+    get_local_jupyter_server_manager,
 )
+from giga_agent.utils.sandbox_exec_mac import MacSandboxExecLaunch
 
 
 class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -48,6 +51,24 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first, handle)
         self.assertEqual(second, handle)
         manager._start_new_server.assert_awaited_once()
+
+    def test_get_manager_uses_env_safe_flag_when_param_is_not_provided(self):
+        with self._patched_env({"GIGA_AGENT_LOCAL_JUPYTER_SAFE": "true"}), patch(
+            "giga_agent.sandbox.local_jupyter.manager._MANAGER",
+            None,
+        ):
+            manager = get_local_jupyter_server_manager()
+
+        self.assertTrue(manager._safe)
+
+    def test_get_manager_prefers_explicit_safe_param_over_env(self):
+        with self._patched_env({"GIGA_AGENT_LOCAL_JUPYTER_SAFE": "true"}), patch(
+            "giga_agent.sandbox.local_jupyter.manager._MANAGER",
+            None,
+        ):
+            manager = get_local_jupyter_server_manager(safe=False)
+
+        self.assertFalse(manager._safe)
 
     async def test_stop_uses_force_kill_when_process_does_not_exit_gracefully(self):
         manager = LocalJupyterServerManager()
@@ -128,6 +149,7 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
             data_dir = project_root / "local_jupyter" / "data"
             runtime_dir = project_root / "local_jupyter" / "runtime"
             shims_dir = project_root / "local_jupyter" / "shims"
+            ipython_dir = config_dir / "ipython"
         manager._reserve_port = Mock(return_value=8888)  # type: ignore[method-assign]
         manager._working_dir = Mock(return_value=working_dir)  # type: ignore[method-assign]
         manager._config_dir = Mock(return_value=config_dir)  # type: ignore[method-assign]
@@ -163,8 +185,15 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(env["JUPYTER_CONFIG_DIR"], str(config_dir))
         self.assertEqual(env["JUPYTER_DATA_DIR"], str(data_dir))
         self.assertEqual(env["JUPYTER_RUNTIME_DIR"], str(runtime_dir))
+        self.assertEqual(env["IPYTHONDIR"], str(ipython_dir.resolve()))
         self.assertTrue((shims_dir / "pip").is_file())
         self.assertTrue((shims_dir / "python").is_file())
+        startup_file = ipython_dir / "profile_default" / "startup" / "00-giga-agent-shell.py"
+        self.assertTrue(startup_file.is_file())
+        self.assertIn(
+            "_giga_agent_system_no_pty",
+            startup_file.read_text(encoding="utf-8"),
+        )
         self.assertEqual(
             kernel_spec["argv"][0],
             manager._python_executable(),
@@ -200,3 +229,85 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
             kind="local_jupyter",
             pid=13579,
         )
+
+    def test_launch_server_uses_macos_sandbox_when_safe_enabled(self):
+        manager = LocalJupyterServerManager(safe=True)
+        proc = Mock(pid=1234)
+        runtime_dir = Path("/tmp/runtime")
+        config_dir = Path("/tmp/config")
+        data_dir = Path("/tmp/data")
+        shims_dir = Path("/tmp/shims")
+        log_path = Path("/tmp/server.log")
+        working_dir = Path("/tmp/workspace")
+
+        with tempfile.TemporaryFile("wb") as log_handle:
+            manager._log_handle = log_handle
+            with patch(
+                "giga_agent.sandbox.local_jupyter.manager.platform.system",
+                return_value="Darwin",
+            ), patch(
+                "giga_agent.sandbox.local_jupyter.manager.launch_with_macos_sandbox",
+                return_value=MacSandboxExecLaunch(
+                    process=proc,
+                    profile_path=log_path.with_suffix(".sandbox.sb"),
+                    profile="profile",
+                    command=["/usr/bin/sandbox-exec"],
+                ),
+            ) as launch_mock:
+                launched = manager._launch_server(
+                    command=["python", "-m", "jupyter", "server"],
+                    env={"ENV": "1"},
+                    runtime_dir=runtime_dir,
+                    config_dir=config_dir,
+                    data_dir=data_dir,
+                    shims_dir=shims_dir,
+                ipython_dir=config_dir / "ipython",
+                    log_path=log_path,
+                    working_dir=working_dir,
+                    port=8888,
+                )
+
+        self.assertIs(launched, proc)
+        launch_config = launch_mock.call_args.args[0]
+        self.assertEqual(launch_config.command, ["python", "-m", "jupyter", "server"])
+        self.assertEqual(launch_config.cwd, working_dir.resolve())
+        self.assertEqual(launch_config.read_roots, [Path("/")])
+        self.assertEqual(launch_config.deny_read_roots, [Path.home() / ".ssh"])
+        self.assertEqual(
+            launch_config.write_roots,
+            [
+                runtime_dir.resolve(),
+                config_dir.resolve(),
+                data_dir.resolve(),
+                shims_dir.resolve(),
+                (config_dir / "ipython").resolve(),
+                log_path.parent.resolve(),
+            ],
+        )
+        self.assertEqual(launch_config.local_network_port, 8888)
+        self.assertTrue(launch_config.allow_local_network_all_ports)
+        self.assertFalse(launch_config.allow_outbound_network)
+        self.assertIs(launch_config.stdout, manager._log_handle)
+        self.assertEqual(launch_config.stderr, subprocess.STDOUT)
+
+    def test_launch_server_safe_mode_requires_macos(self):
+        manager = LocalJupyterServerManager(safe=True)
+        with tempfile.TemporaryFile("wb") as log_handle:
+            manager._log_handle = log_handle
+            with patch(
+                "giga_agent.sandbox.local_jupyter.manager.platform.system",
+                return_value="Linux",
+            ):
+                with self.assertRaisesRegex(RuntimeError, "only supported on macOS"):
+                    manager._launch_server(
+                        command=["python", "-m", "jupyter", "server"],
+                        env={"ENV": "1"},
+                        runtime_dir=Path("/tmp/runtime"),
+                        config_dir=Path("/tmp/config"),
+                        data_dir=Path("/tmp/data"),
+                        shims_dir=Path("/tmp/shims"),
+                    ipython_dir=Path("/tmp/config/ipython"),
+                        log_path=Path("/tmp/server.log"),
+                        working_dir=Path("/tmp/workspace"),
+                        port=8888,
+                    )

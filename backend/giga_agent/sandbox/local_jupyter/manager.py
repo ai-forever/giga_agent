@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import platform
 import signal
 import socket
 import subprocess
@@ -22,6 +23,10 @@ from giga_agent.core.process_supervisor import (
     get_process_supervisor,
 )
 from giga_agent.sandbox.local_jupyter.dependencies import ensure_jupyter_dependencies
+from giga_agent.utils.sandbox_exec_mac import (
+    MacSandboxExecConfig,
+    launch_with_macos_sandbox,
+)
 
 logger = get_logger(__name__)
 _MANAGER: LocalJupyterServerManager | None = None
@@ -41,11 +46,12 @@ class LocalJupyterHandle:
 
 
 class LocalJupyterServerManager:
-    def __init__(self) -> None:
+    def __init__(self, *, safe: bool = False) -> None:
         self._lock = asyncio.Lock()
         self._proc: subprocess.Popen[bytes] | None = None
         self._handle: LocalJupyterHandle | None = None
         self._log_handle: IO[bytes] | None = None
+        self._safe = safe
 
     async def ensure_started(self) -> LocalJupyterHandle:
         async with self._lock:
@@ -148,18 +154,22 @@ class LocalJupyterServerManager:
         data_dir = self._data_dir()
         runtime_dir = self._runtime_dir()
         shims_dir = self._shims_dir()
+        ipython_dir = self._ipython_dir(config_dir=config_dir)
         working_dir.mkdir(parents=True, exist_ok=True)
         config_dir.mkdir(parents=True, exist_ok=True)
         data_dir.mkdir(parents=True, exist_ok=True)
         runtime_dir.mkdir(parents=True, exist_ok=True)
         shims_dir.mkdir(parents=True, exist_ok=True)
+        ipython_dir.mkdir(parents=True, exist_ok=True)
         self._write_command_shims(
             shims_dir=shims_dir,
             python_executable=python_executable,
         )
+        self._write_ipython_startup(ipython_dir=ipython_dir)
         self._write_kernel_spec(
             data_dir=data_dir,
             shims_dir=shims_dir,
+            ipython_dir=ipython_dir,
             python_executable=python_executable,
         )
 
@@ -183,18 +193,24 @@ class LocalJupyterServerManager:
             data_dir=data_dir,
             runtime_dir=runtime_dir,
             shims_dir=shims_dir,
+            ipython_dir=ipython_dir,
             python_executable=python_executable,
         )
 
         log_path = self._log_path()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_handle = log_path.open("ab")
-        self._proc = subprocess.Popen(
-            command,
-            stdout=self._log_handle,
-            stderr=subprocess.STDOUT,
+        self._proc = self._launch_server(
+            command=command,
             env=env,
-            start_new_session=True,
+            runtime_dir=runtime_dir,
+            config_dir=config_dir,
+            data_dir=data_dir,
+            shims_dir=shims_dir,
+            ipython_dir=ipython_dir,
+            log_path=log_path,
+            working_dir=working_dir,
+            port=port,
         )
         handle = LocalJupyterHandle(
             pid=self._proc.pid,
@@ -220,6 +236,59 @@ class LocalJupyterServerManager:
             raise
         self._handle = handle
         return handle
+
+    def _launch_server(
+        self,
+        *,
+        command: list[str],
+        env: dict[str, str],
+        runtime_dir: Path,
+        config_dir: Path,
+        data_dir: Path,
+        shims_dir: Path,
+        ipython_dir: Path,
+        log_path: Path,
+        working_dir: Path,
+        port: int,
+    ) -> subprocess.Popen[bytes]:
+        if not self._safe:
+            return subprocess.Popen(
+                command,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
+                env=env,
+                start_new_session=True,
+            )
+
+        if platform.system() != "Darwin":
+            raise RuntimeError("LocalJupyterServerManager safe mode is only supported on macOS")
+
+        launch = launch_with_macos_sandbox(
+            MacSandboxExecConfig(
+                command=command,
+                profile_path=log_path.with_suffix(".sandbox.sb"),
+                cwd=working_dir,
+                env=env,
+                read_roots=[Path("/")],
+                write_roots=[
+                    runtime_dir,
+                    config_dir,
+                    data_dir,
+                    shims_dir,
+                    ipython_dir,
+                    log_path.parent,
+                ],
+                deny_read_roots=[Path.home() / ".ssh"],
+                allow_local_network=True,
+                local_network_port=port,
+                allow_local_network_all_ports=True,
+                allow_outbound_network=False,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        )
+        return launch.process
 
     async def _wait_until_ready(
         self,
@@ -337,6 +406,9 @@ class LocalJupyterServerManager:
     def _shims_dir(self) -> Path:
         return (ensure_giga_agent_dir() / "local_jupyter" / "shims").resolve()
 
+    def _ipython_dir(self, *, config_dir: Path) -> Path:
+        return (config_dir / "ipython").resolve()
+
     def _kernel_spec_dir(self, *, data_dir: Path) -> Path:
         return (data_dir / "kernels" / LOCAL_JUPYTER_KERNEL_NAME).resolve()
 
@@ -353,6 +425,7 @@ class LocalJupyterServerManager:
         self,
         *,
         shims_dir: Path,
+        ipython_dir: Path,
         python_executable: str,
     ) -> dict[str, str]:
         env = os.environ.copy()
@@ -367,6 +440,7 @@ class LocalJupyterServerManager:
             env["VIRTUAL_ENV"] = str(venv_dir)
         env["PYTHONNOUSERSITE"] = "1"
         env["PIP_REQUIRE_VIRTUALENV"] = "1"
+        env["IPYTHONDIR"] = str(ipython_dir)
         return env
 
     def _jupyter_env(
@@ -376,10 +450,12 @@ class LocalJupyterServerManager:
         data_dir: Path,
         runtime_dir: Path,
         shims_dir: Path,
+        ipython_dir: Path,
         python_executable: str,
     ) -> dict[str, str]:
         env = self._runtime_command_env(
             shims_dir=shims_dir,
+            ipython_dir=ipython_dir,
             python_executable=python_executable,
         )
         # Run Jupyter with isolated config/runtime paths so global user or system
@@ -394,10 +470,12 @@ class LocalJupyterServerManager:
         self,
         *,
         shims_dir: Path,
+        ipython_dir: Path,
         python_executable: str,
     ) -> dict[str, str]:
         return self._runtime_command_env(
             shims_dir=shims_dir,
+            ipython_dir=ipython_dir,
             python_executable=python_executable,
         )
 
@@ -434,6 +512,7 @@ class LocalJupyterServerManager:
         *,
         data_dir: Path,
         shims_dir: Path,
+        ipython_dir: Path,
         python_executable: str,
     ) -> None:
         kernel_spec_dir = self._kernel_spec_dir(data_dir=data_dir)
@@ -450,6 +529,7 @@ class LocalJupyterServerManager:
             "language": "python",
             "env": self._kernel_env(
                 shims_dir=shims_dir,
+                ipython_dir=ipython_dir,
                 python_executable=python_executable,
             ),
             "metadata": {
@@ -458,6 +538,49 @@ class LocalJupyterServerManager:
         }
         (kernel_spec_dir / "kernel.json").write_text(
             json.dumps(kernel_spec, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _write_ipython_startup(self, *, ipython_dir: Path) -> None:
+        startup_dir = ipython_dir / "profile_default" / "startup"
+        startup_dir.mkdir(parents=True, exist_ok=True)
+        startup_path = startup_dir / "00-giga-agent-shell.py"
+        startup_path.write_text(
+            """
+import os
+import subprocess
+import sys
+
+from IPython.core.interactiveshell import InteractiveShell
+from ipykernel.zmqshell import ZMQInteractiveShell
+
+
+def _giga_agent_system_no_pty(self, cmd):
+    command = self.var_expand(cmd, depth=1)
+    process = subprocess.Popen(
+        [os.environ.get("SHELL", "/bin/sh"), "-c", command],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ.copy(),
+    )
+    stdout, stderr = process.communicate()
+    if stdout:
+        print(stdout, end="")
+    if stderr:
+        print(stderr, end="", file=sys.stderr)
+    self.user_ns["_exit_code"] = process.returncode
+    return process.returncode
+
+
+InteractiveShell.system_piped = _giga_agent_system_no_pty
+InteractiveShell.system_raw = _giga_agent_system_no_pty
+InteractiveShell.system = _giga_agent_system_no_pty
+ZMQInteractiveShell.system_piped = _giga_agent_system_no_pty
+ZMQInteractiveShell.system_raw = _giga_agent_system_no_pty
+ZMQInteractiveShell.system = _giga_agent_system_no_pty
+""".strip()
+            + "\n",
             encoding="utf-8",
         )
 
@@ -550,8 +673,19 @@ class LocalJupyterServerManager:
             return
 
 
-def get_local_jupyter_server_manager() -> LocalJupyterServerManager:
+def get_local_jupyter_server_manager(
+    *, safe: bool | None = None
+) -> LocalJupyterServerManager:
     global _MANAGER
+    resolved_safe = (
+        safe
+        if safe is not None
+        else get_settings().giga_agent_local_jupyter_safe
+    )
     if _MANAGER is None:
-        _MANAGER = LocalJupyterServerManager()
+        _MANAGER = LocalJupyterServerManager(safe=resolved_safe)
+    elif _MANAGER._safe != resolved_safe:
+        raise RuntimeError(
+            "LocalJupyterServerManager already initialized with a different safe mode"
+        )
     return _MANAGER

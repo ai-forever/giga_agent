@@ -167,6 +167,9 @@ class Settings(BaseSettings):
     giga_agent_local_jupyter_runtime_dir: Path | None = Field(
         None, alias="GIGA_AGENT_LOCAL_JUPYTER_RUNTIME_DIR"
     )
+    giga_agent_local_jupyter_safe: bool = Field(
+        True, alias="GIGA_AGENT_LOCAL_JUPYTER_SAFE"
+    )
     giga_agent_local_jupyter_python_executable: str | None = Field(
         None, alias="GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE"
     )
