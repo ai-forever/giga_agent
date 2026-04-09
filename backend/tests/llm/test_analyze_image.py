@@ -71,6 +71,7 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
         llm_stub = types.SimpleNamespace(
             aupload_file=AsyncMock(return_value=types.SimpleNamespace(id_="file-123")),
             ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="analysis")),
+            with_config=lambda **kwargs: llm_stub
         )
         runtime = GigaChatRuntime(connector=_ConnectorStub(), model_id="giga")
         with patch.object(GigaChatRuntime, "get_llm", AsyncMock(return_value=llm_stub)):

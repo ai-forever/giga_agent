@@ -1,4 +1,3 @@
-import time
 import uuid
 from collections import defaultdict
 from datetime import timedelta
@@ -41,6 +40,7 @@ from giga_agent.models.users import (
     UserShort,
     UserRepository,
     UserResponse,
+    UserSelfResponse,
     UserCreate,
     UserUpdate,
     AdminUserUpdate,
@@ -361,6 +361,47 @@ async def _validate_llm_secret_references(
         )
 
 
+def _mask_user_self_secrets(
+    request: Request,
+    secrets: dict | None,
+) -> dict | None:
+    if not secrets:
+        return secrets
+
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None:
+        return secrets
+
+    pass_secret_names = {
+        secret_meta["name"]
+        for secret_meta in collect_module_secrets(agent.all_modules)
+        if (secret_meta.get("type") or "pass") == "pass"
+    }
+    if not pass_secret_names:
+        return secrets
+
+    masked_secrets = dict(secrets)
+    for secret_name in pass_secret_names:
+        if secret_name not in masked_secrets:
+            continue
+
+        raw_value = masked_secrets.get(secret_name)
+        value = ""
+        if raw_value is not None:
+            value = str(raw_value).strip()
+        masked_secrets[secret_name] = {"filled": bool(value)}
+    return masked_secrets
+
+
+def _serialize_user_self_response(
+    request: Request,
+    user: object,
+) -> UserSelfResponse:
+    payload = UserSelfResponse.model_validate(user).model_dump()
+    payload["secrets"] = _mask_user_self_secrets(request, payload.get("secrets"))
+    return UserSelfResponse.model_validate(payload)
+
+
 async def _delete_user_related_resources(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -511,12 +552,12 @@ async def logout(response: Response):
     response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
 
 
-@router.get("/users/me", response_model=UserShort)
+@router.get("/users/me", response_model=UserSelfResponse)
 async def read_users_me(
+    request: Request,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
-    time.sleep(1)
-    return current_user
+    return _serialize_user_self_response(request, current_user)
 
 
 @router.get("/users", response_model=list[UserResponse])
@@ -529,7 +570,7 @@ async def list_users(
     return [UserRepository.to_response(user) for user in users]
 
 
-@router.patch("/users/me", response_model=UserShort)
+@router.patch("/users/me", response_model=UserSelfResponse)
 async def update_user(
     body: UserUpdate,
     request: Request,
@@ -538,7 +579,7 @@ async def update_user(
 ):
     """Частично обновить профиль текущего пользователя."""
     if not body.model_fields_set:
-        return current_user
+        return _serialize_user_self_response(request, current_user)
 
     user = await _get_user_model_by_id(db, current_user.id)
     old_embedding_id = user.embedding_id
@@ -624,7 +665,7 @@ async def update_user(
                 new_embedding_id=user.embedding_id,
             )
         )
-    return UserRepository.to_short(user)
+    return _serialize_user_self_response(request, UserRepository.to_short(user))
 
 
 @router.post("/users", response_model=UserResponse)
