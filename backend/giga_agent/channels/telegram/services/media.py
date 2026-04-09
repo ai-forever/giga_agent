@@ -113,6 +113,17 @@ class TelegramMediaService:
             )
             if uploaded:
                 uploaded_files.append(uploaded)
+        if message.sticker:
+            sticker = message.sticker
+            if not sticker.is_animated and not sticker.is_video:
+                uploaded = await self.upload_tg_file(
+                    token,
+                    sticker.file_id,
+                    "sticker.jpg",
+                    thread_id,
+                )
+                if uploaded:
+                    uploaded_files.append(uploaded)
         if message.document:
             fname = message.document.file_name or "document"
             uploaded = await self.upload_tg_file(
@@ -346,9 +357,11 @@ class TelegramMediaService:
                     if not file_bytes:
                         continue
                     filename = value.rsplit("/", 1)[-1] if "/" in value else value
-                    file_bytes, filename, rendered_from_plotly = _convert_plotly_attachment(
-                        file_bytes=file_bytes,
-                        filename=filename,
+                    file_bytes, filename, rendered_from_plotly = (
+                        _convert_plotly_attachment(
+                            file_bytes=file_bytes,
+                            filename=filename,
+                        )
                     )
                     input_file = BufferedInputFile(file_bytes, filename=filename)
                     lower = filename.lower()
@@ -396,13 +409,11 @@ class TelegramMediaService:
     ) -> None:
         response_text, image_urls = _extract_ai_response(result)
         parts = _extract_text_media(response_text)
-        parts.extend(
-            {"kind": "image_url", "value": url}
-            for url in image_urls
-            if url
-        )
+        parts.extend({"kind": "image_url", "value": url} for url in image_urls if url)
         reply_kwargs = build_reply_kwargs(reply_to_message_id)
-        text_length = sum(len(part["value"]) for part in parts if part["kind"] == "text")
+        text_length = sum(
+            len(part["value"]) for part in parts if part["kind"] == "text"
+        )
         image_count = sum(1 for part in parts if part["kind"] == "image_url")
         attachment_count = sum(1 for part in parts if part["kind"] == "attachment_path")
 

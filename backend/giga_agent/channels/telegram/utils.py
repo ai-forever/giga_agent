@@ -86,7 +86,9 @@ def _extract_text_media(text: str) -> list[TelegramTextMediaPart]:
     candidates: list[tuple[int, int, str, str]] = []
 
     for match in _ATTACHMENT_RE.finditer(text):
-        candidates.append((match.start(), match.end(), "attachment_path", match.group(2)))
+        candidates.append(
+            (match.start(), match.end(), "attachment_path", match.group(2))
+        )
 
     for match in _MARKDOWN_IMAGE_URL_RE.finditer(text):
         candidates.append((match.start(), match.end(), "image_url", match.group(2)))
@@ -103,12 +105,16 @@ def _extract_text_media(text: str) -> list[TelegramTextMediaPart]:
 
     if not any(kind == "attachment_path" for _, _, kind, _ in candidates):
         for match in _BUCKET_PATH_RE.finditer(text):
-            candidates.append((match.start(), match.end(), "attachment_path", match.group(1)))
+            candidates.append(
+                (match.start(), match.end(), "attachment_path", match.group(1))
+            )
 
     parts: list[TelegramTextMediaPart] = []
     last_end = 0
 
-    for start, end, kind, value in sorted(candidates, key=lambda item: (item[0], item[1])):
+    for start, end, kind, value in sorted(
+        candidates, key=lambda item: (item[0], item[1])
+    ):
         if start < last_end:
             continue
 

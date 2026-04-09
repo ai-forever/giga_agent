@@ -186,12 +186,21 @@ class TelegramMessageHandlers:
                     )
                 ]
                 if reply_message is not None:
+                    reply_label = "Прикреплено сообщение"
+                    reply_highlight = None
+                    if self.access_service.is_current_bot_message(reply_message):
+                        reply_label = "Прикреплено твое сообщение"
+                        reply_highlight = (
+                            "Это твое предыдущее сообщение. "
+                            "Учитывай его как свой прошлый ответ в диалоге."
+                        )
                     content_parts.append(
                         build_message_context(
-                            label="Прикрепено сообщение",
+                            label=reply_label,
                             message=reply_message,
                             text=reply_text,
                             files=reply_file_data,
+                            highlight=reply_highlight,
                         )
                     )
                 content = "\n\n".join(content_parts)

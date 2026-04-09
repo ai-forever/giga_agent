@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 
 from aiogram import types as tg_types
 
-from giga_agent.channels.telegram.message_tool import parse_telegram_message_tool_payload
+from giga_agent.channels.telegram.message_tool import (
+    parse_telegram_message_tool_payload,
+)
 from giga_agent.channels.telegram.services.access import TelegramAccessService
 from giga_agent.channels.telegram.services.media import TelegramMediaService
 from giga_agent.channels.telegram.services.message_tool_runtime import (
@@ -43,7 +45,9 @@ class TelegramCallbackHandlers:
         if message is None:
             await callback.answer()
             return
-        if not await self.access_service.ensure_supported_chat(message, callback=callback):
+        if not await self.access_service.ensure_supported_chat(
+            message, callback=callback
+        ):
             return
 
         chat_id = message.chat.id

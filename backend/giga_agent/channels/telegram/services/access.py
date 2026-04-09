@@ -7,7 +7,10 @@ from typing import Any
 
 from aiogram import Bot, types as tg_types
 
-from giga_agent.channels.telegram.constants import GROUP_CHAT_TYPES, SUPPORTED_CHAT_TYPES
+from giga_agent.channels.telegram.constants import (
+    GROUP_CHAT_TYPES,
+    SUPPORTED_CHAT_TYPES,
+)
 from giga_agent.channels.telegram.runtime import (
     get_bot_username,
     get_contact_external_user_id,
@@ -74,16 +77,8 @@ class TelegramAccessService:
             return False
 
         reply_message = getattr(message, "reply_to_message", None)
-        reply_user = getattr(reply_message, "from_user", None)
-        if reply_user is not None and getattr(reply_user, "is_bot", False):
-            reply_username = getattr(reply_user, "username", None)
-            bot_username = get_bot_username(self.bot_row)
-            if bot_username and reply_username:
-                if reply_username.lower() == bot_username.lower():
-                    return True
-            bot_id = getattr(self.bot, "id", None)
-            if bot_id is not None and getattr(reply_user, "id", None) == bot_id:
-                return True
+        if self.is_current_bot_message(reply_message):
+            return True
 
         text = message.text or message.caption or ""
         entities = list(getattr(message, "entities", None) or []) + list(
@@ -111,6 +106,23 @@ class TelegramAccessService:
                 bot_id = getattr(self.bot, "id", None)
                 if bot_id is not None and getattr(entity_user, "id", None) == bot_id:
                     return True
+
+        return False
+
+    def is_current_bot_message(self, message: tg_types.Message | None) -> bool:
+        reply_user = getattr(message, "from_user", None)
+        if reply_user is None or not getattr(reply_user, "is_bot", False):
+            return False
+
+        reply_username = getattr(reply_user, "username", None)
+        bot_username = get_bot_username(self.bot_row)
+        if bot_username and reply_username:
+            if reply_username.lower() == bot_username.lower():
+                return True
+
+        bot_id = getattr(self.bot, "id", None)
+        if bot_id is not None and getattr(reply_user, "id", None) == bot_id:
+            return True
 
         return False
 

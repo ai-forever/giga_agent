@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langgraph_sdk import get_client
+from langgraph_sdk.errors import NotFoundError
 
 from giga_agent.channels.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECONDS
 from giga_agent.channels.telegram.runtime import get_thread_external_user_id
@@ -43,17 +44,20 @@ class TelegramThreadService:
     async def stop_thread_runs(self, client: Any, thread_id: str) -> None:
         cancelled_run_ids: set[str] = set()
         for status in ("running", "pending"):
-            runs = await client.runs.list(thread_id, limit=100, status=status)
-            for run in runs or []:
-                run_id = run.get("run_id")
-                if run_id is None or run_id in cancelled_run_ids:
-                    continue
-                await client.runs.cancel(
-                    thread_id,
-                    run_id,
-                    action="interrupt",
-                )
-                cancelled_run_ids.add(run_id)
+            try:
+                runs = await client.runs.list(thread_id, limit=100, status=status)
+                for run in runs or []:
+                    run_id = run.get("run_id")
+                    if run_id is None or run_id in cancelled_run_ids:
+                        continue
+                    await client.runs.cancel(
+                        thread_id,
+                        run_id,
+                        action="interrupt",
+                    )
+                    cancelled_run_ids.add(run_id)
+            except NotFoundError:
+                pass
         if cancelled_run_ids:
             logger.info(
                 "Stopped %d active runs for thread %s",

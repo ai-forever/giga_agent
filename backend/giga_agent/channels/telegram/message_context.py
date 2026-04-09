@@ -67,6 +67,7 @@ def build_message_context(
     message: tg_types.Message,
     text: str,
     files: list[dict[str, Any]],
+    highlight: str | None = None,
 ) -> str:
     payload = build_message_context_payload(
         label=label,
@@ -76,6 +77,7 @@ def build_message_context(
     )
     lines = [
         f"{payload['label']}:",
+        *(["Важно: " + highlight] if highlight else []),
         f"Ник: {payload['username']}",
         f"Имя: {payload['full_name']}",
         "Текст сообщения:",
