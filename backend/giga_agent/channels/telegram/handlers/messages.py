@@ -281,6 +281,7 @@ class TelegramMessageHandlers:
                         repo,
                         chat_id,
                         self.thread_service.resolve_external_user_id(message),
+                        stop_thread=False,
                     )
             except Exception:
                 pass
@@ -294,6 +295,8 @@ class TelegramMessageHandlers:
         except Exception as exc:
             logger.exception("Error handling Telegram message for user %s", user_id)
             error_str = str(exc)
+            if "UserInterrupt" in error_str:
+                return
             if "tool_call" in error_str or "function call" in error_str:
                 try:
                     async with (await get_session_factory())() as session:

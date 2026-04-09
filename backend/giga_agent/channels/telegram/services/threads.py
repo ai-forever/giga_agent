@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +39,39 @@ class TelegramThreadService:
 
     def resolve_external_user_id(self, message: Any) -> str | None:
         return get_thread_external_user_id(message)
+
+    async def stop_thread_runs(self, client: Any, thread_id: str) -> None:
+        cancelled_run_ids: set[str] = set()
+        for status in ("running", "pending"):
+            runs = await client.runs.list(thread_id, limit=100, status=status)
+            for run in runs or []:
+                run_id = run.get("run_id")
+                if run_id is None or run_id in cancelled_run_ids:
+                    continue
+                await client.runs.cancel(
+                    thread_id,
+                    run_id,
+                    action="interrupt",
+                )
+                cancelled_run_ids.add(run_id)
+        if cancelled_run_ids:
+            logger.info(
+                "Stopped %d active runs for thread %s",
+                len(cancelled_run_ids),
+                thread_id,
+            )
+
+    async def _stop_thread_runs_background(self, thread_id: str) -> None:
+        try:
+            token = self.create_token()
+            client = self.create_client(token)
+            await self.stop_thread_runs(client, thread_id)
+        except Exception:
+            logger.warning(
+                "Failed to stop active runs for thread %s",
+                thread_id,
+                exc_info=True,
+            )
 
     async def get_or_create_thread(
         self,
@@ -98,6 +132,7 @@ class TelegramThreadService:
         repo: ChannelBotRepository,
         chat_id: int,
         external_user_id: str | None = None,
+        stop_thread: bool = True,
     ) -> None:
         thread_row = await repo.get_thread(
             self.bot_row.id,
@@ -105,6 +140,10 @@ class TelegramThreadService:
             external_user_id,
         )
         if thread_row is not None:
+            if stop_thread:
+                asyncio.create_task(
+                    self._stop_thread_runs_background(thread_row.langgraph_thread_id)
+                )
             await repo.delete_thread(thread_row)
 
     async def load_collections_payload(self) -> list[dict[str, Any]]:

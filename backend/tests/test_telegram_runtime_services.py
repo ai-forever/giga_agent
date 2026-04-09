@@ -94,6 +94,60 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             langgraph_thread_id="thread-new",
         )
 
+    async def test_reset_thread_stops_active_langgraph_runs_by_default(self):
+        bot_row = _bot_row()
+        service = TelegramThreadService(bot_row=bot_row, user_email="owner@example.com")
+        existing_thread = types.SimpleNamespace(langgraph_thread_id="thread-old")
+        repo = types.SimpleNamespace(
+            get_thread=AsyncMock(return_value=existing_thread),
+            delete_thread=AsyncMock(),
+        )
+        client = types.SimpleNamespace(
+            runs=types.SimpleNamespace(
+                list=AsyncMock(
+                    side_effect=[
+                        [{"run_id": "run-1"}, {"run_id": "run-2"}],
+                        [{"run_id": "run-3"}],
+                    ]
+                ),
+                cancel=AsyncMock(),
+            )
+        )
+        service.create_token = lambda: "token"
+        service.create_client = lambda token: client
+
+        with patch(
+            "giga_agent.channels.telegram.services.threads.asyncio.create_task"
+        ) as create_task:
+            await service.reset_thread(repo, chat_id=42)
+
+        create_task.assert_called_once()
+        await create_task.call_args.args[0]
+
+        client.runs.list.assert_any_await("thread-old", limit=100, status="running")
+        client.runs.list.assert_any_await("thread-old", limit=100, status="pending")
+        client.runs.cancel.assert_any_await("thread-old", "run-1", action="interrupt")
+        client.runs.cancel.assert_any_await("thread-old", "run-2", action="interrupt")
+        client.runs.cancel.assert_any_await("thread-old", "run-3", action="interrupt")
+        self.assertEqual(client.runs.cancel.await_count, 3)
+        repo.delete_thread.assert_awaited_once_with(existing_thread)
+
+    async def test_reset_thread_skips_stopping_langgraph_runs_when_disabled(self):
+        bot_row = _bot_row()
+        service = TelegramThreadService(bot_row=bot_row, user_email="owner@example.com")
+        existing_thread = types.SimpleNamespace(langgraph_thread_id="thread-old")
+        repo = types.SimpleNamespace(
+            get_thread=AsyncMock(return_value=existing_thread),
+            delete_thread=AsyncMock(),
+        )
+        service.create_token = lambda: "token"
+        service.create_client = AsyncMock()
+
+        await service.reset_thread(repo, chat_id=42, stop_thread=False)
+
+        service.create_client.assert_not_awaited()
+        repo.delete_thread.assert_awaited_once_with(existing_thread)
+
     async def test_media_service_download_attachment_uses_files_api_fallback(self):
         bot_row = _bot_row()
         bot = types.SimpleNamespace()
