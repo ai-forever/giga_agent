@@ -449,7 +449,10 @@ export const GeneralSettings: React.FC = () => {
         patchBody.settings = settingsPatch;
       }
 
-      const currentUserSecrets = parseUserSecrets(user?.secrets, agentSecretMeta);
+      const currentUserSecrets = parseUserSecrets(
+        user?.secrets,
+        agentSecretMeta,
+      );
       const changedAgentSecrets: Record<string, string> = {};
       for (const secretMeta of agentSecretMeta) {
         const nextValue = (agentSecretsValues[secretMeta.name] ?? "").trim();
@@ -457,7 +460,10 @@ export const GeneralSettings: React.FC = () => {
           const isCurrentlyFilled = Boolean(
             currentUserSecrets.filled[secretMeta.name],
           );
-          if (isCurrentlyFilled && (!nextValue || nextValue === PASS_SECRET_MASK)) {
+          if (
+            isCurrentlyFilled &&
+            (!nextValue || nextValue === PASS_SECRET_MASK)
+          ) {
             continue;
           }
           if (!isCurrentlyFilled && !nextValue) {
