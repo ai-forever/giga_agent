@@ -36,7 +36,7 @@ dependencies = [
     "langgraph-api==0.7.28",
     "langchain-openai>=1.1.6,<2.0.0",
     "langchain-tavily~=0.2.11",
-    "langchain-gigachat-lc1~=0.4.0b4",
+    "langchain-gigachat>=0.5.0",
     "e2b>=2.13.2,<3.0.0",
     "aioboto3>=15.5.0,<16.0.0",
     "cashews[redis]>=7.0.0,<8.0.0",
