@@ -254,7 +254,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
         <div
           className={[
             stableMessages.length || isThreadLoading ? "grow flex-1 p-7 max-[900px]:p-0" : "",
-            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none",
+            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
           ].join(" ")}
         >
           {!isThreadLoading && (
@@ -276,7 +276,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
           // @ts-ignore
           thread={thread}
         />
-              <div ref={bottomSentinelRef} style={{ height: 1 }} />
+        <div ref={bottomSentinelRef} style={{ height: 1 }} />
       </div>
     </SelectedAttachmentsProvider>
   );

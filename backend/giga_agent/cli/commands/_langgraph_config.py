@@ -10,12 +10,15 @@ LANGGRAPH_DEFAULT_DEPENDENCIES = ["."]
 
 
 def collect_run_server_graphs(
-    *, agent, base_graph_name: str, base_graph_target: str
+    *, agent, base_graph_target: str
 ) -> dict[str, str]:
     # Import lazily to avoid package import cycles.
     cli = importlib.import_module("giga_agent.cli")
 
-    graphs: dict[str, str] = {base_graph_name: base_graph_target}
+    graphs: dict[str, str] = {
+        "giga_agent": base_graph_target,
+        "giga_agent_channel": base_graph_target
+    }
 
     for module in agent.all_modules:
         module_subgraphs = module.get_subgraphs()
@@ -48,7 +51,6 @@ def build_langgraph_runtime_config(graph_and_app_path: str) -> dict[str, object]
 
     graphs = collect_run_server_graphs(
         agent=agent,
-        base_graph_name="giga_agent",
         base_graph_target=f"{path_part}:{graph_var}",
     )
 

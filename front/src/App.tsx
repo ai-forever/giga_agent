@@ -27,7 +27,7 @@ import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
-import { runtimeConfig, UI_BASENAME } from "@/config";
+import { runtimeConfig } from "@/config";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {

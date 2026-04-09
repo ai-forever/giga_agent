@@ -9,7 +9,8 @@ from typing import Any
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import NotFoundError
 
-from giga_agent.channels.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECONDS
+from giga_agent.channels.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECONDS, \
+    TELEGRAM_CHANNEL_TYPE
 from giga_agent.channels.telegram.runtime import get_thread_external_user_id
 from giga_agent.channels.telegram.utils import _langgraph_url, _make_token
 from giga_agent.core.db import get_session_factory
@@ -121,6 +122,8 @@ class TelegramThreadService:
         metadata = {"telegram_chat_id": str(chat_id)}
         if external_user_id is not None:
             metadata["telegram_user_id"] = external_user_id
+        metadata["channel"] = TELEGRAM_CHANNEL_TYPE
+        metadata["is_channel"] = True
         thread = await client.threads.create(metadata=metadata)
         thread_id = thread["thread_id"]
         await repo.create_thread(

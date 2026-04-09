@@ -8,6 +8,7 @@ from pydantic import Field, PrivateAttr
 from giga_agent.channels.telegram.app import TelegramBotApp
 from giga_agent.channels.base import Channel, ChannelInstanceMetadata
 from giga_agent.channels.registry import ChannelRegistry
+from giga_agent.channels.telegram.constants import TELEGRAM_CHANNEL_TYPE
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models.channel import ChannelBot
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 
 @ChannelRegistry.register("telegram")
 class TelegramChannel(Channel):
-    channel_type = "telegram"
+    channel_type = TELEGRAM_CHANNEL_TYPE
 
     bot_token: str = Field(min_length=1)
     _app: TelegramBotApp | None = PrivateAttr(default=None)

@@ -8,6 +8,7 @@ from typing import Any
 
 from aiogram import types as tg_types
 
+from giga_agent.channels.telegram.constants import TELEGRAM_CHANNEL_TYPE
 from giga_agent.channels.telegram.message_context import (
     build_message_context,
     build_reply_kwargs,
@@ -234,7 +235,9 @@ class TelegramMessageHandlers:
                         thread_id=thread_id,
                         assistant_id=self.thread_service.assistant_id,
                         input=run_input,
-                        config={"disable_memory": True},
+                        config={
+                            "disable_memory": True
+                        }
                     ),
                     timeout=run_timeout,
                 )
