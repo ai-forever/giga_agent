@@ -8,7 +8,6 @@ from typing import Any
 
 from aiogram import types as tg_types
 
-from giga_agent.channels.telegram.constants import TELEGRAM_CHANNEL_TYPE
 from giga_agent.channels.telegram.message_context import (
     build_message_context,
     build_reply_kwargs,
@@ -205,16 +204,6 @@ class TelegramMessageHandlers:
                         )
                     )
                 content = "\n\n".join(content_parts)
-                content += (
-                    "\n\n[system: Ответ будет отправлен в Telegram. "
-                    "Если ты выполняешь долгую операцию, например вызываешь субагентов, "
-                    "то вызови message тул с уведомлением о том, что будешь делать с "
-                    "except_response=False"
-                    "Активно планируй и следуй своему плану! Всегда перед вызовом тулов "
-                    "размышляй над задачей и пиши размышления в тег <thinking>"
-                    "Действуй по простым шагам!"
-                    "Следующий шаг: "
-                )
                 human_msg: dict[str, Any] = {"role": "human", "content": content}
                 if all_file_data:
                     human_msg["additional_kwargs"] = {

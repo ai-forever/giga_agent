@@ -36,6 +36,10 @@ class Channel(BaseModel, abc.ABC):
         return set()
 
     @classmethod
+    def get_prompt(cls) -> str:
+        return ""
+
+    @classmethod
     def settings_schema(cls) -> Type[BaseModel]:
         fields: dict[str, tuple[Any, Any]] = {}
         excluded = cls._runtime_fields | cls.hidden_settings_fields()

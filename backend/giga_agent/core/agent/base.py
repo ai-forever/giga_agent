@@ -236,6 +236,7 @@ class BaseAgent(BaseModel):
         user: UserShort,
         state: AgentState | None = None,
         config: RunnableConfig | None = None,
+        channel_prompt: str = "",
     ) -> str:
         modules_prompts = []
         for module in self._agent_modules:
@@ -244,6 +245,8 @@ class BaseAgent(BaseModel):
             )
             if instructions:
                 modules_prompts.append(instructions)
+        if channel_prompt:
+            modules_prompts.append(channel_prompt.strip())
         instructions = dict(user.settings or {}).get("contextInstructions")
         instructions_prompt = ""
         if instructions:

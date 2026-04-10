@@ -21,6 +21,8 @@ from langgraph.typing import ContextT
 from langgraph.types import Command, Send
 from langchain_core.runnables import RunnableConfig
 
+import giga_agent.channels  # noqa: F401
+from giga_agent.channels.registry import ChannelRegistry
 from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
@@ -108,6 +110,22 @@ def _build_selected_prompt(last_message: AnyMessage) -> str:
         f"![{value}](attachment:{key})" for key, value in selected.items()
     ]
     return "Пользователь указал на следующие вложения: \n" + "\n".join(selected_items)
+
+
+def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
+    if not isinstance(config, dict):
+        return ""
+
+    metadata = config.get("metadata", {}) or {}
+    channel_type = metadata.get("channel")
+    if not isinstance(channel_type, str) or not channel_type.strip():
+        return ""
+
+    normalized_channel_type = channel_type.strip().lower()
+    if not ChannelRegistry.is_registered(normalized_channel_type):
+        return ""
+
+    return ChannelRegistry.get(normalized_channel_type).get_prompt()
 
 
 def _chain_async_tool_call_wrappers(
@@ -536,8 +554,14 @@ def create_graph(
         llm = llm.bind_tools(
             tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
         )
+        channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
-            content=await agent.get_prompt(user, state=state, config=config)
+            content=await agent.get_prompt(
+                user,
+                state=state,
+                config=config,
+                channel_prompt=channel_prompt,
+            )
         )
 
         request = ModelRequest(

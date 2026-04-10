@@ -43,7 +43,15 @@ class TelegramTextMediaPart(TypedDict):
 
 def _langgraph_url() -> str:
     settings = get_settings()
-    return settings.giga_agent_langgraph_api_url or "http://localhost:9090/api/"
+    if settings.giga_agent_langgraph_api_url:
+        return settings.giga_agent_langgraph_api_url
+
+    host = settings.giga_agent_langgraph_dev_host
+    port = settings.giga_agent_langgraph_dev_port
+    if host and port:
+        return f"http://{host}:{port}/api/"
+
+    return "http://localhost:9090/api/"
 
 
 def _agent_api_base() -> str:
