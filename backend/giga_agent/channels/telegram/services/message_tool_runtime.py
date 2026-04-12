@@ -404,7 +404,7 @@ class TelegramMessageToolRuntime:
         text = message.text or message.caption or ""
         response_text = text or _describe_uploaded_files(file_data)
         message_context = build_message_context_payload(
-            label="Входящее сообщение к агенту",
+            label="Входящее сообщение",
             message=message,
             text=text,
             files=file_data,

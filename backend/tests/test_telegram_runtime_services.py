@@ -53,7 +53,11 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(thread_id, "thread-new")
         repo.delete_thread.assert_awaited_once_with(expired_thread)
         client.threads.create.assert_awaited_once_with(
-            metadata={"telegram_chat_id": "42"}
+            metadata={
+                "telegram_chat_id": "42",
+                "channel": "telegram",
+                "is_channel": True
+            }
         )
         repo.create_thread.assert_awaited_once_with(
             bot_id=bot_row.id,

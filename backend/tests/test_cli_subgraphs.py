@@ -78,6 +78,7 @@ class CLISubgraphsTests(unittest.TestCase):
             captured["graphs"],
             {
                 "giga_agent": "giga_agent.agents.run:graph",
+                "giga_agent_channel": "giga_agent.agents.run:graph",
                 "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
             },
         )

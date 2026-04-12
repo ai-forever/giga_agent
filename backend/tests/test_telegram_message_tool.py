@@ -926,11 +926,11 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         run_input = client.runs.wait.await_args.kwargs["input"]
         human_message = run_input["messages"][0]
-        self.assertIn("Прикрепено сообщение:", human_message["content"])
+        self.assertIn("Прикреплено сообщение:", human_message["content"])
         self.assertIn("Ник: @alice", human_message["content"])
         self.assertIn("Имя: Alice A", human_message["content"])
         self.assertIn("Исходное сообщение", human_message["content"])
-        self.assertIn("Входящее сообщение к агенту:", human_message["content"])
+        self.assertIn("Входящее сообщение", human_message["content"])
         self.assertIn("Ник: @bob", human_message["content"])
         self.assertIn("Имя: Bob B", human_message["content"])
         self.assertIn("Ответ с уточнением", human_message["content"])

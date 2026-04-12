@@ -179,7 +179,7 @@ class TelegramMessageHandlers:
 
                 content_parts = [
                     build_message_context(
-                        label="Входящее сообщение к агенту",
+                        label="Входящее сообщение",
                         message=message,
                         text=text,
                         files=file_data,
