@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from "react";
+import { motion } from "framer-motion";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { useStableMessages } from "../hooks/useStableMessages";
@@ -20,6 +21,9 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
+  const suppressNextThreadLoadingRef = useRef(false);
+  const suppressedThreadIdRef = useRef<string | null>(null);
+  const suppressedThreadLoadingStartedRef = useRef(false);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
     assistantId: "giga_agent",
@@ -32,9 +36,12 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     defaultHeaders: {
       Authorization: `Bearer ${token}`,
     },
-    onThreadId: (threadId: string) => {
-      onThreadIdChange?.(threadId);
-      navigate(`/threads/${threadId}`);
+    onThreadId: (nextThreadId: string) => {
+      suppressNextThreadLoadingRef.current = !threadId;
+      suppressedThreadIdRef.current = !threadId ? nextThreadId : null;
+      suppressedThreadLoadingStartedRef.current = false;
+      onThreadIdChange?.(nextThreadId);
+      navigate(`/threads/${nextThreadId}`);
     },
     onCustomEvent: (event, options) => {
       options.mutate((prev) => {
@@ -44,7 +51,6 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       });
     },
   });
-
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
@@ -91,6 +97,16 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     }
   }, [threadId, onThreadIdChange]);
 
+  const isThreadLoading =
+    Boolean(threadId) &&
+    thread.isThreadLoading &&
+    !(
+      suppressNextThreadLoadingRef.current &&
+      suppressedThreadIdRef.current === threadId
+    );
+  const previousThreadLoadingRef = useRef(isThreadLoading);
+  const shouldScrollAfterLoadRef = useRef(false);
+
   const aiCountRef = useRef<{ threadId: string | null; aiCount: number }>({
     threadId: null,
     aiCount: 0,
@@ -119,6 +135,56 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
 
+  useEffect(() => {
+    if (previousThreadLoadingRef.current && !isThreadLoading) {
+      shouldScrollAfterLoadRef.current = true;
+    }
+
+    previousThreadLoadingRef.current = isThreadLoading;
+  }, [isThreadLoading]);
+
+  useEffect(() => {
+    if (
+      threadId &&
+      suppressNextThreadLoadingRef.current &&
+      suppressedThreadIdRef.current === threadId &&
+      thread.isThreadLoading
+    ) {
+      suppressedThreadLoadingStartedRef.current = true;
+    }
+
+    if (
+      threadId &&
+      suppressNextThreadLoadingRef.current &&
+      suppressedThreadIdRef.current === threadId &&
+      suppressedThreadLoadingStartedRef.current &&
+      !thread.isThreadLoading
+    ) {
+      suppressNextThreadLoadingRef.current = false;
+      suppressedThreadIdRef.current = null;
+      suppressedThreadLoadingStartedRef.current = false;
+    }
+  }, [threadId, thread.isThreadLoading]);
+
+  useEffect(() => {
+    if (isThreadLoading) return;
+    if (!shouldScrollAfterLoadRef.current) return;
+
+    window.setTimeout(() => {
+      bottomSentinelRef.current?.scrollIntoView({ block: "end" });
+
+      const current = containerRef.current;
+      if (current) {
+        current.scrollTop = current.scrollHeight;
+      }
+
+      autoScrollEnabledRef.current = true;
+      firstSroll.current = true;
+      shouldScrollAfterLoadRef.current = false;
+    }, 200);
+  }, [isThreadLoading, stableMessages.length]);
+
+  // Наблюдаем за «сентинелом» внизу списка, чтобы понять, включать ли авто-скролл
   useEffect(() => {
     const root = scrollRootRef.current;
     const sentinel = bottomSentinelRef.current;
@@ -215,22 +281,32 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       >
         <div
           className={[
-            stableMessages.length ? "grow flex-1 p-7 max-[900px]:p-0" : "",
-            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none",
+            stableMessages.length || isThreadLoading
+              ? "grow flex-1 p-7 max-[900px]:p-0"
+              : "",
+            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
           ].join(" ")}
         >
-          <MessageList
-            messages={stableMessages ?? []}
-            thread={thread}
-            maybeAutoScroll={maybeAutoScroll}
-          />
+          {!isThreadLoading && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
+            >
+              <MessageList
+                messages={stableMessages ?? []}
+                thread={thread}
+                maybeAutoScroll={maybeAutoScroll}
+              />
+            </motion.div>
+          )}
         </div>
-        <div ref={bottomSentinelRef} style={{ height: 1 }} />
 
         <InputArea
           // @ts-ignore
           thread={thread}
         />
+        <div ref={bottomSentinelRef} style={{ height: 1 }} />
       </div>
     </SelectedAttachmentsProvider>
   );

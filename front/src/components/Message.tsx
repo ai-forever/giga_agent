@@ -101,10 +101,13 @@ const Message: React.FC<MessageProps> = ({
           .join("\n\n")
       : message.content;
     if (message.type === "human" && !writeMessage) {
-      // @ts-ignore
-      displayedRef.current = message.additional_kwargs.user_input;
-      // @ts-ignore
-      setDisplayed(message.additional_kwargs.user_input);
+      const rawText =
+        (message.additional_kwargs as Record<string, string>)?.user_input ??
+        messageContent ??
+        "";
+      const humanText = rawText.replace(/\n*\[system:[\s\S]*$/i, "").trimEnd();
+      displayedRef.current = humanText;
+      setDisplayed(humanText);
       return;
     }
     if (message.type !== "ai" && !writeMessage) {
@@ -148,7 +151,7 @@ const Message: React.FC<MessageProps> = ({
     // @ts-ignore
   }, [message.content, message.additional_kwargs, message.type]);
   const normalizedContent = useMemo(() => {
-    let md = displayed;
+    let md = displayed ?? "";
 
     // 1) перед каждым ``` вставляем гарантированно пустую строку
     md = md.replace(/(^|\n)(```[^\n]*)/g, "$1\n$2");

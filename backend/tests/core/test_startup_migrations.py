@@ -12,12 +12,24 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
     def _build_agent(self) -> BaseAgent:
         return BaseAgent(modules=[], tools=[])
 
+    @staticmethod
+    def _build_channel_manager_stub():
+        return type(
+            "ChannelManagerStub",
+            (),
+            {
+                "start_all": AsyncMock(return_value=None),
+                "stop_all": AsyncMock(return_value=None),
+            },
+        )()
+
     async def test_lifespan_runs_migrations_before_startup_hooks(self):
         with patch.dict(
             os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
         ):
             agent = self._build_agent()
             call_order: list[str] = []
+            channel_manager = self._build_channel_manager_stub()
 
             async def _run_migrations(*_args, **_kwargs):
                 call_order.append("migrations")
@@ -31,16 +43,22 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(side_effect=_run_migrations),
             ) as run_migrations, patch.object(
                 BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
-            ) as run_hooks:
+            ) as run_hooks, patch(
+                "giga_agent.core.agent.base.get_channel_manager",
+                return_value=channel_manager,
+            ):
                 async with agent.app.router.lifespan_context(agent.app):
                     pass
 
             run_migrations.assert_awaited_once()
             run_hooks.assert_awaited_once()
+            channel_manager.start_all.assert_awaited_once()
+            channel_manager.stop_all.assert_awaited_once()
             self.assertEqual(call_order, ["migrations", "hooks"])
 
     async def test_lifespan_fails_fast_when_migrations_fail(self):
         agent = self._build_agent()
+        channel_manager = self._build_channel_manager_stub()
 
         with patch.dict(
             os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
@@ -49,12 +67,19 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
                 BaseAgent,
                 "run_startup_migrations",
                 AsyncMock(side_effect=RuntimeError("boom")),
-            ), patch.object(BaseAgent, "run_startup_hooks", AsyncMock()) as run_hooks:
+            ), patch.object(
+                BaseAgent, "run_startup_hooks", AsyncMock()
+            ) as run_hooks, patch(
+                "giga_agent.core.agent.base.get_channel_manager",
+                return_value=channel_manager,
+            ):
                 with self.assertRaises(RuntimeError):
                     async with agent.app.router.lifespan_context(agent.app):
                         pass
 
         run_hooks.assert_not_awaited()
+        channel_manager.start_all.assert_not_awaited()
+        channel_manager.stop_all.assert_not_awaited()
 
     async def test_run_startup_migrations_respects_skip_flag(self):
         agent = self._build_agent()

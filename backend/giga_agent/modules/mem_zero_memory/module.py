@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from traceback import print_exc
 from typing import Any
 
 from fastapi import APIRouter
@@ -27,6 +28,13 @@ from giga_agent.core.logging import get_logger
 logger = get_logger(__name__)
 _MEM0_EMBEDDING_SUBSCRIBED = False
 _MEM0_EMBEDDING_SUBSCRIBE_LOCK = asyncio.Lock()
+
+
+def _is_memory_disabled(config: RunnableConfig | None) -> bool:
+    if not config:
+        return False
+    configurable = config.get("configurable")
+    return isinstance(configurable, dict) and configurable.get("disable_memory") is True
 
 
 async def _background_save_memory(
@@ -96,6 +104,8 @@ class MemZeroMiddleware(AgentMiddleware):
     async def after_agent(
         self, state: AgentState, runtime: Runtime[Context], config: RunnableConfig
     ) -> dict[str, Any] | None:
+        if _is_memory_disabled(config):
+            return {}
         messages = state["messages"]
         last_ai = next((m for m in reversed(messages) if m.type == "ai"), None)
         if last_ai is None:
@@ -145,9 +155,12 @@ class MemZeroModule(BaseModule):
         task: str,
         state: "AgentState",
         agent: "BaseAgent",
+        config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> str | None:
         _ = state, agent, kwargs
+        if _is_memory_disabled(config):
+            return None
         if user is None or user.embedding_id is None:
             return None
 
@@ -157,14 +170,17 @@ class MemZeroModule(BaseModule):
                 memory = await get_memory_for_user(user=user, session=session)
             except MemZeroEmbeddingsNotConfigured:
                 return None
-
-        retrieved_memories = await memory.search(
-            query=task, user_id=str(user.id), limit=5
-        )
-        formatted = format_memories(retrieved_memories)
-        if not formatted.strip():
-            return None
-        return f"<memory>{formatted}</memory>\n"
+        try:
+            retrieved_memories = await memory.search(
+                query=task, user_id=str(user.id), limit=5
+            )
+            formatted = format_memories(retrieved_memories)
+            if not formatted.strip():
+                return None
+            return f"<memory>{formatted}</memory>\n"
+        except Exception as e:
+            logger.exception(f"Failed to retrieve memory {e}")
+            return ""
 
     def get_middleware(self, **kwargs: Any) -> AgentMiddleware:
         _ = kwargs

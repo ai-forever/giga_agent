@@ -265,6 +265,92 @@ class GeneratorsRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["type"], "fusion_brain")
 
+    def test_create_grok_imagine_without_connector(self):
+        created = self._generator_obj(
+            generator_type="grok_imagine",
+            connector_id=None,
+            settings={"api_key": "xai-key", "model": "grok-imagine"},
+        )
+
+        with patch(
+            "giga_agent.routes.generators.image._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: []),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_settings",
+            AsyncMock(return_value={"api_key": "xai-key", "model": "grok-imagine"}),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_connector_link",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.generators.image._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+            return_value=self._response_payload(created),
+        ):
+            response = self.client.post(
+                "/image",
+                json={
+                    "type": "grok_imagine",
+                    "settings": {"api_key": "xai-key", "model": "grok-imagine"},
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["type"], "grok_imagine")
+        self.assertIsNone(response.json()["connector_id"])
+
+    def test_create_nano_banana_without_connector(self):
+        created = self._generator_obj(
+            generator_type="nano_banana",
+            connector_id=None,
+            settings={"api_key": "google-key", "model": "gemini-2.5-flash-image"},
+        )
+
+        with patch(
+            "giga_agent.routes.generators.image._resolve_runtime_cls",
+            return_value=types.SimpleNamespace(supported_connector_types=lambda: []),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_settings",
+            AsyncMock(
+                return_value={
+                    "api_key": "google-key",
+                    "model": "gemini-2.5-flash-image",
+                }
+            ),
+        ), patch(
+            "giga_agent.routes.generators.image._validate_connector_link",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.generators.image._check_connection_or_http_error",
+            AsyncMock(return_value=None),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+            AsyncMock(return_value=created),
+        ), patch(
+            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+            return_value=self._response_payload(created),
+        ):
+            response = self.client.post(
+                "/image",
+                json={
+                    "type": "nano_banana",
+                    "settings": {
+                        "api_key": "google-key",
+                        "model": "gemini-2.5-flash-image",
+                    },
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["type"], "nano_banana")
+        self.assertIsNone(response.json()["connector_id"])
+
     def test_patch_with_type_returns_422(self):
         response = self.client.patch(
             f"/image/{uuid.uuid4()}",

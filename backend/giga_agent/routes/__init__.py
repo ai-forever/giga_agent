@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from giga_agent.conf import GIGA_AGENT_PREFIX_API
 
 from giga_agent.routes.agent import router as agent_router
+from giga_agent.routes.channels import router as channels_router
 from giga_agent.routes.connectors import router as connectors_router
 from giga_agent.routes.embeddings import router as embeddings_router
 from giga_agent.routes.files import router as files_router
@@ -18,6 +19,7 @@ from giga_agent.routes.search_engines import router as search_engines_router
 
 router = APIRouter(prefix=GIGA_AGENT_PREFIX_API)
 router.include_router(agent_router)
+router.include_router(channels_router)
 router.include_router(connectors_router)
 router.include_router(embeddings_router)
 router.include_router(llms_router)
@@ -31,6 +33,7 @@ router.include_router(resource_permissions_router)
 __all__ = [
     "router",
     "agent_router",
+    "channels_router",
     "connectors_router",
     "embeddings_router",
     "llms_router",

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import mimetypes
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast, Awaitable, Literal, Coroutine, Callable
 
-from giga_agent.core.agent.few_shots import FEW_SHOTS
 from langchain_core.messages import (
     AIMessage,
     SystemMessage,
@@ -23,6 +21,8 @@ from langgraph.typing import ContextT
 from langgraph.types import Command, Send
 from langchain_core.runnables import RunnableConfig
 
+import giga_agent.channels  # noqa: F401
+from giga_agent.channels.registry import ChannelRegistry
 from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
@@ -110,6 +110,22 @@ def _build_selected_prompt(last_message: AnyMessage) -> str:
         f"![{value}](attachment:{key})" for key, value in selected.items()
     ]
     return "Пользователь указал на следующие вложения: \n" + "\n".join(selected_items)
+
+
+def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
+    if not isinstance(config, dict):
+        return ""
+
+    metadata = config.get("metadata", {}) or {}
+    channel_type = metadata.get("channel")
+    if not isinstance(channel_type, str) or not channel_type.strip():
+        return ""
+
+    normalized_channel_type = channel_type.strip().lower()
+    if not ChannelRegistry.is_registered(normalized_channel_type):
+        return ""
+
+    return ChannelRegistry.get(normalized_channel_type).get_prompt()
 
 
 def _chain_async_tool_call_wrappers(
@@ -491,8 +507,9 @@ def create_graph(
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
             llm = await llm_runtime.get_llm()
 
-        if state["messages"] and state["messages"][-1].type == "human":
-            last_message = state["messages"][-1]
+        messages_for_llm = list(state["messages"])
+        if messages_for_llm and messages_for_llm[-1].type == "human":
+            last_message = messages_for_llm[-1]
             user_input = last_message.content
             file_prompt = _build_file_prompt(last_message)
             selected_prompt = _build_selected_prompt(last_message)
@@ -500,6 +517,7 @@ def create_graph(
                 user=user,
                 task=user_input,
                 state=state,
+                config=config,
             )
 
             final_parts = [
@@ -517,7 +535,10 @@ def create_graph(
                 "Действуй по простым шагам!"
                 "Следующий шаг: "
             )
-            last_message.content = "\n".join(final_parts)
+            enriched_message = last_message.model_copy(
+                update={"content": "\n".join(final_parts)}
+            )
+            messages_for_llm[-1] = enriched_message
 
         agent_tools = await agent.get_tools(user)
         mcp_tools = [
@@ -533,13 +554,21 @@ def create_graph(
         llm = llm.bind_tools(
             tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
         )
-        system_message = SystemMessage(content=await agent.get_prompt(user, state=state))
+        channel_prompt = _resolve_channel_prompt(config)
+        system_message = SystemMessage(
+            content=await agent.get_prompt(
+                user,
+                state=state,
+                config=config,
+                channel_prompt=channel_prompt,
+            )
+        )
 
         request = ModelRequest(
             model=llm,
             tools=default_tools,
             system_message=system_message,
-            messages=state["messages"],
+            messages=messages_for_llm,
             tool_choice=None,
             state=state,
             runtime=runtime,

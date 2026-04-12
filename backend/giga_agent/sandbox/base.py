@@ -2,12 +2,15 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Type
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, create_model
-from typing_extensions import override
 
 if TYPE_CHECKING:
+    from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.agent.types import AgentState
+    from giga_agent.models.users import UserShort
     from giga_agent.models.sandbox import SandboxProviderSnapshot, SandboxSnapshot
     from giga_agent.sandbox.manager.types import OrphanAction
 
@@ -117,6 +120,18 @@ class BaseSandbox(BaseModel, ABC):
         (например, external_id, токены и т.д.).
         """
         return {}
+
+    def get_prompt(
+        self,
+        user: "UserShort | None" = None,
+        agent: "BaseAgent | None" = None,
+        state: "AgentState | None" = None,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """Вернуть дополнительные инструкции о среде выполнения для агента."""
+        _ = user, agent, state, config, kwargs
+        return ""
 
     @classmethod
     async def cleanup_orphans(

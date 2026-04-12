@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import os
+import platform
 import secrets
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiofiles
 import aiofiles.os
+from langchain_core.runnables import RunnableConfig
 from pydantic import Field, PrivateAttr
 
 from giga_agent.conf import get_settings
@@ -30,8 +33,58 @@ from giga_agent.sandbox.local_jupyter.manager import (
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 from giga_agent.sandbox.registry import SandboxRegistry
 
+if TYPE_CHECKING:
+    from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.agent.types import AgentState
+    from giga_agent.models.users import UserShort
+
 BUCKET_PREFIX = "/bucket/"
 _LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def _describe_local_os() -> str:
+    system = platform.system()
+    if system == "Darwin":
+        system = "macOS"
+    elif not system:
+        system = "Unknown OS"
+
+    release = platform.release().strip()
+    machine = platform.machine().strip() or "unknown-arch"
+
+    if release:
+        return f"{system} {release} ({machine})"
+    return f"{system} ({machine})"
+
+
+def _describe_shell() -> str:
+    shell_path = os.environ.get("SHELL") or os.environ.get("COMSPEC") or ""
+    shell_name = Path(shell_path).name if shell_path else ""
+
+    if os.name == "nt":
+        return shell_name or "cmd/PowerShell-compatible shell"
+    return shell_name or "POSIX-compatible shell"
+
+
+def _resolve_thread_id(config: RunnableConfig | None) -> str | None:
+    if not isinstance(config, dict):
+        return None
+
+    metadata = config.get("metadata", {})
+    thread_id = metadata.get("thread_id")
+    if isinstance(thread_id, str) and thread_id.strip():
+        return thread_id.strip().strip("/")
+
+    configurable = config.get("configurable", {})
+    thread_id = configurable.get("thread_id")
+    if isinstance(thread_id, str) and thread_id.strip():
+        return thread_id.strip().strip("/")
+
+    return None
+
+
+def _format_directory(path: Path) -> str:
+    return f"{path.as_posix().rstrip('/')}/"
 
 
 @SandboxRegistry.register("local_jupyter")
@@ -91,6 +144,42 @@ class LocalJupyterSandbox(JupyterSandbox):
             "base_url": self.base_url or None,
         }
         return {key: value for key, value in settings.items() if value is not None}
+
+    def _recommended_workdir(self, config: RunnableConfig | None) -> Path:
+        thread_id = _resolve_thread_id(config)
+        if thread_id:
+            return (self._sandbox_root_dir / thread_id).resolve()
+        return self._sandbox_root_dir.resolve()
+
+    def get_prompt(
+        self,
+        user: "UserShort | None" = None,
+        agent: "BaseAgent | None" = None,
+        state: "AgentState | None" = None,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> str:
+        _ = user, agent, state, kwargs
+        python_version = platform.python_version()
+        # workdir = self._recommended_workdir(config)
+
+        # workdir_prompt = (
+        #     f"- Директория для сохранения файлов: {_format_directory(workdir)}\n"
+        #     "- Старайся сохранять создаваемые файлы именно в эту директорию и по "
+        #     "возможности использовать пути относительно неё.\n"
+        # )
+
+        return (
+            "\nОсобенности локального окружения выполнения:\n"
+            f"- ОС и платформа: {_describe_local_os()}.\n"
+            f"- Python runtime: Python {python_version}.\n"
+            f"- Shell и команды должны быть совместимы с {_describe_shell()}.\n"
+            # + workdir_prompt
+            + "- Это локальное окружение пользователя, поэтому учитывай OS-specific "
+            "синтаксис команд, доступность утилит и различия между macOS/Linux/Windows.\n"
+            + "- При выборе зависимостей и бинарников учитывай архитектуру CPU и "
+            "совместимость с локальной ОС.\n"
+        )
 
     def _get_kernel_request_payload(self) -> dict[str, Any] | None:
         return {"name": LOCAL_JUPYTER_KERNEL_NAME}

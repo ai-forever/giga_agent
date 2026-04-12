@@ -50,6 +50,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import TelegramIcon from "../assets/telegram-colored.svg";
 import DarkLogoSvg from "../assets/dark_theme_GigaAgent.svg?react";
 import LightLogoSvg from "../assets/light_theme_GigaAgent.svg?react";
 
@@ -95,6 +103,13 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const prevThreadsRef = useRef<Map<string, string>>(new Map());
   const hasLoadedThreadsOnceRef = useRef(false);
   const loadMoreControllerRef = useRef<AbortController | null>(null);
+  const currentGraphId = useMemo(
+    () =>
+      settings.showChatType === "channels"
+        ? "giga_agent_channel"
+        : "giga_agent",
+    [settings.showChatType],
+  );
 
   const startTypingTitle = (threadId: string, fullTitle: string) => {
     const existingTimer = typingTimersRef.current[threadId];
@@ -136,6 +151,17 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   }, []);
 
   useEffect(() => {
+    hasLoadedThreadsOnceRef.current = false;
+    prevThreadsRef.current = new Map();
+    setTypedTitles({});
+    setThreads([]);
+    setThreadsError(null);
+    setThreadsMoreError(null);
+    setThreadsTotal(null);
+    setThreadsHasMore(false);
+  }, [currentGraphId]);
+
+  useEffect(() => {
     const onRefresh = () => setThreadsRefreshTick((x) => x + 1);
     appEvents.addEventListener(THREADS_REFRESH_EVENT, onRefresh);
     return () =>
@@ -167,7 +193,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     const searchPromise = langGraphClient.threads.search({
       select: ["thread_id", "metadata"],
       metadata: {
-        graph_id: "giga_agent",
+        graph_id: currentGraphId,
       },
       limit: THREADS_PAGE_SIZE,
       offset: 0,
@@ -178,7 +204,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
     const countPromise = langGraphClient.threads.count({
       metadata: {
-        graph_id: "giga_agent",
+        graph_id: currentGraphId,
       },
       signal: controller.signal,
     });
@@ -269,6 +295,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
     return () => controller.abort();
   }, [
+    currentGraphId,
     langGraphClient,
     settings.sideBarOpen,
     threadsRefreshTick,
@@ -292,7 +319,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       const result = await langGraphClient.threads.search({
         select: ["thread_id", "metadata"],
         metadata: {
-          graph_id: "giga_agent",
+          graph_id: currentGraphId,
         },
         limit: THREADS_PAGE_SIZE,
         offset,
@@ -348,6 +375,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       if (controller.signal.aborted) return;
       setThreadsLoadingMore(false);
     }
+  };
+
+  const handleShowChatTypeChange = (showChatType: "main" | "channels") => {
+    setSettings((prev) => ({ ...prev, showChatType }));
   };
 
   // Получаем отображаемое имя пользователя (email обрезается)
@@ -422,6 +453,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renameThread, setRenameThread] = useState<Thread | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteSaving, setDeleteSaving] = useState(false);
@@ -597,8 +629,20 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         {/* Список чатов (LangGraph threads.search / search_threads) */}
         {user && (
           <div className="flex flex-col flex-1 min-h-0">
-            <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">
-              Чаты
+            <div className="flex items-center justify-between gap-2 px-2 py-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Чаты
+                {settings.showChatType === "channels" ? " (Каналы)" : ""}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground"
+                onClick={() => setChatSettingsOpen(true)}
+                aria-label="Настройка чатов"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
             </div>
             {!threadsLoading && threadsError && (
               <div className="px-2 py-1 text-sm text-destructive">
@@ -623,6 +667,8 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                     const fullTitle = getThreadTitle(t);
                     const displayTitle = typedTitles[t.thread_id] ?? fullTitle;
                     const isActive = activeThreadId === t.thread_id;
+                    const meta = getThreadMeta(t);
+                    const isTelegramThread = meta.channel === "telegram";
 
                     return (
                       <div
@@ -637,6 +683,15 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                         title={t.thread_id}
                         aria-current={isActive ? "page" : undefined}
                       >
+                        {isTelegramThread && (
+                          <span title="Telegram" aria-label="Telegram">
+                            <img
+                              src={TelegramIcon}
+                              alt=""
+                              className="h-5 w-5 shrink-0"
+                            />
+                          </span>
+                        )}
                         <span className="flex-1 min-w-0 truncate">
                           {displayTitle}
                         </span>
@@ -772,6 +827,41 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           </div>
         )}
       </div>
+
+      <Dialog open={chatSettingsOpen} onOpenChange={setChatSettingsOpen}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Настройка чатов</DialogTitle>
+            <DialogDescription>
+              Выберите, какие чаты показывать в боковой панели.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Select
+              value={settings.showChatType}
+              onValueChange={(value: "main" | "channels") =>
+                handleShowChatTypeChange(value)
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Выберите тип чатов" />
+              </SelectTrigger>
+              <SelectContent className="z-[300]">
+                <SelectItem value="main">Основные</SelectItem>
+                <SelectItem value="channels">Из каналов</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setChatSettingsOpen(false)}
+            >
+              Закрыть
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Rename dialog */}
       <Dialog

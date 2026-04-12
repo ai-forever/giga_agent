@@ -32,8 +32,8 @@ class _AsyncHooksModule(BaseModule):
         self._calls.append("get_tools")
         return [async_contract_tool]
 
-    async def get_instructions(self, user, agent, state):
-        _ = (user, agent, state)
+    async def get_instructions(self, user, agent, state, config):
+        _ = (user, agent, state, config)
         self._calls.append("get_instructions")
         return "async module instructions"
 

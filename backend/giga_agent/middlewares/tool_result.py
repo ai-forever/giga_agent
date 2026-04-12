@@ -177,6 +177,15 @@ async def process_tool_result(
     message: str = "",
 ) -> ToolMessage:
     normalized_result = _normalize_result_payload(result)
+    if action.get("name") in ["message"]:
+        return ToolMessage(
+            tool_call_id=action.get("id"),
+            content=_safe_json_dumps(normalized_result),
+            additional_kwargs={
+                "tool_attachments": tool_attachments,
+                "tool_name": action.get("name"),
+            },
+        )
     result_path = await _save_tool_result(
         normalized_result, action=action, config=config
     )

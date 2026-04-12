@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from cashews import cache
 from fastapi import FastAPI
+from langchain_core.runnables import RunnableConfig
 from giga_agent.conf import (
     GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_UI,
@@ -20,6 +21,7 @@ from giga_agent.conf import (
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC,
     get_settings,
 )
+from giga_agent.channels.manager import get_channel_manager
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.migrations import apply_migrations
@@ -130,6 +132,7 @@ class BaseAgent(BaseModel):
             settings = get_settings()
             setup_cli_logging(settings.giga_agent_log_level)
             await self.run_startup_migrations()
+            await get_channel_manager().start_all()
             await self.run_startup_hooks()
             if self._idle_sandbox_sweeper is not None:
                 self._idle_sandbox_sweeper.start()
@@ -146,6 +149,7 @@ class BaseAgent(BaseModel):
                 stack = getattr(_app.state, "_ui_resources_stack", None)
                 if stack is not None:
                     stack.close()
+                await get_channel_manager().stop_all()
                 await shutdown_qdrant_client()
 
         self._app = FastAPI(lifespan=_lifespan)
@@ -228,15 +232,21 @@ class BaseAgent(BaseModel):
         return middlewares
 
     async def get_prompt(
-        self, user: UserShort, state: AgentState | None = None
+        self,
+        user: UserShort,
+        state: AgentState | None = None,
+        config: RunnableConfig | None = None,
+        channel_prompt: str = "",
     ) -> str:
         modules_prompts = []
         for module in self._agent_modules:
             instructions = await module.get_instructions(
-                user=user, agent=self, state=state
+                user=user, agent=self, state=state, config=config
             )
             if instructions:
                 modules_prompts.append(instructions)
+        if channel_prompt:
+            modules_prompts.append(channel_prompt.strip())
         instructions = dict(user.settings or {}).get("contextInstructions")
         instructions_prompt = ""
         if instructions:
@@ -310,6 +320,7 @@ class BaseAgent(BaseModel):
         user: UserShort | None,
         task: str,
         state: AgentState,
+        config: RunnableConfig | None = None,
     ) -> str:
         extended_parts = []
         for module in self._agent_modules:
@@ -318,6 +329,7 @@ class BaseAgent(BaseModel):
                 task=task,
                 state=state,
                 agent=self,
+                config=config,
             )
             if extended_task:
                 extended_parts.append(extended_task)
