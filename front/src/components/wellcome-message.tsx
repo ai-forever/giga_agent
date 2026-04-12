@@ -56,8 +56,8 @@ const logoVariants: Variants = {
 
 const tasks = [];
 
-const MotionDarkLogo = motion(DarkLogoSvg);
-const MotionLightLogo = motion(LightLogoSvg);
+const MotionDarkLogo = motion.create(DarkLogoSvg);
+const MotionLightLogo = motion.create(LightLogoSvg);
 
 let hasShownWelcomeAnimation = false;
 
