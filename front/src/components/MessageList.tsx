@@ -1,9 +1,4 @@
-import React, {
-  useEffect,
-  useRef,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
+import React from "react";
 import Message from "./Message.tsx";
 import ToolMessage, { ToolsExecuting } from "./ToolMessage.tsx";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
@@ -21,43 +16,47 @@ interface MessageListProps {
   maybeAutoScroll: () => void;
 }
 
-const MessageList = forwardRef<any, MessageListProps>(
-  ({ messages, thread, children, notShowWelcomeMessage, maybeAutoScroll }) => {
-    const lastMessage = messages.at(-1);
-    return (
-      <div
-        className="flex-1 p-5 max-[900px]:p-0"
-        style={{ overflowAnchor: "none" }}
-      >
-        {children}
-        {messages.length === 0 && !notShowWelcomeMessage ? (
-          <WellcomeMessage />
-        ) : null}
-        {messages.map((message, idx) =>
-          message.type === "tool" ? (
-            <ToolMessage
-              key={idx}
-              message={message}
-              name={(message.additional_kwargs?.tool_name as string) ?? ""}
-            />
-          ) : (
-            <Message
-              key={idx}
-              message={message}
-              onWrite={maybeAutoScroll}
-              thread={thread}
-            />
-          ),
-        )}
-        <ChatError thread={thread} />
-        {lastMessage && lastMessage.type === "ai" && (
-          <ToolsExecuting message={lastMessage} thread={thread} />
-        )}
+const MessageList: React.FC<MessageListProps> = ({
+  messages,
+  thread,
+  children,
+  notShowWelcomeMessage,
+  maybeAutoScroll,
+}) => {
+  const lastMessage = messages.at(-1);
+  return (
+    <div
+      className="flex-1 p-5 max-[900px]:p-0"
+      style={{ overflowAnchor: "none" }}
+    >
+      {children}
+      {messages.length === 0 && !notShowWelcomeMessage ? (
+        <WellcomeMessage />
+      ) : null}
+      {messages.map((message, idx) =>
+        message.type === "tool" ? (
+          <ToolMessage
+            key={idx}
+            message={message}
+            name={(message.additional_kwargs?.tool_name as string) ?? ""}
+          />
+        ) : (
+          <Message
+            key={idx}
+            message={message}
+            onWrite={maybeAutoScroll}
+            thread={thread}
+          />
+        ),
+      )}
+      <ChatError thread={thread} />
+      {lastMessage && lastMessage.type === "ai" && (
+        <ToolsExecuting message={lastMessage} thread={thread} />
+      )}
 
-        <ThinkingIndicator messages={messages} thread={thread} />
-      </div>
-    );
-  },
-);
+      <ThinkingIndicator messages={messages} thread={thread} />
+    </div>
+  );
+};
 
 export default MessageList;

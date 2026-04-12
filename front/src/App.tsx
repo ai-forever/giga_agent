@@ -29,6 +29,8 @@ import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
 import { runtimeConfig, UI_BASENAME } from "@/config";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
+import FunctionalityOnboarding from "@/components/onboarding/FunctionalityOnboarding";
+import { FunctionalityOnboardingProvider } from "@/components/onboarding/FunctionalityOnboardingContext";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
   const trimmed = input.trim();
@@ -86,7 +88,7 @@ const InnerApp: React.FC = () => {
   }
 
   return (
-    <>
+    <FunctionalityOnboardingProvider>
       <Sidebar onNewChat={handleNavigateAndReload} />
       <MainContent>
         <AppRoutes
@@ -97,7 +99,8 @@ const InnerApp: React.FC = () => {
         />
       </MainContent>
       <OnboardingWizard />
-    </>
+      <FunctionalityOnboarding />
+    </FunctionalityOnboardingProvider>
   );
 };
 

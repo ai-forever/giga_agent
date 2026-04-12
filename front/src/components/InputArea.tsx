@@ -7,10 +7,8 @@ import React, {
 } from "react";
 import { HumanMessage } from "@langchain/langgraph-sdk";
 import {
-  Check,
   Paperclip,
   Send,
-  X,
   Settings2,
   Brain,
   Files,
@@ -35,8 +33,6 @@ import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
 import { BROWSER_USE_NAME } from "../config.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
-import Spinner from "./Spinner.tsx";
-import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { Switch } from "@/components/ui/switch";
@@ -335,6 +331,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
+                  data-onboarding="gear-menu-btn"
                   type="button"
                   disabled={thread?.isLoading || isMCPLoading}
                   title="Открыть настройки"
@@ -367,6 +364,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               </DropdownMenuContent>
             </DropdownMenu>
             <button
+              data-onboarding="attachments-btn"
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={thread?.isLoading || isMCPLoading}
@@ -378,6 +376,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </div>
 
           <textarea
+            data-onboarding="chat-input"
             placeholder={
               thread?.interrupt
                 ? "Принять / Отменить с комментарием…"
@@ -391,77 +390,25 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
           />
           <div className="flex flex-col items-end gap-1">
-            {thread?.interrupt &&
-            thread?.interrupt.value &&
-            ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
-            (!settings.autoApprove ||
-              thread.interrupt.value.type === "tool_call") ? (
-              <>
-                {isMCPLoading ? (
-                  <div className="w-9 h-9 flex items-center justify-center">
-                    <Spinner size="16" />
-                  </div>
-                ) : (
-                  <>
-                    <motion.div layout className="flex items-center gap-2">
-                      <motion.button
-                        layout
-                        transition={{
-                          type: "spring",
-                          stiffness: 500,
-                          damping: 35,
-                        }}
-                        onClick={() => handleContinue("comment")}
-                        disabled={thread.isLoading || isMCPLoading}
-                        title="Отменить выполнение"
-                        className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex z-8 items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
-                      >
-                        <X />
-                      </motion.button>
-                      <AnimatePresence mode="popLayout">
-                        {!message.trim() && (
-                          <motion.button
-                            key="approve-btn"
-                            layout
-                            initial={{ x: 24, scale: 1, opacity: 1 }}
-                            animate={{ x: 0, scale: 1, opacity: 1 }}
-                            exit={{ x: 24, scale: 1, opacity: 1 }}
-                            transition={{
-                              type: "spring",
-                              stiffness: 500,
-                              damping: 35,
-                            }}
-                            onClick={() => handleContinue("approve")}
-                            disabled={thread.isLoading || isMCPLoading}
-                            title="Подтвердить выполнение"
-                            className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center z-8 transition-colors hover:bg-green-700 disabled:opacity-67"
-                          >
-                            <Check />
-                          </motion.button>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  </>
-                )}
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={
-                  thread?.isLoading ||
-                  isMCPLoading ||
-                  !message.trim() ||
-                  isUploading
-                }
-                title="Отправить"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-              >
-                <Send />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={
+                thread?.isLoading ||
+                isMCPLoading ||
+                !message.trim() ||
+                isUploading
+              }
+              title="Отправить"
+              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+            >
+              <Send />
+            </button>
           </div>
-          <label className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none">
+          <label
+            data-onboarding="autonomy-switch"
+            className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
+          >
             <span>Автономность</span>
             <Switch
               checked={settings.autoApprove ?? false}
