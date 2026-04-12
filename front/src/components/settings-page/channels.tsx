@@ -94,7 +94,10 @@ const ContactsSection: React.FC<{
   contacts: ChannelContactResponse[];
   loading: boolean;
   actionKey: string | null;
-  onApproveToggle: (contact: ChannelContactResponse, approve: boolean) => Promise<void>;
+  onApproveToggle: (
+    contact: ChannelContactResponse,
+    approve: boolean,
+  ) => Promise<void>;
   onDelete: (contact: ChannelContactResponse) => Promise<void>;
 }> = ({ botId, contacts, loading, actionKey, onApproveToggle, onDelete }) => {
   if (!botId) return null;
@@ -131,7 +134,9 @@ const ContactsSection: React.FC<{
           >
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{formatContactName(contact)}</span>
+                <span className="font-medium">
+                  {formatContactName(contact)}
+                </span>
                 <Badge variant={contact.is_approved ? "default" : "secondary"}>
                   {contact.is_approved ? "Подтверждён" : "Ожидает"}
                 </Badge>
@@ -332,7 +337,9 @@ export const ChannelsSettings: React.FC = () => {
 
   const [selectedType, setSelectedType] = useState("");
   const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
-  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>({});
+  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
+    {},
+  );
   const [isEnabled, setIsEnabled] = useState(true);
 
   const [loadingBots, setLoadingBots] = useState(false);
@@ -492,7 +499,9 @@ export const ChannelsSettings: React.FC = () => {
 
     try {
       const [botData] = await Promise.all([
-        apiClient.get<ChannelBotResponse>(`${API_AGENT_PREFIX}/channels/${botId}`),
+        apiClient.get<ChannelBotResponse>(
+          `${API_AGENT_PREFIX}/channels/${botId}`,
+        ),
         fetchContacts(botId),
       ]);
       setEditingBotId(botData.id);
@@ -556,11 +565,14 @@ export const ChannelsSettings: React.FC = () => {
         );
         toast.success("Настройки бота обновлены");
       } else {
-        await apiClient.post<ChannelBotResponse>(`${API_AGENT_PREFIX}/channels`, {
-          channel_type: selectedType,
-          settings: compactedSettings,
-          is_enabled: isEnabled,
-        });
+        await apiClient.post<ChannelBotResponse>(
+          `${API_AGENT_PREFIX}/channels`,
+          {
+            channel_type: selectedType,
+            settings: compactedSettings,
+            is_enabled: isEnabled,
+          },
+        );
         toast.success("Бот создан");
       }
 
@@ -702,7 +714,8 @@ export const ChannelsSettings: React.FC = () => {
           <div className="rounded-xl border border-dashed border-border bg-muted/20 px-5 py-10 text-center">
             <p className="font-medium">Каналы пока не настроены</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Создайте первый bot instance и заполните его настройки по схеме выбранного типа.
+              Создайте первый bot instance и заполните его настройки по схеме
+              выбранного типа.
             </p>
           </div>
         ) : (
@@ -722,7 +735,8 @@ export const ChannelsSettings: React.FC = () => {
                         Редактирование: {formatChannelName(bot)}
                       </h4>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Измените настройки выбранного бота и при необходимости обновите его контакты.
+                        Измените настройки выбранного бота и при необходимости
+                        обновите его контакты.
                       </p>
                     </div>
                     <Button
@@ -766,7 +780,8 @@ export const ChannelsSettings: React.FC = () => {
                         <div>
                           <h4 className="font-medium">Контакты</h4>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Пользователи и чаты, которые уже взаимодействовали с этим ботом.
+                            Пользователи и чаты, которые уже взаимодействовали с
+                            этим ботом.
                           </p>
                         </div>
                         <ContactsSection
@@ -791,7 +806,9 @@ export const ChannelsSettings: React.FC = () => {
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{formatChannelName(bot)}</span>
+                    <span className="font-medium">
+                      {formatChannelName(bot)}
+                    </span>
                     <Badge variant="outline">{bot.channel_type}</Badge>
                     <Badge variant={bot.is_enabled ? "default" : "secondary"}>
                       {bot.is_enabled ? "Включен" : "Выключен"}

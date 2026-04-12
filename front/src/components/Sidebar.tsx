@@ -379,7 +379,6 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
   const handleShowChatTypeChange = (showChatType: "main" | "channels") => {
     setSettings((prev) => ({ ...prev, showChatType }));
-
   };
 
   // Получаем отображаемое имя пользователя (email обрезается)
@@ -854,7 +853,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
             </Select>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setChatSettingsOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setChatSettingsOpen(false)}
+            >
               Закрыть
             </Button>
           </DialogFooter>

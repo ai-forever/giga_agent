@@ -100,7 +100,10 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const isThreadLoading =
     Boolean(threadId) &&
     thread.isThreadLoading &&
-    !(suppressNextThreadLoadingRef.current && suppressedThreadIdRef.current === threadId);
+    !(
+      suppressNextThreadLoadingRef.current &&
+      suppressedThreadIdRef.current === threadId
+    );
   const previousThreadLoadingRef = useRef(isThreadLoading);
   const shouldScrollAfterLoadRef = useRef(false);
 
@@ -168,16 +171,16 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     if (!shouldScrollAfterLoadRef.current) return;
 
     window.setTimeout(() => {
-        bottomSentinelRef.current?.scrollIntoView({ block: "end" });
+      bottomSentinelRef.current?.scrollIntoView({ block: "end" });
 
-        const current = containerRef.current;
-        if (current) {
-          current.scrollTop = current.scrollHeight;
-        }
+      const current = containerRef.current;
+      if (current) {
+        current.scrollTop = current.scrollHeight;
+      }
 
-        autoScrollEnabledRef.current = true;
-        firstSroll.current = true;
-        shouldScrollAfterLoadRef.current = false;
+      autoScrollEnabledRef.current = true;
+      firstSroll.current = true;
+      shouldScrollAfterLoadRef.current = false;
     }, 200);
   }, [isThreadLoading, stableMessages.length]);
 
@@ -278,7 +281,9 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       >
         <div
           className={[
-            stableMessages.length || isThreadLoading ? "grow flex-1 p-7 max-[900px]:p-0" : "",
+            stableMessages.length || isThreadLoading
+              ? "grow flex-1 p-7 max-[900px]:p-0"
+              : "",
             "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
           ].join(" ")}
         >
