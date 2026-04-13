@@ -39,6 +39,7 @@ from giga_agent.core.agent.graph_factory import create_graph
 from langgraph.graph.state import CompiledStateGraph
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import router as api_router
+from giga_agent.runtime_config import mount_runtime_config_route
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
 
@@ -158,8 +159,11 @@ class BaseAgent(BaseModel):
             get_local_jupyter_server_manager,
         )
 
-        self._app.state.local_jupyter_server_manager = get_local_jupyter_server_manager()
+        self._app.state.local_jupyter_server_manager = (
+            get_local_jupyter_server_manager()
+        )
         api_router.prefix = GIGA_AGENT_PREFIX_API
+        mount_runtime_config_route(self._app)
 
         # Подключаем core routes
         self._app.include_router(api_router)

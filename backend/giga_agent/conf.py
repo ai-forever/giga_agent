@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     giga_agent_skip_startup_migrations: bool = Field(
         False, alias="GIGA_AGENT_SKIP_STARTUP_MIGRATIONS"
     )
+    giga_agent_skip_onboarding: bool = Field(False, alias="GIGA_AGENT_SKIP_ONBOARDING")
     giga_agent_startup_migrations_lock_key: str = Field(
         "startup:migrations:lock",
         alias="GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY",
@@ -405,6 +406,7 @@ GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY = (
     get_settings().giga_agent_sandbox_orphan_sweeper_concurrency
 )
 GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
+GIGA_AGENT_SKIP_ONBOARDING = get_settings().giga_agent_skip_onboarding
 GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY = (
     get_settings().giga_agent_startup_migrations_lock_key
 )

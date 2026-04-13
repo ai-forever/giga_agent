@@ -5,6 +5,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
 from starlette.responses import HTMLResponse
+from giga_agent.runtime_config import mount_runtime_config_route
 
 API_PREFIX = "/api"
 
@@ -48,6 +49,7 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(lifespan=_lifespan)
+mount_runtime_config_route(app)
 
 
 # Provide working docs for LangGraph even when mounted.

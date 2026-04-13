@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
+import traceback
 from datetime import datetime, timezone
 from typing import Any
 
@@ -390,7 +391,8 @@ class TelegramMediaService:
                         reply_markup=markup,
                     )
                     sent_any = True
-            except Exception:
+            except Exception as exc:
+                traceback.print_exc()
                 if kind == "attachment_path":
                     logger.warning("Failed to send attachment %s", value[:80])
                 elif kind == "image_url":

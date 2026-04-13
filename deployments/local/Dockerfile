@@ -4,10 +4,14 @@ USER root
 
 # scikit-learn wheels require libgomp at runtime.
 # ffmpeg is required by pydub to export podcast audio to mp3.
+# kaleido requires a system Chrome/Chromium binary for image export.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
     ffmpeg \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
+
+ENV BROWSER_PATH=/usr/bin/chromium
 
 WORKDIR /backend
 

@@ -183,6 +183,13 @@ class TestExtractAttachments:
         assert paths == []
         assert cleaned == text
 
+    def test_extracts_markdown_attachment_links(self):
+        text = "Скачай файл:\n\n[отчет](attachment:/bucket/abc/report.pdf)"
+        cleaned, paths = _extract_attachments(text)
+        assert paths == ["/bucket/abc/report.pdf"]
+        assert "attachment:" not in cleaned
+        assert cleaned == "Скачай файл:"
+
 
 class TestExtractTextMedia:
     def test_extracts_markdown_image_url(self):
@@ -226,6 +233,15 @@ class TestExtractTextMedia:
             {"kind": "text", "value": "тест"},
             {"kind": "attachment_path", "value": "tralala.jpg"},
             {"kind": "text", "value": "тест"},
+        ]
+
+    def test_extracts_markdown_attachment_link_as_media(self):
+        text = "Документы:\n[отчет](attachment:/bucket/x/report.pdf)\nГотово"
+        parts = _extract_text_media(text)
+        assert parts == [
+            {"kind": "text", "value": "Документы:"},
+            {"kind": "attachment_path", "value": "/bucket/x/report.pdf"},
+            {"kind": "text", "value": "Готово"},
         ]
 
 
@@ -363,6 +379,16 @@ class TestScanCurrentTurnAttachments:
         }
         paths = _scan_current_turn_attachments(result)
         assert paths == ["/bucket/x.png"]
+
+    def test_extracts_markdown_attachment_links(self):
+        result = {
+            "messages": [
+                {"type": "human", "content": "go"},
+                {"type": "ai", "content": "Смотри [отчет](attachment:/bucket/x/report.pdf)"},
+            ]
+        }
+        paths = _scan_current_turn_attachments(result)
+        assert paths == ["/bucket/x/report.pdf"]
 
     def test_empty(self):
         assert _scan_current_turn_attachments({"messages": []}) == []

@@ -1,26 +1,24 @@
 from __future__ import annotations
 
-import json
 import re
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import FileResponse
-from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
 from giga_agent.conf import (
-    GIGA_AGENT_BASE_URL,
     GIGA_AGENT_FRONTEND_DIR,
     GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_UI_PREFIX,
 )
+from giga_agent.runtime_config import mount_runtime_config_route
+from giga_agent.runtime_config import resolve_ui_base_path
 
 
 def _resolve_ui_dir(app: FastAPI) -> Path | None:
@@ -82,52 +80,9 @@ def create_ui_app() -> FastAPI:
     return app
 
 
-def _normalize_base_path(value: str | None) -> str:
-    if not value:
-        return "/"
-    stripped = value.strip()
-    if not stripped or stripped == "/":
-        return "/"
-    normalized = f"/{stripped.strip('/')}"
-    return f"{normalized}/"
-
-
-def _join_prefixed_path(base_path: str, suffix: str) -> str:
-    normalized_base = _normalize_base_path(base_path)
-    cleaned_suffix = suffix.lstrip("/")
-    if normalized_base == "/":
-        return f"/{cleaned_suffix}"
-    return f"{normalized_base.rstrip('/')}/{cleaned_suffix}"
-
-
-def _resolve_ui_base_path(request: Request) -> str:
-    configured_base_url = GIGA_AGENT_BASE_URL
-    if configured_base_url:
-        return _normalize_base_path(urlsplit(configured_base_url).path)
-
-    root_path = _normalize_base_path(request.scope.get("root_path") or "/")
-    ui_prefix = _normalize_base_path(GIGA_AGENT_UI_PREFIX)
-    if ui_prefix == "/":
-        return root_path
-    return _join_prefixed_path(root_path, ui_prefix)
-
-
-def _build_runtime_config(request: Request) -> dict[str, str]:
-    base_path = _resolve_ui_base_path(request)
-    api_base_path = _join_prefixed_path(base_path, "api")
-    config = {
-        "basePath": base_path,
-        "apiBasePath": api_base_path,
-        "apiAgentBasePath": f"{api_base_path}{GIGA_AGENT_PREFIX_API}",
-    }
-    if GIGA_AGENT_BASE_URL:
-        config["baseUrl"] = GIGA_AGENT_BASE_URL
-    return config
-
-
 def _render_index(index: Path, request: Request) -> HTMLResponse:
     html = index.read_text(encoding="utf-8")
-    base_path = _resolve_ui_base_path(request)
+    base_path = resolve_ui_base_path(request)
     html = re.sub(
         r'<base\s+href="[^"]*"\s*/?>',
         f'<base href="{base_path}"/>',
@@ -163,13 +118,7 @@ def mount_ui(app: FastAPI) -> None:
         assets_mount = f"{ui_prefix}/assets" if ui_prefix else "/assets"
         app.mount(assets_mount, StaticFiles(directory=assets_dir), name="ui-assets")
 
-    @app.get(config_path, include_in_schema=False)
-    def _app_config(request: Request):
-        payload = json.dumps(_build_runtime_config(request), ensure_ascii=True)
-        return Response(
-            f"window.__GIGA_AGENT_CONFIG__ = {payload};",
-            media_type="application/javascript",
-        )
+    mount_runtime_config_route(app, path=config_path)
 
     def _ui_root(request: Request):
         return _render_index(index, request)

@@ -3,6 +3,7 @@ interface RuntimeConfig {
   basePath?: string;
   apiBasePath?: string;
   apiAgentBasePath?: string;
+  skipOnboarding?: boolean;
 }
 
 declare global {
@@ -97,6 +98,7 @@ export const API_BASE_URL =
   configuredApiBaseUrl ?? `${window.location.origin}/api`;
 export const API_PREFIX = API_BASE_URL;
 export const API_AGENT_PREFIX = `${API_BASE_URL}/agent`;
+export const SKIP_ONBOARDING = runtimeConfig.skipOnboarding === true;
 
 export const TOOL_MAP = {
   lean_canvas: "Агент по созданию Lean Canvas",

@@ -18,7 +18,7 @@ from giga_agent.channels.telegram.message_tool import (
 from giga_agent.conf import GIGA_AGENT_PREFIX_API, get_settings
 from giga_agent.modules.auth.security import create_access_token
 
-_ATTACHMENT_RE = re.compile(r"!\[([^\]]*)\]\(attachment:(/?[^)]+)\)")
+_ATTACHMENT_RE = re.compile(r"!?\[([^\]]*)\]\(attachment:(/?[^)]+)\)")
 
 _BUCKET_PATH_RE = re.compile(
     r"(?:`?)(/bucket/[a-f0-9\-]+/[^\s`\"',)]+\.(?:png|jpg|jpeg|gif|webp|mp3|mp4|pdf|svg))(?:`?)",
