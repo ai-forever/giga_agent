@@ -16,7 +16,7 @@
 
 Пример работы: [чат](/docs/examples/memes/chat.pdf)
 
-![мем_1](/docs/examples/memes/meme1.jpeg), ![мем_2](/docs/examples/memes/meme2.jpg)
+![мем_1](/docs/examples/memes/meme1.jpeg)
 ## [Агент по созданию Lean Canvas](backend/graph/giga_agent/agents/lean_canvas)
 Создает LeanCanvas — популярный инструмента для описания бизнес-модели стартапов.
 
