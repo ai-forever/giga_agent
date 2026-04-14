@@ -4,12 +4,19 @@ import styled from "styled-components";
 import { useSelectedAttachments } from "../../hooks/SelectedAttachmentsContext.tsx";
 import { Check } from "lucide-react";
 // @ts-ignore
-import Plot from "react-plotly.js";
+import createPlotlyComponentModule from "react-plotly.js/factory";
+// @ts-ignore
+import PlotlyModule from "plotly.js/dist/plotly";
 import { apiClient } from "@/lib/api-client.ts";
 import {
   buildContentByPathPreviewUrl,
   buildContentByPathUrl,
 } from "./file-utils.ts";
+
+const createPlotlyComponent =
+  (createPlotlyComponentModule as any).default ?? createPlotlyComponentModule;
+const Plotly = (PlotlyModule as any).default ?? PlotlyModule;
+const Plot = createPlotlyComponent(Plotly);
 
 const Placeholder = styled.div`
   width: 100%;
