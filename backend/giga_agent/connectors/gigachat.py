@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import contextmanager
 from typing import Any
 
 from gigachat.settings import AUTH_URL as GIGACHAT_DEFAULT_AUTH_URL
@@ -12,6 +14,36 @@ from pydantic import AliasChoices, Field
 from giga_agent.conf import get_settings
 from giga_agent.connectors.base import BaseConnector
 from giga_agent.connectors.registry import ConnectorRegistry
+
+# GigaChat SDK reads these env vars via pydantic BaseSettings.
+# When explicit settings are provided, we must suppress env vars
+# to prevent them from overriding the configured auth method.
+_GIGACHAT_ENV_KEYS = (
+    "GIGACHAT_CREDENTIALS",
+    "GIGACHAT_ACCESS_TOKEN",
+    "GIGACHAT_USER",
+    "GIGACHAT_PASSWORD",
+    "GIGACHAT_BASE_URL",
+    "GIGACHAT_AUTH_URL",
+    "GIGACHAT_SCOPE",
+    "GIGACHAT_CERT_FILE",
+    "GIGACHAT_KEY_FILE",
+    "GIGACHAT_KEY_FILE_PASSWORD",
+)
+
+
+@contextmanager
+def _suppress_gigachat_env():
+    """Temporarily remove GIGACHAT_* env vars so SDK doesn't pick them up."""
+    saved = {}
+    for key in _GIGACHAT_ENV_KEYS:
+        val = os.environ.pop(key, None)
+        if val is not None:
+            saved[key] = val
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
 
 
 @ConnectorRegistry.register("gigachat")
@@ -128,7 +160,10 @@ class GigaChatConnector(BaseConnector):
         kwargs = self.get_connection_kwargs()
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'gigachat'")
-        return GigaChat(model="GigaChat", **kwargs)
+        if self._is_from_env_mode():
+            return GigaChat(model="GigaChat", **kwargs)
+        with _suppress_gigachat_env():
+            return GigaChat(model="GigaChat", **kwargs)
 
     async def check_connection(self) -> bool:
         if self._is_from_env_mode():
@@ -140,6 +175,7 @@ class GigaChatConnector(BaseConnector):
         if kwargs is None:
             raise ValueError("Invalid connection settings for connector type 'gigachat'")
 
-        llm = GigaChat(**kwargs)
+        with _suppress_gigachat_env():
+            llm = GigaChat(**kwargs)
         await llm.aget_models()
         return True

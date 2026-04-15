@@ -147,6 +147,66 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         mocked_llm.assert_called_once_with(verify_ssl_certs=False)
         mock_llm.aget_models.assert_awaited_once()
 
+    async def test_gigachat_explicit_settings_ignore_env_credentials(self):
+        """Explicit dev settings must not be overridden by GIGACHAT_* env vars."""
+        with patch.dict(
+            os.environ,
+            {
+                "GIGA_AGENT_GIGACHAT_FROM_ENV": "1",
+                "GIGACHAT_CREDENTIALS": "env-creds-should-be-ignored",
+            },
+            clear=True,
+        ):
+            reset_settings_cache()
+            connector = GigaChatConnector(
+                gigachat_api_type="dev",
+                gigachat_username="myuser",
+                gigachat_password="mypass",
+                gigachat_base_url="https://dev.example.com",
+            )
+            mock_llm = AsyncMock()
+            mock_llm.aget_models = AsyncMock(return_value=[])
+            with patch(
+                "giga_agent.connectors.gigachat.GigaChat",
+                return_value=mock_llm,
+            ) as mocked_llm:
+                result = await connector.check_connection()
+
+        self.assertTrue(result)
+        call_kwargs = mocked_llm.call_args[1]
+        self.assertEqual(call_kwargs["user"], "myuser")
+        self.assertEqual(call_kwargs["password"], "mypass")
+        self.assertEqual(call_kwargs["base_url"], "https://dev.example.com")
+        # credentials must NOT appear in kwargs (env var suppressed)
+        self.assertNotIn("credentials", call_kwargs)
+
+    async def test_gigachat_explicit_prod_settings_ignore_env_credentials(self):
+        """Explicit prod credentials must not be mixed with env vars."""
+        with patch.dict(
+            os.environ,
+            {
+                "GIGA_AGENT_GIGACHAT_FROM_ENV": "1",
+                "GIGACHAT_CREDENTIALS": "env-creds-should-be-ignored",
+                "GIGACHAT_USER": "env-user",
+            },
+            clear=True,
+        ):
+            reset_settings_cache()
+            connector = GigaChatConnector(
+                gigachat_api_type="prod",
+                gigachat_credentials="my-explicit-token",
+            )
+            mock_llm = Mock()
+            with patch(
+                "giga_agent.connectors.gigachat.GigaChat",
+                return_value=mock_llm,
+            ) as mocked_llm:
+                result = connector.get_api_object()
+
+        self.assertIs(result, mock_llm)
+        call_kwargs = mocked_llm.call_args[1]
+        self.assertEqual(call_kwargs["credentials"], "my-explicit-token")
+
     async def test_tavily_env_fallback(self):
         with patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-env"}, clear=True):
             settings = await ConnectorRegistry.validate_settings("tavily", {})
