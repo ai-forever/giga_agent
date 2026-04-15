@@ -1532,7 +1532,7 @@ wheels = [
 
 [[package]]
 name = "giga-agent"
-version = "0.1.6"
+version = "0.1.8"
 source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },
@@ -1565,6 +1565,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-api" },
     { name = "langgraph-cli" },
+    { name = "langgraph-prebuilt" },
     { name = "lxml" },
     { name = "markdownify" },
     { name = "mem0ai" },
@@ -1665,6 +1666,7 @@ requires-dist = [
     { name = "langgraph", specifier = "==1.0.8" },
     { name = "langgraph-api", specifier = "==0.7.28" },
     { name = "langgraph-cli", specifier = "~=0.4.11" },
+    { name = "langgraph-prebuilt", specifier = "==1.0.7" },
     { name = "librosa", marker = "extra == 'jupyter-full'", specifier = "~=0.11.0" },
     { name = "lxml", specifier = ">=6.0.2,<7.0.0" },
     { name = "markdownify", specifier = ">=1.2.2,<2.0.0" },

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "giga-agent"
-version = "0.1.7"
+version = "0.1.8"
 description = "Modular Agent Framework"
 dynamic = ["readme"]
 requires-python = ">=3.11"
@@ -34,6 +34,7 @@ dependencies = [
     "pyjwt>=2.8.0,<3.0.0",
     "python-multipart~=0.0.9",
     "langgraph-api==0.7.28",
+    "langgraph-prebuilt==1.0.7",
     "langchain-openai>=1.1.6,<2.0.0",
     "langchain-tavily~=0.2.11",
     "langchain-gigachat>=0.5.0",
