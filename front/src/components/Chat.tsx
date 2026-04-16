@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { ArrowDown } from "lucide-react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { useStableMessages } from "../hooks/useStableMessages";
@@ -64,6 +65,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       !/chrome|android/i.test(navigator.userAgent),
   );
   const firstSroll = useRef<boolean>(false);
+  const [showScrollBtn, setShowScrollBtn] = useState<boolean>(false);
   const stableMessages = useStableMessages(thread);
 
   const resolveScrollRoot = (): HTMLElement | null => {
@@ -243,12 +245,24 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const handleUserScroll = () => {
     const el = scrollRootRef.current;
     if (!el) return;
-    if (!userScrollIntentRef.current) return;
-    const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 100;
-    if (!nearBottom) {
-      // Отключаем авто-скролл только если пользователь явно ушёл от низа
-      autoScrollEnabledRef.current = false;
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    if (userScrollIntentRef.current) {
+      const nearBottom = distanceFromBottom <= 100;
+      if (!nearBottom) {
+        // Отключаем авто-скролл только если пользователь явно ушёл от низа
+        autoScrollEnabledRef.current = false;
+      }
     }
+    // Кнопка «вниз» появляется, когда пользователь проскроллил больше одного экрана от низа
+    setShowScrollBtn(distanceFromBottom > el.clientHeight);
+  };
+
+  const scrollToBottom = () => {
+    const el = scrollRootRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    autoScrollEnabledRef.current = true;
+    setShowScrollBtn(false);
   };
 
   useEffect(() => {
@@ -302,6 +316,17 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
           )}
         </div>
 
+        {showScrollBtn && stableMessages.length > 0 && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            title="Прокрутить вниз"
+            aria-label="Прокрутить вниз"
+            className="sticky bottom-[118px] self-center z-20 w-9 h-9 flex items-center justify-center rounded-full bg-card dark:bg-input text-foreground/80 border border-border/60 shadow-[0_2px_10px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] hover:text-foreground transition-all cursor-pointer print:hidden animate-in fade-in duration-150"
+          >
+            <ArrowDown className="size-4" strokeWidth={1.75} />
+          </button>
+        )}
         <InputArea
           // @ts-ignore
           thread={thread}

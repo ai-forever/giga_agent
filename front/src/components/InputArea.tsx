@@ -57,6 +57,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const { uploads, uploadFiles, removeUpload, resetUploads } = useFileUpload();
@@ -289,6 +291,72 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     }
   };
 
+  const isBusy = thread?.isLoading || isMCPLoading;
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (isBusy) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        uploadFiles(files);
+      }
+    },
+    [uploadFiles, isBusy],
+  );
+
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (isBusy) return;
+      if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+      e.preventDefault();
+      dragCounterRef.current += 1;
+      setIsDragging(true);
+    },
+    [isBusy],
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (isBusy) return;
+      if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    },
+    [isBusy],
+  );
+
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (isBusy) return;
+      e.preventDefault();
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) setIsDragging(false);
+    },
+    [isBusy],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      if (isBusy) return;
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length > 0) uploadFiles(files);
+    },
+    [uploadFiles, isBusy],
+  );
+
   const handleOpenDocuments = useCallback(async () => {
     if (collections.length > 0) {
       openCollectionsModal();
@@ -317,7 +385,18 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
-      <div className="p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden">
+      <div
+        className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-card/90 dark:bg-input/90 pointer-events-none text-sm text-foreground">
+            Отпустите, чтобы прикрепить файлы
+          </div>
+        )}
         <div className="flex items-end gap-2 relative">
           <input
             className="hidden"
@@ -386,6 +465,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             disabled={thread?.isLoading || isMCPLoading}
             className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
           />
