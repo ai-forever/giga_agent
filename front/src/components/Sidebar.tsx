@@ -65,6 +65,36 @@ interface SidebarProps {
   onNewChat: () => void;
 }
 
+const LAST_SEEN_STORAGE_KEY = "sidebar_thread_last_seen_v1";
+
+const readLastSeenFromStorage = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(LAST_SEEN_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const result: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "string") result[k] = v;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+};
+
+const getThreadStatus = (t: Thread): string | undefined => {
+  const s = (t as unknown as { status?: unknown }).status;
+  return typeof s === "string" ? s : undefined;
+};
+
+const getThreadUpdatedAt = (t: Thread): string | undefined => {
+  const u = (t as unknown as { updated_at?: unknown }).updated_at;
+  return typeof u === "string" ? u : undefined;
+};
+
 const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -99,6 +129,25 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const [threadsHasMore, setThreadsHasMore] = useState(false);
   const [threadsRefreshTick, setThreadsRefreshTick] = useState(0);
   const [typedTitles, setTypedTitles] = useState<Record<string, string>>({});
+  const [lastSeen, setLastSeen] = useState<Record<string, string>>(() =>
+    readLastSeenFromStorage(),
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_SEEN_STORAGE_KEY, JSON.stringify(lastSeen));
+    } catch {
+      /* storage unavailable — ignore */
+    }
+  }, [lastSeen]);
+
+  const markThreadSeen = (threadId: string, updatedAt: string | undefined) => {
+    if (!updatedAt) return;
+    setLastSeen((prev) => {
+      if (prev[threadId] === updatedAt) return prev;
+      return { ...prev, [threadId]: updatedAt };
+    });
+  };
   const typingTimersRef = useRef<Record<string, number>>({});
   const prevThreadsRef = useRef<Map<string, string>>(new Map());
   const hasLoadedThreadsOnceRef = useRef(false);
@@ -150,6 +199,17 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     };
   }, []);
 
+  // Keep the currently-open thread marked as seen at its latest updated_at
+  // whenever the sidebar refreshes. If a user is viewing a thread and new
+  // activity lands, they see it live — so the dot should never appear on
+  // the active thread.
+  useEffect(() => {
+    if (!activeThreadId) return;
+    const active = threads.find((t) => t.thread_id === activeThreadId);
+    if (!active) return;
+    markThreadSeen(activeThreadId, getThreadUpdatedAt(active));
+  }, [activeThreadId, threads]);
+
   useEffect(() => {
     hasLoadedThreadsOnceRef.current = false;
     prevThreadsRef.current = new Map();
@@ -191,7 +251,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     setThreadsMoreError(null);
 
     const searchPromise = langGraphClient.threads.search({
-      select: ["thread_id", "metadata"],
+      select: ["thread_id", "metadata", "status", "updated_at"],
       metadata: {
         graph_id: currentGraphId,
       },
@@ -240,6 +300,23 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           }
           prevThreadsRef.current = next;
           hasLoadedThreadsOnceRef.current = true;
+          // On the first load for this graph, seed lastSeen for any thread we
+          // don't have an entry for yet — existing threads shouldn't all light
+          // up as unread. Threads that appear on *subsequent* loads stay
+          // unseeded, so genuinely-new activity shows a dot.
+          setLastSeen((prev) => {
+            let changed = false;
+            const merged = { ...prev };
+            for (const t of result) {
+              if (t.thread_id in merged) continue;
+              const updatedAt = getThreadUpdatedAt(t);
+              if (updatedAt) {
+                merged[t.thread_id] = updatedAt;
+                changed = true;
+              }
+            }
+            return changed ? merged : prev;
+          });
           setThreads(result);
           setThreadsTotal(total);
           setThreadsHasMore(hasMore);
@@ -317,7 +394,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     try {
       const offset = threads.length;
       const result = await langGraphClient.threads.search({
-        select: ["thread_id", "metadata"],
+        select: ["thread_id", "metadata", "status", "updated_at"],
         metadata: {
           graph_id: currentGraphId,
         },
@@ -359,6 +436,22 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         nextPrev.set(t.thread_id, rawTitle);
       }
       prevThreadsRef.current = nextPrev;
+
+      // Pagination brings in older threads the user may have never opened.
+      // Seed lastSeen so they don't all flash as unread.
+      setLastSeen((prev) => {
+        let changed = false;
+        const merged = { ...prev };
+        for (const t of toAdd) {
+          if (t.thread_id in merged) continue;
+          const updatedAt = getThreadUpdatedAt(t);
+          if (updatedAt) {
+            merged[t.thread_id] = updatedAt;
+            changed = true;
+          }
+        }
+        return changed ? merged : prev;
+      });
 
       if (threadsTotal === null) {
         // Fallback when total is unknown: stop only when page is short.
@@ -445,6 +538,8 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
   const handleOpenThread = (threadId: string) => {
     closeSidebarOnMobile();
+    const opened = threads.find((t) => t.thread_id === threadId);
+    markThreadSeen(threadId, getThreadUpdatedAt(opened ?? ({} as Thread)));
     navigate(`/threads/${threadId}`);
   };
 
@@ -626,6 +721,36 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
         <hr className="my-3 border-border/60" />
 
+        {ragEnabled() && (
+          <div
+            className={[
+              "flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-muted/50",
+              location.pathname === "/rag"
+                ? "bg-accent text-accent-foreground"
+                : "",
+            ].join(" ")}
+            onClick={handleRag}
+          >
+            <Files size={20} className="mr-2" />
+            Документы
+          </div>
+        )}
+
+        <div
+          className={[
+            "flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-muted/50",
+            location.pathname === "/memories"
+              ? "bg-accent text-accent-foreground"
+              : "",
+          ].join(" ")}
+          onClick={handleMemories}
+        >
+          <Brain size={20} className="mr-2" />
+          Факты о вас
+        </div>
+
+        <hr className="my-3 border-border/60" />
+
         {/* Список чатов (LangGraph threads.search / search_threads) */}
         {user && (
           <div className="flex flex-col flex-1 min-h-0">
@@ -669,6 +794,20 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                     const isActive = activeThreadId === t.thread_id;
                     const meta = getThreadMeta(t);
                     const isTelegramThread = meta.channel === "telegram";
+                    const status = getThreadStatus(t);
+                    const updatedAt = getThreadUpdatedAt(t);
+                    const seenAt = lastSeen[t.thread_id];
+                    const isUnseen =
+                      typeof updatedAt === "string" &&
+                      (seenAt === undefined || updatedAt > seenAt);
+                    const needsInput =
+                      !isActive && status === "interrupted" && isUnseen;
+                    const hasUpdate = !isActive && !needsInput && isUnseen;
+                    const indicatorTitle = needsInput
+                      ? "Ожидает вашего ответа"
+                      : hasUpdate
+                        ? "Новое обновление"
+                        : undefined;
 
                     return (
                       <div
@@ -692,7 +831,28 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                             />
                           </span>
                         )}
-                        <span className="flex-1 min-w-0 truncate">
+                        {(needsInput || hasUpdate) && (
+                          <span
+                            className="shrink-0 flex items-center justify-center"
+                            title={indicatorTitle}
+                            aria-label={indicatorTitle}
+                          >
+                            <span
+                              className={[
+                                "inline-block h-2 w-2 rounded-full",
+                                needsInput
+                                  ? "bg-amber-500 animate-pulse"
+                                  : "bg-sky-500",
+                              ].join(" ")}
+                            />
+                          </span>
+                        )}
+                        <span
+                          className={[
+                            "flex-1 min-w-0 truncate",
+                            needsInput || hasUpdate ? "font-medium" : "",
+                          ].join(" ")}
+                        >
                           {displayTitle}
                         </span>
                         <DropdownMenu>
@@ -794,16 +954,6 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                   <User className="mr-2 h-4 w-4" />
                   Профиль
                 </DropdownMenuItem> */}
-                {ragEnabled() && (
-                  <DropdownMenuItem onSelect={handleRag}>
-                    <Files className="mr-2 h-4 w-4" />
-                    Документы
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onSelect={handleMemories}>
-                  <Brain className="mr-2 h-4 w-4" />
-                  Факты о вас
-                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleSettings}>
                   <SettingsIcon className="mr-2 h-4 w-4" />
                   Настройки
