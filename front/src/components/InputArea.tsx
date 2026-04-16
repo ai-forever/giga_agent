@@ -584,208 +584,210 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             }
           />
         </label>
-      <div
-        className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight overflow-hidden"
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        {isDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-card/90 dark:bg-input/90 pointer-events-none text-sm text-foreground">
-            Отпустите, чтобы прикрепить файлы
-          </div>
-        )}
-        <div className="flex items-end gap-2 relative">
-          <input
-            className="hidden"
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            multiple
-            disabled={thread?.isLoading || isMCPLoading}
-          />
-          <div className="flex flex-col items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  data-onboarding="gear-menu-btn"
-                  type="button"
-                  disabled={thread?.isLoading || isMCPLoading}
-                  title="Открыть настройки"
-                  className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-                >
-                  <Settings2 />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="input-dropdown"
-                align="start"
-                sideOffset={3}
-              >
-                <DropdownMenuItem onSelect={openContextModal}>
-                  <Brain className={"size-5"} />
-                  <span>Персонализация</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={openMcpModal}>
-                  <Cog className={"size-5"} />
-                  <span>Инструменты</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
-                  <Files className={"size-5"} />
-                  <span>Документы</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => window.print()}>
-                  <Printer className={"size-5"} />
-                  <span>Печать</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <button
-              data-onboarding="attachments-btn"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
+        <div
+          className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight overflow-hidden"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDragging && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-card/90 dark:bg-input/90 pointer-events-none text-sm text-foreground">
+              Отпустите, чтобы прикрепить файлы
+            </div>
+          )}
+          <div className="flex items-end gap-2 relative">
+            <input
+              className="hidden"
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              multiple
               disabled={thread?.isLoading || isMCPLoading}
-              title="Добавить вложения"
-              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-            >
-              <Paperclip />
-            </button>
-          </div>
+            />
+            <div className="flex flex-col items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    data-onboarding="gear-menu-btn"
+                    type="button"
+                    disabled={thread?.isLoading || isMCPLoading}
+                    title="Открыть настройки"
+                    className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+                  >
+                    <Settings2 />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="input-dropdown"
+                  align="start"
+                  sideOffset={3}
+                >
+                  <DropdownMenuItem onSelect={openContextModal}>
+                    <Brain className={"size-5"} />
+                    <span>Персонализация</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openMcpModal}>
+                    <Cog className={"size-5"} />
+                    <span>Инструменты</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
+                    <Files className={"size-5"} />
+                    <span>Документы</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => window.print()}>
+                    <Printer className={"size-5"} />
+                    <span>Печать</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <button
+                data-onboarding="attachments-btn"
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={thread?.isLoading || isMCPLoading}
+                title="Добавить вложения"
+                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+              >
+                <Paperclip />
+              </button>
+            </div>
 
-          <textarea
-            data-onboarding="chat-input"
-            placeholder={
-              thread?.interrupt
-                ? "Принять / Отменить с комментарием…"
-                : "Введите вашу задачу…"
-            }
-            ref={textRef}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            disabled={thread?.isLoading || isMCPLoading}
-            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
-          />
-          <div className="flex flex-col items-end gap-1">
-            {micSupported && (
+            <textarea
+              data-onboarding="chat-input"
+              placeholder={
+                thread?.interrupt
+                  ? "Принять / Отменить с комментарием…"
+                  : "Введите вашу задачу…"
+              }
+              ref={textRef}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              disabled={thread?.isLoading || isMCPLoading}
+              className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
+            />
+            <div className="flex flex-col items-end gap-1">
+              {micSupported && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void startRecording();
+                  }}
+                  onMouseUp={(e) => {
+                    e.preventDefault();
+                    stopRecording();
+                  }}
+                  onMouseLeave={() => {
+                    if (isRecording) cancelRecording();
+                  }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    void startRecording();
+                  }}
+                  onTouchEnd={(e) => {
+                    e.preventDefault();
+                    stopRecording();
+                  }}
+                  onTouchCancel={cancelRecording}
+                  onContextMenu={(e) => e.preventDefault()}
+                  disabled={thread?.isLoading || isMCPLoading || isTranscribing}
+                  title={
+                    isRecording
+                      ? "Отпустите, чтобы распознать"
+                      : "Зажмите и диктуйте"
+                  }
+                  aria-label="Голосовой ввод"
+                  aria-pressed={isRecording}
+                  className={[
+                    "w-9 h-9 p-0 rounded-full flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67 select-none",
+                    isRecording
+                      ? "bg-red-500/15 text-red-500 animate-pulse"
+                      : "text-foreground",
+                  ].join(" ")}
+                >
+                  {isTranscribing ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Mic />
+                  )}
+                </button>
+              )}
               <button
                 type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  void startRecording();
-                }}
-                onMouseUp={(e) => {
-                  e.preventDefault();
-                  stopRecording();
-                }}
-                onMouseLeave={() => {
-                  if (isRecording) cancelRecording();
-                }}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  void startRecording();
-                }}
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  stopRecording();
-                }}
-                onTouchCancel={cancelRecording}
-                onContextMenu={(e) => e.preventDefault()}
+                onClick={handleSend}
                 disabled={
-                  thread?.isLoading || isMCPLoading || isTranscribing
+                  thread?.isLoading ||
+                  isMCPLoading ||
+                  !message.trim() ||
+                  isUploading
                 }
-                title={
-                  isRecording
-                    ? "Отпустите, чтобы распознать"
-                    : "Зажмите и диктуйте"
-                }
-                aria-label="Голосовой ввод"
-                aria-pressed={isRecording}
-                className={[
-                  "w-9 h-9 p-0 rounded-full flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67 select-none",
-                  isRecording
-                    ? "bg-red-500/15 text-red-500 animate-pulse"
-                    : "text-foreground",
-                ].join(" ")}
+                title="Отправить"
+                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
               >
-                {isTranscribing ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <Mic />
-                )}
+                <Send />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={
-                thread?.isLoading ||
-                isMCPLoading ||
-                !message.trim() ||
-                isUploading
-              }
-              title="Отправить"
-              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-            >
-              <Send />
-            </button>
+            </div>
           </div>
-        </div>
 
-        {uploads.length > 0 && (
-          <AttachmentsContainer>
-            {uploads.map((u: UploadedFile, idx) => (
-              <AttachmentBubble
-                key={idx}
-                onClick={() => u.previewUrl && setEnlargedImage(u.previewUrl!)}
-              >
-                {u.previewUrl ? (
-                  <ImagePreview src={u.previewUrl} />
-                ) : (
-                  <span>{u.file.name}</span>
-                )}
-
-                {u.progress < 100 && (
-                  <ProgressOverlay>
-                    <CircularProgress progress={u.progress}>
-                      {u.progress}%
-                    </CircularProgress>
-                  </ProgressOverlay>
-                )}
-
-                <RemoveButton
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeUpload(idx);
-                  }}
+          {uploads.length > 0 && (
+            <AttachmentsContainer>
+              {uploads.map((u: UploadedFile, idx) => (
+                <AttachmentBubble
+                  key={idx}
+                  onClick={() =>
+                    u.previewUrl && setEnlargedImage(u.previewUrl!)
+                  }
                 >
-                  ×
-                </RemoveButton>
-              </AttachmentBubble>
-            ))}
-          </AttachmentsContainer>
-        )}
+                  {u.previewUrl ? (
+                    <ImagePreview src={u.previewUrl} />
+                  ) : (
+                    <span>{u.file.name}</span>
+                  )}
 
-        <div
-          className={[
-            "absolute bottom-2 left-[75px] text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
-            selectedCount > 0
-              ? "opacity-100 translate-y-0"
-              : "opacity-0 translate-y-1",
-          ].join(" ")}
-        >
-          Выбрано вложений: {selectedCount}
+                  {u.progress < 100 && (
+                    <ProgressOverlay>
+                      <CircularProgress progress={u.progress}>
+                        {u.progress}%
+                      </CircularProgress>
+                    </ProgressOverlay>
+                  )}
+
+                  <RemoveButton
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeUpload(idx);
+                    }}
+                  >
+                    ×
+                  </RemoveButton>
+                </AttachmentBubble>
+              ))}
+            </AttachmentsContainer>
+          )}
+
+          <div
+            className={[
+              "absolute bottom-2 left-[75px] text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
+              selectedCount > 0
+                ? "opacity-100 translate-y-0"
+                : "opacity-0 translate-y-1",
+            ].join(" ")}
+          >
+            Выбрано вложений: {selectedCount}
+          </div>
+
+          {enlargedImage && (
+            <Overlay onClick={() => setEnlargedImage(null)}>
+              <EnlargedImage src={enlargedImage} />
+              <CloseButton onClick={() => setEnlargedImage(null)}>
+                ×
+              </CloseButton>
+            </Overlay>
+          )}
         </div>
-
-        {enlargedImage && (
-          <Overlay onClick={() => setEnlargedImage(null)}>
-            <EnlargedImage src={enlargedImage} />
-            <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
-          </Overlay>
-        )}
-      </div>
       </div>
     </div>
   );

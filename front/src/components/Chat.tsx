@@ -245,7 +245,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const handleUserScroll = () => {
     const el = scrollRootRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    const distanceFromBottom =
+      el.scrollHeight - (el.scrollTop + el.clientHeight);
     if (userScrollIntentRef.current) {
       const nearBottom = distanceFromBottom <= 100;
       if (!nearBottom) {
