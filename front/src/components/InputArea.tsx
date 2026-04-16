@@ -14,9 +14,14 @@ import {
   Files,
   Cog,
   Printer,
+  Mic,
+  Loader2,
 } from "lucide-react";
 import { useSettings } from "./Settings.tsx";
 import { useFileUpload, UploadedFile } from "../hooks/useFileUploads";
+import { apiClient, ApiError } from "../lib/api-client.ts";
+import { API_AGENT_PREFIX } from "../config.ts";
+import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import {
   AttachmentBubble,
@@ -65,6 +70,13 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const { selected, clear } = useSelectedAttachments();
   const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [micSupported, setMicSupported] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const cancelRecordingRef = useRef(false);
 
   const {
     collections,
@@ -190,6 +202,180 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
     return () => media.removeEventListener("change", updateIsMobileDevice);
   }, []);
+
+  useEffect(() => {
+    const supported =
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia &&
+      typeof window.MediaRecorder !== "undefined";
+    setMicSupported(supported);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
+    };
+  }, []);
+
+  const insertAtCursor = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const el = textRef.current;
+    setMessage((prev) => {
+      const start = el?.selectionStart ?? prev.length;
+      const end = el?.selectionEnd ?? prev.length;
+      const before = prev.slice(0, start);
+      const after = prev.slice(end);
+      const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+      const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+      const insertion =
+        (needsLeadingSpace ? " " : "") +
+        trimmed +
+        (needsTrailingSpace ? " " : "");
+      const next = before + insertion + after;
+      requestAnimationFrame(() => {
+        const caret = before.length + insertion.length;
+        if (el) {
+          el.focus();
+          try {
+            el.setSelectionRange(caret, caret);
+          } catch {
+            /* selection may fail if unmounted */
+          }
+        }
+      });
+      return next;
+    });
+  }, []);
+
+  const teardownRecording = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    recordedChunksRef.current = [];
+  }, []);
+
+  const startRecording = useCallback(async () => {
+    if (isRecording || isTranscribing || !micSupported) return;
+    if (thread?.isLoading || isMCPLoading) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const candidates = [
+        "audio/webm;codecs=opus",
+        "audio/ogg;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ];
+      const mimeType = candidates.find((c) =>
+        typeof MediaRecorder.isTypeSupported === "function"
+          ? MediaRecorder.isTypeSupported(c)
+          : false,
+      );
+      const rec = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      recordedChunksRef.current = [];
+      rec.addEventListener("dataavailable", (e) => {
+        if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+      });
+      mediaRecorderRef.current = rec;
+      cancelRecordingRef.current = false;
+      rec.start();
+      setIsRecording(true);
+    } catch {
+      teardownRecording();
+      setIsRecording(false);
+    }
+  }, [
+    isRecording,
+    isTranscribing,
+    micSupported,
+    thread?.isLoading,
+    isMCPLoading,
+    teardownRecording,
+  ]);
+
+  const finishRecording = useCallback(
+    async (cancelled: boolean) => {
+      const rec = mediaRecorderRef.current;
+      if (!rec) {
+        setIsRecording(false);
+        return;
+      }
+      const blob = await new Promise<Blob>((resolve) => {
+        const handle = () => {
+          const b = new Blob(recordedChunksRef.current, {
+            type: rec.mimeType || "audio/webm",
+          });
+          resolve(b);
+        };
+        rec.addEventListener("stop", handle, { once: true });
+        if (rec.state !== "inactive") {
+          try {
+            rec.stop();
+          } catch {
+            handle();
+          }
+        } else {
+          handle();
+        }
+      });
+      const mime = rec.mimeType || "audio/webm";
+      teardownRecording();
+      setIsRecording(false);
+
+      if (cancelled || blob.size === 0) return;
+
+      setIsTranscribing(true);
+      try {
+        const form = new FormData();
+        const ext = mime.includes("ogg")
+          ? "ogg"
+          : mime.includes("mp4")
+            ? "m4a"
+            : "webm";
+        form.append("audio", blob, `record.${ext}`);
+        const res = await apiClient.post<{ text: string }>(
+          `${API_AGENT_PREFIX}/stt/recognize`,
+          form,
+          { attachAuth: true, showError: false },
+        );
+        if (res?.text) insertAtCursor(res.text);
+        else {
+          toast.warning("Речь не распознана", {
+            description: "Попробуй ещё раз, говори чуть громче.",
+            richColors: true,
+          });
+        }
+      } catch (err) {
+        const detail =
+          err instanceof ApiError ? err.message : "Не удалось распознать речь";
+        toast.error("Распознавание не удалось", {
+          description: detail,
+          richColors: true,
+        });
+      } finally {
+        setIsTranscribing(false);
+      }
+    },
+    [teardownRecording, insertAtCursor],
+  );
+
+  const stopRecording = useCallback(() => {
+    if (!isRecording) return;
+    const cancelled = cancelRecordingRef.current;
+    cancelRecordingRef.current = false;
+    void finishRecording(cancelled);
+  }, [isRecording, finishRecording]);
+
+  const cancelRecording = useCallback(() => {
+    if (!isRecording) return;
+    cancelRecordingRef.current = true;
+    void finishRecording(true);
+  }, [isRecording, finishRecording]);
 
   const handleContinue = useCallback(
     async (type: "comment" | "approve") => {
@@ -385,8 +571,21 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
+      <div className="relative max-w-[900px] mx-auto">
+        <label
+          data-onboarding="autonomy-switch"
+          className="absolute -top-5 right-2 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none z-20 bg-card/80 rounded px-1"
+        >
+          <span>Автономность</span>
+          <Switch
+            checked={settings.autoApprove ?? false}
+            onCheckedChange={(checked) =>
+              setSettings((prev) => ({ ...prev, autoApprove: checked }))
+            }
+          />
+        </label>
       <div
-        className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden"
+        className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight overflow-hidden"
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -470,6 +669,54 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
           />
           <div className="flex flex-col items-end gap-1">
+            {micSupported && (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  void startRecording();
+                }}
+                onMouseUp={(e) => {
+                  e.preventDefault();
+                  stopRecording();
+                }}
+                onMouseLeave={() => {
+                  if (isRecording) cancelRecording();
+                }}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  void startRecording();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  stopRecording();
+                }}
+                onTouchCancel={cancelRecording}
+                onContextMenu={(e) => e.preventDefault()}
+                disabled={
+                  thread?.isLoading || isMCPLoading || isTranscribing
+                }
+                title={
+                  isRecording
+                    ? "Отпустите, чтобы распознать"
+                    : "Зажмите и диктуйте"
+                }
+                aria-label="Голосовой ввод"
+                aria-pressed={isRecording}
+                className={[
+                  "w-9 h-9 p-0 rounded-full flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67 select-none",
+                  isRecording
+                    ? "bg-red-500/15 text-red-500 animate-pulse"
+                    : "text-foreground",
+                ].join(" ")}
+              >
+                {isTranscribing ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Mic />
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleSend}
@@ -485,18 +732,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               <Send />
             </button>
           </div>
-          <label
-            data-onboarding="autonomy-switch"
-            className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
-          >
-            <span>Автономность</span>
-            <Switch
-              checked={settings.autoApprove ?? false}
-              onCheckedChange={(checked) =>
-                setSettings((prev) => ({ ...prev, autoApprove: checked }))
-              }
-            />
-          </label>
         </div>
 
         {uploads.length > 0 && (
@@ -550,6 +785,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
           </Overlay>
         )}
+      </div>
       </div>
     </div>
   );
