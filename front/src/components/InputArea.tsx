@@ -50,6 +50,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import ModelPicker from "./ModelPicker";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
@@ -767,6 +768,9 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             disabled={thread?.isLoading || isMCPLoading}
             className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
           />
+          <div className="self-end mb-1 shrink-0">
+            <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+          </div>
           <div className="flex flex-col items-end gap-1">
             {isRecording ? (
               <>
