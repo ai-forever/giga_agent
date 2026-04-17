@@ -736,19 +736,6 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           </div>
         )}
 
-        <div
-          className={[
-            "flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-muted/50",
-            location.pathname === "/memories"
-              ? "bg-accent text-accent-foreground"
-              : "",
-          ].join(" ")}
-          onClick={handleMemories}
-        >
-          <Brain size={20} className="mr-2" />
-          Факты о вас
-        </div>
-
         <hr className="my-3 border-border/60" />
 
         {/* Список чатов (LangGraph threads.search / search_threads) */}
@@ -954,6 +941,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                   <User className="mr-2 h-4 w-4" />
                   Профиль
                 </DropdownMenuItem> */}
+                <DropdownMenuItem onSelect={handleMemories}>
+                  <Brain className="mr-2 h-4 w-4" />
+                  Факты о вас
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleSettings}>
                   <SettingsIcon className="mr-2 h-4 w-4" />
                   Настройки
