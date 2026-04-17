@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 from giga_agent.conf import reset_settings_cache
 from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.base import ContentResult
+from giga_agent.sandbox.jupyter import _inject_env_prelude
 from giga_agent.sandbox.local_jupyter.dependencies import MissingDependenciesError
 from giga_agent.sandbox.local_jupyter.manager import (
     LOCAL_JUPYTER_KERNEL_NAME,
@@ -99,6 +100,33 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
             runtime._get_kernel_request_payload(),
             {"name": LOCAL_JUPYTER_KERNEL_NAME},
         )
+
+    async def test_inject_env_prelude_updates_existing_envs(self):
+        namespace: dict[str, object] = {}
+        first_code = _inject_env_prelude(
+            "import os\nsnapshot = dict(os.environ)",
+            {"api_key": "first", "EMPTY": ""},
+        )
+        second_code = _inject_env_prelude(
+            "import os\nsnapshot = dict(os.environ)",
+            {"NEXT_TOKEN": "second"},
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            exec(first_code, namespace)
+            first_snapshot = dict(namespace["snapshot"])
+
+            exec(second_code, namespace)
+            second_snapshot = dict(namespace["snapshot"])
+
+        self.assertEqual(first_snapshot["api_key"], "first")
+        self.assertEqual(first_snapshot["EMPTY"], "")
+        self.assertEqual(second_snapshot["api_key"], "first")
+        self.assertEqual(second_snapshot["EMPTY"], "")
+        self.assertEqual(second_snapshot["NEXT_TOKEN"], "second")
+        self.assertNotIn("_giga_agent_envs", namespace)
+        self.assertNotIn("_giga_agent_json", namespace)
+        self.assertNotIn("_giga_agent_os", namespace)
 
     async def test_upload_read_delete_bucket_file(self):
         owner_id = uuid.uuid4()

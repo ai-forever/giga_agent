@@ -255,10 +255,8 @@ async def process_tool_result(
         normalized_result, action=action, config=config
     )
     saved_result_message = (
-        "Полный результат вызова инструмента сохранен в файле JSON по пути "
+        "Результат вызова инструмента сохранен в файле JSON по пути "
         f"'{result_path}'. "
-        "Этот путь нужно читать через python; внутри хранится полный JSON-результат "
-        "выполнения инструмента."
     )
 
     serialized = _safe_json_dumps(normalized_result)

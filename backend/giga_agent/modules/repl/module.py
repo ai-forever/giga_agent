@@ -21,7 +21,12 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserShort
 from giga_agent.sandbox.manager import ProviderNotFoundError, SandboxManager
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
-from giga_agent.modules.repl.tools import python, shell
+from giga_agent.modules.repl.tools import (
+    await_shell,
+    normalize_secret_env_name,
+    python,
+    shell,
+)
 from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
 from giga_agent.core.logging import get_logger
 from pydantic import BaseModel, Field
@@ -47,11 +52,10 @@ def get_user_secrets_prompt(user: UserShort):
         name = user_secret.get("name")
         value = user_secret.get("value")
         description = user_secret.get("description")
-        if not name or not value:
+        if not name or value is None:
             continue
-        secret_part = (
-            f"Название: {user_secret['name']}\nЗначение: {user_secret['value'][:4]}..."
-        )
+        env_name = normalize_secret_env_name(name)
+        secret_part = f"Название: {name}\nENV: {env_name}"
         if description:
             secret_part += f"\nОписание: {description}"
         secret_parts.append(secret_part)
@@ -155,7 +159,7 @@ class ReplModule(BaseModule):
             python.extras = {"repl_tools": self._repl_tools}
         else:
             python.extras["repl_tools"] = self._repl_tools
-        return [python, shell]
+        return [python, shell, await_shell]
 
     async def get_instructions(
         self,

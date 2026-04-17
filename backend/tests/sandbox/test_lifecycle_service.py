@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch, Mock
 
 from giga_agent.models.sandbox import SandboxStatus
+from giga_agent.sandbox.local_docker import LocalDockerSandbox
 from giga_agent.sandbox.manager.errors import StorageOperationError
 from giga_agent.sandbox.manager.lifecycle_service import SandboxLifecycleService
 from giga_agent.sandbox.manager.types import (
@@ -229,6 +230,87 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reconciled, sandbox.id)
         self.assertEqual(sandbox.status, SandboxStatus.STOPPED)
+
+    async def test_ensure_running_for_user_reuses_running_runtime_when_liveness_probe_succeeds(
+        self,
+    ):
+        sandbox = self._sandbox(status=SandboxStatus.RUNNING)
+        sandbox.provider = types.SimpleNamespace(type="local_docker")
+        with patch(
+            "giga_agent.sandbox.local_docker.docker.from_env",
+            return_value=types.SimpleNamespace(),
+        ):
+            runtime = LocalDockerSandbox(max_active_sandboxes=1)
+        resolved = types.SimpleNamespace(sandbox=sandbox)
+        self.service._resolve = types.SimpleNamespace(
+            get_or_create_for_user=AsyncMock(return_value=resolved)
+        )
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
+        self.service._sandbox_repo.touch = AsyncMock()
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+
+        async def _run(_sandbox_id, action):
+            return await action()
+
+        self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
+
+        with patch.object(
+            LocalDockerSandbox,
+            "is_up",
+            AsyncMock(return_value=True),
+        ) as is_up_mock:
+            result = await self.service.ensure_running_for_user(
+                user_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+            )
+
+        self.assertIs(result, runtime)
+        is_up_mock.assert_awaited_once()
+        self.service._sandbox_repo.touch.assert_awaited_once_with(sandbox.id)
+
+    async def test_ensure_running_for_user_restarts_runtime_when_liveness_probe_fails(
+        self,
+    ):
+        sandbox = self._sandbox(status=SandboxStatus.RUNNING)
+        sandbox.provider = types.SimpleNamespace(type="local_docker")
+        with patch(
+            "giga_agent.sandbox.local_docker.docker.from_env",
+            return_value=types.SimpleNamespace(),
+        ):
+            runtime = LocalDockerSandbox(max_active_sandboxes=1)
+            restarted_runtime = LocalDockerSandbox(max_active_sandboxes=1)
+        resolved = types.SimpleNamespace(sandbox=sandbox)
+        self.service._resolve = types.SimpleNamespace(
+            get_or_create_for_user=AsyncMock(return_value=resolved)
+        )
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+        self.service._stop_runtime_for_sandbox = AsyncMock(return_value=sandbox)  # type: ignore[method-assign]
+        self.service._start_unlocked = AsyncMock(return_value=restarted_runtime)  # type: ignore[method-assign]
+
+        async def _run(_sandbox_id, action):
+            return await action()
+
+        self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
+
+        with patch.object(
+            LocalDockerSandbox,
+            "is_up",
+            AsyncMock(return_value=False),
+        ) as is_up_mock:
+            result = await self.service.ensure_running_for_user(
+                user_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+            )
+
+        self.assertIs(result, restarted_runtime)
+        is_up_mock.assert_awaited_once()
+        self.service._stop_runtime_for_sandbox.assert_awaited_once()
+        self.service._start_unlocked.assert_awaited_once_with(sandbox.id)
 
     async def test_reconcile_stale_starting_skips_when_status_changed(self):
         sandbox = self._sandbox(status=SandboxStatus.STOPPED)
