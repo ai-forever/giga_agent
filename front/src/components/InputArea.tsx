@@ -609,48 +609,46 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     [uploadFiles, isBusy],
   );
 
-  const handleDragEnter = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      if (isBusy) return;
-      if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
       dragCounterRef.current += 1;
-      setIsDragging(true);
-    },
-    [isBusy],
-  );
-
-  const handleDragOver = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      if (isBusy) return;
-      if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
+      if (!isBusy) setIsDragging(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    },
-    [isBusy],
-  );
-
-  const handleDragLeave = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      if (isBusy) return;
-      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = isBusy ? "none" : "copy";
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
       dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
       if (dragCounterRef.current === 0) setIsDragging(false);
-    },
-    [isBusy],
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      if (isBusy) return;
+    };
+    const onDrop = (e: DragEvent) => {
       e.preventDefault();
       dragCounterRef.current = 0;
       setIsDragging(false);
+      if (isBusy) return;
       const files = Array.from(e.dataTransfer?.files ?? []);
       if (files.length > 0) uploadFiles(files);
-    },
-    [uploadFiles, isBusy],
-  );
+    };
+
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [uploadFiles, isBusy]);
 
   const handleOpenDocuments = useCallback(async () => {
     if (collections.length > 0) {
@@ -689,18 +687,14 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
-      <div
-        className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden"
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        {isDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-card/90 dark:bg-input/90 pointer-events-none text-sm text-foreground">
+      {isDragging && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm pointer-events-none print:hidden animate-in fade-in duration-150">
+          <div className="m-6 px-8 py-10 rounded-2xl border-2 border-dashed border-primary bg-card/95 dark:bg-input/95 shadow-xl text-foreground text-base font-medium">
             Отпустите, чтобы прикрепить файлы
           </div>
-        )}
+        </div>
+      )}
+      <div className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden">
         <div className="flex items-end gap-2 relative">
           <input
             className="hidden"
