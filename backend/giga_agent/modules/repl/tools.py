@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import inspect
@@ -27,7 +26,11 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
-from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec, SandboxBusyError
+from giga_agent.sandbox.manager import (
+    SandboxBusyError,
+    SandboxManager,
+    UploadFileSpec,
+)
 
 logger = get_logger(__name__)
 
@@ -45,12 +48,7 @@ _DISPLAY_MIME_CONFIG: dict[str, tuple[str, str, str]] = {
 }
 
 _REPL_TOOL_INPUT_PREFIX = "__GIGA_REPL_TOOL_CALL__:"
-_SHELL_NO_CHUNK_TIMEOUT_SEC = 20
-_SHELL_INTERACTIVE_HINT = (
-    "Команда, вероятно, требует интерактивного ввода. "
-    "Этот shell-инструмент не поддерживает stdin. Используй неинтерактивные "
-    "флаги, например: --yes, -y, --no-interactive, CI=1."
-)
+_SECRET_ENV_SANITIZE_RE = re.compile(r"[^0-9A-Za-z_]+")
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -155,20 +153,27 @@ def _build_attachment_info(file_type: str, path: str) -> str:
     return attachment_info
 
 
-def get_user_secrets_code(user: UserShort):
+def normalize_secret_env_name(name: str) -> str:
+    normalized = _SECRET_ENV_SANITIZE_RE.sub("_", name.strip()).strip("_").upper()
+    if not normalized:
+        normalized = "SECRET"
+    if normalized[0].isdigit():
+        normalized = f"SECRET_{normalized}"
+    return normalized
+
+
+def get_user_secret_envs(user: UserShort) -> dict[str, str]:
     user_secrets = dict(user.settings or {}).get("contextSecrets")
     if not user_secrets:
-        return None
-    code_parts = []
+        return {}
+    envs: dict[str, str] = {}
     for user_secret in user_secrets:
         name = user_secret.get("name")
         value = user_secret.get("value")
-        if not name or not value:
+        if not name or value is None:
             continue
-        code_parts.append(f"SECRETS['{name}'] = '{value}'")
-    if not code_parts:
-        return None
-    return "SECRETS = {}\n" + "\n".join(code_parts)
+        envs[normalize_secret_env_name(name)] = str(value)
+    return envs
 
 
 def _is_tool_public_for_repl(tool_: BaseTool) -> bool:
@@ -432,43 +437,8 @@ async def python(
     Args:
         code: Python код для выполнения в Jupyter kernel.
     """
-    # Получаем user_id из конфигурации langgraph auth
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-    cached_user = await cache.get(UserRepository.cache_key(owner_id))
-    user = UserShort.model_validate(cached_user) if cached_user is not None else None
-    factory = await get_session_factory()
-    async with factory() as session:
-        if user is None:
-            user = await UserRepository(session).get_by_id(
-                owner_id,
-                use_cache=False,
-            )
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
-
-        resolved = await SandboxManager.get_cached_or_db(
-            user_id=owner_id,
-            session=session,
-        )
-        manager = SandboxManager(session)
-        try:
-            sandbox_runtime = await manager.ensure_running_for_user(
-                user_id=owner_id,
-                provider_id=resolved.provider.id,
-            )
-        except SandboxBusyError as e:
-            raise ValueError(
-                "Ты не можешь выполнить код, так как в системе превышен лимит "
-                "виртуальных окружений. Скажи пользователю обратиться к "
-                "администратору!" + repr(e)
-            )
-
-    if user is None:
-        raise ValueError(f"User with id {user_id} not found")
-
-    secrets_code = get_user_secrets_code(user)
+    sandbox_runtime, user, owner_id = await _resolve_repl_runtime_context(runtime)
+    secret_envs = get_user_secret_envs(user)
 
     # Выполняем код и собираем результаты
     outputs: list[str] = []
@@ -494,13 +464,13 @@ async def python(
     # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)
     kernel_id = runtime.state.get("kernel_id")
 
-    if secrets_code is not None:
-        async for _ in sandbox_runtime.run_code(secrets_code, kernel_id=kernel_id):
-            pass
-
     kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
 
-    code_iter = sandbox_runtime.run_code(prepared_code, kernel_id=kernel_id)
+    code_iter = sandbox_runtime.run_code(
+        prepared_code,
+        kernel_id=kernel_id,
+        envs=secret_envs,
+    )
     pending_input_reply: str | None = None
     while True:
         try:
@@ -584,7 +554,7 @@ async def python(
         data = {
             "output": result,
         }
-    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
+    kernel_id = sandbox_runtime._kernel_id
     return Command(
         update={
             "messages": [
@@ -609,23 +579,23 @@ async def python(
 python._parse_input = types.MethodType(_parse_input, python)
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
-async def shell(
-    command: str,
+async def _resolve_repl_runtime_context(
     runtime: ToolRuntime,
-):
-    """Выполняет Shell-команду в Jupyter ноутбуке.
-    Используй, если нужно выполнить shell-команду в виртуальное окружение. Также обязательно используй, если нужно что-то установить из pipy.
-
-    Args:
-        command: Shell-команда
-
-    """
+) -> tuple[Any, UserShort, uuid.UUID]:
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
+    cached_user = await cache.get(UserRepository.cache_key(owner_id))
+    user = UserShort.model_validate(cached_user) if cached_user is not None else None
     factory = await get_session_factory()
     async with factory() as session:
+        if user is None:
+            user = await UserRepository(session).get_by_id(
+                owner_id,
+                use_cache=False,
+            )
+            if user is None:
+                raise ValueError(f"User with id {user_id} not found")
         resolved = await SandboxManager.get_cached_or_db(
             user_id=owner_id,
             session=session,
@@ -641,92 +611,98 @@ async def shell(
                 "Ты не можешь выполнить код, так как в системе превышен лимит "
                 "виртуальных окружений. Скажи пользователю обратиться к "
                 "администратору!" + repr(e)
-            )
+            ) from e
+    return sandbox_runtime, user, owner_id
 
-    command = command.strip()
-    if not command:
-        data = {"output": "Пустая команда: передайте непустую shell-команду."}
-        return ToolMessage(
-            tool_call_id=runtime.tool_call_id,
-            content=json.dumps(data, ensure_ascii=False),
-            additional_kwargs={"tool_name": "shell"},
-        )
 
-    kernel_id = runtime.state.get("kernel_id")
-
-    shell_code = f"!{command}" if "\n" not in command else f"%%bash\n{command}"
-    outputs: list[str] = []
-    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-    code_iter = sandbox_runtime.run_code(
-        shell_code,
-        kernel_id=kernel_id,
-        allow_stdin=False,
-    )
-
-    while True:
-        try:
-            chunk = await asyncio.wait_for(
-                anext(code_iter),
-                timeout=_SHELL_NO_CHUNK_TIMEOUT_SEC,
-            )
-        except StopAsyncIteration:
-            break
-        except TimeoutError:
-            await code_iter.aclose()
-            outputs.append(
-                "Команда прервана: слишком долго не было ни одного нового чанка "
-                f"вывода ({_SHELL_NO_CHUNK_TIMEOUT_SEC} сек). "
-                + _SHELL_INTERACTIVE_HINT
-            )
-            break
-
-        chunk_type = chunk.get("type")
-        if chunk_type in ("stdout", "stderr"):
-            text = chunk.get("text", "")
-            if text.strip():
-                clean_text = ansi_escape.sub("", text)
-                outputs.append(
-                    f"[stderr] {clean_text}" if chunk_type == "stderr" else clean_text
-                )
-        elif chunk_type == "result":
-            data = chunk.get("data", {})
-            if "text/plain" in data:
-                outputs.append(str(data["text/plain"]))
-            elif "text/html" in data:
-                outputs.append(str(data["text/html"]))
-        elif chunk_type == "error":
-            ename = chunk.get("ename", "Error")
-            evalue = chunk.get("evalue", "")
-            traceback_lines = chunk.get("traceback", [])
-            clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
-            outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
-            normalized_error = f"{ename}: {evalue}\n{clean_tb}".lower()
-            if (
-                "stdinnotimplementederror" in normalized_error
-                or "does not support input requests" in normalized_error
-                or "raw_input was called" in normalized_error
-            ):
-                outputs.append(_SHELL_INTERACTIVE_HINT)
-        elif chunk_type == "input_request":
-            await code_iter.aclose()
-            outputs.append(_SHELL_INTERACTIVE_HINT)
-            break
-    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
-
-    result = "\n".join(outputs).strip()
-    data = {"output": result or "Команда выполнена успешно (нет вывода)."}
-
+def _build_shell_tool_command_result(
+    *,
+    runtime: ToolRuntime,
+    tool_name: str,
+    data: dict[str, Any],
+) -> Command:
     return Command(
         update={
             "messages": [
                 ToolMessage(
                     tool_call_id=runtime.tool_call_id,
                     content=json.dumps(data, ensure_ascii=False),
-                    additional_kwargs={
-                        "tool_name": "shell",
-                    },
+                    additional_kwargs={"tool_name": tool_name},
                 )
-            ],
-            "kernel_id": kernel_id,
+            ]
         }
+    )
+
+
+@tool(parse_docstring=True, extras={"repl_save": False})
+async def shell(
+    command: str,
+    runtime: ToolRuntime,
+    working_directory: str | None = None,
+    block_until_ms: int = 30000,
+    description: str | None = None,
+):
+    """Выполняет shell-команду в sandbox и при необходимости уводит её в background.
+
+    Args:
+        command: Shell-команда
+        working_directory: Рабочая директория внутри sandbox
+        block_until_ms: Сколько миллисекунд ждать завершения перед возвратом
+        description: Короткое описание команды
+    """
+    sandbox_runtime, user, _ = await _resolve_repl_runtime_context(runtime)
+    secret_envs = get_user_secret_envs(user)
+    try:
+        result = await sandbox_runtime.run_shell(
+            command=command,
+            working_directory=working_directory,
+            block_until_ms=block_until_ms,
+            description=description,
+            envs=secret_envs,
+        )
+    except NotImplementedError as exc:
+        raise ValueError(
+            "Текущий sandbox не поддерживает shell-инструмент."
+        ) from exc
+
+    data = result.model_dump(mode="json")
+    if not data.get("output"):
+        data["output"] = "Команда выполнена успешно (нет вывода)."
+    return _build_shell_tool_command_result(
+        runtime=runtime,
+        tool_name="shell",
+        data=data,
+    )
+
+
+@tool(parse_docstring=True, extras={"repl_save": False})
+async def await_shell(
+    shell_id: str,
+    runtime: ToolRuntime,
+    block_until_ms: int = 30000,
+    pattern: str | None = None,
+):
+    """Ожидает shell-сессию и читает только новый вывод.
+
+    Args:
+        shell_id: Идентификатор shell-сессии
+        block_until_ms: Сколько миллисекунд ждать завершения/совпадения pattern
+        pattern: Python regex, который матчится по накопленному логу
+    """
+    sandbox_runtime, _, _ = await _resolve_repl_runtime_context(runtime)
+    try:
+        result = await sandbox_runtime.await_shell(
+            shell_id=shell_id,
+            block_until_ms=block_until_ms,
+            pattern=pattern,
+        )
+    except NotImplementedError as exc:
+        raise ValueError(
+            "Текущий sandbox не поддерживает await_shell-инструмент."
+        ) from exc
+
+    return _build_shell_tool_command_result(
+        runtime=runtime,
+        tool_name="await_shell",
+        data=result.model_dump(mode="json"),
     )

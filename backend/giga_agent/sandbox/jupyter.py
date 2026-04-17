@@ -11,6 +11,27 @@ from giga_agent.sandbox.mixins.code import CodeMixin
 WS_MAX_SIZE = 32 * 1024 * 1024
 
 
+def _inject_env_prelude(code: str, envs: dict[str, str] | None) -> str:
+    if envs is None:
+        return code
+
+    managed_envs = {str(key): str(value) for key, value in envs.items()}
+    envs_json = json.dumps(managed_envs, ensure_ascii=False)
+    prelude = "\n".join(
+        [
+            "import json as _giga_agent_json",
+            "import os as _giga_agent_os",
+            f"_giga_agent_envs = _giga_agent_json.loads({envs_json!r})",
+            "for _giga_agent_key, _giga_agent_value in _giga_agent_envs.items():",
+            "    _giga_agent_os.environ[_giga_agent_key] = _giga_agent_value",
+            "del _giga_agent_key, _giga_agent_value",
+            "del _giga_agent_envs, _giga_agent_json, _giga_agent_os",
+            "",
+        ]
+    )
+    return prelude + code
+
+
 class JupyterSandbox(BaseSandbox, CodeMixin):
     base_url: str = Field(..., description="Base URL of the Jupyter server")
     headers: Optional[Dict[str, str]] = Field(
@@ -99,9 +120,11 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
         kernel_id: str | None = None,
         *,
         allow_stdin: bool = True,
+        envs: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Any], str]:
         del kwargs
+        code = _inject_env_prelude(code, envs)
         if kernel_id is None:
             self._kernel_id = str(uuid.uuid4())
         else:

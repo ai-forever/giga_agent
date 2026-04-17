@@ -1,19 +1,23 @@
 import asyncio
+import json
 import mimetypes
+import re
 import secrets
 import shlex
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 import aiofiles
 import aiofiles.os
 import docker
+from cashews import cache
 from docker.errors import NotFound, DockerException
 from docker.types import Ulimit
-from pydantic import Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr
 
 from giga_agent.conf import (
     get_local_docker_max_active_sandboxes_from_env,
@@ -29,6 +33,7 @@ from giga_agent.sandbox.base import (
     StreamResult,
 )
 from giga_agent.sandbox.jupyter import JupyterSandbox
+from giga_agent.sandbox.mixins.code import ShellAwaitResult, ShellRunResult
 from giga_agent.sandbox.registry import SandboxRegistry
 from giga_agent.sandbox.manager.types import (
     LogOnlyOrphanAction,
@@ -48,7 +53,31 @@ PROVIDER_TYPE_LABEL = "giga_agent.provider_type"
 PROVIDER_ID_LABEL = "giga_agent.provider_id"
 SANDBOX_ID_LABEL = "giga_agent.sandbox_id"
 OWNER_ID_LABEL = "giga_agent.owner_id"
+_CONTAINER_HOME_DIR = PurePosixPath("/root")
+_SHELL_POLL_INTERVAL_SEC = 0.2
+_SHELL_STATUS_RUNNING = "running"
+_SHELL_STATUS_COMPLETED = "completed"
+_SHELL_STATUS_FAILED = "failed"
+_CONTAINER_PYTHON_BIN = "python"
 
+
+class LocalDockerShellMeta(BaseModel):
+    shell_id: str
+    exec_id: str | None = None
+    command: str
+    description: str | None = None
+    cwd: str
+    status: Literal["running", "completed", "failed"]
+    started_at: str
+    ended_at: str | None = None
+    elapsed_ms: int | None = None
+    exit_code: int | None = None
+    pid: int | None = None
+    output_path: str
+    exit_code_path: str | None = None
+    output_size_bytes: int = 0
+    last_delivered_offset: int = 0
+    last_update_at: str
 
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(JupyterSandbox):
@@ -272,20 +301,14 @@ class LocalDockerSandbox(JupyterSandbox):
                 existing = None
 
             if existing is not None:
-                existing.reload()
-                token = (
-                    self.jupyter_token
-                    or getattr(self, "_token", None)
-                    or self._get_env_value(existing, "JUPYTER_TOKEN")
-                )
-                if token:
-                    self._token = token
-                    self.jupyter_token = token
+                try:
+                    existing.reload()
+                except NotFound:
+                    existing = None
 
-                self._container = existing
-                self.external_id = existing.id
-
-                if await super().is_up():
+            if existing is not None:
+                self._apply_container_connection(existing)
+                if self._token and self._container_is_running(existing):
                     return
 
                 try:
@@ -370,33 +393,7 @@ class LocalDockerSandbox(JupyterSandbox):
 
         self.external_id = self._container.id
         self._container.reload()
-        if docker_network:
-            self.host_port = None
-            self.base_url = self._internal_base_url()
-        else:
-            ports = self._container.attrs["NetworkSettings"]["Ports"]
-            binding = ports.get(f"{JUPYTER_PORT}/tcp")
-            if not binding:
-                raise RuntimeError(f"Could not find mapped port for {JUPYTER_PORT}")
-
-            self.host_port = int(binding[0]["HostPort"])
-            self.base_url = f"http://localhost:{self.host_port}"
-
-        cmd = (
-            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
-            '--ServerApp.token="${JUPYTER_TOKEN}" > /dev/null 2>&1 &'
-        )
-        self._container.exec_run(f"sh -c {shlex.quote(cmd)}", detach=True)
-
-        start = time.time()
-        while True:
-            if await self.is_up():
-                return
-            if time.time() - start > self.startup_timeout_sec:
-                raise TimeoutError(
-                    f"Jupyter did not start within {self.startup_timeout_sec} seconds"
-                )
-            await asyncio.sleep(1)
+        self._apply_container_connection(self._container)
 
     async def stop(self) -> None:
         container = self._container
@@ -572,7 +569,7 @@ class LocalDockerSandbox(JupyterSandbox):
                         clear_runtime_connection=True,
                     )
                 )
-        except DockerException as e:
+        except DockerException:
             pass
             return []
         finally:
@@ -628,26 +625,714 @@ class LocalDockerSandbox(JupyterSandbox):
         if not self.external_id:
             return
         try:
-            self._container = self._client.containers.get(self.external_id)
-            if self.host_port:
-                self.base_url = f"http://localhost:{self.host_port}"
+            container = self._client.containers.get(self.external_id)
+            try:
+                container.reload()
+            except Exception:
+                pass
+            self._apply_container_connection(container)
         except NotFound:
             self._container = None
 
-    async def is_up(self) -> bool:
-        if (
-            not self.base_url
-            and self._docker_network()
-            and self.sandbox_id is not None
-        ):
+    def _apply_container_connection(self, container: Any) -> None:
+        self._container = container
+        container_id = getattr(container, "id", None)
+        if isinstance(container_id, str) and container_id:
+            self.external_id = container_id
+
+        token = (
+            self.jupyter_token
+            or getattr(self, "_token", None)
+            or self._get_env_value(container, "JUPYTER_TOKEN")
+        )
+        if token:
+            self._token = token
+            self.jupyter_token = token
+
+        self._ensure_base_url()
+
+    def _ensure_base_url(self) -> None:
+        if self._docker_network() and self.sandbox_id is not None:
+            self.host_port = None
             self.base_url = self._internal_base_url()
-        if not self.base_url and self.host_port:
+            return
+        binding = None
+        if self._container is not None:
+            ports = (self._container.attrs.get("NetworkSettings") or {}).get("Ports") or {}
+            binding = ports.get(f"{JUPYTER_PORT}/tcp")
+        if binding:
+            self.host_port = int(binding[0]["HostPort"])
             self.base_url = f"http://localhost:{self.host_port}"
-        if not self.base_url and self.external_id:
-            await self._reconnect()
+            return
+        if not self.host_port:
+            return
+        self.base_url = f"http://localhost:{self.host_port}"
+
+    async def _is_container_up(self) -> bool:
+        try:
+            await self._ensure_container_connected()
+        except RuntimeError:
+            return False
+        assert self._container is not None
+        try:
+            self._container.reload()
+        except NotFound:
+            self._container = None
+            return False
+        except DockerException:
+            return False
+        self._apply_container_connection(self._container)
+        return self._container_is_running(self._container)
+
+    async def _is_jupyter_ready(self) -> bool:
+        if not await self._is_container_up():
+            return False
+        if not self._token:
+            return False
+        self._ensure_base_url()
         if not self.base_url:
             return False
         return await super().is_up()
+
+    def _jupyter_start_lock_key(self) -> str:
+        identity = (
+            str(self.sandbox_id)
+            if self.sandbox_id is not None
+            else self.external_id
+            or (str(self.owner_id) if self.owner_id is not None else None)
+        )
+        if not identity:
+            raise RuntimeError("sandbox identity is required for jupyter startup lock")
+        return f"sandbox:jupyter-start:{identity}"
+
+    async def _start_jupyter_server(self) -> None:
+        await self._ensure_container_connected()
+        assert self._container is not None
+        cmd = (
+            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
+            '--ServerApp.token="${JUPYTER_TOKEN}" > /dev/null 2>&1 &'
+        )
+        logger.info(
+            "Starting Jupyter inside local sandbox container %s",
+            getattr(self._container, "id", "")[:12],
+        )
+        exit_code, output = await self._run_exec_in_container(cmd=["sh", "-lc", cmd])
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to start Jupyter server: "
+                + self._decode_container_output(output).strip()
+            )
+
+    async def _wait_for_jupyter_ready(self) -> None:
+        start = time.time()
+        while True:
+            if await self._is_jupyter_ready():
+                return
+            if time.time() - start > self.startup_timeout_sec:
+                raise TimeoutError(
+                    f"Jupyter did not start within {self.startup_timeout_sec} seconds"
+                )
+            await asyncio.sleep(1)
+
+    async def _ensure_jupyter_ready(self) -> bool:
+        if await self._is_jupyter_ready():
+            return False
+
+        lock_timeout = float(max(self.startup_timeout_sec + 5, 5))
+        try:
+            async with asyncio.timeout(lock_timeout):
+                async with cache.lock(
+                    self._jupyter_start_lock_key(),
+                    expire=lock_timeout + 5,
+                    wait=True,
+                    check_interval=0.05,
+                ):
+                    if await self._is_jupyter_ready():
+                        return False
+                    if not await self._is_container_up():
+                        raise RuntimeError(
+                            "Local docker sandbox container is not running"
+                        )
+                    await self._start_jupyter_server()
+                    await self._wait_for_jupyter_ready()
+                    return True
+        except TimeoutError as exc:
+            raise TimeoutError(
+                "Timed out while waiting to start Jupyter in local docker sandbox"
+            ) from exc
+
+    async def is_up(self) -> bool:
+        return await self._is_container_up()
+
+    async def run_code(
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        envs: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        jupyter_started = await self._ensure_jupyter_ready()
+        effective_kernel_id = kernel_id
+        if jupyter_started:
+            logger.info(
+                "Jupyter was started lazily for sandbox %s; resetting kernel state",
+                self.sandbox_id,
+            )
+            self._kernel_id = None
+            effective_kernel_id = None
+
+        async for chunk in super().run_code(
+            code,
+            kernel_id=effective_kernel_id,
+            allow_stdin=allow_stdin,
+            envs=envs,
+            **kwargs,
+        ):
+            yield chunk
+
+    async def run_shell(
+        self,
+        command: str,
+        *,
+        working_directory: str | None = None,
+        block_until_ms: int = 30000,
+        description: str | None = None,
+        envs: dict[str, str] | None = None,
+    ) -> ShellRunResult:
+        command = command.strip()
+        if not command:
+            raise ValueError("command must be a non-empty string")
+        if block_until_ms < 0:
+            raise ValueError("block_until_ms must be >= 0")
+
+        cwd = (working_directory or str(_CONTAINER_HOME_DIR)).strip() or str(
+            _CONTAINER_HOME_DIR
+        )
+        shell_id = uuid.uuid4().hex
+        output_path = str(self._shell_log_path(shell_id))
+        exit_code_path = str(self._shell_exit_code_path(shell_id))
+        meta_path = str(self._shell_meta_path(shell_id))
+
+        await self._initialize_shell_session(shell_id=shell_id)
+        pid = await self._start_shell_exec(
+            shell_id=shell_id,
+            command=command,
+            cwd=cwd,
+            envs=envs,
+        )
+        now = self._utc_now_iso()
+        meta = LocalDockerShellMeta(
+            shell_id=shell_id,
+            command=command,
+            description=description,
+            cwd=cwd,
+            status=_SHELL_STATUS_RUNNING,
+            started_at=now,
+            pid=pid,
+            output_path=output_path,
+            exit_code_path=exit_code_path,
+            last_update_at=now,
+        )
+        await self._write_shell_meta(meta)
+
+        deadline = time.monotonic() + (block_until_ms / 1000.0)
+        current_meta = meta
+        while True:
+            current_meta = await self._reconcile_shell_meta(current_meta)
+            if current_meta.status != _SHELL_STATUS_RUNNING:
+                break
+            if block_until_ms == 0 or time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(_SHELL_POLL_INTERVAL_SEC)
+
+        output_size = await self._get_container_file_size(output_path)
+        output_bytes = await self._read_container_file_range(output_path, 0, output_size)
+        result_output = self._decode_container_output(output_bytes)
+
+        final_meta = current_meta.model_copy(
+            update={
+                "output_size_bytes": output_size,
+                "last_delivered_offset": output_size,
+                "last_update_at": self._utc_now_iso(),
+            }
+        )
+        await self._write_shell_meta(final_meta)
+
+        backgrounded = final_meta.status == _SHELL_STATUS_RUNNING
+        await_hint = None
+        if backgrounded:
+            await_hint = (
+                f"Процесс продолжает выполняться. Ты можешь вызвать "
+                f'await_shell(shell_id="{shell_id}") для чтения нового вывода.'
+            )
+
+        return ShellRunResult(
+            shell_id=shell_id,
+            status=final_meta.status,
+            backgrounded=backgrounded,
+            cwd=cwd,
+            description=description,
+            output=result_output,
+            output_path=output_path,
+            meta_path=meta_path,
+            exit_code=final_meta.exit_code,
+            elapsed_ms=final_meta.elapsed_ms,
+            await_hint=await_hint,
+        )
+
+    async def await_shell(
+        self,
+        shell_id: str,
+        *,
+        block_until_ms: int = 30000,
+        pattern: str | None = None,
+    ) -> ShellAwaitResult:
+        clean_shell_id = self._validate_shell_id(shell_id)
+        if block_until_ms < 0:
+            raise ValueError("block_until_ms must be >= 0")
+
+        compiled_pattern = None
+        if pattern is not None:
+            try:
+                compiled_pattern = re.compile(pattern)
+            except re.error as exc:
+                raise ValueError(f"Invalid pattern: {exc}") from exc
+
+        try:
+            meta = await self._read_shell_meta(clean_shell_id)
+        except FileNotFoundError:
+            return ShellAwaitResult(
+                shell_id=clean_shell_id,
+                status="not_found",
+                output_delta="",
+                matched_pattern=False,
+                output_path=None,
+                meta_path=None,
+                exit_code=None,
+                elapsed_ms=None,
+                read_full_log_hint="Shell-сессия не найдена.",
+            )
+
+        start_offset = meta.last_delivered_offset
+        deadline = time.monotonic() + (block_until_ms / 1000.0)
+        matched_pattern = False
+        current_meta = meta
+
+        while True:
+            current_meta = await self._reconcile_shell_meta(current_meta)
+            if compiled_pattern is not None:
+                full_output = self._decode_container_output(
+                    await self._read_container_file_range(
+                        current_meta.output_path,
+                        0,
+                        await self._get_container_file_size(current_meta.output_path),
+                    )
+                )
+                matched_pattern = compiled_pattern.search(full_output) is not None
+            if (
+                current_meta.status != _SHELL_STATUS_RUNNING
+                or matched_pattern
+                or block_until_ms == 0
+                or time.monotonic() >= deadline
+            ):
+                break
+            await asyncio.sleep(_SHELL_POLL_INTERVAL_SEC)
+
+        end_offset = await self._get_container_file_size(current_meta.output_path)
+        delta_bytes = await self._read_container_file_range(
+            current_meta.output_path,
+            start_offset,
+            end_offset,
+        )
+        delta_text = self._decode_container_output(delta_bytes)
+
+        updated_meta = current_meta.model_copy(
+            update={
+                "output_size_bytes": end_offset,
+                "last_delivered_offset": end_offset,
+                "last_update_at": self._utc_now_iso(),
+            }
+        )
+        await self._write_shell_meta(updated_meta)
+
+        output_path = updated_meta.output_path
+        return ShellAwaitResult(
+            shell_id=clean_shell_id,
+            status=updated_meta.status,
+            output_delta=delta_text,
+            matched_pattern=matched_pattern,
+            output_path=output_path,
+            meta_path=str(self._shell_meta_path(clean_shell_id)),
+            exit_code=updated_meta.exit_code,
+            elapsed_ms=updated_meta.elapsed_ms,
+            read_full_log_hint=(
+                "Если нужен весь лог, прочитай output.log через read_file: "
+                f"{output_path}"
+            ),
+        )
+
+    def _shell_sessions_root(self) -> PurePosixPath:
+        return _CONTAINER_HOME_DIR / ".giga_agent" / "shell_sessions"
+
+    def _shell_session_dir(self, shell_id: str) -> PurePosixPath:
+        return self._shell_sessions_root() / self._validate_shell_id(shell_id)
+
+    def _shell_meta_path(self, shell_id: str) -> PurePosixPath:
+        return self._shell_session_dir(shell_id) / "meta.json"
+
+    def _shell_log_path(self, shell_id: str) -> PurePosixPath:
+        return self._shell_session_dir(shell_id) / "output.log"
+
+    def _shell_exit_code_path(self, shell_id: str) -> PurePosixPath:
+        return self._shell_session_dir(shell_id) / "exit_code"
+
+    async def _initialize_shell_session(self, *, shell_id: str) -> None:
+        session_dir = self._shell_session_dir(shell_id)
+        output_path = self._shell_log_path(shell_id)
+        exit_code_path = self._shell_exit_code_path(shell_id)
+        shell_command = (
+            f"mkdir -p {shlex.quote(str(session_dir))} && "
+            f": > {shlex.quote(str(output_path))} && "
+            f"rm -f {shlex.quote(str(exit_code_path))}"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=["sh", "-lc", shell_command]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to initialize shell session: "
+                + self._decode_container_output(output).strip()
+            )
+
+    async def _start_shell_exec(
+        self,
+        *,
+        shell_id: str,
+        command: str,
+        cwd: str,
+        envs: dict[str, str] | None = None,
+    ) -> int:
+        output_path = self._shell_log_path(shell_id)
+        exit_code_path = self._shell_exit_code_path(shell_id)
+        shell_wrapper = (
+            f"{command}\n"
+            "status=$?\n"
+            f"printf '%s\\n' \"$status\" > {shlex.quote(str(exit_code_path))}\n"
+            "exit \"$status\"\n"
+        )
+        script = (
+            "import json, os, subprocess, sys\n"
+            "cwd = sys.argv[1]\n"
+            "output_path = sys.argv[2]\n"
+            "command = sys.argv[3]\n"
+            "envs = json.loads(sys.argv[4])\n"
+            "env = os.environ.copy()\n"
+            "env.update({str(k): str(v) for k, v in envs.items()})\n"
+            "with open(output_path, 'ab', buffering=0) as output_handle:\n"
+            "    process = subprocess.Popen(\n"
+            "        ['sh', '-lc', command],\n"
+            "        cwd=cwd,\n"
+            "        env=env,\n"
+            "        stdin=subprocess.DEVNULL,\n"
+            "        stdout=output_handle,\n"
+            "        stderr=subprocess.STDOUT,\n"
+            "        start_new_session=True,\n"
+            "    )\n"
+            "print(process.pid)\n"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=[
+                _CONTAINER_PYTHON_BIN,
+                "-c",
+                script,
+                cwd,
+                str(output_path),
+                shell_wrapper,
+                json.dumps(envs or {}),
+            ]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to start shell session: "
+                + self._decode_container_output(output).strip()
+            )
+        pid_text = self._decode_container_output(output).strip()
+        try:
+            pid = int(pid_text)
+        except ValueError as exc:
+            raise RuntimeError(f"Failed to parse shell pid: {pid_text!r}") from exc
+        if pid <= 0:
+            raise RuntimeError(f"Invalid shell pid returned: {pid}")
+        return pid
+
+    async def _run_exec_in_container(
+        self,
+        *,
+        cmd: list[str] | str,
+    ) -> tuple[int, bytes]:
+        await self._ensure_container_connected()
+        assert self._container is not None
+        try:
+            exit_code, output = self._container.exec_run(
+                cmd=cmd,
+                stdout=True,
+                stderr=True,
+            )
+        except DockerException:
+            container_status = getattr(self._container, "status", None)
+            try:
+                self._container.reload()
+                container_status = getattr(self._container, "status", container_status)
+            except Exception:
+                pass
+            raise
+        return int(exit_code), bytes(output)
+
+    def _collect_recent_container_events(
+        self,
+        *,
+        container_id: str | None,
+        since_sec: int = 30,
+    ) -> list[dict[str, Any]]:
+        if not container_id:
+            return []
+        now = int(time.time())
+        try:
+            events = self._client.api.events(
+                since=now - since_sec,
+                until=now + 1,
+                decode=True,
+                filters={"type": ["container"], "container": [container_id]},
+            )
+            collected: list[dict[str, Any]] = []
+            for item in events:
+                if not isinstance(item, dict):
+                    continue
+                collected.append(
+                    {
+                        "status": item.get("status"),
+                        "action": item.get("Action"),
+                        "time": item.get("time"),
+                        "timeNano": item.get("timeNano"),
+                        "id": item.get("id"),
+                        "actorAttributes": (
+                            (item.get("Actor") or {}).get("Attributes") or {}
+                        ),
+                    }
+                )
+            return collected[-10:]
+        except Exception:
+            return []
+
+    async def _write_shell_meta(self, meta: LocalDockerShellMeta) -> None:
+        payload = meta.model_dump(mode="json")
+        script = (
+            "import json, os, sys, tempfile\n"
+            "path = sys.argv[1]\n"
+            "payload = json.loads(sys.argv[2])\n"
+            "directory = os.path.dirname(path)\n"
+            "os.makedirs(directory, exist_ok=True)\n"
+            "fd, tmp_path = tempfile.mkstemp(prefix='meta.', suffix='.tmp', dir=directory)\n"
+            "try:\n"
+            "    with os.fdopen(fd, 'w', encoding='utf-8') as handle:\n"
+            "        json.dump(payload, handle, ensure_ascii=False)\n"
+            "        handle.write('\\n')\n"
+            "        handle.flush()\n"
+            "        os.fsync(handle.fileno())\n"
+            "    os.replace(tmp_path, path)\n"
+            "finally:\n"
+            "    if os.path.exists(tmp_path):\n"
+            "        os.unlink(tmp_path)\n"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=[
+                _CONTAINER_PYTHON_BIN,
+                "-c",
+                script,
+                str(self._shell_meta_path(meta.shell_id)),
+                json.dumps(payload, ensure_ascii=False),
+            ]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to write shell meta: "
+                + self._decode_container_output(output).strip()
+            )
+
+    async def _read_shell_meta(self, shell_id: str) -> LocalDockerShellMeta:
+        meta_path = str(self._shell_meta_path(shell_id))
+        exit_code, output = await self._run_exec_in_container(
+            cmd=["cat", "--", meta_path]
+        )
+        if exit_code != 0:
+            error_text = self._decode_container_output(output)
+            if "No such file or directory" in error_text:
+                raise FileNotFoundError(meta_path)
+            raise RuntimeError(f"Failed to read shell meta: {error_text}".strip())
+        return LocalDockerShellMeta.model_validate_json(output)
+
+    async def _get_container_file_size(self, path: str) -> int:
+        script = (
+            "import os, sys\n"
+            "path = sys.argv[1]\n"
+            "try:\n"
+            "    print(os.path.getsize(path))\n"
+            "except FileNotFoundError:\n"
+            "    print(0)\n"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=[_CONTAINER_PYTHON_BIN, "-c", script, path]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to read shell log size: "
+                + self._decode_container_output(output).strip()
+            )
+        return int(self._decode_container_output(output).strip() or "0")
+
+    async def _read_container_file_range(
+        self,
+        path: str,
+        start_offset: int,
+        end_offset: int | None = None,
+    ) -> bytes:
+        if start_offset < 0:
+            raise ValueError("start_offset must be >= 0")
+        if end_offset is not None and end_offset < start_offset:
+            return b""
+        script = (
+            "import os, sys\n"
+            "path = sys.argv[1]\n"
+            "start = int(sys.argv[2])\n"
+            "end_arg = sys.argv[3]\n"
+            "end = None if end_arg == '-1' else int(end_arg)\n"
+            "try:\n"
+            "    with open(path, 'rb') as handle:\n"
+            "        handle.seek(start)\n"
+            "        data = handle.read() if end is None else handle.read(max(0, end - start))\n"
+            "except FileNotFoundError:\n"
+            "    data = b''\n"
+            "sys.stdout.buffer.write(data)\n"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=[
+                _CONTAINER_PYTHON_BIN,
+                "-c",
+                script,
+                path,
+                str(start_offset),
+                "-1" if end_offset is None else str(end_offset),
+            ]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to read container file range: "
+                + self._decode_container_output(output).strip()
+            )
+        return output
+
+    async def _reconcile_shell_meta(
+        self,
+        meta: LocalDockerShellMeta,
+    ) -> LocalDockerShellMeta:
+        if meta.status != _SHELL_STATUS_RUNNING:
+            return meta
+
+        output_size = await self._get_container_file_size(meta.output_path)
+        exit_code = await self._read_shell_exit_code(
+            meta.exit_code_path or str(self._shell_exit_code_path(meta.shell_id))
+        )
+        if exit_code is None and meta.pid is not None:
+            if await self._container_process_exists(meta.pid):
+                return meta
+        updated_meta = meta.model_copy(
+            update={
+                "status": (
+                    _SHELL_STATUS_COMPLETED
+                    if exit_code == 0
+                    else _SHELL_STATUS_FAILED
+                ),
+                "ended_at": self._utc_now_iso(),
+                "elapsed_ms": self._elapsed_ms(meta.started_at),
+                "exit_code": exit_code,
+                "output_size_bytes": output_size,
+                "last_update_at": self._utc_now_iso(),
+            }
+        )
+        await self._write_shell_meta(updated_meta)
+        return updated_meta
+
+    def _validate_shell_id(self, shell_id: str) -> str:
+        clean = shell_id.strip()
+        path = PurePosixPath(clean)
+        if not clean or clean in {".", ".."} or len(path.parts) != 1:
+            raise ValueError("shell_id must be a single non-empty path segment")
+        return clean
+
+    def _utc_now_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _elapsed_ms(self, started_at: str) -> int:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        return int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+
+    async def _read_shell_exit_code(self, path: str) -> int | None:
+        script = (
+            "import sys\n"
+            "path = sys.argv[1]\n"
+            "try:\n"
+            "    with open(path, 'r', encoding='utf-8') as handle:\n"
+            "        data = handle.read().strip()\n"
+            "except FileNotFoundError:\n"
+            "    data = ''\n"
+            "if data:\n"
+            "    print(data)\n"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=[_CONTAINER_PYTHON_BIN, "-c", script, path]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to read shell exit code: "
+                + self._decode_container_output(output).strip()
+            )
+        text = self._decode_container_output(output).strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid shell exit code value: {text!r}") from exc
+
+    async def _container_process_exists(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        script = (
+            "import os, sys\n"
+            "pid = int(sys.argv[1])\n"
+            "try:\n"
+            "    os.kill(pid, 0)\n"
+            "except ProcessLookupError:\n"
+            "    print('0')\n"
+            "except PermissionError:\n"
+            "    print('1')\n"
+            "else:\n"
+            "    print('1')\n"
+        )
+        exit_code, output = await self._run_exec_in_container(
+            cmd=[_CONTAINER_PYTHON_BIN, "-c", script, str(pid)]
+        )
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to probe shell process: "
+                + self._decode_container_output(output).strip()
+            )
+        return self._decode_container_output(output).strip() == "1"
+
+    def _decode_container_output(self, data: bytes) -> str:
+        return data.decode("utf-8", errors="replace")
 
     async def upload_file(
         self,
