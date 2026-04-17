@@ -16,11 +16,13 @@ import {
   Printer,
   Mic,
   Loader2,
+  Check,
+  X,
 } from "lucide-react";
 import { useSettings } from "./Settings.tsx";
 import { useFileUpload, UploadedFile } from "../hooks/useFileUploads";
 import { apiClient, ApiError } from "../lib/api-client.ts";
-import { API_AGENT_PREFIX } from "../config.ts";
+import { API_AGENT_PREFIX, BACKEND_STT_ENABLED } from "../config.ts";
 import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import {
@@ -51,6 +53,43 @@ import {
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
+type BrowserSpeechRecognitionInstance = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+};
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognitionInstance;
+
+const BrowserSpeechRecognitionClass: BrowserSpeechRecognitionCtor | undefined =
+  typeof window !== "undefined"
+    ? (((window as unknown as Record<string, unknown>).SpeechRecognition as
+        | BrowserSpeechRecognitionCtor
+        | undefined) ??
+      ((window as unknown as Record<string, unknown>)
+        .webkitSpeechRecognition as BrowserSpeechRecognitionCtor | undefined))
+    : undefined;
+
+type SttSource = "backend" | "browser" | null;
+
+const resolveSttSource = (): SttSource => {
+  if (typeof window === "undefined") return null;
+  if (
+    BACKEND_STT_ENABLED &&
+    typeof window.MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia
+  ) {
+    return "backend";
+  }
+  if (BrowserSpeechRecognitionClass) return "browser";
+  return null;
+};
+
 // Прочие стили для превью и оверлея оставляем без изменений...
 
 interface InputAreaProps {
@@ -72,10 +111,14 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const [isMCPLoading, setIsMCPLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [micSupported, setMicSupported] = useState(false);
+  const sttSource = useMemo<SttSource>(() => resolveSttSource(), []);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const browserRecognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(
+    null,
+  );
+  const browserTranscriptRef = useRef("");
   const cancelRecordingRef = useRef(false);
 
   const {
@@ -204,18 +247,16 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   }, []);
 
   useEffect(() => {
-    const supported =
-      typeof navigator !== "undefined" &&
-      !!navigator.mediaDevices?.getUserMedia &&
-      typeof window.MediaRecorder !== "undefined";
-    setMicSupported(supported);
-  }, []);
-
-  useEffect(() => {
     return () => {
       mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
       mediaRecorderRef.current = null;
+      try {
+        browserRecognitionRef.current?.abort();
+      } catch {
+        /* instance may be already stopped */
+      }
+      browserRecognitionRef.current = null;
     };
   }, []);
 
@@ -250,55 +291,14 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     });
   }, []);
 
-  const teardownRecording = useCallback(() => {
+  const teardownBackendRecording = useCallback(() => {
     mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     mediaStreamRef.current = null;
     mediaRecorderRef.current = null;
     recordedChunksRef.current = [];
   }, []);
 
-  const startRecording = useCallback(async () => {
-    if (isRecording || isTranscribing || !micSupported) return;
-    if (thread?.isLoading || isMCPLoading) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      const candidates = [
-        "audio/webm;codecs=opus",
-        "audio/ogg;codecs=opus",
-        "audio/webm",
-        "audio/mp4",
-      ];
-      const mimeType = candidates.find((c) =>
-        typeof MediaRecorder.isTypeSupported === "function"
-          ? MediaRecorder.isTypeSupported(c)
-          : false,
-      );
-      const rec = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-      recordedChunksRef.current = [];
-      rec.addEventListener("dataavailable", (e) => {
-        if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
-      });
-      mediaRecorderRef.current = rec;
-      cancelRecordingRef.current = false;
-      rec.start();
-      setIsRecording(true);
-    } catch {
-      teardownRecording();
-      setIsRecording(false);
-    }
-  }, [
-    isRecording,
-    isTranscribing,
-    micSupported,
-    thread?.isLoading,
-    isMCPLoading,
-    teardownRecording,
-  ]);
-
-  const finishRecording = useCallback(
+  const finishBackendRecording = useCallback(
     async (cancelled: boolean) => {
       const rec = mediaRecorderRef.current;
       if (!rec) {
@@ -324,7 +324,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         }
       });
       const mime = rec.mimeType || "audio/webm";
-      teardownRecording();
+      teardownBackendRecording();
       setIsRecording(false);
 
       if (cancelled || blob.size === 0) return;
@@ -361,21 +361,130 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         setIsTranscribing(false);
       }
     },
-    [teardownRecording, insertAtCursor],
+    [teardownBackendRecording, insertAtCursor],
   );
 
-  const stopRecording = useCallback(() => {
-    if (!isRecording) return;
-    const cancelled = cancelRecordingRef.current;
+  const startRecording = useCallback(async () => {
+    if (isRecording || isTranscribing) return;
+    if (thread?.isLoading || isMCPLoading) return;
+    if (!sttSource) return;
     cancelRecordingRef.current = false;
-    void finishRecording(cancelled);
-  }, [isRecording, finishRecording]);
+
+    if (sttSource === "backend") {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        mediaStreamRef.current = stream;
+        const candidates = [
+          "audio/webm;codecs=opus",
+          "audio/ogg;codecs=opus",
+          "audio/webm",
+          "audio/mp4",
+        ];
+        const mimeType = candidates.find((c) =>
+          typeof MediaRecorder.isTypeSupported === "function"
+            ? MediaRecorder.isTypeSupported(c)
+            : false,
+        );
+        const rec = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+        recordedChunksRef.current = [];
+        rec.addEventListener("dataavailable", (e) => {
+          if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+        });
+        mediaRecorderRef.current = rec;
+        rec.start();
+        setIsRecording(true);
+      } catch {
+        teardownBackendRecording();
+        setIsRecording(false);
+      }
+      return;
+    }
+
+    // Browser Web Speech API path
+    const Ctor = BrowserSpeechRecognitionClass;
+    if (!Ctor) return;
+    try {
+      const rec = new Ctor();
+      rec.lang = navigator.language || "ru-RU";
+      rec.continuous = true;
+      rec.interimResults = false;
+      browserTranscriptRef.current = "";
+      rec.onresult = (event: Event) => {
+        const anyEvent = event as unknown as {
+          resultIndex: number;
+          results: ArrayLike<
+            ArrayLike<{ transcript: string }> & { isFinal: boolean }
+          >;
+        };
+        for (let i = anyEvent.resultIndex; i < anyEvent.results.length; i++) {
+          const result = anyEvent.results[i];
+          if (result.isFinal) {
+            browserTranscriptRef.current += result[0].transcript;
+          }
+        }
+      };
+      rec.onerror = () => {
+        cancelRecordingRef.current = true;
+      };
+      rec.onend = () => {
+        const wasCancelled = cancelRecordingRef.current;
+        const transcript = browserTranscriptRef.current.trim();
+        browserRecognitionRef.current = null;
+        cancelRecordingRef.current = false;
+        browserTranscriptRef.current = "";
+        setIsRecording(false);
+        if (!wasCancelled && transcript) insertAtCursor(transcript);
+      };
+      browserRecognitionRef.current = rec;
+      rec.start();
+      setIsRecording(true);
+    } catch {
+      browserRecognitionRef.current = null;
+      setIsRecording(false);
+    }
+  }, [
+    isRecording,
+    isTranscribing,
+    sttSource,
+    thread?.isLoading,
+    isMCPLoading,
+    teardownBackendRecording,
+    insertAtCursor,
+  ]);
+
+  const acceptRecording = useCallback(() => {
+    if (!isRecording) return;
+    if (sttSource === "backend") {
+      cancelRecordingRef.current = false;
+      void finishBackendRecording(false);
+      return;
+    }
+    cancelRecordingRef.current = false;
+    try {
+      browserRecognitionRef.current?.stop();
+    } catch {
+      /* stop may throw if already ended */
+    }
+  }, [isRecording, sttSource, finishBackendRecording]);
 
   const cancelRecording = useCallback(() => {
     if (!isRecording) return;
+    if (sttSource === "backend") {
+      cancelRecordingRef.current = true;
+      void finishBackendRecording(true);
+      return;
+    }
     cancelRecordingRef.current = true;
-    void finishRecording(true);
-  }, [isRecording, finishRecording]);
+    try {
+      browserRecognitionRef.current?.abort();
+    } catch {
+      /* abort may throw if already ended */
+    }
+  }, [isRecording, sttSource, finishBackendRecording]);
 
   const handleContinue = useCallback(
     async (type: "comment" | "approve") => {
@@ -569,152 +678,144 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     openCollectionsModal,
   ]);
 
+  const showMicButton =
+    sttSource !== null &&
+    !isRecording &&
+    !isTranscribing &&
+    !isBusy &&
+    !message.trim() &&
+    uploads.length === 0 &&
+    !thread?.interrupt;
+
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
-      <div className="relative max-w-[900px] mx-auto">
-        <label
-          data-onboarding="autonomy-switch"
-          className="absolute -top-5 right-2 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none z-20 bg-card/80 rounded px-1"
-        >
-          <span>Автономность</span>
-          <Switch
-            checked={settings.autoApprove ?? false}
-            onCheckedChange={(checked) =>
-              setSettings((prev) => ({ ...prev, autoApprove: checked }))
-            }
+      <div
+        className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-card/90 dark:bg-input/90 pointer-events-none text-sm text-foreground">
+            Отпустите, чтобы прикрепить файлы
+          </div>
+        )}
+        <div className="flex items-end gap-2 relative">
+          <input
+            className="hidden"
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            multiple
+            disabled={thread?.isLoading || isMCPLoading}
           />
-        </label>
-        <div
-          className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight overflow-hidden"
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          {isDragging && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-card/90 dark:bg-input/90 pointer-events-none text-sm text-foreground">
-              Отпустите, чтобы прикрепить файлы
-            </div>
-          )}
-          <div className="flex items-end gap-2 relative">
-            <input
-              className="hidden"
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              multiple
-              disabled={thread?.isLoading || isMCPLoading}
-            />
-            <div className="flex flex-col items-center gap-1">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    data-onboarding="gear-menu-btn"
-                    type="button"
-                    disabled={thread?.isLoading || isMCPLoading}
-                    title="Открыть настройки"
-                    className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-                  >
-                    <Settings2 />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="input-dropdown"
-                  align="start"
-                  sideOffset={3}
+          <div className="flex flex-col items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  data-onboarding="gear-menu-btn"
+                  type="button"
+                  disabled={thread?.isLoading || isMCPLoading}
+                  title="Открыть настройки"
+                  className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
                 >
-                  <DropdownMenuItem onSelect={openContextModal}>
-                    <Brain className={"size-5"} />
-                    <span>Персонализация</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={openMcpModal}>
-                    <Cog className={"size-5"} />
-                    <span>Инструменты</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
-                    <Files className={"size-5"} />
-                    <span>Документы</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => window.print()}>
-                    <Printer className={"size-5"} />
-                    <span>Печать</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <button
-                data-onboarding="attachments-btn"
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={thread?.isLoading || isMCPLoading}
-                title="Добавить вложения"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+                  <Settings2 />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="input-dropdown"
+                align="start"
+                sideOffset={3}
               >
-                <Paperclip />
-              </button>
-            </div>
-
-            <textarea
-              data-onboarding="chat-input"
-              placeholder={
-                thread?.interrupt
-                  ? "Принять / Отменить с комментарием…"
-                  : "Введите вашу задачу…"
-              }
-              ref={textRef}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
+                <DropdownMenuItem onSelect={openContextModal}>
+                  <Brain className={"size-5"} />
+                  <span>Персонализация</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={openMcpModal}>
+                  <Cog className={"size-5"} />
+                  <span>Инструменты</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
+                  <Files className={"size-5"} />
+                  <span>Документы</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => window.print()}>
+                  <Printer className={"size-5"} />
+                  <span>Печать</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              data-onboarding="attachments-btn"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
               disabled={thread?.isLoading || isMCPLoading}
-              className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
-            />
-            <div className="flex flex-col items-end gap-1">
-              {micSupported && (
+              title="Добавить вложения"
+              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+            >
+              <Paperclip />
+            </button>
+          </div>
+
+          <textarea
+            data-onboarding="chat-input"
+            placeholder={
+              thread?.interrupt
+                ? "Принять / Отменить с комментарием…"
+                : "Введите вашу задачу…"
+            }
+            ref={textRef}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            disabled={thread?.isLoading || isMCPLoading}
+            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
+          />
+          <div className="flex flex-col items-end gap-1">
+            {isRecording ? (
+              <>
                 <button
                   type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    void startRecording();
-                  }}
-                  onMouseUp={(e) => {
-                    e.preventDefault();
-                    stopRecording();
-                  }}
-                  onMouseLeave={() => {
-                    if (isRecording) cancelRecording();
-                  }}
-                  onTouchStart={(e) => {
-                    e.preventDefault();
-                    void startRecording();
-                  }}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    stopRecording();
-                  }}
-                  onTouchCancel={cancelRecording}
-                  onContextMenu={(e) => e.preventDefault()}
-                  disabled={thread?.isLoading || isMCPLoading || isTranscribing}
-                  title={
-                    isRecording
-                      ? "Отпустите, чтобы распознать"
-                      : "Зажмите и диктуйте"
-                  }
-                  aria-label="Голосовой ввод"
-                  aria-pressed={isRecording}
-                  className={[
-                    "w-9 h-9 p-0 rounded-full flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67 select-none",
-                    isRecording
-                      ? "bg-red-500/15 text-red-500 animate-pulse"
-                      : "text-foreground",
-                  ].join(" ")}
+                  onClick={cancelRecording}
+                  title="Отменить запись"
+                  aria-label="Отменить запись"
+                  className="w-9 h-9 p-0 rounded-full text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors cursor-pointer outline-hidden"
                 >
-                  {isTranscribing ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <Mic />
-                  )}
+                  <X />
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={acceptRecording}
+                  title="Готово"
+                  aria-label="Готово"
+                  className="w-9 h-9 p-0 rounded-full bg-red-500/15 text-red-500 animate-pulse flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+                >
+                  <Check />
+                </button>
+              </>
+            ) : isTranscribing ? (
+              <button
+                type="button"
+                disabled
+                title="Распознавание…"
+                aria-label="Распознавание"
+                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center outline-hidden"
+              >
+                <Loader2 className="animate-spin" />
+              </button>
+            ) : showMicButton ? (
+              <button
+                type="button"
+                onClick={() => void startRecording()}
+                title="Голосовой ввод"
+                aria-label="Голосовой ввод"
+                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+              >
+                <Mic />
+              </button>
+            ) : (
               <button
                 type="button"
                 onClick={handleSend}
@@ -729,65 +830,73 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               >
                 <Send />
               </button>
-            </div>
+            )}
           </div>
-
-          {uploads.length > 0 && (
-            <AttachmentsContainer>
-              {uploads.map((u: UploadedFile, idx) => (
-                <AttachmentBubble
-                  key={idx}
-                  onClick={() =>
-                    u.previewUrl && setEnlargedImage(u.previewUrl!)
-                  }
-                >
-                  {u.previewUrl ? (
-                    <ImagePreview src={u.previewUrl} />
-                  ) : (
-                    <span>{u.file.name}</span>
-                  )}
-
-                  {u.progress < 100 && (
-                    <ProgressOverlay>
-                      <CircularProgress progress={u.progress}>
-                        {u.progress}%
-                      </CircularProgress>
-                    </ProgressOverlay>
-                  )}
-
-                  <RemoveButton
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeUpload(idx);
-                    }}
-                  >
-                    ×
-                  </RemoveButton>
-                </AttachmentBubble>
-              ))}
-            </AttachmentsContainer>
-          )}
-
-          <div
-            className={[
-              "absolute bottom-2 left-[75px] text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
-              selectedCount > 0
-                ? "opacity-100 translate-y-0"
-                : "opacity-0 translate-y-1",
-            ].join(" ")}
+          <label
+            data-onboarding="autonomy-switch"
+            className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
           >
-            Выбрано вложений: {selectedCount}
-          </div>
-
-          {enlargedImage && (
-            <Overlay onClick={() => setEnlargedImage(null)}>
-              <EnlargedImage src={enlargedImage} />
-              <CloseButton onClick={() => setEnlargedImage(null)}>
-                ×
-              </CloseButton>
-            </Overlay>
-          )}
+            <span>Автономность</span>
+            <Switch
+              checked={settings.autoApprove ?? false}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, autoApprove: checked }))
+              }
+            />
+          </label>
         </div>
+
+        {uploads.length > 0 && (
+          <AttachmentsContainer>
+            {uploads.map((u: UploadedFile, idx) => (
+              <AttachmentBubble
+                key={idx}
+                onClick={() => u.previewUrl && setEnlargedImage(u.previewUrl!)}
+              >
+                {u.previewUrl ? (
+                  <ImagePreview src={u.previewUrl} />
+                ) : (
+                  <span>{u.file.name}</span>
+                )}
+
+                {u.progress < 100 && (
+                  <ProgressOverlay>
+                    <CircularProgress progress={u.progress}>
+                      {u.progress}%
+                    </CircularProgress>
+                  </ProgressOverlay>
+                )}
+
+                <RemoveButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeUpload(idx);
+                  }}
+                >
+                  ×
+                </RemoveButton>
+              </AttachmentBubble>
+            ))}
+          </AttachmentsContainer>
+        )}
+
+        <div
+          className={[
+            "absolute bottom-2 left-[75px] text-muted-foreground text-xs pointer-events-none transition-opacity duration-100",
+            selectedCount > 0
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 translate-y-1",
+          ].join(" ")}
+        >
+          Выбрано вложений: {selectedCount}
+        </div>
+
+        {enlargedImage && (
+          <Overlay onClick={() => setEnlargedImage(null)}>
+            <EnlargedImage src={enlargedImage} />
+            <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
+          </Overlay>
+        )}
       </div>
     </div>
   );

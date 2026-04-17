@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI
@@ -11,8 +12,26 @@ from giga_agent.conf import (
     GIGA_AGENT_BASE_URL,
     GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_SKIP_ONBOARDING,
+    GIGA_AGENT_STT_ENABLED,
+    GIGA_AGENT_STT_RUNTIME,
     GIGA_AGENT_UI_PREFIX,
 )
+
+
+def _stt_capability() -> dict[str, object]:
+    """Resolve which STT runtime, if any, the backend can serve right now.
+
+    The feature is only advertised as enabled if the flag is on AND the
+    credentials required by the chosen runtime are present — otherwise the
+    frontend would offer a button that always 503s.
+    """
+    if not GIGA_AGENT_STT_ENABLED:
+        return {"enabled": False, "runtime": None}
+    runtime = (GIGA_AGENT_STT_RUNTIME or "").strip().lower()
+    if runtime == "salute":
+        available = bool(os.environ.get("SALUTE_SPEECH"))
+        return {"enabled": available, "runtime": "salute" if available else None}
+    return {"enabled": False, "runtime": None}
 
 
 def normalize_base_path(value: str | None) -> str:
@@ -45,14 +64,15 @@ def resolve_ui_base_path(request: Request) -> str:
     return join_prefixed_path(root_path, ui_prefix)
 
 
-def build_runtime_config(request: Request) -> dict[str, str | bool]:
+def build_runtime_config(request: Request) -> dict[str, object]:
     base_path = resolve_ui_base_path(request)
     api_base_path = join_prefixed_path(base_path, "api")
-    config = {
+    config: dict[str, object] = {
         "basePath": base_path,
         "apiBasePath": api_base_path,
         "apiAgentBasePath": f"{api_base_path}{GIGA_AGENT_PREFIX_API}",
         "skipOnboarding": GIGA_AGENT_SKIP_ONBOARDING,
+        "stt": _stt_capability(),
     }
     if GIGA_AGENT_BASE_URL:
         config["baseUrl"] = GIGA_AGENT_BASE_URL

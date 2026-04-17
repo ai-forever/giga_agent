@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from pydub import AudioSegment
 
+from giga_agent.conf import GIGA_AGENT_STT_ENABLED, GIGA_AGENT_STT_RUNTIME
 from giga_agent.models.users import User
 from giga_agent.modules.auth.api import get_current_active_user
 
@@ -107,6 +108,16 @@ async def recognize_speech(
     current_user: Annotated[User, Depends(get_current_active_user)],
     audio: UploadFile = File(...),
 ) -> RecognizeResponse:
+    if not GIGA_AGENT_STT_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="STT is disabled (set GIGA_AGENT_STT_ENABLED=1)",
+        )
+    if (GIGA_AGENT_STT_RUNTIME or "").strip().lower() != "salute":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Unsupported STT runtime '{GIGA_AGENT_STT_RUNTIME}'",
+        )
     auth_token = os.environ.get("SALUTE_SPEECH")
     if not auth_token:
         raise HTTPException(

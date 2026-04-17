@@ -52,6 +52,8 @@ class Settings(BaseSettings):
         False, alias="GIGA_AGENT_SKIP_STARTUP_MIGRATIONS"
     )
     giga_agent_skip_onboarding: bool = Field(False, alias="GIGA_AGENT_SKIP_ONBOARDING")
+    giga_agent_stt_enabled: bool = Field(False, alias="GIGA_AGENT_STT_ENABLED")
+    giga_agent_stt_runtime: str = Field("salute", alias="GIGA_AGENT_STT_RUNTIME")
     giga_agent_startup_migrations_lock_key: str = Field(
         "startup:migrations:lock",
         alias="GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY",
@@ -368,6 +370,8 @@ def get_local_docker_max_active_sandboxes_from_env() -> int | None:
 
 GIGA_AGENT_PREFIX_API = get_settings().giga_agent_prefix_api
 GIGA_PREFIX_API = GIGA_AGENT_PREFIX_API
+GIGA_AGENT_STT_ENABLED = get_settings().giga_agent_stt_enabled
+GIGA_AGENT_STT_RUNTIME = get_settings().giga_agent_stt_runtime
 GIGA_AGENT_BASE_URL = get_settings().giga_agent_base_url
 GIGA_AGENT_FRONTEND_DIR = get_settings().giga_agent_frontend_dir
 GIGA_AGENT_UI = get_settings().giga_agent_ui
