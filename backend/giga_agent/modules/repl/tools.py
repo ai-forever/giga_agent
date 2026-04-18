@@ -479,6 +479,16 @@ async def python(
 
     repl_tools_map = _extract_repl_tools_map()
     tool_node_tools_map = _extract_tool_node_tools_map(tool_node)
+
+    stripped_code = code.strip()
+    if stripped_code.startswith("```python"):
+        code = stripped_code.removeprefix("```python").lstrip("\r\n")
+    elif stripped_code.startswith("```"):
+        code = stripped_code.removeprefix("```").lstrip("\r\n")
+
+    if code.rstrip().endswith("```"):
+        code = code.rstrip().removesuffix("```").rstrip()
+
     prepared_code = _inject_repl_prelude(code, repl_tools_map, tool_node_tools_map)
 
     # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)

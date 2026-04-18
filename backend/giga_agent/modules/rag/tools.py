@@ -7,6 +7,7 @@ import uuid
 from typing import Annotated
 from urllib.request import urlopen
 
+from docx import Document as DocxDocument
 from langchain.tools import ToolRuntime, tool
 
 from giga_agent.core.db import get_session_factory
@@ -26,7 +27,7 @@ from giga_agent.core.agent.types import Collection
 logger = get_logger(__name__)
 
 MAX_READ_FILE_CHARS = 100_000
-DEFAULT_READ_FILE_LIMIT = 200
+DEFAULT_READ_FILE_LIMIT = 1000
 
 
 def _extract_pdf_text(data: bytes) -> str | None:
@@ -36,6 +37,28 @@ def _extract_pdf_text(data: bytes) -> str | None:
         return extract_text(io.BytesIO(data))
     except Exception:
         return None
+
+
+def _extract_docx_text(data: bytes) -> str | None:
+    try:
+        doc = DocxDocument(io.BytesIO(data))
+    except Exception:
+        return None
+
+    text_parts: list[str] = []
+
+    for paragraph in doc.paragraphs:
+        text = paragraph.text.strip()
+        if text:
+            text_parts.append(text)
+
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = " | ".join(cell.text.strip() for cell in row.cells)
+            if row_text.strip():
+                text_parts.append(row_text)
+
+    return "\n\n".join(text_parts)
 
 
 def _decode_text_bytes(data: bytes) -> str | None:
@@ -64,6 +87,14 @@ def _text_from_file_bytes(
     ):
         return _extract_pdf_text(data)
 
+    if (
+        normalized_media_type
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        or lower_name.endswith(".docx")
+        or lower_path.endswith(".docx")
+    ):
+        return _extract_docx_text(data)
+
     return _decode_text_bytes(data)
 
 
@@ -79,24 +110,19 @@ def _slice_lines(
     *,
     lines: list[str],
     offset: int | None,
-    limit: int | None,
+    limit: int,
 ) -> tuple[list[str], int, int]:
     total_lines = len(lines)
     if offset is None:
         start_index = 0
-    elif offset == 0:
-        raise ValueError("offset must not be 0")
     elif offset > 0:
         start_index = max(offset - 1, 0)
     else:
         start_index = max(total_lines + offset, 0)
 
-    if limit is None:
-        end_index = total_lines
-    else:
-        if limit <= 0:
-            raise ValueError("limit must be greater than 0")
-        end_index = min(start_index + limit, total_lines)
+    if limit <= 0:
+        raise ValueError("limit must be greater than 0")
+    end_index = min(start_index + limit, total_lines)
 
     return lines[start_index:end_index], start_index, end_index
 
@@ -138,6 +164,8 @@ def _build_next_read_hint(
     next_offset: int | None,
     remaining_lines: int,
     requested_limit: int | None,
+    returned_lines: int,
+    truncated_by_chars: bool,
 ) -> str:
     if total_lines == 0:
         return (
@@ -152,8 +180,16 @@ def _build_next_read_hint(
         )
 
     next_limit = requested_limit or DEFAULT_READ_FILE_LIMIT
+    char_limit_hint = ""
+    if truncated_by_chars and returned_lines < next_limit:
+        char_limit_hint = (
+            f" Чтение файла ограничено лимитом в {MAX_READ_FILE_CHARS} символов, "
+            "поэтому вернулось меньше строк, чем ты запрашивал."
+        )
+
     return (
         f"Файл еще имеет {remaining_lines} строк после текущего фрагмента. "
+        f"{char_limit_hint}"
         f"Чтобы продолжить, лучше вызвать "
         f"read_file(sandbox_path={sandbox_path!r}, offset={next_offset}, limit={next_limit})."
     )
@@ -267,23 +303,23 @@ async def get_documents(
     description="""Читает файл из файловой системы. Ты можешь получить доступ к любому файлу напрямую с помощью этого инструмента.
 Если пользователь передаёт путь к файлу, считай этот путь валидным. Если файл не существует, будет возвращена ошибка.
 Использование:
-- Можно опционально указать offset и limit по строкам, что особенно удобно для длинных файлов, но по умолчанию лучше читать файл целиком, не передавая эти параметры
+- Можно опционально указать offset и limit по строкам, что особенно удобно для длинных файлов, но по умолчанию читаются первые 1000 строк файла. Чтобы читать его дальше повышай offset и читай файл дальше.
 - Строки в результате нумеруются начиная с 1 в формате: НОМЕР_СТРОКИ|СОДЕРЖИМОЕ_СТРОКИ
 - Если файл существует, но пустой, инструмент вернёт 'File is empty.'
-- PDF-файлы автоматически конвертируются в текст (с теми же ограничениями на размер ответа, что и для остальных файлов).""",
-    extras={"repl_skip": True},
+- PDF и DOCX-файлы автоматически конвертируются в текст (с теми же ограничениями на размер ответа, что и для остальных файлов).""",
+    extras={"repl_skip": True, "not_compress": True},
 )
 async def read_file(
     sandbox_path: Annotated[str, "Путь к файлу в sandbox (sandbox_path из результата get_documents)"],
     runtime: ToolRuntime,
     offset: Annotated[
-        int | None,
+        int,
         "Номер строки для начала чтения: положительные значения 1-indexed, отрицательные считаются от конца файла",
-    ] = None,
+    ] = 1,
     limit: Annotated[
-        int | None,
+        int,
         "Количество строк для чтения. Если не передано, инструмент пытается вернуть файл целиком в пределах лимита размера ответа",
-    ] = None,
+    ] = 1000,
 ) -> dict:
     """Читает файл из sandbox построчно с поддержкой offset/limit."""
     from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
@@ -379,6 +415,8 @@ async def read_file(
                 next_offset=None,
                 remaining_lines=0,
                 requested_limit=limit,
+                returned_lines=0,
+                truncated_by_chars=False,
             ),
         }
 
@@ -422,6 +460,8 @@ async def read_file(
             next_offset=next_offset,
             remaining_lines=remaining_lines,
             requested_limit=limit,
+            returned_lines=returned_lines,
+            truncated_by_chars=truncated_by_chars,
         ),
     }
 
@@ -463,7 +503,7 @@ RAG_PROMPT = """
 
 ВАЖНО: Если get_documents нашёл релевантный документ, но информации в чанке недостаточно — ОБЯЗАТЕЛЬНО прочитай файл целиком через read_file(sandbox_path), прежде чем говорить что данных нет.
 
-ЦИТИРОВАНИЕ: Всегда указывай ID документа и, если есть, раздел/пункт/страницу.
+ЦИТИРОВАНИЕ: Всегда указывай название документа и, если есть, раздел/пункт/страницу.
 
 """
 

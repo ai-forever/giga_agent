@@ -25,7 +25,10 @@ class RagModule(BaseModule):
 
     async def get_tools(self, user: UserShort | None, agent: BaseAgent) -> List[BaseTool]:
         _ = user, agent
-        return [get_documents, read_file]
+        tools = [read_file]
+        if user and user.embedding_id:
+            tools.append(get_documents)
+        return tools
 
     async def get_instructions(
         self,

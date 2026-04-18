@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  CSSProperties,
+} from "react";
 import {
   Joyride,
   ACTIONS,
@@ -7,6 +13,7 @@ import {
   Step,
   TooltipRenderProps,
   EventData,
+  ArrowRenderProps,
 } from "react-joyride";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -52,8 +59,8 @@ const CustomTooltip: React.FC<TooltipRenderProps> = ({
     <div
       role={tooltipProps.role}
       aria-modal={tooltipProps["aria-modal"]}
-      className="bg-card dark:bg-zinc-800 border border-border rounded-xl shadow-xl overflow-hidden w-[340px] max-w-[calc(100vw-1rem)]"
-      style={{ position: "relative", zIndex: 11010 }}
+      className="bg-card dark:bg-zinc-800 border border-border dark:border-highlight rounded-xl overflow-hidden w-[340px] max-w-[calc(100vw-1rem)]"
+      style={{ position: "relative", zIndex: 8 }}
     >
       <div className="p-4">
         <div className="min-w-0 mb-1.5 flex items-start justify-between gap-2">
@@ -245,12 +252,12 @@ const RuntimeTip: React.FC<{
       window.removeEventListener("scroll", scheduleUpdate, true);
       resizeObserver?.disconnect();
     };
-  }, [targetSelector]);
+  }, [targetSelector, preferredSide]);
 
   return (
     <div
       ref={cardRef}
-      className="fixed z-[9999] w-[320px] max-w-[calc(100vw-1rem)] animate-in fade-in zoom-in-95 duration-200"
+      className="fixed z-[8] w-[320px] max-w-[calc(100vw-1rem)] animate-in fade-in zoom-in-95 duration-200"
       style={{
         left: position?.left ?? 0,
         top: position?.top ?? 0,
@@ -260,12 +267,12 @@ const RuntimeTip: React.FC<{
       <div className="relative bg-card dark:bg-zinc-800 border border-border rounded-xl shadow-xl p-4">
         {position && (
           <div
-            className="absolute size-3 bg-card dark:bg-zinc-800 border-border rotate-45"
+            className="absolute"
             style={
               position.side === "top" || position.side === "bottom"
                 ? {
-                    left: (position.arrowLeft ?? 20) - 6,
-                    top: position.side === "top" ? "calc(100% - 6px)" : "-6px",
+                    left: position.arrowLeft ? position.arrowLeft - 10 : 20,
+                    top: position.side === "top" ? "calc(100%)" : "0px",
                     borderLeftWidth: position.side === "top" ? "1px" : "0",
                     borderTopWidth: position.side === "top" ? "0" : "1px",
                     borderRightWidth: "1px",
@@ -273,14 +280,22 @@ const RuntimeTip: React.FC<{
                     borderStyle: "solid",
                   }
                 : {
-                    left:
-                      position.side === "left" ? "calc(100% - 6px)" : "-6px",
-                    top: (position.arrowTop ?? 20) - 6,
+                    left: position.side === "left" ? "calc(100%)" : "",
+                    top: position.arrowTop
+                      ? Math.max(15, position.arrowTop - 10)
+                      : 20,
                     borderWidth: "1px",
                     borderStyle: "solid",
                   }
             }
-          />
+          >
+            <CustomArrow
+              placement={position.side}
+              size={16}
+              base={32}
+              disableDarkBorder={true}
+            />
+          </div>
         )}
         <div className="min-w-0 flex-1">
           <h4 className="text-sm font-semibold mb-1">{title}</h4>
@@ -300,16 +315,67 @@ const RuntimeTip: React.FC<{
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-const JOYRIDE_OPTIONS = {
-  overlayClickAction: false as const,
-  dismissKeyAction: false as const,
-  blockTargetInteraction: false,
-  skipScroll: true,
-  skipBeacon: true,
-  overlayColor: "transparent",
-  zIndex: 11000,
-  targetWaitTimeout: 2000,
-};
+const BORDER_WIDTH = 1;
+
+interface ArrowProps extends ArrowRenderProps {
+  disableDarkBorder?: boolean;
+}
+
+function CustomArrow({
+  base,
+  placement,
+  size,
+  disableDarkBorder = false,
+}: ArrowProps) {
+  let styles: CSSProperties = {};
+  if (placement.startsWith("top")) {
+    styles = {
+      transform: "rotate(180deg)",
+      top: "-1px",
+    };
+  } else if (placement.startsWith("bottom")) {
+    styles = {
+      bottom: "-1px",
+    };
+  } else if (placement.startsWith("right")) {
+    styles = {
+      transform: "rotate(270deg)",
+      right: `-${size / 4 + 5}px`,
+    };
+  } else if (placement.startsWith("left")) {
+    styles = {
+      transform: "rotate(90deg)",
+      left: `-${size / 4 + 5}px`,
+    };
+  }
+
+  return (
+    <div>
+      <div
+        className={`bg-border ${disableDarkBorder ? "dark:bg-zinc-800" : "dark:bg-highlight"}`}
+        style={{
+          ...styles,
+          width: base,
+          height: size,
+          clipPath: `polygon(${size * 2}px ${size}px, ${size}px 0px, 0px ${size}px)`,
+          position: "absolute",
+          zIndex: "9",
+        }}
+      />
+      <div
+        className={"bg-card dark:bg-zinc-800"}
+        style={{
+          ...styles,
+          width: base,
+          height: size,
+          clipPath: `polygon(${size * 2 - BORDER_WIDTH}px ${size}px, ${size}px ${BORDER_WIDTH}px, ${BORDER_WIDTH}px ${size}px)`,
+          position: "absolute",
+          zIndex: "9",
+        }}
+      />
+    </div>
+  );
+}
 
 const FunctionalityOnboarding: React.FC = () => {
   const location = useLocation();
@@ -451,9 +517,24 @@ const FunctionalityOnboarding: React.FC = () => {
           run={startupRun}
           stepIndex={startupStep}
           steps={STARTUP_STEPS}
+          arrowComponent={CustomArrow}
           onEvent={handleStartupEvent}
           tooltipComponent={CustomTooltip}
-          options={JOYRIDE_OPTIONS}
+          options={{
+            overlayClickAction: false,
+            dismissKeyAction: false,
+            blockTargetInteraction: false,
+            skipScroll: true,
+            skipBeacon: true,
+            overlayColor: "transparent",
+            zIndex: 8,
+            targetWaitTimeout: 2000,
+            hideOverlay: true,
+          }}
+          styles={{
+            floater: { filter: "none" },
+            overlay: { zIndex: "8" },
+          }}
         />
       )}
 

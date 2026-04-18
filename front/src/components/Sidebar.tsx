@@ -606,6 +606,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         ].join(" ")}
         style={{
           width: `${SIDEBAR_WIDTH}px`,
+          borderTop: 0,
           transform: settings.sideBarOpen
             ? undefined
             : `translateX(-${SIDEBAR_WIDTH + 10}px)`,
