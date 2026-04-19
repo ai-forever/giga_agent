@@ -29,6 +29,19 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
     def _get_kernel_request_payload(self) -> Dict[str, Any] | None:
         return None
 
+    def is_base_url_internal(self) -> bool:
+        return False
+
+    def _get_client_session_kwargs(self) -> Dict[str, Any]:
+        if self.is_base_url_internal():
+            return {"trust_env": False}
+        return {}
+
+    def _get_websocket_connect_kwargs(self) -> Dict[str, Any]:
+        if self.is_base_url_internal():
+            return {"proxy": None}
+        return {}
+
     async def up(self) -> None:
         """
         JupyterSandbox подключается к уже существующему экземпляру,
@@ -38,7 +51,9 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
 
     async def is_up(self) -> bool:
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(
+                **self._get_client_session_kwargs()
+            ) as session:
                 async with session.get(
                     f"{self.base_url}/api/status",
                     headers=self._get_headers(),
@@ -52,7 +67,9 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
         return False
 
     async def _ensure_kernel(self) -> None:
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(
+            **self._get_client_session_kwargs()
+        ) as session:
             if self._kernel_id:
                 # Check if alive
                 try:
@@ -99,6 +116,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             url,
             additional_headers=self.headers,
             max_size=WS_MAX_SIZE,
+            **self._get_websocket_connect_kwargs(),
         ) as ws:
             msg_id = uuid.uuid4().hex
 

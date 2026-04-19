@@ -146,6 +146,9 @@ class LocalDockerSandbox(JupyterSandbox):
     def _internal_base_url(self) -> str:
         return f"http://{self._container_name()}:{JUPYTER_PORT}"
 
+    def is_base_url_internal(self) -> bool:
+        return self._docker_network() is not None
+
     def _container_labels(self) -> dict[str, str]:
         if self.sandbox_id is None:
             raise RuntimeError("sandbox_id is required for docker labels")
