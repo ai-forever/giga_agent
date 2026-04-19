@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from aiogram import Bot, Dispatcher, types as tg_types
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import Command
 from aiogram.types import (
     BotCommand,
@@ -25,6 +27,22 @@ from giga_agent.core.logging import get_logger
 from giga_agent.models.channel import ChannelBot
 
 logger = get_logger(__name__)
+
+
+def _get_env_proxy(*names: str) -> str | None:
+    for name in names:
+        value = (os.getenv(name) or os.getenv(name.lower()) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def _build_bot(token: str) -> Bot:
+    proxy = _get_env_proxy("HTTPS_PROXY", "ALL_PROXY", "HTTP_PROXY")
+    if proxy:
+        logger.info("Telegram bot session proxy enabled")
+        return Bot(token=token, session=AiohttpSession(proxy=proxy))
+    return Bot(token=token)
 
 
 def _has_supported_attachment(message: tg_types.Message | None) -> bool:
@@ -52,7 +70,7 @@ class TelegramBotApp:
     def __init__(self, bot_row: ChannelBot, user_email: str):
         self.bot_row = bot_row
         self.user_email = user_email
-        self.bot = Bot(token=get_bot_token(bot_row))
+        self.bot = _build_bot(get_bot_token(bot_row))
         self.dp = Dispatcher()
         self._task: asyncio.Task | None = None
 
