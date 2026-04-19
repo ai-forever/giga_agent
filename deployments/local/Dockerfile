@@ -25,7 +25,7 @@ COPY README.md /README.md
 
 # Copy the actual backend package (includes `giga_agent/ui_dist`)
 COPY backend/giga_agent/ ./giga_agent/
-RUN mkdir ./giga_agent/ui_dist/
+RUN mkdir -p ./giga_agent/ui_dist/
 
 # Install the package (and dependencies from pyproject.toml)
 RUN pip install --no-cache-dir .
