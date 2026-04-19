@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from aiogram import Bot
 from pydantic import Field, PrivateAttr
 
 from giga_agent.channels.telegram.app import TelegramBotApp
+from giga_agent.channels.telegram.bot import create_telegram_bot
 from giga_agent.channels.base import Channel, ChannelInstanceMetadata
 from giga_agent.channels.registry import ChannelRegistry
 from giga_agent.channels.telegram.constants import TELEGRAM_CHANNEL_TYPE
@@ -61,7 +61,7 @@ class TelegramChannel(Channel):
 """
 
     async def resolve_instance_metadata(self) -> ChannelInstanceMetadata:
-        bot = Bot(token=self.bot_token)
+        bot = create_telegram_bot(self.bot_token)
         try:
             me = await bot.get_me()
         finally:
