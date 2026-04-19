@@ -90,6 +90,9 @@ services:
         condition: service_healthy
     networks:
       - giga-agent-net
+    env_file:
+      - ./.env
+      - ./.env.giga_agent
     environment:
       MEM0_DIR: /tmp/.mem0
       # Use the mounted backend sources in dev.
