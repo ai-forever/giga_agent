@@ -20,11 +20,19 @@ def _get_env_proxy(*names: str) -> str | None:
     return None
 
 
+def _normalize_aiogram_proxy(proxy: str) -> str:
+    normalized = proxy.strip()
+    if normalized.lower().startswith("socks5h://"):
+        logger.info("Normalizing Telegram proxy scheme from socks5h to socks5")
+        return "socks5://" + normalized[len("socks5h://") :]
+    return normalized
+
+
 def create_telegram_bot(token: str) -> Bot:
     proxy = _get_env_proxy("HTTPS_PROXY", "ALL_PROXY", "HTTP_PROXY")
     if proxy:
         logger.info("Telegram bot session proxy enabled")
-        return Bot(token=token, session=AiohttpSession(proxy=proxy))
+        return Bot(token=token, session=AiohttpSession(proxy=_normalize_aiogram_proxy(proxy)))
     return Bot(token=token)
 
 __all__ = ["create_telegram_bot"]
