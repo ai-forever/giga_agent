@@ -1,8 +1,10 @@
 """File upload / read / delete for Docker sandboxes with local bucket storage."""
 
 import asyncio
+import base64
 import mimetypes
 import secrets
+import shlex
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
@@ -46,7 +48,9 @@ class FilesMixin:
         file_name: str,
         content: bytes,
     ) -> str:
-        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
+        rel_path = self._uniquify_bucket_rel_path(
+            owner_id=owner_id, file_name=file_name
+        )
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(target, "wb") as f:
@@ -127,6 +131,52 @@ class FilesMixin:
             )
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
+        return not self._is_bucket_path(sandbox_path)
+
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        if self._is_bucket_path(sandbox_path):
+            local_path = self._local_path_from_bucket_path(sandbox_path)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            async with aiofiles.open(local_path, "wb") as f:
+                await f.write(content)
+            return
+
+        await self._ensure_container_connected()
+        assert self._container is not None
+        encoded = base64.b64encode(content).decode("ascii")
+        cmd = (
+            f"mkdir -p $(dirname {shlex.quote(sandbox_path)}) && "
+            f"echo {encoded} | base64 -d > {shlex.quote(sandbox_path)}"
+        )
+        exit_code, output = self._container.exec_run(
+            cmd=["sh", "-c", cmd],
+            stdout=True,
+            stderr=True,
+        )
+        if exit_code != 0:
+            stderr = output.decode(errors="ignore")
+            raise RuntimeError(
+                f"Failed to write file '{sandbox_path}': {stderr}".strip()
+            )
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        if self._is_bucket_path(sandbox_path):
+            local_path = self._local_path_from_bucket_path(sandbox_path)
+            return local_path.exists() and local_path.is_file()
+
+        await self._ensure_container_connected()
+        assert self._container is not None
+        exit_code, _ = self._container.exec_run(
+            cmd=["test", "-f", sandbox_path],
+            stdout=True,
+            stderr=True,
+        )
+        return exit_code == 0
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        return not self._is_bucket_path(sandbox_path)
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
         return not self._is_bucket_path(sandbox_path)
 
     # ------------------------------------------------------------------
@@ -213,7 +263,7 @@ class FilesMixin:
     def _local_path_from_bucket_path(self, sandbox_path: str) -> Path:
         if self.owner_id is None:
             raise RuntimeError("owner_id is required to resolve sandbox path")
-        key = sandbox_path[len(BUCKET_PREFIX):].strip("/")
+        key = sandbox_path[len(BUCKET_PREFIX) :].strip("/")
         if not key:
             raise ValueError(f"Invalid bucket path: {sandbox_path}")
 

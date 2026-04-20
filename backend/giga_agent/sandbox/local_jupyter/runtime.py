@@ -307,6 +307,22 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
         return False
 
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        local_path = self._resolve_readable_path(sandbox_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(local_path, "wb") as file_obj:
+            await file_obj.write(content)
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        local_path = self._resolve_readable_path(sandbox_path)
+        return local_path.exists() and local_path.is_file()
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        return False
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
+        return False
+
     async def _stream_local_file(
         self,
         path: Path,

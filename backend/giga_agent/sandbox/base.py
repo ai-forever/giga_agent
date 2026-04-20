@@ -8,6 +8,8 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, create_model
 
 if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+
     from giga_agent.core.agent.base import BaseAgent
     from giga_agent.core.agent.types import AgentState
     from giga_agent.models.users import UserShort
@@ -133,6 +135,11 @@ class BaseSandbox(BaseModel, ABC):
         _ = user, agent, state, config, kwargs
         return ""
 
+    @staticmethod
+    def get_tools() -> list["BaseTool"]:
+        """Вернуть sandbox-специфичные инструменты. Подклассы переопределяют."""
+        return []
+
     @classmethod
     async def cleanup_orphans(
         cls,
@@ -208,6 +215,29 @@ class BaseSandbox(BaseModel, ABC):
             f"{self.__class__.__name__} does not implement delete_file()"
         )
 
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        """
+        Записать байты в файл по произвольному пути внутри sandbox.
+
+        Создаёт родительские директории при необходимости.
+        Перезаписывает файл, если он уже существует (create-only guard — на уровне тула).
+
+        Базовая реализация — заглушка. Подклассы переопределяют метод.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement write_file_content()"
+        )
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        """
+        Проверить, существует ли файл по указанному sandbox_path.
+
+        Базовая реализация — заглушка. Подклассы переопределяют метод.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement file_exists()"
+        )
+
     def requires_running_for_upload(self) -> bool:
         """
         Нужен ли поднятый sandbox для upload_file.
@@ -232,5 +262,23 @@ class BaseSandbox(BaseModel, ABC):
 
         По умолчанию считаем, что нужен. Провайдеры с прямым доступом к внешнему
         хранилищу (например, S3) могут вернуть False.
+        """
+        return True
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        """
+        Нужен ли поднятый sandbox для write_file_content конкретного пути.
+
+        По умолчанию считаем, что нужен. Провайдеры с прямым доступом к
+        хранилищу могут вернуть False.
+        """
+        return True
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
+        """
+        Нужен ли поднятый sandbox для file_exists конкретного пути.
+
+        По умолчанию считаем, что нужен. Провайдеры с прямым доступом к
+        хранилищу могут вернуть False.
         """
         return True

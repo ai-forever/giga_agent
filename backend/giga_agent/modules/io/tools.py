@@ -183,6 +183,43 @@ def _build_next_read_hint(
     )
 
 
+async def _get_owner_id(runtime: ToolRuntime) -> uuid.UUID:
+    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+
+
+async def _read_file_text(
+    sandbox_path: str,
+    owner_id: uuid.UUID,
+) -> str:
+    """Прочитать файл целиком как текст. Поднимает исключение при ошибке."""
+    from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
+    from giga_agent.sandbox.manager import SandboxManager
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        _, result = await manager.read_file_by_path_for_user(
+            user_id=owner_id,
+            sandbox_path=sandbox_path,
+        )
+
+    if isinstance(result, ContentResult):
+        data = result.data
+    elif isinstance(result, StreamResult):
+        chunks = []
+        async for chunk in result.stream:
+            chunks.append(chunk)
+        data = b"".join(chunks)
+    elif isinstance(result, RedirectResult):
+        data = await _download_redirect_bytes(result.url)
+    else:
+        raise ValueError("Файл доступен только по URL, прямое чтение невозможно")
+
+    text = data.decode("utf-8")
+    return text
+
+
 @tool(
     description="""Читает файл из файловой системы. Ты можешь получить доступ к любому файлу напрямую с помощью этого инструмента.
 Если пользователь передаёт путь к файлу, считай этот путь валидным. Если файл не существует, будет возвращена ошибка.
@@ -194,7 +231,9 @@ def _build_next_read_hint(
     extras={"repl_skip": True, "not_compress": True},
 )
 async def read_file(
-    sandbox_path: Annotated[str, "Путь к файлу в sandbox (sandbox_path из результата get_documents)"],
+    sandbox_path: Annotated[
+        str, "Путь к файлу в sandbox (sandbox_path из результата get_documents)"
+    ],
     runtime: ToolRuntime,
     offset: Annotated[
         int,
@@ -264,7 +303,9 @@ async def read_file(
         try:
             data = await _download_redirect_bytes(result.url)
         except Exception as e:
-            logger.warning("read_file redirect download failed for %s: %s", sandbox_path, e)
+            logger.warning(
+                "read_file redirect download failed for %s: %s", sandbox_path, e
+            )
             return {"error": str(e), "content": None}
         text = _text_from_file_bytes(
             data=data,
@@ -279,7 +320,10 @@ async def read_file(
                 "content": None,
             }
     else:
-        return {"error": "Файл доступен только по URL, прямое чтение невозможно", "content": None}
+        return {
+            "error": "Файл доступен только по URL, прямое чтение невозможно",
+            "content": None,
+        }
 
     if text == "":
         return {
@@ -347,4 +391,179 @@ async def read_file(
             returned_lines=returned_lines,
             truncated_by_chars=truncated_by_chars,
         ),
+    }
+
+
+@tool(
+    description="""Создаёт новый файл в файловой системе.
+
+Использование:
+- Инструмент write_file создаёт новый файл. Если файл по указанному пути уже существует, будет возвращена ошибка.
+- Предпочитай редактирование существующих файлов (через edit_file) созданию новых, когда это возможно.""",
+    extras={"repl_skip": True, "not_compress": True},
+)
+async def write_file(
+    file_path: Annotated[
+        str,
+        "Абсолютный путь для создания файла. Должен быть абсолютным, не относительным.",
+    ],
+    content: Annotated[
+        str,
+        "Текстовое содержимое для записи в файл. Этот параметр обязателен.",
+    ],
+    runtime: ToolRuntime,
+) -> dict:
+    """Создаёт новый файл по указанному пути."""
+    from giga_agent.sandbox.manager import SandboxManager
+
+    if runtime is None:
+        return {"error": "ToolRuntime is required"}
+
+    owner_id = await _get_owner_id(runtime)
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        try:
+            exists = await manager.file_exists_for_user(
+                user_id=owner_id,
+                sandbox_path=file_path,
+            )
+        except Exception as e:
+            logger.warning(
+                "write_file file_exists check failed for %s: %s", file_path, e
+            )
+            return {"error": str(e)}
+
+        if exists:
+            return {
+                "error": "Файл уже существует. Используй edit_file для изменения существующих файлов.",
+                "file_path": file_path,
+            }
+
+        content_bytes = content.encode("utf-8")
+        try:
+            await manager.write_file_content_for_user(
+                user_id=owner_id,
+                sandbox_path=file_path,
+                content=content_bytes,
+            )
+        except Exception as e:
+            logger.warning("write_file failed for %s: %s", file_path, e)
+            return {"error": str(e)}
+
+    return {
+        "file_path": file_path,
+        "status": "created",
+        "size": len(content_bytes),
+    }
+
+
+@tool(
+    description="""Выполняет точную замену строк в файлах.
+
+Использование:
+- Перед редактированием необходимо прочитать файл. Этот инструмент выдаст ошибку, если файл не существует.
+- При редактировании сохраняй точные отступы (табы/пробелы) из вывода read_file. Никогда не включай префиксы номеров строк в old_string или new_string.
+- ВСЕГДА предпочитай редактирование существующих файлов созданию новых.""",
+    extras={"repl_skip": True, "not_compress": True},
+)
+async def edit_file(
+    file_path: Annotated[
+        str,
+        "Абсолютный путь к редактируемому файлу. Должен быть абсолютным, не относительным.",
+    ],
+    old_string: Annotated[
+        str,
+        "Точный текст для поиска и замены. Должен быть уникальным в файле, если replace_all не True.",
+    ],
+    new_string: Annotated[
+        str,
+        "Текст, на который заменяется old_string. Должен отличаться от old_string.",
+    ],
+    runtime: ToolRuntime,
+    replace_all: Annotated[
+        bool,
+        "Если True, заменяет все вхождения old_string. Если False (по умолчанию), old_string должен быть уникальным.",
+    ] = False,
+) -> dict:
+    """Выполняет точную замену строк в указанном файле."""
+    from giga_agent.sandbox.manager import SandboxManager
+
+    if runtime is None:
+        return {"error": "ToolRuntime is required"}
+
+    owner_id = await _get_owner_id(runtime)
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        try:
+            exists = await manager.file_exists_for_user(
+                user_id=owner_id,
+                sandbox_path=file_path,
+            )
+        except Exception as e:
+            logger.warning(
+                "edit_file file_exists check failed for %s: %s", file_path, e
+            )
+            return {"error": str(e)}
+
+        if not exists:
+            return {
+                "error": "Файл не существует. Используй write_file для создания новых файлов.",
+                "file_path": file_path,
+            }
+
+    if old_string == new_string:
+        return {
+            "error": "old_string и new_string совпадают. Укажи разные значения.",
+            "file_path": file_path,
+        }
+
+    try:
+        text = await _read_file_text(sandbox_path=file_path, owner_id=owner_id)
+    except Exception as e:
+        logger.warning("edit_file read failed for %s: %s", file_path, e)
+        return {"error": str(e), "file_path": file_path}
+
+    count = text.count(old_string)
+    if count == 0:
+        return {
+            "error": "old_string не найден в файле.",
+            "file_path": file_path,
+        }
+
+    if not replace_all and count > 1:
+        return {
+            "error": f"old_string не уникален, найдено {count} вхождений. "
+            "Передай более длинную строку с контекстом для уникальной идентификации, "
+            "или используй replace_all=True для замены всех вхождений.",
+            "file_path": file_path,
+        }
+
+    if replace_all:
+        new_text = text.replace(old_string, new_string)
+        replacements = count
+    else:
+        new_text = text.replace(old_string, new_string, 1)
+        replacements = 1
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        try:
+            await manager.write_file_content_for_user(
+                user_id=owner_id,
+                sandbox_path=file_path,
+                content=new_text.encode("utf-8"),
+            )
+        except Exception as e:
+            logger.warning("edit_file write failed for %s: %s", file_path, e)
+            return {"error": str(e), "file_path": file_path}
+
+    return {
+        "file_path": file_path,
+        "status": "edited",
+        "replacements": replacements,
     }
