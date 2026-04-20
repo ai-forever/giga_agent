@@ -367,6 +367,13 @@ class SandboxLifecycleService:
             return None
 
         if isinstance(action, RemoveExternalRuntimeAction):
+            logger.info(
+                "orphan_action removing external runtime provider_type=%s sandbox_id=%s external_id=%s reason=%s",
+                action.provider_type,
+                action.sandbox_id,
+                action.external_id,
+                action.reason,
+            )
             runtime_cls = SandboxRegistry.get(action.provider_type)
             await runtime_cls.remove_external_runtime(action.external_id)
             return action.external_id
@@ -390,6 +397,13 @@ class SandboxLifecycleService:
         if isinstance(action, SetSandboxStatusAction):
             if sandbox is None:
                 return None
+            logger.info(
+                "orphan_action setting sandbox status sandbox_id=%s new_status=%s clear_connection=%s reason=%s",
+                action.sandbox_id,
+                action.status,
+                action.clear_runtime_connection,
+                action.reason,
+            )
             await self._set_sandbox_status_unlocked(
                 sandbox=sandbox,
                 status=action.status,

@@ -30,6 +30,7 @@ from giga_agent.sandbox.local_jupyter.manager import (
     LOCAL_JUPYTER_KERNEL_NAME,
     get_local_jupyter_server_manager,
 )
+from giga_agent.sandbox.local_jupyter.shell import LocalShellMixin
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 from giga_agent.sandbox.registry import SandboxRegistry
 
@@ -39,7 +40,9 @@ if TYPE_CHECKING:
     from giga_agent.models.users import UserShort
 
 BUCKET_PREFIX = "/bucket/"
-_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_LOCAL_FILE_SUFFIX_ALPHABET = (
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
 
 
 def _describe_local_os() -> str:
@@ -88,7 +91,7 @@ def _format_directory(path: Path) -> str:
 
 
 @SandboxRegistry.register("local_jupyter")
-class LocalJupyterSandbox(JupyterSandbox):
+class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     owner_id: uuid.UUID | None = Field(
         default=None,
         description="Sandbox owner id injected by runtime factory",
@@ -255,7 +258,9 @@ class LocalJupyterSandbox(JupyterSandbox):
         file_name: str,
         content: bytes,
     ) -> str:
-        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
+        rel_path = self._uniquify_bucket_rel_path(
+            owner_id=owner_id, file_name=file_name
+        )
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(target, "wb") as file_obj:

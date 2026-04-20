@@ -86,20 +86,16 @@ class LocalJupyterServerManager:
 
             if not self._is_pid_alive(pid):
                 self._unregister_supervised_process(pid)
-                if (
-                    (self._handle is not None and self._handle.pid == pid)
-                    or (
-                        metadata_handle is not None and metadata_handle.pid == pid
-                    )
+                if (self._handle is not None and self._handle.pid == pid) or (
+                    metadata_handle is not None and metadata_handle.pid == pid
                 ):
                     await self._clear_state_unlocked(pid=pid)
                 return
 
             await self._terminate_pid_unlocked(pid)
 
-            if (
-                (self._handle is not None and self._handle.pid == pid)
-                or (metadata_handle is not None and metadata_handle.pid == pid)
+            if (self._handle is not None and self._handle.pid == pid) or (
+                metadata_handle is not None and metadata_handle.pid == pid
             ):
                 await self._clear_state_unlocked(pid=pid)
             else:
@@ -207,7 +203,9 @@ class LocalJupyterServerManager:
         )
 
         try:
-            await self._wait_until_ready(handle, timeout_sec=self._startup_timeout_sec())
+            await self._wait_until_ready(
+                handle, timeout_sec=self._startup_timeout_sec()
+            )
         except Exception:
             await self.stop_pid(handle.pid)
             raise
@@ -314,6 +312,43 @@ class LocalJupyterServerManager:
     def _unregister_supervised_process(self, pid: int) -> None:
         get_process_supervisor().unregister_process(kind="local_jupyter", pid=pid)
 
+    def get_shell_env(
+        self,
+        *,
+        extra_envs: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Environment dict for local shell sessions with correct pip/python."""
+        python_executable = self._python_executable()
+        shims_dir = self._shims_dir()
+        self._ensure_command_shims(
+            shims_dir=shims_dir,
+            python_executable=python_executable,
+        )
+        env = self._runtime_command_env(
+            shims_dir=shims_dir,
+            python_executable=python_executable,
+        )
+        if extra_envs:
+            env.update({str(k): str(v) for k, v in extra_envs.items()})
+        return env
+
+    def _ensure_command_shims(
+        self,
+        *,
+        shims_dir: Path,
+        python_executable: str,
+    ) -> None:
+        if os.name == "nt":
+            marker = shims_dir / "pip.cmd"
+        else:
+            marker = shims_dir / "pip"
+        if marker.is_file():
+            return
+        self._write_command_shims(
+            shims_dir=shims_dir,
+            python_executable=python_executable,
+        )
+
     def _working_dir(self) -> Path:
         settings = get_settings()
         raw = settings.giga_agent_local_jupyter_working_dir
@@ -336,6 +371,9 @@ class LocalJupyterServerManager:
 
     def _shims_dir(self) -> Path:
         return (ensure_giga_agent_dir() / "local_jupyter" / "shims").resolve()
+
+    def _shell_sessions_root(self) -> Path:
+        return (ensure_giga_agent_dir() / "local_jupyter" / "shell_sessions").resolve()
 
     def _kernel_spec_dir(self, *, data_dir: Path) -> Path:
         return (data_dir / "kernels" / LOCAL_JUPYTER_KERNEL_NAME).resolve()
@@ -462,7 +500,9 @@ class LocalJupyterServerManager:
         )
 
     def _python_executable(self) -> str:
-        configured = (get_settings().giga_agent_local_jupyter_python_executable or "").strip()
+        configured = (
+            get_settings().giga_agent_local_jupyter_python_executable or ""
+        ).strip()
         return configured or sys.executable
 
     def _startup_timeout_sec(self) -> int:

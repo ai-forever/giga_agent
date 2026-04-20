@@ -22,6 +22,8 @@ def _inject_env_prelude(code: str, envs: dict[str, str] | None) -> str:
             "import json as _giga_agent_json",
             "import os as _giga_agent_os",
             f"_giga_agent_envs = _giga_agent_json.loads({envs_json!r})",
+            "_giga_agent_key = None",
+            "_giga_agent_value = None",
             "for _giga_agent_key, _giga_agent_value in _giga_agent_envs.items():",
             "    _giga_agent_os.environ[_giga_agent_key] = _giga_agent_value",
             "del _giga_agent_key, _giga_agent_value",

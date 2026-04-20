@@ -34,7 +34,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         with self._patched_env({}, clear=False):
             os.environ.pop("GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES", None)
             with patch(
-                "giga_agent.sandbox.local_docker.docker.from_env",
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
                 return_value=types.SimpleNamespace(
                     ping=lambda: None, close=lambda: None
                 ),
@@ -49,7 +49,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(ping=lambda: None, close=lambda: None),
         ):
             validated = await LocalDockerSandbox.validate_settings({})
@@ -63,7 +63,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             },
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(ping=lambda: None, close=lambda: None),
         ):
             validated = await LocalDockerSandbox.validate_settings({})
@@ -74,7 +74,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             side_effect=RuntimeError("daemon unavailable"),
         ):
             with self.assertRaisesRegex(ValueError, "Docker connection check failed"):
@@ -82,7 +82,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_requires_running_for_read_delete(self):
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -98,7 +98,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
@@ -125,7 +125,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
@@ -139,7 +139,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
@@ -157,7 +157,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
             clear=False,
         ), patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
@@ -185,7 +185,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=client,
         ), patch.object(
             LocalDockerSandbox,
@@ -220,7 +220,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         client = types.SimpleNamespace(containers=types.SimpleNamespace(run=Mock(return_value=container)))
 
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=client,
         ):
             runtime = LocalDockerSandbox(
@@ -236,7 +236,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_is_up_uses_container_liveness(self):
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -274,7 +274,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             yield {"type": "stdout", "text": "ok"}
 
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -327,7 +327,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             ready_state["ready"] = True
 
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(
@@ -336,7 +336,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with patch(
-            "giga_agent.sandbox.local_docker.cache.lock",
+            "giga_agent.sandbox.local_docker.runtime.cache.lock",
             side_effect=fake_lock_cm,
         ), patch.object(
             runtime,
@@ -431,7 +431,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_shell_paths_use_hidden_runtime_dir(self):
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -460,7 +460,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         secret_envs = {"API_KEY": "very-secret"}
 
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -515,7 +515,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_start_shell_exec_returns_background_pid(self):
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -561,7 +561,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         written_meta: list[LocalDockerShellMeta] = []
 
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
