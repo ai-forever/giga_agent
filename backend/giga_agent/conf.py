@@ -121,14 +121,14 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_LOCAL_DOCKER_IMAGE",
     )
     giga_agent_local_docker_memory_limit_mb: int = Field(
-        512, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
+        2048, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
     )
     giga_agent_local_docker_memory_reservation_mb: int = Field(
         512,
         alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB",
     )
     giga_agent_local_docker_vcpu: float = Field(
-        0.3, alias="GIGA_AGENT_LOCAL_DOCKER_VCPU"
+        1.0, alias="GIGA_AGENT_LOCAL_DOCKER_VCPU"
     )
     giga_agent_local_docker_pids_limit: int = Field(
         256, alias="GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT"

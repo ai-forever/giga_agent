@@ -639,7 +639,7 @@ async def shell(
     command: str,
     runtime: ToolRuntime,
     working_directory: str | None = None,
-    block_until_ms: int = 30000,
+    block_until_ms: int = 10000,
     description: str | None = None,
 ):
     """Выполняет shell-команду в sandbox и при необходимости уводит её в background.

@@ -237,7 +237,7 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         sandbox = self._sandbox(status=SandboxStatus.RUNNING)
         sandbox.provider = types.SimpleNamespace(type="local_docker")
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
@@ -276,7 +276,7 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         sandbox = self._sandbox(status=SandboxStatus.RUNNING)
         sandbox.provider = types.SimpleNamespace(type="local_docker")
         with patch(
-            "giga_agent.sandbox.local_docker.docker.from_env",
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
             return_value=types.SimpleNamespace(),
         ):
             runtime = LocalDockerSandbox(max_active_sandboxes=1)
