@@ -258,6 +258,33 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, ContentResult)
         self.assertEqual(result.data, b"payload")
 
+    async def test_is_up_checks_e2b_sandbox_without_jupyter(self):
+        sandbox = self._sandbox()
+        sandbox.external_id = "sbx-123"
+        sandbox._e2b_sandbox = types.SimpleNamespace(
+            commands=types.SimpleNamespace(
+                run=AsyncMock(return_value=types.SimpleNamespace(exit_code=0))
+            )
+        )
+
+        self.assertTrue(await sandbox.is_up())
+
+    async def test_is_up_returns_false_when_reconnect_fails(self):
+        sandbox = self._sandbox()
+        sandbox.external_id = "sbx-123"
+
+        with patch.object(sandbox, "_reconnect", AsyncMock(return_value=None)):
+            self.assertFalse(await sandbox.is_up())
+
+    async def test_is_up_returns_false_when_probe_command_fails(self):
+        sandbox = self._sandbox()
+        sandbox.external_id = "sbx-123"
+        sandbox._e2b_sandbox = types.SimpleNamespace(
+            commands=types.SimpleNamespace(run=AsyncMock(side_effect=RuntimeError("boom")))
+        )
+
+        self.assertFalse(await sandbox.is_up())
+
 
 async def _empty_async_iter():
     return

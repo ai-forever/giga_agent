@@ -5,6 +5,7 @@ from giga_agent.modules.auth import AuthModule
 from giga_agent.modules.deep_research import DeepResearchModule
 from giga_agent.modules.github import GitHubModule
 from giga_agent.modules.image import ImageModule
+from giga_agent.modules.io import IOModule
 from giga_agent.modules.mem_zero_memory.module import MemZeroModule
 from giga_agent.modules.rag import RagModule
 from giga_agent.modules.repl import ReplModule
@@ -22,6 +23,7 @@ class GigaAgent(BaseAgent):
             ReplModule(),
             ImageModule(),
             AnalyzeImagesModule(),
+            IOModule(),
             ScraperModule(),
             SearchModule(),
             RagModule(),

@@ -59,7 +59,7 @@ class SandboxLifecycleService:
 
     @staticmethod
     def _get_lock_timeout() -> float:
-        raw = os.getenv("SANDBOX_LIFECYCLE_LOCK_TIMEOUT_SEC", "30")
+        raw = os.getenv("SANDBOX_LIFECYCLE_LOCK_TIMEOUT_SEC", "60")
         try:
             value = float(raw)
         except (TypeError, ValueError):
