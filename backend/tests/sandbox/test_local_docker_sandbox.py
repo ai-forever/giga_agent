@@ -11,7 +11,8 @@ from giga_agent.conf import reset_settings_cache
 from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.base import ContentResult
 from giga_agent.sandbox.jupyter import JupyterSandbox
-from giga_agent.sandbox.local_docker import LocalDockerSandbox, LocalDockerShellMeta
+from giga_agent.sandbox.local_docker import LocalDockerSandbox
+from giga_agent.sandbox.mixins.code import ShellMeta
 from giga_agent.sandbox.manager.types import (
     RemoveExternalRuntimeAction,
     SetSandboxStatusAction,
@@ -455,7 +456,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_run_shell_backgrounds_and_advances_offset(self):
         output_bytes = b"line-1\nline-2\n"
-        written_meta: list[LocalDockerShellMeta] = []
+        written_meta: list[ShellMeta] = []
         start_shell_exec = AsyncMock(return_value=777)
         secret_envs = {"API_KEY": "very-secret"}
 
@@ -545,7 +546,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cmd[6], '{"API_KEY": "secret"}')
 
     async def test_await_shell_reconciles_completion_and_reads_only_new_output(self):
-        initial_meta = LocalDockerShellMeta(
+        initial_meta = ShellMeta(
             shell_id="abc123",
             command="sleep 1",
             cwd="/root",
@@ -558,7 +559,7 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             last_delivered_offset=4,
             last_update_at="2026-04-14T12:00:00Z",
         )
-        written_meta: list[LocalDockerShellMeta] = []
+        written_meta: list[ShellMeta] = []
 
         with patch(
             "giga_agent.sandbox.local_docker.runtime.docker.from_env",

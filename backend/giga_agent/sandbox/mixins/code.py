@@ -4,6 +4,26 @@ from typing import Any, AsyncGenerator, Literal
 from pydantic import BaseModel, Field
 
 
+class ShellMeta(BaseModel):
+    """Общая метаинформация shell-сессии, используемая всеми sandbox-реализациями."""
+
+    shell_id: str
+    command: str
+    description: str | None = None
+    cwd: str
+    status: Literal["running", "completed", "failed"]
+    started_at: str
+    ended_at: str | None = None
+    elapsed_ms: int | None = None
+    exit_code: int | None = None
+    pid: int | None = None
+    output_path: str
+    exit_code_path: str | None = None
+    output_size_bytes: int = 0
+    last_delivered_offset: int = 0
+    last_update_at: str
+
+
 class ShellRunResult(BaseModel):
     shell_id: str = Field(description="Уникальный идентификатор shell-сессии.")
     status: Literal["running", "completed", "failed"] = Field(
@@ -18,7 +38,9 @@ class ShellRunResult(BaseModel):
     )
     output: str = Field(description="Весь вывод, накопившийся за foreground-окно.")
     output_path: str = Field(description="Путь к полному output.log внутри sandbox.")
-    meta_path: str = Field(description="Путь к meta.json внутри sandbox.")
+    pid: int | None = Field(
+        default=None, description="PID процесса внутри sandbox."
+    )
     exit_code: int | None = Field(
         default=None, description="Код завершения, если команда уже завершилась."
     )
@@ -45,9 +67,6 @@ class ShellAwaitResult(BaseModel):
     )
     output_path: str | None = Field(
         default=None, description="Путь к полному output.log внутри sandbox."
-    )
-    meta_path: str | None = Field(
-        default=None, description="Путь к meta.json внутри sandbox."
     )
     exit_code: int | None = Field(
         default=None, description="Код завершения, если процесс уже завершился."

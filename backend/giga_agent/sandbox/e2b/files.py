@@ -1,15 +1,14 @@
+"""S3 file upload / read / delete for E2B sandboxes."""
+
+import contextlib
 import mimetypes
 import secrets
-import time
-import asyncio
-import uuid
 import shlex
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import PurePosixPath
-from typing import Optional, Any
 
-from pydantic import Field, PrivateAttr
-
+from giga_agent.core.logging import get_logger
 from giga_agent.sandbox.base import (
     LARGE_FILE_THRESHOLD,
     ContentResult,
@@ -17,246 +16,30 @@ from giga_agent.sandbox.base import (
     RedirectResult,
     StreamResult,
 )
-from giga_agent.sandbox.jupyter import JupyterSandbox
-from giga_agent.sandbox.registry import SandboxRegistry
-from giga_agent.core.logging import get_logger
+from giga_agent.sandbox.e2b.constants import (
+    S3_MOUNT_PREFIX,
+    _S3_KEY_PREFIX,
+    _S3_SUFFIX_ALPHABET,
+)
 
 logger = get_logger(__name__)
 
-JUPYTER_PORT = 8888
-S3_MOUNT_PREFIX = "/bucket/"
-_S3_KEY_PREFIX = "giga_agent"
-_S3_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+class S3FilesMixin:
+    """Mixin providing S3-backed file upload/read/delete for E2B sandboxes.
 
-@SandboxRegistry.register("e2b")
-class E2BSandbox(JupyterSandbox):
-    """
-    Песочница на базе E2B Cloud.
-
-    Создаёт облачный sandbox через E2B SDK, настраивает S3 FUSE mount
-    и запускает Jupyter Server для выполнения кода.
-
-    Все настройки берутся из provider_settings / sandbox settings:
-    - api_key: API ключ E2B
-    - template: шаблон E2B (default: "jupyter-server")
-    - s3_bucket: имя S3 бакета для FUSE mount
-    - s3_endpoint: endpoint S3
-    - s3_region: регион S3
-    - aws_access_key_id: AWS access key
-    - aws_secret_access_key: AWS secret key
-    - idle_timeout: таймаут жизни sandbox в E2B (секунды), прокидывается из провайдера
+    Expects the host class to expose:
+      - ``s3_endpoint``, ``s3_region``, ``s3_bucket`` (str)
+      - ``aws_access_key_id``, ``aws_secret_access_key`` (str)
+      - ``owner_id`` (uuid.UUID | None)
+      - ``_s3_prefix_ready`` (bool)
+      - ``_e2b_sandbox`` (E2B AsyncSandbox or None)
+      - ``_ensure_e2b_sandbox_connected()``
     """
 
-    # --- Settings (приходят из provider_settings) ---
-    api_key: str = Field(..., description="E2B API key")
-    template: str = Field(
-        default="murtazkorpaz/jupyter-server", description="E2B sandbox template"
-    )
-    idle_timeout: int = Field(
-        default=300, description="Sandbox timeout in seconds (from provider)"
-    )
-    owner_id: Optional[uuid.UUID] = Field(
-        default=None, description="Sandbox owner id (runtime only)"
-    )
-
-    # S3 FUSE настройки (обязательные)
-    s3_bucket: str = Field(..., description="S3 bucket name")
-    s3_endpoint: str = Field(..., description="S3 endpoint URL")
-    s3_region: str = Field(..., description="S3 region")
-    aws_access_key_id: str = Field(..., description="AWS access key")
-    aws_secret_access_key: str = Field(..., description="AWS secret key")
-
-    # --- Connection settings (сохраняются после up, восстанавливаются из БД) ---
-    external_id: Optional[str] = Field(default=None, description="E2B sandbox ID")
-    jupyter_token: Optional[str] = Field(default=None, description="Jupyter auth token")
-
-    # Override: base_url вычисляется после создания sandbox
-    base_url: str = Field(
-        default="", description="Base URL (set after sandbox creation)"
-    )
-
-    # Исключаем connection-поля из provider settings schema
-    _runtime_fields = JupyterSandbox._runtime_fields | {"jupyter_token", "owner_id"}
-
-    # --- Private ---
-    _e2b_sandbox: Any = PrivateAttr(default=None)
-    _s3_prefix_ready: bool = PrivateAttr(default=False)
-
-    def model_post_init(self, __context: Any) -> None:
-        # Восстанавливаем _token из сохранённого jupyter_token (при восстановлении из БД)
-        if self.jupyter_token:
-            self._token = self.jupyter_token
-
-    def get_connection_settings(self) -> dict:
-        """Настройки для повторного подключения: external_id + jupyter_token."""
-        return {
-            "external_id": self.external_id,
-            "jupyter_token": self._token,
-        }
-
-    @classmethod
-    async def validate_settings(cls, settings: dict) -> dict:
-        """
-        Валидация settings для E2B провайдера с проверкой подключения.
-
-        1. Схемная валидация (типы, обязательные поля).
-        2. Проверка E2B API key — пробуем получить список sandbox'ов.
-        3. Проверка S3 настроек и доступности бакета.
-        """
-        validated = await super().validate_settings(settings)
-
-        # --- E2B API key ---
-        api_key = validated.get("api_key", "")
-        if not api_key or not api_key.strip():
-            raise ValueError("api_key is required and must not be empty")
-
-        await cls._check_e2b_api_key(api_key)
-
-        # --- S3 settings (обязательные) ---
-        s3_fields = (
-            "s3_bucket",
-            "s3_endpoint",
-            "s3_region",
-            "aws_access_key_id",
-            "aws_secret_access_key",
-        )
-        missing = [f for f in s3_fields if not validated.get(f, "").strip()]
-        if missing:
-            raise ValueError(
-                f"S3 configuration is required. Missing: {', '.join(sorted(missing))}"
-            )
-        await cls._check_s3_connection(validated)
-
-        return validated
-
-    @staticmethod
-    async def _check_e2b_api_key(api_key: str) -> None:
-        """Проверяет валидность E2B API key через listing sandbox'ов."""
-        from e2b import AsyncSandbox
-
-        try:
-            await AsyncSandbox.list(api_key=api_key).next_items()
-        except Exception as e:
-            raise ValueError(f"E2B API key validation failed: {e}") from e
-
-    @staticmethod
-    async def _check_s3_connection(settings: dict) -> None:
-        """Проверяет доступность S3 бакета с указанными credentials."""
-        import aioboto3
-        from botocore.exceptions import BotoCoreError, ClientError
-
-        session = aioboto3.Session()
-        try:
-            async with session.client(
-                "s3",
-                endpoint_url=settings["s3_endpoint"],
-                region_name=settings["s3_region"],
-                aws_access_key_id=settings["aws_access_key_id"],
-                aws_secret_access_key=settings["aws_secret_access_key"],
-            ) as s3:
-                await s3.head_bucket(Bucket=settings["s3_bucket"])
-        except (BotoCoreError, ClientError) as e:
-            raise ValueError(
-                f"S3 connection check failed for bucket '{settings['s3_bucket']}': {e}"
-            ) from e
-
-    async def up(self) -> None:
-        """Создаёт E2B sandbox, монтирует S3, запускает Jupyter."""
-        from e2b import AsyncSandbox
-
-        self._token = secrets.token_urlsafe(13)
-        self.jupyter_token = self._token
-
-        envs = {
-            "JUPYTER_TOKEN": self._token,
-            "MATPLOTLIBRC": "/root/.config/matplotlib/.matplotlibrc",
-            "AWSACCESSKEYID": self.aws_access_key_id,
-            "AWSSECRETACCESSKEY": self.aws_secret_access_key,
-        }
-
-        logger.info(f"Creating E2B sandbox (template={self.template})...")
-
-        self._e2b_sandbox = await AsyncSandbox.create(
-            template=self.template,
-            envs=envs,
-            timeout=self.idle_timeout,
-            api_key=self.api_key,
-        )
-
-        self.external_id = self._e2b_sandbox.sandbox_id
-        logger.info(f"E2B sandbox created: {self.external_id}")
-
-        await self._ensure_user_prefix_exists()
-
-        # Настраиваем S3 FUSE mount
-        await self._mount_s3()
-
-        # Запускаем Jupyter Server
-        logger.info("Starting Jupyter Server...")
-        await self._e2b_sandbox.commands.run(
-            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} > /dev/null 2>&1",
-            background=True,
-        )
-
-        # Получаем публичный URL через model_post_init
-        host = self._e2b_sandbox.get_host(JUPYTER_PORT)
-        self.base_url = f"https://{host}"
-        logger.info(f"Jupyter available at: {self.base_url}")
-
-        # Ждём готовности Jupyter
-        await self._wait_for_jupyter()
-
-    async def _mount_s3(self) -> None:
-        """Монтирует пользовательский префикс S3 через s3fs FUSE."""
-        owner_id = self._require_owner_id()
-        bucket_with_prefix = f"{self.s3_bucket}:/{self._user_s3_prefix(owner_id)}"
-        logger.info(f"Mounting S3 prefix '{bucket_with_prefix}'...")
-
-        await self._e2b_sandbox.commands.run(
-            f"mkdir -p {S3_MOUNT_PREFIX}",
-            user="root",
-        )
-        # Важно: Jupyter/код обычно выполняется не под root, поэтому
-        # mountpoint должен быть доступен для чтения/записи обычному пользователю.
-        await self._e2b_sandbox.commands.run(
-            f"chmod 0777 {S3_MOUNT_PREFIX}",
-            user="root",
-        )
-
-        s3_cmd_parts = [
-            f"s3fs {shlex.quote(bucket_with_prefix)} {shlex.quote(S3_MOUNT_PREFIX)}",
-            f"-o url={self.s3_endpoint}",
-            f"-o endpoint={self.s3_region}",
-            "-o use_path_request_style",
-            "-o allow_other",
-            "-o umask=000",
-            "-o mp_umask=000",
-            "-o default_permissions",
-        ]
-
-        s3_cmd = " ".join(s3_cmd_parts)
-        result = await self._e2b_sandbox.commands.run(s3_cmd, user="root")
-
-        if result.exit_code != 0:
-            logger.warning(f"S3 mount failed: {result.stderr}")
-        else:
-            logger.info("S3 mounted successfully")
-
-    async def _wait_for_jupyter(self, timeout_seconds: int = 15) -> None:
-        """Ждёт готовности Jupyter Server."""
-        start_time = time.time()
-        while True:
-            if await self.is_up():
-                logger.info("Jupyter is up and connected")
-                return
-
-            if time.time() - start_time > timeout_seconds:
-                raise TimeoutError(
-                    f"Jupyter did not start within {timeout_seconds} seconds"
-                )
-            logger.debug("Waiting for Jupyter...")
-            await asyncio.sleep(1)
+    # ------------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------------
 
     async def upload_file(
         self,
@@ -265,10 +48,9 @@ class E2BSandbox(JupyterSandbox):
         file_name: str,
         content: bytes,
     ) -> str:
-        """
-        Загружает файл в пользовательский S3 prefix с uniquify.
+        """Upload a file to the user's S3 prefix with unique naming.
 
-        Возвращает sandbox_path вида /bucket/{relative_path}.
+        Returns sandbox_path like ``/bucket/{relative_path}``.
         """
         import aioboto3
         from botocore.exceptions import BotoCoreError, ClientError
@@ -308,7 +90,6 @@ class E2BSandbox(JupyterSandbox):
                     return f"{S3_MOUNT_PREFIX}{rel_path}"
             except ClientError as e:
                 code = (e.response.get("Error") or {}).get("Code")
-                # Межпоточная гонка на имя: генерируем следующее имя и повторяем.
                 if code in {"PreconditionFailed", "412"}:
                     rel_path = self._uniquify_relative_s3_path(file_name=clean_name)
                     key = self._s3_key_for_relative_path(rel_path, owner_id=owner_id)
@@ -323,17 +104,9 @@ class E2BSandbox(JupyterSandbox):
         ) from last_error
 
     def requires_running_for_upload(self) -> bool:
-        # Upload идёт напрямую в S3, поднятый E2B sandbox не нужен.
         return False
 
     async def read_file(self, sandbox_path: str) -> FileReadResult:
-        """
-        Читает файл и возвращает структурированный результат:
-        - HTML на S3 → ContentResult / StreamResult (проксируем через backend)
-        - Прочие S3 → RedirectResult (presigned URL)
-        - Большие S3-объекты (>= 20 MB) → StreamResult
-        - Локальные файлы → ContentResult
-        """
         if self._is_s3_path(sandbox_path):
             key = self._s3_key_from_sandbox_path(sandbox_path)
             content_type, _ = mimetypes.guess_type(sandbox_path)
@@ -372,17 +145,9 @@ class E2BSandbox(JupyterSandbox):
         return ContentResult(data=raw)
 
     def requires_running_for_read(self, sandbox_path: str) -> bool:
-        # Для S3 paths читаем через presigned URL без поднятия sandbox.
-        # Для внутренних путей нужен доступ к files.read в живом sandbox.
         return not self._is_s3_path(sandbox_path)
 
     async def delete_file(self, sandbox_path: str) -> None:
-        """
-        Удаляет файл по sandbox_path.
-
-        - Для S3 paths (`/bucket/...`) удаляет объект в S3.
-        - Для внутренних путей удаляет файл внутри E2B sandbox через `rm -f`.
-        """
         if self._is_s3_path(sandbox_path):
             key = self._s3_key_from_sandbox_path(sandbox_path)
             await self._delete_s3_object(key)
@@ -399,8 +164,11 @@ class E2BSandbox(JupyterSandbox):
         raise RuntimeError(f"Failed to delete file '{sandbox_path}': {stderr}".strip())
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
-        # Для S3 paths можно удалять напрямую через S3 API.
         return not self._is_s3_path(sandbox_path)
+
+    # ------------------------------------------------------------------
+    # S3 helpers
+    # ------------------------------------------------------------------
 
     def _is_s3_path(self, path: str) -> bool:
         return path.startswith(S3_MOUNT_PREFIX)
@@ -410,7 +178,6 @@ class E2BSandbox(JupyterSandbox):
         return self._s3_key_for_relative_path(rel_path)
 
     async def _get_s3_object_size(self, key: str) -> int:
-        """Возвращает размер объекта в S3 (в байтах)."""
         import aioboto3
         from botocore.exceptions import BotoCoreError, ClientError
 
@@ -434,7 +201,6 @@ class E2BSandbox(JupyterSandbox):
             raise RuntimeError(f"Failed to get S3 object size for '{key}': {e}") from e
 
     async def _download_s3_object(self, key: str) -> bytes:
-        """Скачивает объект из S3 целиком и возвращает содержимое."""
         import aioboto3
         from botocore.exceptions import BotoCoreError, ClientError
 
@@ -458,7 +224,6 @@ class E2BSandbox(JupyterSandbox):
             raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
 
     async def _delete_s3_object(self, key: str) -> None:
-        """Удаляет объект из S3. Если объект не существует — считает удалённым."""
         import aioboto3
         from botocore.exceptions import BotoCoreError, ClientError
 
@@ -488,8 +253,6 @@ class E2BSandbox(JupyterSandbox):
         inline: bool = False,
         content_length: int | None = None,
     ) -> StreamResult:
-        """Создаёт StreamResult для потоковой отдачи S3-объекта."""
-        import contextlib
         import aioboto3
         from botocore.exceptions import BotoCoreError, ClientError
 
@@ -563,6 +326,10 @@ class E2BSandbox(JupyterSandbox):
             raise RuntimeError(f"Failed to generate S3 URL for '{key}': {e}") from e
         except BotoCoreError as e:
             raise RuntimeError(f"Failed to generate S3 URL for '{key}': {e}") from e
+
+    # ------------------------------------------------------------------
+    # S3 path / prefix helpers
+    # ------------------------------------------------------------------
 
     def _validate_relative_file_name(self, file_name: str) -> PurePosixPath:
         clean = file_name.strip().replace("\\", "/").lstrip("/")
@@ -680,60 +447,3 @@ class E2BSandbox(JupyterSandbox):
 
     def _random_key_suffix(self) -> str:
         return "".join(secrets.choice(_S3_SUFFIX_ALPHABET) for _ in range(8))
-
-    async def _ensure_e2b_sandbox_connected(self) -> None:
-        if self._e2b_sandbox is None and self.external_id:
-            await self._reconnect()
-        if self._e2b_sandbox is None:
-            raise RuntimeError("E2B sandbox is not connected")
-
-    async def stop(self) -> None:
-        """Останавливает (убивает) E2B sandbox."""
-        from e2b import AsyncSandbox
-
-        if self._e2b_sandbox:
-            logger.info(f"Killing E2B sandbox {self.external_id}...")
-            await self._e2b_sandbox.kill()
-            self._e2b_sandbox = None
-            logger.info("E2B sandbox killed")
-        elif self.external_id:
-            # Переподключение не нужно — можно убить по ID напрямую
-            logger.info(f"Killing E2B sandbox by ID: {self.external_id}...")
-            await AsyncSandbox.kill(self.external_id, api_key=self.api_key)
-            logger.info("E2B sandbox killed")
-
-    async def _reconnect(self) -> None:
-        """
-        Переподключается к существующему E2B sandbox по external_id
-        и проставляет base_url.
-        """
-        from e2b import AsyncSandbox
-
-        try:
-            logger.info(f"Reconnecting to E2B sandbox {self.external_id}...")
-            self._e2b_sandbox = await AsyncSandbox.connect(
-                sandbox_id=self.external_id,
-                api_key=self.api_key,
-            )
-            host = self._e2b_sandbox.get_host(JUPYTER_PORT)
-            self.base_url = f"https://{host}"
-            logger.info(f"Reconnected to E2B sandbox, base_url={self.base_url}")
-        except Exception as e:
-            logger.warning(
-                f"Failed to reconnect to E2B sandbox {self.external_id}: {e}"
-            )
-            self._e2b_sandbox = None
-
-    async def is_up(self) -> bool:
-        """
-        Проверяет, доступен ли Jupyter в E2B sandbox.
-
-        Если base_url ещё не установлен, но есть external_id —
-        пытается восстановить подключение к существующему sandbox.
-        """
-        if not self.base_url and self.external_id:
-            await self._reconnect()
-
-        if not self.base_url:
-            return False
-        return await super().is_up()

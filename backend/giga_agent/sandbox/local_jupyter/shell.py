@@ -14,15 +14,13 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from pydantic import BaseModel
-
 from giga_agent.core.logging import get_logger
 from giga_agent.core.process_supervisor import (
     ManagedProcessRecord,
     get_process_supervisor,
 )
 from giga_agent.sandbox.local_jupyter.manager import get_local_jupyter_server_manager
-from giga_agent.sandbox.mixins.code import ShellAwaitResult, ShellRunResult
+from giga_agent.sandbox.mixins.code import ShellAwaitResult, ShellMeta, ShellRunResult
 
 logger = get_logger(__name__)
 
@@ -32,24 +30,6 @@ _SHELL_STATUS_COMPLETED: Literal["completed"] = "completed"
 _SHELL_STATUS_FAILED: Literal["failed"] = "failed"
 _SHELL_SUPERVISOR_KIND = "local_jupyter_shell"
 _SHELL_GRACEFUL_TIMEOUT_SEC = 5.0
-
-
-class LocalJupyterShellMeta(BaseModel):
-    shell_id: str
-    command: str
-    description: str | None = None
-    cwd: str
-    status: Literal["running", "completed", "failed"]
-    started_at: str
-    ended_at: str | None = None
-    elapsed_ms: int | None = None
-    exit_code: int | None = None
-    pid: int | None = None
-    output_path: str
-    exit_code_path: str | None = None
-    output_size_bytes: int = 0
-    last_delivered_offset: int = 0
-    last_update_at: str
 
 
 class LocalShellMixin:
@@ -91,7 +71,6 @@ class LocalShellMixin:
         shell_id = uuid.uuid4().hex
         output_path = str(self._shell_log_path(shell_id))
         exit_code_path = str(self._shell_exit_code_path(shell_id))
-        meta_path = str(self._shell_meta_path(shell_id))
 
         self._initialize_shell_session(shell_id=shell_id)
         pid = self._start_shell_exec(
@@ -103,7 +82,7 @@ class LocalShellMixin:
         self._register_shell_process(shell_id, pid)
 
         now = self._utc_now_iso()
-        meta = LocalJupyterShellMeta(
+        meta = ShellMeta(
             shell_id=shell_id,
             command=command,
             description=description,
@@ -157,7 +136,7 @@ class LocalShellMixin:
             description=description,
             output=result_output,
             output_path=output_path,
-            meta_path=meta_path,
+            pid=final_meta.pid,
             exit_code=final_meta.exit_code,
             elapsed_ms=final_meta.elapsed_ms,
             await_hint=await_hint,
@@ -190,7 +169,6 @@ class LocalShellMixin:
                 output_delta="",
                 matched_pattern=False,
                 output_path=None,
-                meta_path=None,
                 exit_code=None,
                 elapsed_ms=None,
                 read_full_log_hint="Shell-сессия не найдена.",
@@ -240,7 +218,6 @@ class LocalShellMixin:
             output_delta=delta_text,
             matched_pattern=matched_pattern,
             output_path=output_path,
-            meta_path=str(self._shell_meta_path(clean_shell_id)),
             exit_code=updated_meta.exit_code,
             elapsed_ms=updated_meta.elapsed_ms,
             read_full_log_hint=(
@@ -391,7 +368,7 @@ class LocalShellMixin:
     # meta persistence
     # ------------------------------------------------------------------
 
-    def _write_shell_meta(self, meta: LocalJupyterShellMeta) -> None:
+    def _write_shell_meta(self, meta: ShellMeta) -> None:
         path = self._shell_meta_path(meta.shell_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = meta.model_dump(mode="json")
@@ -409,7 +386,7 @@ class LocalShellMixin:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-    def _read_shell_meta(self, shell_id: str) -> LocalJupyterShellMeta:
+    def _read_shell_meta(self, shell_id: str) -> ShellMeta:
         path = self._shell_meta_path(shell_id)
         try:
             data = path.read_text(encoding="utf-8")
@@ -417,7 +394,7 @@ class LocalShellMixin:
             raise
         except OSError as exc:
             raise RuntimeError(f"Failed to read shell meta: {exc}") from exc
-        return LocalJupyterShellMeta.model_validate_json(data)
+        return ShellMeta.model_validate_json(data)
 
     def _read_shell_exit_code(self, path: str) -> int | None:
         try:
@@ -439,8 +416,8 @@ class LocalShellMixin:
 
     def _reconcile_shell_meta(
         self,
-        meta: LocalJupyterShellMeta,
-    ) -> LocalJupyterShellMeta:
+        meta: ShellMeta,
+    ) -> ShellMeta:
         if meta.status != _SHELL_STATUS_RUNNING:
             return meta
 

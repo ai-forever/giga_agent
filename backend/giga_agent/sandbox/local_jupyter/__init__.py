@@ -12,7 +12,6 @@ from giga_agent.sandbox.local_jupyter.manager import (
 )
 from giga_agent.sandbox.local_jupyter.runtime import LocalJupyterSandbox
 from giga_agent.sandbox.local_jupyter.shell import (
-    LocalJupyterShellMeta,
     LocalShellMixin,
 )
 
@@ -22,7 +21,6 @@ __all__ = [
     "LocalJupyterHandle",
     "LocalJupyterSandbox",
     "LocalJupyterServerManager",
-    "LocalJupyterShellMeta",
     "LocalShellMixin",
     "MissingDependenciesError",
     "ensure_jupyter_dependencies",

@@ -17,7 +17,7 @@ from giga_agent.sandbox.local_jupyter.manager import (
     LocalJupyterHandle,
 )
 from giga_agent.sandbox.local_jupyter.runtime import LocalJupyterSandbox
-from giga_agent.sandbox.local_jupyter.shell import LocalJupyterShellMeta
+from giga_agent.sandbox.mixins.code import ShellMeta
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 
 
@@ -524,7 +524,7 @@ class LocalJupyterShellTests(unittest.IsolatedAsyncioTestCase):
             exit_code_path = runtime._shell_exit_code_path(shell_id)
             exit_code_path.write_text("0\n", encoding="utf-8")
 
-            meta = LocalJupyterShellMeta(
+            meta = ShellMeta(
                 shell_id=shell_id,
                 command="echo done",
                 cwd=tmp_dir,
@@ -562,7 +562,7 @@ class LocalJupyterShellTests(unittest.IsolatedAsyncioTestCase):
             session_dir.mkdir(parents=True, exist_ok=True)
             runtime._shell_log_path(shell_id).write_bytes(b"")
 
-            meta = LocalJupyterShellMeta(
+            meta = ShellMeta(
                 shell_id=shell_id,
                 command="sleep 1000",
                 cwd=tmp_dir,
