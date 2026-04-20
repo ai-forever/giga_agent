@@ -166,6 +166,37 @@ class S3FilesMixin:
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
         return not self._is_s3_path(sandbox_path)
 
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        if self._is_s3_path(sandbox_path):
+            key = self._s3_key_from_sandbox_path(sandbox_path)
+            await self._put_s3_object(key, content)
+            return
+
+        await self._ensure_e2b_sandbox_connected()
+        parent = str(PurePosixPath(sandbox_path).parent)
+        if parent and parent != "/":
+            mkdir_cmd = f"mkdir -p {shlex.quote(parent)}"
+            await self._e2b_sandbox.commands.run(mkdir_cmd)
+
+        text = content.decode("utf-8", errors="surrogateescape")
+        await self._e2b_sandbox.files.write(sandbox_path, text)
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        if self._is_s3_path(sandbox_path):
+            key = self._s3_key_from_sandbox_path(sandbox_path)
+            return await self._s3_object_exists(key)
+
+        await self._ensure_e2b_sandbox_connected()
+        cmd = f"test -f {shlex.quote(sandbox_path)}"
+        result = await self._e2b_sandbox.commands.run(cmd)
+        return getattr(result, "exit_code", 1) == 0
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        return not self._is_s3_path(sandbox_path)
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
+        return not self._is_s3_path(sandbox_path)
+
     # ------------------------------------------------------------------
     # S3 helpers
     # ------------------------------------------------------------------
@@ -222,6 +253,54 @@ class S3FilesMixin:
             raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
         except BotoCoreError as e:
             raise RuntimeError(f"Failed to download S3 object '{key}': {e}") from e
+
+    async def _put_s3_object(self, key: str, content: bytes) -> None:
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        content_type = "application/octet-stream"
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                await s3.put_object(
+                    Bucket=self.s3_bucket,
+                    Key=key,
+                    Body=content,
+                    ContentType=content_type,
+                )
+        except ClientError as e:
+            raise RuntimeError(f"S3 write failed: {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"S3 write failed: {e}") from e
+
+    async def _s3_object_exists(self, key: str) -> bool:
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                await s3.head_object(Bucket=self.s3_bucket, Key=key)
+                return True
+        except ClientError as e:
+            code = (e.response.get("Error") or {}).get("Code")
+            if code in {"NoSuchKey", "404"}:
+                return False
+            raise RuntimeError(f"S3 head_object failed: {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"S3 head_object failed: {e}") from e
 
     async def _delete_s3_object(self, key: str) -> None:
         import aioboto3

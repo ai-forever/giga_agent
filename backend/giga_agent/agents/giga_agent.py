@@ -27,8 +27,8 @@ class GigaAgent(BaseAgent):
             SearchModule(),
             RagModule(),
             MemZeroModule(),
-            GitHubModule(),
-            VKModule(),
-            WeatherModule(),
-            SubAgentLegacyModule(),
+            # GitHubModule(),
+            # VKModule(),
+            # WeatherModule(),
+            # SubAgentLegacyModule(),
         ]

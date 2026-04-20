@@ -84,6 +84,12 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
             "jupyter_token": self._token,
         }
 
+    @staticmethod
+    def get_tools() -> list:
+        from giga_agent.sandbox.e2b.tools import open_port
+
+        return [open_port]
+
     # ------------------------------------------------------------------
     # settings validation
     # ------------------------------------------------------------------

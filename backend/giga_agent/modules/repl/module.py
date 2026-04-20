@@ -21,6 +21,7 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserShort
 from giga_agent.sandbox.manager import ProviderNotFoundError, SandboxManager
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
+from giga_agent.sandbox.registry import SandboxRegistry
 from giga_agent.modules.repl.tools import (
     await_shell,
     normalize_secret_env_name,
@@ -159,7 +160,22 @@ class ReplModule(BaseModule):
             python.extras = {"repl_tools": self._repl_tools}
         else:
             python.extras["repl_tools"] = self._repl_tools
-        return [python, shell, await_shell]
+
+        tools: List[BaseTool] = [python, shell, await_shell]
+
+        try:
+            session_factory = await get_session_factory()
+            async with session_factory() as session:
+                resolved = await SandboxManager.get_cached_or_db(
+                    user_id=user.id,
+                    session=session,
+                )
+            runtime_cls = SandboxRegistry.get(resolved.provider.type)
+            tools.extend(runtime_cls.get_tools())
+        except Exception:
+            pass
+
+        return tools
 
     async def get_instructions(
         self,

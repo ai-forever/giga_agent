@@ -644,6 +644,20 @@ async def shell(
 ):
     """Выполняет shell-команду в sandbox и при необходимости уводит её в background.
 
+    Примеры хороших вызовов:
+      - shell(command="pytest tests/", description="run tests")
+      - shell(command="python train.py --epochs 50", block_until_ms=120000)
+      - shell(command="npm ci && npm run build")
+      - shell(command="pip install -r requirements.txt")
+      - shell(command="make lint", working_directory="/app")
+      - shell(command="docker compose up -d", block_until_ms=30000)
+
+    Плохие вызовы (не делай так):
+      - shell(command="cat data.csv")        — используй read_file
+      - shell(command="head -n 20 log.txt")  — используй read_file
+      - shell(command="echo 'hello' > out.txt")  — используй write_file
+      - shell(command="sed -i 's/old/new/' f.py") — используй edit_file
+
     Args:
         command: Shell-команда
         working_directory: Рабочая директория внутри sandbox
