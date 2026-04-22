@@ -81,6 +81,8 @@ const DeepResearchPlan: React.FC<{ plan: DeepResearchSubQ[] }> = ({ plan }) => (
   </div>
 );
 
+const THINK_TOOL_NAME = "think";
+
 export const ToolExecuting = ({ toolCall, thread }: ToolExecProps) => {
   const name = toolCall.name;
   const agentProgress: AgentNode | null = useMemo(() => {
@@ -202,7 +204,13 @@ export const ToolsExecuting = ({ message, thread }: ToolsExecProps) => {
   ) {
     return null;
   }
-  return message.tool_calls.map((el, index) => (
+  const visibleToolCalls = message.tool_calls.filter(
+    (toolCall) => toolCall.name !== THINK_TOOL_NAME,
+  );
+  if (!visibleToolCalls.length) {
+    return null;
+  }
+  return visibleToolCalls.map((el, index) => (
     <ToolExecuting toolCall={el} thread={thread} key={index} />
   ));
 };

@@ -615,18 +615,39 @@ async def _resolve_repl_runtime_context(
     return sandbox_runtime, user, owner_id
 
 
+def _format_shell_result(
+    result: BaseModel,
+    output_field: str,
+    empty_output_text: str = "(нет вывода)",
+) -> str:
+    header_parts: list[str] = []
+    for name, value in result:
+        if name == output_field or value is None:
+            continue
+        if isinstance(value, bool):
+            if value:
+                header_parts.append(f"{name}: true")
+        else:
+            header_parts.append(f"{name}: {value}")
+
+    raw_output = getattr(result, output_field, "") or ""
+    output = raw_output.strip() or empty_output_text
+
+    return "\n".join(header_parts) + "\n-----\n" + output
+
+
 def _build_shell_tool_command_result(
     *,
     runtime: ToolRuntime,
     tool_name: str,
-    data: dict[str, Any],
+    content: str,
 ) -> Command:
     return Command(
         update={
             "messages": [
                 ToolMessage(
                     tool_call_id=runtime.tool_call_id,
-                    content=json.dumps(data, ensure_ascii=False),
+                    content=content,
                     additional_kwargs={"tool_name": tool_name},
                 )
             ]
@@ -643,20 +664,6 @@ async def shell(
     description: str | None = None,
 ):
     """Выполняет shell-команду в sandbox и при необходимости уводит её в background.
-
-    Примеры хороших вызовов:
-      - shell(command="pytest tests/", description="run tests")
-      - shell(command="python train.py --epochs 50", block_until_ms=120000)
-      - shell(command="npm ci && npm run build")
-      - shell(command="pip install -r requirements.txt")
-      - shell(command="make lint", working_directory="/app")
-      - shell(command="docker compose up -d", block_until_ms=30000)
-
-    Плохие вызовы (не делай так):
-      - shell(command="cat data.csv")        — используй read_file
-      - shell(command="head -n 20 log.txt")  — используй read_file
-      - shell(command="echo 'hello' > out.txt")  — используй write_file
-      - shell(command="sed -i 's/old/new/' f.py") — используй edit_file
 
     Args:
         command: Shell-команда
@@ -679,13 +686,10 @@ async def shell(
             "Текущий sandbox не поддерживает shell-инструмент."
         ) from exc
 
-    data = result.model_dump(mode="json")
-    if not data.get("output"):
-        data["output"] = "Команда выполнена успешно (нет вывода)."
     return _build_shell_tool_command_result(
         runtime=runtime,
         tool_name="shell",
-        data=data,
+        content=_format_shell_result(result, output_field="output"),
     )
 
 
@@ -718,5 +722,9 @@ async def await_shell(
     return _build_shell_tool_command_result(
         runtime=runtime,
         tool_name="await_shell",
-        data=result.model_dump(mode="json"),
+        content=_format_shell_result(
+            result,
+            output_field="output_delta",
+            empty_output_text="(нет нового вывода)",
+        ),
     )

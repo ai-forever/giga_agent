@@ -168,6 +168,13 @@ _MIME_EXTENSION_MAP = {
 }
 
 
+def _should_skip_process(tool: Optional[BaseTool]) -> bool:
+    if tool is None:
+        return False
+    extras = getattr(tool, "extras", {}) or {}
+    return bool(extras.get("not_process"))
+
+
 # Инструменты, чей результат никогда не оборачивается в result_path-файл.
 # Иначе возникает цикл: LLM читает файл через python → stdout снова > лимита →
 # middleware сохраняет новый файл → LLM получает новый путь → читает → цикл.
@@ -232,23 +239,19 @@ async def process_tool_result(
     message: str = "",
 ) -> ToolMessage:
     normalized_result = _normalize_result_payload(result)
-    if action.get("name") in ["message"]:
+    tool_name = action.get("name")
+    if tool_name == "think" and normalized_result in ("", None):
+        normalized_result = ""
+
+    if action.get("name") in ["message", "think"] or _should_skip_process(tool):
         return ToolMessage(
             tool_call_id=action.get("id"),
             content=_safe_json_dumps(normalized_result),
             additional_kwargs={
                 "tool_attachments": tool_attachments,
-                "tool_name": action.get("name"),
+                "tool_name": tool_name,
+                "tool_args": action.get("args"),
             },
-        )
-
-    if action.get("name") in _INLINE_OUTPUT_TOOLS:
-        return _build_inline_output_message(
-            normalized_result=normalized_result,
-            action=action,
-            tool_attachments=tool_attachments,
-            message=message,
-            max_size=_get_max_tool_size(),
         )
 
     result_path = await _save_tool_result(
@@ -294,7 +297,8 @@ async def process_tool_result(
         content=_safe_json_dumps(payload),
         additional_kwargs={
             "tool_attachments": tool_attachments,
-            "tool_name": action.get("name"),
+            "tool_name": tool_name,
+            "tool_args": action.get("args"),
         },
     )
 
@@ -413,6 +417,8 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
+        if all(action.get("name") == "think" for action in actions):
+            return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]
         frontend_actions = [
@@ -429,7 +435,7 @@ class ToolResultMiddleware(AgentMiddleware):
             user_message = value.get("message")
             if user_message:
                 tool_message = (
-                    "Пользователь оставил комментарий к твоему вызову инструмента. "
+                    "Пользователь отменил вызов инструмента и оставил комментарий к твоему вызову инструмента. "
                     f'Прочитай его и реши, как действовать дальше: "{user_message}"'
                 )
             else:

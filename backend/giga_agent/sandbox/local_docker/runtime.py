@@ -29,10 +29,12 @@ from giga_agent.sandbox.local_docker.constants import (
     OWNER_ID_LABEL,
     PROVIDER_ID_LABEL,
     PROVIDER_TYPE_LABEL,
+    PROXY_LABEL,
     SANDBOX_ID_LABEL,
 )
 from giga_agent.sandbox.local_docker.container import ContainerMixin
 from giga_agent.sandbox.local_docker.files import FilesMixin
+from giga_agent.sandbox.local_docker.proxy import PortProxyMixin
 from giga_agent.sandbox.local_docker.shell import ShellMixin
 from giga_agent.sandbox.manager.types import (
     LogOnlyOrphanAction,
@@ -47,7 +49,9 @@ logger = get_logger(__name__)
 
 
 @SandboxRegistry.register("local_docker")
-class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox):
+class LocalDockerSandbox(
+    ContainerMixin, ShellMixin, FilesMixin, PortProxyMixin, JupyterSandbox,
+):
     image: str = Field(
         default_factory=lambda: get_settings().giga_agent_local_docker_image,
         description="Docker image to run for local sandbox",
@@ -190,6 +194,14 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
             "host_port": self.host_port,
         }
         return {k: v for k, v in settings.items() if v is not None}
+
+    @staticmethod
+    def get_tools() -> list:
+        if get_settings().giga_agent_docker_network is not None:
+            return []
+        from giga_agent.sandbox.local_docker.tools import open_port
+
+        return [open_port]
 
     # ------------------------------------------------------------------
     # validation
@@ -367,6 +379,9 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
         self._apply_container_connection(self._container)
 
     async def stop(self) -> None:
+        self._stop_proxy_containers()
+        self._remove_proxy_network()
+
         container = self._container
         if container is None and self.external_id:
             try:
@@ -605,6 +620,10 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                 labels = getattr(container, "labels", None) or (
                     container.attrs.get("Config") or {}
                 ).get("Labels", {}) or {}
+
+                if labels.get(PROXY_LABEL) == "true":
+                    continue
+
                 sandbox_id = cls._parse_uuid_label(labels, SANDBOX_ID_LABEL)
                 provider_id = cls._parse_uuid_label(labels, PROVIDER_ID_LABEL)
                 external_id = getattr(container, "id", "")
@@ -625,6 +644,7 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                 container_ids_by_sandbox_id.setdefault(sandbox_id, set()).add(external_id)
                 sandbox = sandbox_by_id.get(sandbox_id)
                 if sandbox is None:
+                    cls._cleanup_proxy_for_sandbox(client, sandbox_id)
                     actions.append(
                         RemoveExternalRuntimeAction(
                             provider_type="local_docker",
@@ -649,6 +669,7 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                     continue
 
                 if not cls._container_is_running(container):
+                    cls._cleanup_proxy_for_sandbox(client, sandbox.id)
                     actions.append(
                         SetSandboxStatusAction(
                             provider_type="local_docker",
@@ -666,6 +687,7 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                     SandboxStatus.STOPPED,
                     SandboxStatus.ERROR,
                 ):
+                    cls._cleanup_proxy_for_sandbox(client, sandbox.id)
                     actions.append(
                         StopExternalRuntimeAction(
                             provider_type="local_docker",
@@ -695,6 +717,7 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                 discovered_ids = container_ids_by_sandbox_id.get(sandbox.id, set())
                 if sandbox.external_id and sandbox.external_id in discovered_ids:
                     continue
+                cls._cleanup_proxy_for_sandbox(client, sandbox.id)
                 actions.append(
                     SetSandboxStatusAction(
                         provider_type="local_docker",
@@ -705,6 +728,8 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                         clear_runtime_connection=True,
                     )
                 )
+
+            cls._cleanup_orphan_proxy_containers(client, sandbox_by_id)
         except DockerException:
             pass
             return []
@@ -718,6 +743,47 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
         return actions
 
     @classmethod
+    def _cleanup_orphan_proxy_containers(
+        cls,
+        client: Any,
+        sandbox_by_id: dict[uuid.UUID, Any],
+    ) -> None:
+        """Remove proxy containers whose sandbox no longer exists or is stopped."""
+        try:
+            proxies = client.containers.list(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL}=true",
+                        f"{PROXY_LABEL}=true",
+                    ]
+                },
+            )
+        except DockerException:
+            return
+
+        orphan_sandbox_ids: set[uuid.UUID] = set()
+        for proxy in proxies:
+            labels = getattr(proxy, "labels", None) or {}
+            sandbox_id = cls._parse_uuid_label(labels, SANDBOX_ID_LABEL)
+            if sandbox_id is None:
+                try:
+                    proxy.remove(force=True)
+                except Exception:
+                    pass
+                continue
+            sandbox = sandbox_by_id.get(sandbox_id)
+            if sandbox is None or sandbox.status in (
+                SandboxStatus.PENDING,
+                SandboxStatus.STOPPED,
+                SandboxStatus.ERROR,
+            ):
+                orphan_sandbox_ids.add(sandbox_id)
+
+        for sid in orphan_sandbox_ids:
+            cls._cleanup_proxy_for_sandbox(client, sid)
+
+    @classmethod
     async def stop_external_runtime(cls, external_id: str) -> None:
         client = None
         try:
@@ -726,6 +792,11 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                 container = client.containers.get(external_id)
             except NotFound:
                 return
+            sandbox_id = cls._parse_uuid_label(
+                getattr(container, "labels", None) or {}, SANDBOX_ID_LABEL,
+            )
+            if sandbox_id is not None:
+                cls._cleanup_proxy_for_sandbox(client, sandbox_id)
             try:
                 container.stop(timeout=5)
             except NotFound:
@@ -746,6 +817,11 @@ class LocalDockerSandbox(ContainerMixin, ShellMixin, FilesMixin, JupyterSandbox)
                 container = client.containers.get(external_id)
             except NotFound:
                 return
+            sandbox_id = cls._parse_uuid_label(
+                getattr(container, "labels", None) or {}, SANDBOX_ID_LABEL,
+            )
+            if sandbox_id is not None:
+                cls._cleanup_proxy_for_sandbox(client, sandbox_id)
             try:
                 container.remove(force=True)
             except NotFound:

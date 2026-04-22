@@ -29,6 +29,7 @@ from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
 from uuid import UUID
 
 from giga_agent.core.agent.prompt import BASE_PROMPT
+from giga_agent.core.agent.tools import think, multi_tool_use
 from giga_agent.core.module import BaseModule
 from langchain_core.tools import BaseTool
 
@@ -46,12 +47,7 @@ from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
 NOTES_PROMPT = """
 ====
 
-ИНСТРУКЦИИ ПОЛЬЗОВАТЕЛЯ
-
-Ниже описаны инструкции пользователя. Ты ОБЯЗАН выполнять их при выполнении каждой задачи.
-```
 {0}
-```
 
 ====
 """  # noqa: E501
@@ -272,7 +268,8 @@ class BaseAgent(BaseModel):
         if cached is not None:
             return cached
 
-        all_tools = list(self.tools)
+        all_tools: list[BaseTool] = [think, multi_tool_use]
+        all_tools.extend(self.tools)
         for module in self._agent_modules:
             all_tools.extend(await module.get_tools(user=user, agent=self))
 

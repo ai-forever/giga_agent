@@ -28,7 +28,11 @@ from giga_agent.modules.repl.tools import (
     python,
     shell,
 )
-from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
+from giga_agent.modules.repl.prompts import (
+    JUPYTER_REPL_INSTRUCTIONS,
+    SECRETS_PROMPTS,
+    SHELL_INSTRUCTIONS,
+)
 from giga_agent.core.logging import get_logger
 from pydantic import BaseModel, Field
 
@@ -194,6 +198,7 @@ class ReplModule(BaseModule):
         )
         return (
             JUPYTER_REPL_INSTRUCTIONS
+            + SHELL_INSTRUCTIONS
             + sandbox_prompt
             + get_user_secrets_prompt(user)
             + generate_repl_tools_description(

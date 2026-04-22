@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import uuid
 from typing import Annotated
 from urllib.request import urlopen
 
 from docx import Document as DocxDocument
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.types import Command
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -127,7 +130,7 @@ def _format_numbered_lines(
 
     for index, line in enumerate(lines, start=start_line_number):
         prefix = "" if not parts else "\n"
-        formatted_line = f"{index}|{line}"
+        formatted_line = f"{index:>6}|{line}"
         budget = max_chars - used_chars - len(prefix)
         if budget <= 0:
             return "".join(parts), returned_lines, True
@@ -188,6 +191,25 @@ async def _get_owner_id(runtime: ToolRuntime) -> uuid.UUID:
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
+def _build_io_command(
+    *,
+    runtime: ToolRuntime,
+    tool_name: str,
+    content: str,
+) -> Command:
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    tool_call_id=runtime.tool_call_id,
+                    content=content,
+                    additional_kwargs={"tool_name": tool_name},
+                )
+            ]
+        }
+    )
+
+
 async def _read_file_text(
     sandbox_path: str,
     owner_id: uuid.UUID,
@@ -228,7 +250,7 @@ async def _read_file_text(
 - Строки в результате нумеруются начиная с 1 в формате: НОМЕР_СТРОКИ|СОДЕРЖИМОЕ_СТРОКИ
 - Если файл существует, но пустой, инструмент вернёт 'File is empty.'
 - PDF и DOCX-файлы автоматически конвертируются в текст (с теми же ограничениями на размер ответа, что и для остальных файлов).""",
-    extras={"repl_skip": True, "not_compress": True},
+    extras={"repl_skip": True, "not_compress": True, "not_process": True},
 )
 async def read_file(
     sandbox_path: Annotated[
@@ -243,13 +265,16 @@ async def read_file(
         int,
         "Количество строк для чтения. Если не передано, инструмент пытается вернуть файл целиком в пределах лимита размера ответа",
     ] = 1000,
-) -> dict:
+) -> Command:
     """Читает файл из sandbox построчно с поддержкой offset/limit."""
     from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
     from giga_agent.sandbox.manager import SandboxManager
 
+    def _result(text: str) -> Command:
+        return _build_io_command(runtime=runtime, tool_name="read_file", content=text)
+
     if runtime is None:
-        return {"error": "ToolRuntime is required", "content": None}
+        return _result("Ошибка: ToolRuntime is required")
 
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
@@ -264,7 +289,7 @@ async def read_file(
             )
         except Exception as e:
             logger.warning("read_file failed for %s: %s", sandbox_path, e)
-            return {"error": str(e), "content": None}
+            return _result(f"Ошибка: {e}")
 
     text: str | None
     if isinstance(result, ContentResult):
@@ -275,12 +300,7 @@ async def read_file(
             media_type=result.media_type,
         )
         if text is None:
-            return {
-                "error": "Файл не является текстовым (бинарный формат)",
-                "file": file_record.original_name,
-                "size": file_record.size,
-                "content": None,
-            }
+            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}")
     elif isinstance(result, StreamResult):
         chunks = []
         async for chunk in result.stream:
@@ -293,12 +313,7 @@ async def read_file(
             media_type=result.media_type,
         )
         if text is None:
-            return {
-                "error": "Файл не является текстовым (бинарный формат)",
-                "file": file_record.original_name,
-                "size": file_record.size,
-                "content": None,
-            }
+            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}")
     elif isinstance(result, RedirectResult):
         try:
             data = await _download_redirect_bytes(result.url)
@@ -306,47 +321,28 @@ async def read_file(
             logger.warning(
                 "read_file redirect download failed for %s: %s", sandbox_path, e
             )
-            return {"error": str(e), "content": None}
+            return _result(f"Ошибка: {e}")
         text = _text_from_file_bytes(
             data=data,
             sandbox_path=sandbox_path,
             file_name=file_record.original_name,
         )
         if text is None:
-            return {
-                "error": "Файл не является текстовым (бинарный формат)",
-                "file": file_record.original_name,
-                "size": file_record.size,
-                "content": None,
-            }
+            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}")
     else:
-        return {
-            "error": "Файл доступен только по URL, прямое чтение невозможно",
-            "content": None,
-        }
+        return _result("Ошибка: Файл доступен только по URL, прямое чтение невозможно")
 
     if text == "":
-        return {
-            "file": file_record.original_name,
-            "sandbox_path": sandbox_path,
-            "size": file_record.size,
-            "offset": offset,
-            "limit": limit,
-            "total_lines": 0,
-            "returned_lines": 0,
-            "remaining_lines": 0,
-            "truncated": False,
-            "content": "File is empty.",
-            "next_read_hint": _build_next_read_hint(
-                sandbox_path=sandbox_path,
-                total_lines=0,
-                next_offset=None,
-                remaining_lines=0,
-                requested_limit=limit,
-                returned_lines=0,
-                truncated_by_chars=False,
-            ),
-        }
+        hint = _build_next_read_hint(
+            sandbox_path=sandbox_path,
+            total_lines=0,
+            next_offset=None,
+            remaining_lines=0,
+            requested_limit=limit,
+            returned_lines=0,
+            truncated_by_chars=False,
+        )
+        return _result(f"Файл: {sandbox_path}\nFile is empty.\n{hint}")
 
     lines = text.splitlines()
     try:
@@ -356,12 +352,7 @@ async def read_file(
             limit=limit,
         )
     except ValueError as e:
-        return {
-            "error": str(e),
-            "file": file_record.original_name,
-            "sandbox_path": sandbox_path,
-            "content": None,
-        }
+        return _result(f"Ошибка: {e}")
 
     content, returned_lines, truncated_by_chars = _format_numbered_lines(
         lines=selected_lines,
@@ -369,20 +360,9 @@ async def read_file(
     )
     remaining_lines = max(len(lines) - (start_index + returned_lines), 0)
     next_offset = start_index + returned_lines + 1 if remaining_lines > 0 else None
-    truncated = truncated_by_chars or remaining_lines > 0
 
-    return {
-        "file": file_record.original_name,
-        "sandbox_path": sandbox_path,
-        "size": file_record.size,
-        "offset": offset,
-        "limit": limit,
-        "total_lines": len(lines),
-        "returned_lines": returned_lines,
-        "remaining_lines": remaining_lines,
-        "truncated": truncated,
-        "content": content,
-        "next_read_hint": _build_next_read_hint(
+    return _result(
+        f"Файл: {sandbox_path}\n----\n" + content + "\n----\n" + _build_next_read_hint(
             sandbox_path=sandbox_path,
             total_lines=len(lines),
             next_offset=next_offset,
@@ -390,8 +370,8 @@ async def read_file(
             requested_limit=limit,
             returned_lines=returned_lines,
             truncated_by_chars=truncated_by_chars,
-        ),
-    }
+        )
+    )
 
 
 @tool(
@@ -400,7 +380,7 @@ async def read_file(
 Использование:
 - Инструмент write_file создаёт новый файл. Если файл по указанному пути уже существует, будет возвращена ошибка.
 - Предпочитай редактирование существующих файлов (через edit_file) созданию новых, когда это возможно.""",
-    extras={"repl_skip": True, "not_compress": True},
+    extras={"repl_skip": True, "not_compress": True, "not_process": True},
 )
 async def write_file(
     file_path: Annotated[
@@ -412,12 +392,15 @@ async def write_file(
         "Текстовое содержимое для записи в файл. Этот параметр обязателен.",
     ],
     runtime: ToolRuntime,
-) -> dict:
+) -> Command:
     """Создаёт новый файл по указанному пути."""
     from giga_agent.sandbox.manager import SandboxManager
 
+    def _result(text: str) -> Command:
+        return _build_io_command(runtime=runtime, tool_name="write_file", content=text)
+
     if runtime is None:
-        return {"error": "ToolRuntime is required"}
+        return _result("Ошибка: ToolRuntime is required")
 
     owner_id = await _get_owner_id(runtime)
 
@@ -433,13 +416,10 @@ async def write_file(
             logger.warning(
                 "write_file file_exists check failed for %s: %s", file_path, e
             )
-            return {"error": str(e)}
+            return _result(f"Ошибка: {e}")
 
         if exists:
-            return {
-                "error": "Файл уже существует. Используй edit_file для изменения существующих файлов.",
-                "file_path": file_path,
-            }
+            return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.")
 
         content_bytes = content.encode("utf-8")
         try:
@@ -450,13 +430,39 @@ async def write_file(
             )
         except Exception as e:
             logger.warning("write_file failed for %s: %s", file_path, e)
-            return {"error": str(e)}
+            return _result(f"Ошибка: {e}")
 
-    return {
-        "file_path": file_path,
-        "status": "created",
-        "size": len(content_bytes),
-    }
+    return _result(f"Файл создан: {file_path}, размер: {len(content_bytes)} байт")
+
+
+_FILE_MUTATING_TOOLS = frozenset({"edit_file", "write_file", "shell"})
+
+
+def _has_recent_read_file(messages: list, file_path: str, lookback: int = 2) -> bool:
+    """Return True if a recent read_file call targeted *file_path*.
+
+    Walks messages backwards, skipping the first AIMessage (the current
+    edit_file call), and inspects up to *lookback* preceding AIMessages.
+    If the nearest read_file invocation has ``sandbox_path`` equal to
+    *file_path*, returns True.
+    """
+    skipped_first_ai = False
+    ai_count = 0
+    for msg in reversed(messages):
+        if not isinstance(msg, AIMessage):
+            continue
+        if not skipped_first_ai:
+            skipped_first_ai = True
+            continue
+        ai_count += 1
+        if ai_count > lookback:
+            break
+        for tc in reversed(msg.tool_calls or []):
+            name = tc.get("name", "")
+            if name == "read_file":
+                args = tc.get("args") or {}
+                return args.get("sandbox_path", "") == file_path
+    return False
 
 
 @tool(
@@ -464,34 +470,37 @@ async def write_file(
 
 Использование:
 - Перед редактированием необходимо прочитать файл. Этот инструмент выдаст ошибку, если файл не существует.
-- При редактировании сохраняй точные отступы (табы/пробелы) из вывода read_file. Никогда не включай префиксы номеров строк в old_string или new_string.
+- При редактировании сохраняй точные отступы (табы/пробелы) из вывода read_file. Никогда не включай префиксы номеров строк в find_string или replace_string.
 - ВСЕГДА предпочитай редактирование существующих файлов созданию новых.""",
-    extras={"repl_skip": True, "not_compress": True},
+    extras={"repl_skip": True, "not_compress": True, "not_process": True},
 )
 async def edit_file(
     file_path: Annotated[
         str,
         "Абсолютный путь к редактируемому файлу. Должен быть абсолютным, не относительным.",
     ],
-    old_string: Annotated[
+    find_string: Annotated[
         str,
         "Точный текст для поиска и замены. Должен быть уникальным в файле, если replace_all не True.",
     ],
-    new_string: Annotated[
+    replace_string: Annotated[
         str,
-        "Текст, на который заменяется old_string. Должен отличаться от old_string.",
+        "Текст, на который заменяется find_string. Должен отличаться от find_string.",
     ],
     runtime: ToolRuntime,
     replace_all: Annotated[
         bool,
-        "Если True, заменяет все вхождения old_string. Если False (по умолчанию), old_string должен быть уникальным.",
+        "Если True, заменяет все вхождения find_string. Если False (по умолчанию), find_string должен быть уникальным.",
     ] = False,
-) -> dict:
+) -> Command:
     """Выполняет точную замену строк в указанном файле."""
     from giga_agent.sandbox.manager import SandboxManager
 
+    def _result(text: str) -> Command:
+        return _build_io_command(runtime=runtime, tool_name="edit_file", content=text)
+
     if runtime is None:
-        return {"error": "ToolRuntime is required"}
+        return _result("Ошибка: ToolRuntime is required")
 
     owner_id = await _get_owner_id(runtime)
 
@@ -507,46 +516,67 @@ async def edit_file(
             logger.warning(
                 "edit_file file_exists check failed for %s: %s", file_path, e
             )
-            return {"error": str(e)}
+            return _result(f"Ошибка: {e}")
 
         if not exists:
-            return {
-                "error": "Файл не существует. Используй write_file для создания новых файлов.",
-                "file_path": file_path,
-            }
+            return _result(f"Ошибка: Файл не существует ({file_path}). Используй write_file для создания новых файлов.")
 
-    if old_string == new_string:
-        return {
-            "error": "old_string и new_string совпадают. Укажи разные значения.",
-            "file_path": file_path,
-        }
+    if find_string == replace_string:
+        return _result(f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}")
 
     try:
-        text = await _read_file_text(sandbox_path=file_path, owner_id=owner_id)
+        raw_text = await _read_file_text(sandbox_path=file_path, owner_id=owner_id)
     except Exception as e:
         logger.warning("edit_file read failed for %s: %s", file_path, e)
-        return {"error": str(e), "file_path": file_path}
+        return _result(f"Ошибка: {e}")
 
-    count = text.count(old_string)
+    text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+    find_string = find_string.replace("\r\n", "\n").replace("\r", "\n")
+    replace_string = replace_string.replace("\r\n", "\n").replace("\r", "\n")
+
+    count = text.count(find_string)
+    if count == 0 and find_string.endswith("\n"):
+        stripped = find_string[:-1]
+        if text.endswith(stripped):
+            find_string = stripped
+            count = text.count(find_string)
     if count == 0:
-        return {
-            "error": "old_string не найден в файле.",
-            "file_path": file_path,
-        }
+        line_num_hint = ""
+        if re.search(r"^\s{0,6}\d+\|", find_string, re.MULTILINE):
+            line_num_hint = (
+                " ВНИМАНИЕ: похоже, ты включил префиксы номеров строк "
+                "(вида «  123|») из вывода read_file в find_string. "
+                "Эти префиксы НЕ являются частью файла — убери их."
+            )
+
+        messages = runtime.state.get("messages", []) if runtime.state else []
+        if _has_recent_read_file(messages, file_path):
+            return _result(
+                f"Ошибка: find_string не найден в файле {file_path}. "
+                "Ты уже читал файл — ОБЯЗАТЕЛЬНО вызови think и внимательно сверь "
+                "find_string с актуальным содержимым файла посимвольно (пробелы, "
+                "отступы, переносы строк), прежде чем повторять попытку."
+                + line_num_hint
+            )
+        return _result(
+            f"Ошибка: find_string не найден в файле {file_path}. "
+            "Перечитай файл через read_file и вызови think, чтобы внимательно сверить "
+            "find_string с актуальным содержимым файла, прежде чем повторять попытку."
+            + line_num_hint
+        )
 
     if not replace_all and count > 1:
-        return {
-            "error": f"old_string не уникален, найдено {count} вхождений. "
+        return _result(
+            f"Ошибка: find_string не уникален, найдено {count} вхождений в {file_path}. "
             "Передай более длинную строку с контекстом для уникальной идентификации, "
-            "или используй replace_all=True для замены всех вхождений.",
-            "file_path": file_path,
-        }
+            "или используй replace_all=True для замены всех вхождений."
+        )
 
     if replace_all:
-        new_text = text.replace(old_string, new_string)
+        new_text = text.replace(find_string, replace_string)
         replacements = count
     else:
-        new_text = text.replace(old_string, new_string, 1)
+        new_text = text.replace(find_string, replace_string, 1)
         replacements = 1
 
     factory = await get_session_factory()
@@ -560,10 +590,6 @@ async def edit_file(
             )
         except Exception as e:
             logger.warning("edit_file write failed for %s: %s", file_path, e)
-            return {"error": str(e), "file_path": file_path}
+            return _result(f"Ошибка: {e}")
 
-    return {
-        "file_path": file_path,
-        "status": "edited",
-        "replacements": replacements,
-    }
+    return _result(f"Файл отредактирован: {file_path}, замен: {replacements}")
