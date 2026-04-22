@@ -24,10 +24,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
 
     const render = async () => {
       try {
-        const { svg: renderedSvg } = await mermaid.render(
-          idRef.current,
-          chart,
-        );
+        const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
         if (!cancelled) {
           setSvg(renderedSvg);
           setError("");
