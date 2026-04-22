@@ -17,7 +17,9 @@ from pathlib import PurePosixPath
 from giga_agent.core.logging import get_logger
 from giga_agent.sandbox.e2b.constants import (
     _E2B_HOME_DIR,
+    _E2B_SHELL_POLL_BACKOFF_FACTOR,
     _E2B_SHELL_POLL_INTERVAL_SEC,
+    _E2B_SHELL_POLL_MAX_INTERVAL_SEC,
     _SHELL_STATUS_COMPLETED,
     _SHELL_STATUS_FAILED,
     _SHELL_STATUS_RUNNING,
@@ -86,13 +88,18 @@ class E2BShellMixin:
 
         deadline = time.monotonic() + (block_until_ms / 1000.0)
         current_meta = meta
+        poll_interval = _E2B_SHELL_POLL_INTERVAL_SEC
         while True:
             current_meta = await self._reconcile_shell_meta(current_meta)
             if current_meta.status != _SHELL_STATUS_RUNNING:
                 break
             if block_until_ms == 0 or time.monotonic() >= deadline:
                 break
-            await asyncio.sleep(_E2B_SHELL_POLL_INTERVAL_SEC)
+            await asyncio.sleep(poll_interval)
+            poll_interval = min(
+                poll_interval * _E2B_SHELL_POLL_BACKOFF_FACTOR,
+                _E2B_SHELL_POLL_MAX_INTERVAL_SEC,
+            )
 
         output_size = await self._get_e2b_file_size(output_path)
         output_text = await self._read_e2b_file_text(output_path)
@@ -166,12 +173,23 @@ class E2BShellMixin:
         deadline = time.monotonic() + (block_until_ms / 1000.0)
         matched_pattern = False
         current_meta = meta
+        pattern_scan_offset = 0
+        accumulated_output = ""
+        poll_interval = _E2B_SHELL_POLL_INTERVAL_SEC
 
         while True:
             current_meta = await self._reconcile_shell_meta(current_meta)
             if compiled_pattern is not None:
-                full_output = await self._read_e2b_file_text(current_meta.output_path)
-                matched_pattern = compiled_pattern.search(full_output) is not None
+                current_size = current_meta.output_size_bytes or 0
+                if current_size > pattern_scan_offset:
+                    new_chunk = await self._read_e2b_file_range_text(
+                        current_meta.output_path,
+                        pattern_scan_offset,
+                        current_size,
+                    )
+                    accumulated_output += new_chunk
+                    pattern_scan_offset = current_size
+                matched_pattern = compiled_pattern.search(accumulated_output) is not None
             if (
                 current_meta.status != _SHELL_STATUS_RUNNING
                 or matched_pattern
@@ -179,7 +197,11 @@ class E2BShellMixin:
                 or time.monotonic() >= deadline
             ):
                 break
-            await asyncio.sleep(_E2B_SHELL_POLL_INTERVAL_SEC)
+            await asyncio.sleep(poll_interval)
+            poll_interval = min(
+                poll_interval * _E2B_SHELL_POLL_BACKOFF_FACTOR,
+                _E2B_SHELL_POLL_MAX_INTERVAL_SEC,
+            )
 
         end_offset = await self._get_e2b_file_size(current_meta.output_path)
         delta_text = await self._read_e2b_file_range_text(
@@ -323,14 +345,44 @@ class E2BShellMixin:
         if meta.status != _SHELL_STATUS_RUNNING:
             return meta
 
-        output_size = await self._get_e2b_file_size(meta.output_path)
-
-        exit_code = await self._read_shell_exit_code(
-            meta.exit_code_path or str(self._shell_exit_code_path(meta.shell_id))
+        exit_code_path = meta.exit_code_path or str(
+            self._shell_exit_code_path(meta.shell_id)
         )
-        if exit_code is None and meta.pid is not None:
-            if await self._e2b_process_exists(meta.pid):
-                return meta
+        pid_check = (
+            f"kill -0 {meta.pid} 2>/dev/null && echo alive || echo dead"
+            if meta.pid
+            else "echo dead"
+        )
+        probe_cmd = (
+            f"stat -c%s {shlex.quote(meta.output_path)} 2>/dev/null || echo 0\n"
+            f"echo '---'\n"
+            f"cat {shlex.quote(exit_code_path)} 2>/dev/null\n"
+            f"echo '---'\n"
+            f"{pid_check}"
+        )
+        result = await self._e2b_sandbox.commands.run(probe_cmd)
+        parts = (result.stdout or "").split("---")
+
+        output_size = 0
+        if len(parts) > 0:
+            try:
+                output_size = int(parts[0].strip())
+            except ValueError:
+                pass
+
+        exit_code: int | None = None
+        if len(parts) > 1:
+            ec_text = parts[1].strip()
+            if ec_text:
+                try:
+                    exit_code = int(ec_text)
+                except ValueError:
+                    pass
+
+        process_alive = len(parts) > 2 and parts[2].strip() == "alive"
+
+        if exit_code is None and process_alive:
+            return meta.model_copy(update={"output_size_bytes": output_size})
 
         updated_meta = meta.model_copy(
             update={

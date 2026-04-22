@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import uuid
 from pathlib import PurePosixPath
 
@@ -398,6 +399,7 @@ class SandboxFileService:
         try:
             return await runtime.file_exists(sandbox_path)
         except Exception as e:
+            traceback.print_exc()
             raise StorageOperationError(
                 f"Failed to check file existence '{sandbox_path}': {e}"
             ) from e

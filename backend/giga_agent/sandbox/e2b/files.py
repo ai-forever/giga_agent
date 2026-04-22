@@ -153,15 +153,19 @@ class S3FilesMixin:
             await self._delete_s3_object(key)
             return
 
+        from e2b.sandbox.commands.command_handle import CommandExitException
+
         await self._ensure_e2b_sandbox_connected()
         cmd = f"rm -f -- {shlex.quote(sandbox_path)}"
-        result = await self._e2b_sandbox.commands.run(cmd)
-        if getattr(result, "exit_code", 0) == 0:
-            return
-        stderr = str(getattr(result, "stderr", "") or "")
-        if "No such file or directory" in stderr:
-            raise FileNotFoundError(f"File not found: {sandbox_path}")
-        raise RuntimeError(f"Failed to delete file '{sandbox_path}': {stderr}".strip())
+        try:
+            await self._e2b_sandbox.commands.run(cmd)
+        except CommandExitException as exc:
+            stderr = str(exc.stderr or "")
+            if "No such file or directory" in stderr:
+                raise FileNotFoundError(f"File not found: {sandbox_path}") from exc
+            raise RuntimeError(
+                f"Failed to delete file '{sandbox_path}': {stderr}".strip()
+            ) from exc
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
         return not self._is_s3_path(sandbox_path)
@@ -186,10 +190,15 @@ class S3FilesMixin:
             key = self._s3_key_from_sandbox_path(sandbox_path)
             return await self._s3_object_exists(key)
 
+        from e2b.sandbox.commands.command_handle import CommandExitException
+
         await self._ensure_e2b_sandbox_connected()
         cmd = f"test -f {shlex.quote(sandbox_path)}"
-        result = await self._e2b_sandbox.commands.run(cmd)
-        return getattr(result, "exit_code", 1) == 0
+        try:
+            await self._e2b_sandbox.commands.run(cmd)
+            return True
+        except CommandExitException:
+            return False
 
     def requires_running_for_write(self, sandbox_path: str) -> bool:
         return not self._is_s3_path(sandbox_path)

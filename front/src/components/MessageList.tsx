@@ -33,7 +33,7 @@ const MessageList: React.FC<MessageListProps> = ({
       {messages.length === 0 && !notShowWelcomeMessage ? (
         <WellcomeMessage />
       ) : null}
-      {messages.map((message, idx) =>
+      {messages.filter((message) => (message.additional_kwargs?.tool_name as string) !== "think").map((message, idx) =>
         message.type === "tool" ? (
           <ToolMessage
             key={idx}
