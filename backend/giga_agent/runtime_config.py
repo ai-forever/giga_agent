@@ -12,7 +12,6 @@ from giga_agent.conf import (
     GIGA_AGENT_BASE_URL,
     GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_SKIP_ONBOARDING,
-    GIGA_AGENT_STT_ENABLED,
     GIGA_AGENT_STT_RUNTIME,
     GIGA_AGENT_UI_PREFIX,
 )
@@ -21,12 +20,10 @@ from giga_agent.conf import (
 def _stt_capability() -> dict[str, object]:
     """Resolve which STT runtime, if any, the backend can serve right now.
 
-    The feature is only advertised as enabled if the flag is on AND the
-    credentials required by the chosen runtime are present — otherwise the
-    frontend would offer a button that always 503s.
+    The feature is advertised as enabled when a runtime is configured and the
+    credentials required by that runtime are present — otherwise the frontend
+    would offer a button that always 503s.
     """
-    if not GIGA_AGENT_STT_ENABLED:
-        return {"enabled": False, "runtime": None}
     runtime = (GIGA_AGENT_STT_RUNTIME or "").strip().lower()
     if runtime == "salute":
         available = bool(os.environ.get("SALUTE_SPEECH"))

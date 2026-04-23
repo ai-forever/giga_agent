@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowDown } from "lucide-react";
 import MessageList from "./MessageList";
@@ -59,6 +59,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const userScrollIntentRef = useRef<boolean>(false);
   const resetIntentTimeoutRef = useRef<number | null>(null);
   const rafIdRef = useRef<number | null>(null);
+  const forceNextAutoScrollSmoothRef = useRef<boolean>(false);
+  const programmaticSmoothScrollRef = useRef<boolean>(false);
   const isSafariRef = useRef<boolean>(
     typeof navigator !== "undefined" &&
       /safari/i.test(navigator.userAgent) &&
@@ -213,7 +215,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     };
   }, [stableMessages.length]);
 
-  const maybeAutoScroll = () => {
+  const maybeAutoScroll = useCallback(() => {
     const el = scrollRootRef.current;
     if (!el) return;
     if (!autoScrollEnabledRef.current) return;
@@ -222,7 +224,11 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       rafIdRef.current = null;
       const current = scrollRootRef.current;
       if (!current) return;
-      if (isSafariRef.current || firstSroll.current) {
+      const shouldJump =
+        !forceNextAutoScrollSmoothRef.current &&
+        (isSafariRef.current || firstSroll.current);
+      forceNextAutoScrollSmoothRef.current = false;
+      if (shouldJump) {
         // Safari: избегаем smooth, чтобы не было скачков вверх
         current.scrollTop = current.scrollHeight;
       } else {
@@ -230,10 +236,11 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       }
       firstSroll.current = true;
     });
-  };
+  }, [stableMessages.length]);
 
   const markUserScrollIntent = () => {
     userScrollIntentRef.current = true;
+    programmaticSmoothScrollRef.current = false;
     if (resetIntentTimeoutRef.current) {
       window.clearTimeout(resetIntentTimeoutRef.current);
     }
@@ -247,8 +254,15 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     if (!el) return;
     const distanceFromBottom =
       el.scrollHeight - (el.scrollTop + el.clientHeight);
+    const nearBottom = distanceFromBottom <= 100;
+    if (programmaticSmoothScrollRef.current) {
+      if (nearBottom) {
+        programmaticSmoothScrollRef.current = false;
+      }
+      setShowScrollBtn(false);
+      return;
+    }
     if (userScrollIntentRef.current) {
-      const nearBottom = distanceFromBottom <= 100;
       if (!nearBottom) {
         // Отключаем авто-скролл только если пользователь явно ушёл от низа
         autoScrollEnabledRef.current = false;
@@ -261,6 +275,8 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const scrollToBottom = () => {
     const el = scrollRootRef.current;
     if (!el) return;
+    forceNextAutoScrollSmoothRef.current = true;
+    programmaticSmoothScrollRef.current = true;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     autoScrollEnabledRef.current = true;
     setShowScrollBtn(false);
@@ -323,7 +339,10 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
             onClick={scrollToBottom}
             title="Прокрутить вниз"
             aria-label="Прокрутить вниз"
-            className="sticky bottom-[118px] self-center z-20 w-9 h-9 flex items-center justify-center rounded-full bg-card dark:bg-input text-foreground/80 border border-border/60 shadow-[0_2px_10px_rgba(0,0,0,0.08)] hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] hover:text-foreground transition-all cursor-pointer print:hidden animate-in fade-in duration-150"
+            className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
+            style={{
+              backdropFilter: "blur(2px)"
+            }}
           >
             <ArrowDown className="size-4" strokeWidth={1.75} />
           </button>

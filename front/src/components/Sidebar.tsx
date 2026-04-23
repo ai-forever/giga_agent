@@ -66,6 +66,8 @@ interface SidebarProps {
 }
 
 const LAST_SEEN_STORAGE_KEY = "sidebar_thread_last_seen_v1";
+const THREADS_PAGE_SIZE = 50;
+const THREADS_POLL_INTERVAL_MS = 20_000;
 
 const readLastSeenFromStorage = (): Record<string, string> => {
   try {
@@ -101,7 +103,6 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const { settings, setSettings } = useSettings();
   const { isDark } = useTheme();
   const { user, logout, token } = useAuth();
-  const THREADS_PAGE_SIZE = 50;
   const SIDEBAR_WIDTH = 270;
 
   const activeThreadId = useMemo(() => {
@@ -229,6 +230,21 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   }, []);
 
   useEffect(() => {
+    if (!settings.sideBarOpen || !langGraphClient) return;
+
+    const intervalId = window.setInterval(() => {
+      setThreadsRefreshTick((x) => x + 1);
+    }, THREADS_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    currentGraphId,
+    langGraphClient,
+    settings.sideBarOpen,
+    THREADS_POLL_INTERVAL_MS,
+  ]);
+
+  useEffect(() => {
     if (!settings.sideBarOpen) return;
     if (!langGraphClient) {
       setThreads([]);
@@ -343,10 +359,8 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
             rawTitle.length > 0;
 
           if (isNewThread || titleJustAppeared) {
-            const lastIdPart = t.thread_id.split("/").filter(Boolean).at(-1);
-            const shortId = (lastIdPart ?? t.thread_id).slice(0, 4);
             const displayTitle =
-              rawTitle.length > 0 ? rawTitle : `Новый чат - ${shortId}`;
+              rawTitle.length > 0 ? rawTitle : `Новый диалог`;
             startTypingTitle(t.thread_id, displayTitle);
           }
         }
@@ -1094,29 +1108,6 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Opener button */}
-      {/* <div className="fixed top-4 left-5 z-[200] bg-transparent border-0 flex items-center text-card-foreground transition-[left] duration-300 ease-in-out print:[&>svg]:hidden">
-        <div
-          className="h-10 bg-cover transition-[width] duration-300 ease-in-out cursor-pointer"
-          style={{
-            width: settings.sideBarOpen ? 156 : 40,
-            backgroundImage: `url(${isDark ? LogoImage : LogoWhiteImage})`,
-          }}
-          onClick={() => {
-            if (window.innerWidth >= 900) {
-              handleNewChat();
-            }
-          }}
-        />
-        <ChevronRight
-          onClick={toggle}
-          style={{
-            transform: settings.sideBarOpen ? "rotate(180deg)" : "rotate(0)",
-            marginLeft: "0.5rem",
-          }}
-        />
-      </div> */}
     </>
   );
 };

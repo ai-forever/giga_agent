@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import os
 import uuid
 from typing import Annotated
 
 import aiohttp
+from cashews import cache
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from pydub import AudioSegment
 
-from giga_agent.conf import GIGA_AGENT_STT_ENABLED, GIGA_AGENT_STT_RUNTIME
+from giga_agent.conf import GIGA_AGENT_STT_RUNTIME
 from giga_agent.models.users import User
 from giga_agent.modules.auth.api import get_current_active_user
 
@@ -26,6 +29,7 @@ SALUTE_SPEECH_RECOGNIZE_URL = "https://smartspeech.sber.ru/rest/v1/speech:recogn
 PCM_SAMPLE_RATE = 16000
 PCM_CHANNELS = 1
 PCM_SAMPLE_WIDTH = 2  # 16-bit
+SALUTE_TOKEN_CACHE_TTL = "10m"
 
 
 class RecognizeResponse(BaseModel):
@@ -40,6 +44,16 @@ def _transcode_to_pcm16(data: bytes) -> bytes:
         .set_sample_width(PCM_SAMPLE_WIDTH)
     )
     return audio.raw_data
+
+
+def _build_salute_token_cache_key(auth_token: str, scope: str) -> str:
+    payload = json.dumps(
+        {"auth_token": auth_token, "scope": scope},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"salute:token:{digest}"
 
 
 async def _fetch_salute_token(auth_token: str, scope: str) -> str:
@@ -103,16 +117,77 @@ async def _fetch_salute_token(auth_token: str, scope: str) -> str:
         ) from exc
 
 
+async def _get_salute_token(auth_token: str, scope: str, *, force_refresh: bool = False) -> str:
+    cache_key = _build_salute_token_cache_key(auth_token=auth_token, scope=scope)
+    lock_key = f"{cache_key}:lock"
+
+    if not force_refresh:
+        cached = await cache.get(cache_key)
+        if isinstance(cached, str) and cached.strip():
+            return cached
+
+    async with cache.lock(lock_key, expire=30, wait=True):
+        if not force_refresh:
+            cached = await cache.get(cache_key)
+            if isinstance(cached, str) and cached.strip():
+                return cached
+
+        token = await _fetch_salute_token(auth_token=auth_token, scope=scope)
+        await cache.set(cache_key, token, expire=SALUTE_TOKEN_CACHE_TTL)
+        return token
+
+
+async def _recognize_with_salute(token: str, pcm: bytes) -> tuple[int, dict]:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": f"audio/x-pcm;bit=16;rate={PCM_SAMPLE_RATE}",
+    }
+    params = {"language": "ru-RU"}
+
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                SALUTE_SPEECH_RECOGNIZE_URL,
+                headers=headers,
+                params=params,
+                data=pcm,
+                ssl=False,
+                timeout=60,
+            ) as response,
+        ):
+            if response.status == 401:
+                return 401, {}
+            if response.status >= 400:
+                body = await response.text()
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"SaluteSpeech error {response.status}: {body}",
+                )
+            body = await response.json()
+            if not isinstance(body, dict):
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Unexpected SaluteSpeech response shape",
+                )
+            return response.status, body
+    except aiohttp.ClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"SaluteSpeech transport error: {exc}",
+        ) from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="SaluteSpeech request timed out",
+        ) from exc
+
+
 @router.post("/recognize", response_model=RecognizeResponse)
 async def recognize_speech(
     current_user: Annotated[User, Depends(get_current_active_user)],
     audio: UploadFile = File(...),
 ) -> RecognizeResponse:
-    if not GIGA_AGENT_STT_ENABLED:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="STT is disabled (set GIGA_AGENT_STT_ENABLED=1)",
-        )
     if (GIGA_AGENT_STT_RUNTIME or "").strip().lower() != "salute":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -141,43 +216,11 @@ async def recognize_speech(
         ) from exc
 
     scope = os.environ.get("SALUTE_SCOPE", "SALUTE_SPEECH_PERS")
-    token = await _fetch_salute_token(auth_token=auth_token, scope=scope)
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": f"audio/x-pcm;bit=16;rate={PCM_SAMPLE_RATE}",
-    }
-    params = {"language": "ru-RU"}
-
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.post(
-                SALUTE_SPEECH_RECOGNIZE_URL,
-                headers=headers,
-                params=params,
-                data=pcm,
-                ssl=False,
-                timeout=60,
-            ) as response,
-        ):
-            if response.status >= 400:
-                body = await response.text()
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"SaluteSpeech error {response.status}: {body}",
-                )
-            body = await response.json()
-    except aiohttp.ClientError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"SaluteSpeech transport error: {exc}",
-        ) from exc
-    except TimeoutError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="SaluteSpeech request timed out",
-        ) from exc
+    token = await _get_salute_token(auth_token=auth_token, scope=scope)
+    response_status, body = await _recognize_with_salute(token=token, pcm=pcm)
+    if response_status == 401:
+        token = await _get_salute_token(auth_token=auth_token, scope=scope, force_refresh=True)
+        _, body = await _recognize_with_salute(token=token, pcm=pcm)
 
     # SaluteSpeech returns {"status": 200, "result": ["transcribed text", ...]}
     parts = body.get("result") if isinstance(body, dict) else None

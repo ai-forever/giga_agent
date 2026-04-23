@@ -233,7 +233,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   // при первом рендере и при очистке
   useEffect(() => {
     autoResize();
-  }, [message]);
+  }, [message, isMobileDevice]);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -686,11 +686,99 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     uploads.length === 0 &&
     !thread?.interrupt;
 
+  const renderInputActions = (className?: string) => (
+    <div
+      className={
+        className ??
+        (isRecording
+          ? "flex items-center gap-2"
+          : "flex flex-col items-end gap-1")
+      }
+    >
+      {isRecording ? (
+        <>
+          <button
+            type="button"
+            onClick={cancelRecording}
+            title="Отменить запись"
+            aria-label="Отменить запись"
+            className="w-9 h-9 p-0 rounded-full text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+          >
+            <X />
+          </button>
+          <button
+            type="button"
+            onClick={acceptRecording}
+            title="Готово"
+            aria-label="Готово"
+            className="w-9 h-9 p-0 rounded-full bg-red-500/15 text-red-500 animate-pulse flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+          >
+            <Check />
+          </button>
+        </>
+      ) : isTranscribing ? (
+        <button
+          type="button"
+          disabled
+          title="Распознавание…"
+          aria-label="Распознавание"
+          className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center outline-hidden"
+        >
+          <Loader2 className="animate-spin" />
+        </button>
+      ) : showMicButton ? (
+        <button
+          type="button"
+          onClick={() => void startRecording()}
+          title="Голосовой ввод"
+          aria-label="Голосовой ввод"
+          className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+        >
+          <Mic />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={
+            thread?.isLoading || isMCPLoading || !message.trim() || isUploading
+          }
+          title="Отправить"
+          className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+        >
+          <Send />
+        </button>
+      )}
+    </div>
+  );
+
+  const renderAttachmentButton = (className?: string) => (
+    <button
+      data-onboarding="attachments-btn"
+      type="button"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={thread?.isLoading || isMCPLoading}
+      title="Добавить вложения"
+      className={
+        className ??
+        "w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+      }
+    >
+      <Paperclip />
+    </button>
+  );
+
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
       {isDragging && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm pointer-events-none print:hidden animate-in fade-in duration-150">
-          <div className="m-6 px-8 py-10 rounded-2xl border-2 border-dashed border-primary bg-card/95 dark:bg-input/95 shadow-xl text-foreground text-base font-medium">
+        <div
+          className={[
+            "fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm pointer-events-none print:hidden animate-in fade-in duration-150",
+            settings.sideBarOpen ? "min-[900px]:left-[200px]" : "",
+          ].join(" ")}
+        >
+          <div className="m-6 flex flex-col items-center gap-4 px-8 py-10 text-foreground text-base font-medium">
+            <Files className="size-14 text-foreground/90" />
             Отпустите, чтобы прикрепить файлы
           </div>
         </div>
@@ -705,7 +793,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             multiple
             disabled={thread?.isLoading || isMCPLoading}
           />
-          <div className="flex flex-col items-center gap-1">
+          <div className="flex flex-col items-center gap-1 self-start">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -741,16 +829,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <button
-              data-onboarding="attachments-btn"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={thread?.isLoading || isMCPLoading}
-              title="Добавить вложения"
-              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-            >
-              <Paperclip />
-            </button>
+            <div className="max-[900px]:hidden">{renderAttachmentButton()}</div>
           </div>
 
           <textarea
@@ -761,75 +840,18 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                 : "Введите вашу задачу…"
             }
             ref={textRef}
+            rows={isMobileDevice ? 1 : 2}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             disabled={thread?.isLoading || isMCPLoading}
-            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
+            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
           />
-          <div className="self-end mb-1 shrink-0">
+          <div className="self-end mb-1 shrink-0 max-[900px]:hidden">
             <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
           </div>
-          <div className="flex flex-col items-end gap-1">
-            {isRecording ? (
-              <>
-                <button
-                  type="button"
-                  onClick={cancelRecording}
-                  title="Отменить запись"
-                  aria-label="Отменить запись"
-                  className="w-9 h-9 p-0 rounded-full text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors cursor-pointer outline-hidden"
-                >
-                  <X />
-                </button>
-                <button
-                  type="button"
-                  onClick={acceptRecording}
-                  title="Готово"
-                  aria-label="Готово"
-                  className="w-9 h-9 p-0 rounded-full bg-red-500/15 text-red-500 animate-pulse flex items-center justify-center transition-colors cursor-pointer outline-hidden"
-                >
-                  <Check />
-                </button>
-              </>
-            ) : isTranscribing ? (
-              <button
-                type="button"
-                disabled
-                title="Распознавание…"
-                aria-label="Распознавание"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center outline-hidden"
-              >
-                <Loader2 className="animate-spin" />
-              </button>
-            ) : showMicButton ? (
-              <button
-                type="button"
-                onClick={() => void startRecording()}
-                title="Голосовой ввод"
-                aria-label="Голосовой ввод"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden"
-              >
-                <Mic />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={
-                  thread?.isLoading ||
-                  isMCPLoading ||
-                  !message.trim() ||
-                  isUploading
-                }
-                title="Отправить"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-              >
-                <Send />
-              </button>
-            )}
-          </div>
+          <div className="max-[900px]:hidden">{renderInputActions()}</div>
           <label
             data-onboarding="autonomy-switch"
             className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
@@ -842,6 +864,13 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               }
             />
           </label>
+        </div>
+        <div className="hidden max-[900px]:flex items-center justify-between gap-2">
+        {renderAttachmentButton()}
+          <div className="flex items-center gap-2 shrink-0">
+          <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+            {renderInputActions("flex items-center gap-2")}
+          </div>
         </div>
 
         {uploads.length > 0 && (

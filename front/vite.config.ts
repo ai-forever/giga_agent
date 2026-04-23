@@ -62,6 +62,10 @@ export default defineConfig(({ mode }) => {
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ""),
               },
+              "/app-config.js": {
+                target: "http://localhost:9090/",
+                changeOrigin: true,
+              },
             },
             port: 3000,
           }
