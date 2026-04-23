@@ -61,20 +61,19 @@ GigaAgent умеет:
 
 ## Быстрый старт
 
-1. Соберите фронтенд:
-  ```
-   cd front && npm ci && npm run build && cd ..
-  ```
-2. Установите пакет и запустите dev-сервер:
-  ```
-   cd backend
-   uv run giga_agent dev
+1. Установите пакет:
+  ```bash
+   uv add giga_agent
   ```
   Для локального sandbox через Jupyter установите optional extra:
   ```bash
    pip install -U "giga-agent[jupyter]"
   ```
-4. Откройте в браузере:
+2. Запустите dev-сервер:
+  ```bash
+   uv run giga_agent dev
+  ```
+3. Откройте в браузере:
   ```text
    http://localhost:9090
   ```
