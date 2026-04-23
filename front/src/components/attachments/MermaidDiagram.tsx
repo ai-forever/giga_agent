@@ -73,7 +73,6 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
 
   return (
     <div
-      ref={containerRef}
       style={{
         margin: "8px 0",
         overflow: "auto",
@@ -81,8 +80,18 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
         borderRadius: 8,
         padding: 16,
       }}
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    >
+      <div
+        ref={containerRef}
+        style={{
+          width: "max-content",
+          minWidth: "100%",
+          display: "flex",
+          justifyContent: "center",
+        }}
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    </div>
   );
 };
 
