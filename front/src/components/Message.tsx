@@ -287,7 +287,13 @@ const Message: React.FC<MessageProps> = ({
                 "markdown",
               ].join(" ")}
             >
-              <TextMarkdown>{normalizedContent}</TextMarkdown>
+              <TextMarkdown
+                isStreaming={
+                  thread?.isLoading && thread.messages.at(-1)?.id === message.id
+                }
+              >
+                {normalizedContent}
+              </TextMarkdown>
 
               {
                 // @ts-ignore

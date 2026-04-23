@@ -54,6 +54,11 @@ import ModelPicker from "./ModelPicker";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
+const getInitialIsMobileDevice = () => {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(pointer: coarse)").matches;
+};
+
 type BrowserSpeechRecognitionInstance = {
   lang: string;
   continuous: boolean;
@@ -100,7 +105,9 @@ interface InputAreaProps {
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
-  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(
+    getInitialIsMobileDevice,
+  );
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
@@ -225,8 +232,16 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const autoResize = () => {
     const el = textRef.current;
     if (!el) return;
+    const computedBefore = window.getComputedStyle(el);
     el.style.height = "auto";
-    const newHeight = Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT);
+    const scrollHeightAfterAuto = el.scrollHeight;
+    const baseHeight = Number.parseFloat(computedBefore.minHeight);
+    const hasText = el.value.length > 0;
+    const newHeight = hasText
+      ? Math.min(scrollHeightAfterAuto, MAX_TEXTAREA_HEIGHT)
+      : Number.isFinite(baseHeight) && baseHeight > 0
+        ? baseHeight
+        : Math.min(scrollHeightAfterAuto, MAX_TEXTAREA_HEIGHT);
     el.style.height = `${newHeight}px`;
   };
 
@@ -866,9 +881,9 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </label>
         </div>
         <div className="hidden max-[900px]:flex items-center justify-between gap-2">
-        {renderAttachmentButton()}
+          {renderAttachmentButton()}
           <div className="flex items-center gap-2 shrink-0">
-          <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+            <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
             {renderInputActions("flex items-center gap-2")}
           </div>
         </div>
@@ -919,7 +934,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         </div>
 
         {enlargedImage && (
-          <Overlay onClick={() => setEnlargedImage(null)}>
+          <Overlay
+            onClick={() => setEnlargedImage(null)}
+            style={{ left: settings.sideBarOpen ? "265px" : "0" }}
+          >
             <EnlargedImage src={enlargedImage} />
             <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
           </Overlay>
