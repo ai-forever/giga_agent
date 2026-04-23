@@ -341,7 +341,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
             aria-label="Прокрутить вниз"
             className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
             style={{
-              backdropFilter: "blur(2px)"
+              backdropFilter: "blur(2px)",
             }}
           >
             <ArrowDown className="size-4" strokeWidth={1.75} />

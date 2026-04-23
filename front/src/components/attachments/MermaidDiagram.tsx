@@ -1,8 +1,16 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import mermaid from "mermaid";
 import { useDarkMode } from "@/hooks/use-dark-mode.tsx";
 
 let mermaidCounter = 0;
+
+export const MermaidStreamingContext = createContext(false);
 
 interface MermaidDiagramProps {
   chart: string;
@@ -12,11 +20,17 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
-  const idRef = useRef(`mermaid-${Date.now()}-${mermaidCounter++}`);
+  const idPrefix = useRef(`mermaid-${Date.now()}-${mermaidCounter++}`);
+  const renderCountRef = useRef(0);
+  const lastValidSvgRef = useRef<string>("");
   const isDarkMode = useDarkMode();
+  const isStreaming = useContext(MermaidStreamingContext);
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
 
   useEffect(() => {
     let cancelled = false;
+    const renderId = `${idPrefix.current}-${renderCountRef.current++}`;
 
     const render = async () => {
       try {
@@ -25,16 +39,25 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
           theme: isDarkMode ? "dark" : "default",
           securityLevel: "loose",
         });
-        const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
+        const { svg: renderedSvg } = await mermaid.render(renderId, chart);
         if (!cancelled) {
+          lastValidSvgRef.current = renderedSvg;
           setSvg(renderedSvg);
           setError("");
         }
       } catch (e: any) {
         if (!cancelled) {
-          setError(e?.message || "Failed to render mermaid diagram");
-          setSvg("");
+          if (isStreamingRef.current && lastValidSvgRef.current) {
+            setSvg(lastValidSvgRef.current);
+            setError("");
+          } else {
+            setError(e?.message || "Failed to render mermaid diagram");
+            setSvg("");
+          }
         }
+      } finally {
+        const el = document.getElementById(renderId);
+        if (el) el.remove();
       }
     };
 

@@ -105,7 +105,9 @@ interface InputAreaProps {
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
-  const [isMobileDevice, setIsMobileDevice] = useState(getInitialIsMobileDevice);
+  const [isMobileDevice, setIsMobileDevice] = useState(
+    getInitialIsMobileDevice,
+  );
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragCounterRef = useRef(0);
@@ -879,9 +881,9 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </label>
         </div>
         <div className="hidden max-[900px]:flex items-center justify-between gap-2">
-        {renderAttachmentButton()}
+          {renderAttachmentButton()}
           <div className="flex items-center gap-2 shrink-0">
-          <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+            <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
             {renderInputActions("flex items-center gap-2")}
           </div>
         </div>
@@ -932,7 +934,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         </div>
 
         {enlargedImage && (
-          <Overlay onClick={() => setEnlargedImage(null)} style={{ left: settings.sideBarOpen ? "265px" : "0" }}>
+          <Overlay
+            onClick={() => setEnlargedImage(null)}
+            style={{ left: settings.sideBarOpen ? "265px" : "0" }}
+          >
             <EnlargedImage src={enlargedImage} />
             <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
           </Overlay>

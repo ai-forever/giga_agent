@@ -13,7 +13,7 @@ import {
   buildContentByPathUrl,
   inferAttachmentTypeFromPath,
 } from "./file-utils.ts";
-import MermaidDiagram from "./MermaidDiagram.tsx";
+import MermaidDiagram, { MermaidStreamingContext } from "./MermaidDiagram.tsx";
 
 // Оборачивает ссылки/картинки вида ](attachment:...) с пробелами или скобками в <...>,
 // чтобы CommonMark корректно парсил URI без URL-энкода.
@@ -456,18 +456,24 @@ const markdownComponents = {
 
 interface TextMarkdownProps {
   children: string | null | undefined;
+  isStreaming?: boolean;
 }
 
 const TextMarkdown: React.FC<TextMarkdownProps> = (props) => {
   return (
-    <Markdown
-      remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
-      rehypePlugins={[[rehypeKatex, { output: "mathml" }], rehypeRaw]}
-      urlTransform={(uri) => uri}
-      components={markdownComponents}
-    >
-      {wrapFilesLinksWithAngles(props.children)}
-    </Markdown>
+    <MermaidStreamingContext.Provider value={props.isStreaming ?? false}>
+      <Markdown
+        remarkPlugins={[
+          remarkGfm,
+          [remarkMath, { singleDollarTextMath: true }],
+        ]}
+        rehypePlugins={[[rehypeKatex, { output: "mathml" }], rehypeRaw]}
+        urlTransform={(uri) => uri}
+        components={markdownComponents}
+      >
+        {wrapFilesLinksWithAngles(props.children)}
+      </Markdown>
+    </MermaidStreamingContext.Provider>
   );
 };
 
