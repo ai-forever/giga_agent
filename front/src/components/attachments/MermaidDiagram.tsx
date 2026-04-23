@@ -1,11 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
-
-mermaid.initialize({
-  startOnLoad: false,
-  theme: "dark",
-  securityLevel: "loose",
-});
+import { useDarkMode } from "@/hooks/use-dark-mode.tsx";
 
 let mermaidCounter = 0;
 
@@ -18,12 +13,18 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
   const [svg, setSvg] = useState<string>("");
   const [error, setError] = useState<string>("");
   const idRef = useRef(`mermaid-${Date.now()}-${mermaidCounter++}`);
+  const isDarkMode = useDarkMode();
 
   useEffect(() => {
     let cancelled = false;
 
     const render = async () => {
       try {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: isDarkMode ? "dark" : "default",
+          securityLevel: "loose",
+        });
         const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
         if (!cancelled) {
           setSvg(renderedSvg);
@@ -41,24 +42,31 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
     return () => {
       cancelled = true;
     };
-  }, [chart]);
+  }, [chart, isDarkMode]);
 
   if (error) {
     return (
       <div
         style={{
-          background: "#2d2d2d",
+          background: isDarkMode ? "#2d2d2d" : "#fdecea",
           borderRadius: 8,
           padding: "12px 16px",
           margin: "8px 0",
-          color: "#ff6b6b",
+          color: isDarkMode ? "#ff6b6b" : "#b42318",
           fontSize: 14,
           fontFamily: "monospace",
           whiteSpace: "pre-wrap",
         }}
       >
         Mermaid error: {error}
-        <pre style={{ color: "#ccc", marginTop: 8 }}>{chart}</pre>
+        <pre
+          style={{
+            color: isDarkMode ? "#ccc" : "#444",
+            marginTop: 8,
+          }}
+        >
+          {chart}
+        </pre>
       </div>
     );
   }
@@ -69,7 +77,7 @@ const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
       style={{
         margin: "8px 0",
         overflow: "auto",
-        background: "#1e1e2e",
+        background: isDarkMode ? "#1e1e2e" : "#ffffff",
         borderRadius: 8,
         padding: 16,
       }}
