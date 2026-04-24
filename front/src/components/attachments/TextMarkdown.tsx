@@ -16,6 +16,11 @@ import {
 } from "./file-utils.ts";
 import Text from "./Text.tsx";
 import MermaidDiagram, { MermaidStreamingContext } from "./MermaidDiagram.tsx";
+import {
+  CitationsProvider,
+  parseSources,
+  transformCitationsInChildren,
+} from "@/components/deep_research/citations";
 
 // Оборачивает ссылки/картинки вида ](attachment:...) с пробелами или скобками в <...>,
 // чтобы CommonMark корректно парсил URI без URL-энкода.
@@ -160,70 +165,95 @@ const VideoWrapper = styled.div`
   }
 `;
 
-const markdownComponents = {
-  h1: ({ className, ...props }: { className?: string }) => (
+const buildMarkdownComponents = (transformText: boolean) => {
+  const maybeTransform = (children: React.ReactNode): React.ReactNode =>
+    transformText ? transformCitationsInChildren(children) : children;
+
+  return {
+  h1: ({ className, children, ...props }: any) => (
     <h1
       className={cn(
         "mb-8 scroll-m-20 text-4xl font-extrabold tracking-tight last:mb-0",
         className,
       )}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </h1>
   ),
 
-  h2: ({ className, ...props }: { className?: string }) => (
+  h2: ({ className, children, ...props }: any) => (
     <h2
       className={cn(
         "mt-8 mb-4 scroll-m-20 text-3xl font-semibold tracking-tight first:mt-0 last:mb-0",
         className,
       )}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </h2>
   ),
-  h3: ({ className, ...props }: { className?: string }) => (
+  h3: ({ className, children, ...props }: any) => (
     <h3
       className={cn(
         "mt-6 mb-4 scroll-m-20 text-2xl font-semibold tracking-tight first:mt-0 last:mb-0",
         className,
       )}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </h3>
   ),
-  h4: ({ className, ...props }: { className?: string }) => (
+  h4: ({ className, children, ...props }: any) => (
     <h4
       className={cn(
         "mt-6 mb-4 scroll-m-20 text-xl font-semibold tracking-tight first:mt-0 last:mb-0",
         className,
       )}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </h4>
   ),
-  h5: ({ className, ...props }: { className?: string }) => (
+  h5: ({ className, children, ...props }: any) => (
     <h5
       className={cn(
         "my-4 text-lg font-semibold first:mt-0 last:mb-0",
         className,
       )}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </h5>
   ),
-  h6: ({ className, ...props }: { className?: string }) => (
+  h6: ({ className, children, ...props }: any) => (
     <h6
       className={cn("my-4 font-semibold first:mt-0 last:mb-0", className)}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </h6>
   ),
-  p: ({ className, ...props }: { className?: string }) => (
+  p: ({ className, children, ...props }: any) => (
     <div
       className={cn("leading-7 first:mt-0 last:mb-0", className)}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </div>
   ),
-  blockquote: ({ className, ...props }: { className?: string }) => (
+  li: ({ className, children, ...props }: any) => (
+    <li className={className} {...props}>
+      {maybeTransform(children)}
+    </li>
+  ),
+  blockquote: ({ className, children, ...props }: any) => (
     <blockquote
       className={cn("border-l-2 pl-6 italic", className)}
       {...props}
-    />
+    >
+      {maybeTransform(children)}
+    </blockquote>
   ),
   ul: ({ className, ...props }: { className?: string }) => (
     <ul
@@ -458,7 +488,11 @@ const markdownComponents = {
       />
     );
   },
+  };
 };
+
+const defaultMarkdownComponents = buildMarkdownComponents(false);
+const citationMarkdownComponents = buildMarkdownComponents(true);
 
 interface TextMarkdownProps {
   children: string | null | undefined;
@@ -466,20 +500,32 @@ interface TextMarkdownProps {
 }
 
 const TextMarkdown: React.FC<TextMarkdownProps> = (props) => {
-  return (
+  const sources = React.useMemo(
+    () => parseSources(props.children),
+    [props.children],
+  );
+  const hasSources = sources.size > 0;
+  const components = hasSources
+    ? citationMarkdownComponents
+    : defaultMarkdownComponents;
+
+  const markdown = (
     <MermaidStreamingContext.Provider value={props.isStreaming ?? false}>
       <Markdown
-        remarkPlugins={[
-          remarkGfm,
-          [remarkMath, { singleDollarTextMath: true }],
-        ]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         rehypePlugins={[[rehypeKatex, { output: "mathml" }], rehypeRaw]}
         urlTransform={(uri) => uri}
-        components={markdownComponents}
+        components={components}
       >
         {wrapFilesLinksWithAngles(props.children)}
       </Markdown>
     </MermaidStreamingContext.Provider>
+  );
+
+  if (!hasSources) return markdown;
+
+  return (
+    <CitationsProvider sources={sources}>{markdown}</CitationsProvider>
   );
 };
 

@@ -507,6 +507,9 @@ def create_graph(
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
             llm = await llm_runtime.get_llm()
 
+        configurable = (config or {}).get("configurable") or {}
+        deep_research_forced = bool(configurable.get("deep_research_forced"))
+
         messages_for_llm = list(state["messages"])
         if messages_for_llm and messages_for_llm[-1].type == "human":
             last_message = messages_for_llm[-1]
@@ -530,6 +533,15 @@ def create_graph(
                 final_parts.append(selected_prompt)
             if extended_task:
                 final_parts.append(extended_task)
+            if deep_research_forced:
+                final_parts.append(
+                    "<forced_mode>Пользователь явно включил режим глубокого "
+                    "исследования. Обязательно вызови инструмент "
+                    "`run_deep_research` для ответа на этот запрос — даже если "
+                    "тема кажется простой. Перед вызовом напиши короткую "
+                    "строчку-прелюдию о запуске исследования."
+                    "</forced_mode>"
+                )
             final_parts.append(
                 "Активно планируй и следуй своему плану! "
                 "Действуй по простым шагам!"
@@ -551,9 +563,19 @@ def create_graph(
             )
             for tool in state.get("mcp_tools", [])
         ]
-        llm = llm.bind_tools(
-            tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
-        )
+        all_tools = agent_tools + default_tools + mcp_tools
+        chosen_tool_choice: Any = "auto"
+        if deep_research_forced:
+            has_dr_tool = any(
+                getattr(t, "name", None) == "run_deep_research" for t in all_tools
+            )
+            if has_dr_tool:
+                chosen_tool_choice = "run_deep_research"
+            else:
+                # Флаг пришёл, но тул не зарегистрирован у юзера (нет llm/search_engine).
+                # Оставляем auto — юзер увидит обычный ответ.
+                pass
+        llm = llm.bind_tools(tools=all_tools, tool_choice=chosen_tool_choice)
         channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(

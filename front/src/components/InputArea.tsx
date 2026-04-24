@@ -14,6 +14,7 @@ import {
   Files,
   Cog,
   Printer,
+  ScanSearch,
   Mic,
   Loader2,
   Check,
@@ -46,10 +47,13 @@ import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ensureNotificationPermission } from "@/lib/notifications";
 import ModelPicker from "./ModelPicker";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
@@ -117,6 +121,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const { selected, clear } = useSelectedAttachments();
   const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
+  const [deepResearchForced, setDeepResearchForced] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const sttSource = useMemo<SttSource>(() => resolveSttSource(), []);
@@ -197,10 +202,21 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           },
           streamMode: ["messages"],
           onDisconnect: "continue",
+          config: deepResearchForced
+            ? { configurable: { deep_research_forced: true } }
+            : undefined,
         },
       );
     },
-    [thread, selected, clear, mcpToolsPayload, enabledCollections, user],
+    [
+      thread,
+      selected,
+      clear,
+      mcpToolsPayload,
+      enabledCollections,
+      user,
+      deepResearchForced,
+    ],
   );
   const handleContinueThread = useCallback(
     async (data: any) => {
@@ -578,7 +594,16 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     void handleSendMessage(message, attachments as any);
     setMessage("");
     resetUploads();
+    setDeepResearchForced(false);
   };
+
+  const toggleDeepResearchForced = useCallback(async () => {
+    setDeepResearchForced((prev) => {
+      const next = !prev;
+      if (next) void ensureNotificationPermission();
+      return next;
+    });
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isMobileDevice) return;
@@ -826,6 +851,15 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                 align="start"
                 sideOffset={3}
               >
+                <DropdownMenuCheckboxItem
+                  checked={deepResearchForced}
+                  onCheckedChange={() => void toggleDeepResearchForced()}
+                  onSelect={(e) => e.preventDefault()}
+                >
+                  <ScanSearch className={"size-5"} />
+                  <span>Глубокое исследование</span>
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={openContextModal}>
                   <Brain className={"size-5"} />
                   <span>Персонализация</span>

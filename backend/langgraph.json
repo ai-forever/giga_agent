@@ -11,7 +11,8 @@
     "presentation": "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph:graph",
     "meme": "giga_agent.modules.subagents_legacy.agents.meme_agent.graph:graph",
     "lean_canvas": "giga_agent.modules.subagents_legacy.agents.lean_canvas:app",
-    "podcast": "giga_agent.modules.subagents_legacy.agents.podcast.graph:graph"
+    "podcast": "giga_agent.modules.subagents_legacy.agents.podcast.graph:graph",
+    "deep_research": "giga_agent.modules.deep_research.graph:graph"
   },
   "auth": {
     "path": "giga_agent.modules.auth.langgraph_auth:auth"
