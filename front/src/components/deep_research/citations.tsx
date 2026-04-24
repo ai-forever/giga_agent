@@ -16,13 +16,29 @@ export interface Source {
 
 export type SourceMap = Map<number, Source>;
 
-// Ищем секцию "## Источники" или "## Sources" (ест и "#" любого уровня 2-3)
-// и вытаскиваем строки вида "[N] Title: URL" до следующего заголовка или конца файла.
+// Ищем секцию "## Источники" / "## Sources" / "**Источники**" и т.п.
+// Допускаем 1–4 решётки, опциональное двоеточие, вариации: «Список источников»,
+// «Использованные источники», «References».
 const SOURCES_HEADING_RE =
-  /^#{2,3}\s+(Источники|Sources)\s*$/im;
+  /^(?:#{1,4}\s+|\*\*)\s*(?:Список\s+|Использованн(?:ые|ых)\s+)?(?:Источник(?:и|ов)|Sources?|References?|Литература|Библиография)\s*:?\s*\*{0,2}\s*$/im;
 
-const CITATION_LINE_RE =
-  /^\s*(?:[-*+]\s+|\d+\.\s+)?\[(\d+)\]\s*(.+?)\s*[:：—–-]\s*(https?:\/\/\S+)\s*$/;
+// Строка источника. Покрываем форматы:
+//   [1] Title: https://example.com
+//   [1] Title — https://example.com
+//   [1] Title | https://example.com
+//   [1] Title (https://example.com)
+//   [1] [Title](https://example.com)
+//   [1] https://example.com                     (без title)
+//   - [1] Title: https://example.com            (буллет)
+//   1. [1] Title: https://example.com           (нумерованный)
+const CITATION_LINE_MD_LINK_RE =
+  /^\s*(?:[-*+]\s+|\d+\.\s+)?\[(\d+)\]\s*\[([^\]]+?)\]\(<?\s*(https?:\/\/[^\s)>]+)\s*>?\)/;
+const CITATION_LINE_PLAIN_RE =
+  /^\s*(?:[-*+]\s+|\d+\.\s+)?\[(\d+)\]\s*(.*?)\s*[:：—–\-|]\s*<?(https?:\/\/\S+?)>?\s*[).,;]*\s*$/;
+const CITATION_LINE_URL_ONLY_RE =
+  /^\s*(?:[-*+]\s+|\d+\.\s+)?\[(\d+)\]\s*<?(https?:\/\/\S+?)>?\s*[).,;]*\s*$/;
+const CITATION_LINE_PAREN_RE =
+  /^\s*(?:[-*+]\s+|\d+\.\s+)?\[(\d+)\]\s*(.+?)\s*\(<?\s*(https?:\/\/[^\s)>]+)\s*>?\)\s*$/;
 
 const hostOf = (url: string): string => {
   try {
@@ -32,27 +48,69 @@ const hostOf = (url: string): string => {
   }
 };
 
+function parseCitationLine(
+  rawLine: string,
+): { n: number; title: string; url: string } | null {
+  let m = rawLine.match(CITATION_LINE_MD_LINK_RE);
+  if (m) return { n: Number(m[1]), title: m[2].trim(), url: m[3] };
+  m = rawLine.match(CITATION_LINE_PAREN_RE);
+  if (m) return { n: Number(m[1]), title: m[2].trim(), url: m[3] };
+  m = rawLine.match(CITATION_LINE_PLAIN_RE);
+  if (m) return { n: Number(m[1]), title: m[2].trim(), url: m[3] };
+  m = rawLine.match(CITATION_LINE_URL_ONLY_RE);
+  if (m) return { n: Number(m[1]), title: hostOf(m[2]), url: m[2] };
+  return null;
+}
+
 export function parseSources(markdown: string | null | undefined): SourceMap {
   const map: SourceMap = new Map();
   if (!markdown) return map;
 
-  const headingMatch = markdown.match(SOURCES_HEADING_RE);
-  if (!headingMatch) return map;
+  let section: string | null = null;
 
-  const start = markdown.indexOf(headingMatch[0]) + headingMatch[0].length;
-  const rest = markdown.slice(start);
-  // до следующего заголовка того же/верхнего уровня
-  const nextHeading = rest.search(/^\s*#{1,3}\s+\S/m);
-  const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+  const headingMatch = markdown.match(SOURCES_HEADING_RE);
+  if (headingMatch) {
+    const start = markdown.indexOf(headingMatch[0]) + headingMatch[0].length;
+    const rest = markdown.slice(start);
+    const nextHeading = rest.search(/^\s*#{1,4}\s+\S/m);
+    section = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+  } else {
+    // Fallback: берём последний блок документа, где подряд идут строки `[N] ... url`.
+    // Это на случай, если LLM забыл заголовок или назвал его нестандартно.
+    const lines = markdown.split(/\r?\n/);
+    let blockEnd = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (parseCitationLine(lines[i])) {
+        blockEnd = i;
+        break;
+      }
+    }
+    if (blockEnd !== -1) {
+      let blockStart = blockEnd;
+      while (
+        blockStart > 0 &&
+        (parseCitationLine(lines[blockStart - 1]) ||
+          lines[blockStart - 1].trim() === "")
+      ) {
+        blockStart--;
+      }
+      section = lines.slice(blockStart, blockEnd + 1).join("\n");
+    }
+  }
+
+  if (!section) return map;
 
   for (const rawLine of section.split(/\r?\n/)) {
-    const m = rawLine.match(CITATION_LINE_RE);
-    if (!m) continue;
-    const n = Number(m[1]);
-    if (!Number.isFinite(n) || map.has(n)) continue;
-    const title = m[2].trim().replace(/^["'«]+|["'»]+$/g, "");
-    const url = m[3].replace(/[),.]+$/, "");
-    map.set(n, { n, title, url, host: hostOf(url) });
+    const parsed = parseCitationLine(rawLine);
+    if (!parsed) continue;
+    if (!Number.isFinite(parsed.n) || map.has(parsed.n)) continue;
+    const title = parsed.title.replace(/^["'«]+|["'»]+$/g, "") || hostOf(parsed.url);
+    map.set(parsed.n, {
+      n: parsed.n,
+      title,
+      url: parsed.url,
+      host: hostOf(parsed.url),
+    });
   }
   return map;
 }
