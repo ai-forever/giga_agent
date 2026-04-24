@@ -168,6 +168,61 @@ _MIME_EXTENSION_MAP = {
 }
 
 
+# Инструменты, чей результат никогда не оборачивается в result_path-файл.
+# Иначе возникает цикл: LLM читает файл через python → stdout снова > лимита →
+# middleware сохраняет новый файл → LLM получает новый путь → читает → цикл.
+_INLINE_OUTPUT_TOOLS = {"python", "shell"}
+
+
+def _truncate_utf8(text: str, max_size: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_size:
+        return text
+    truncated = encoded[:max_size].decode("utf-8", errors="ignore")
+    hint = (
+        f"\n\n[... вывод обрезан до {max_size} байт. "
+        "Исходный вывод был слишком большим для контекста. "
+        "Перепиши код: используй срезы/фильтрацию/агрегацию, "
+        "либо сохрани результат в файл и читай его по частям.]"
+    )
+    return truncated + hint
+
+
+def _build_inline_output_message(
+    normalized_result: Any,
+    action: dict[str, Any],
+    tool_attachments: list[dict[str, Any]],
+    message: str,
+    max_size: int,
+) -> ToolMessage:
+    if isinstance(normalized_result, dict) and isinstance(
+        normalized_result.get("output"), str
+    ):
+        output_text = normalized_result["output"]
+        truncated = _truncate_utf8(output_text, max_size)
+        if truncated is not output_text:
+            normalized_result = {**normalized_result, "output": truncated}
+    else:
+        serialized = _safe_json_dumps(normalized_result)
+        if len(serialized.encode("utf-8")) > max_size:
+            normalized_result = {
+                "output": _truncate_utf8(serialized, max_size),
+            }
+
+    payload: dict[str, Any] = {"data": normalized_result}
+    if message:
+        payload["message"] = message
+
+    return ToolMessage(
+        tool_call_id=action.get("id"),
+        content=_safe_json_dumps(payload),
+        additional_kwargs={
+            "tool_attachments": tool_attachments,
+            "tool_name": action.get("name"),
+        },
+    )
+
+
 async def process_tool_result(
     result: Any,
     action: dict[str, Any],
@@ -186,6 +241,16 @@ async def process_tool_result(
                 "tool_name": action.get("name"),
             },
         )
+
+    if action.get("name") in _INLINE_OUTPUT_TOOLS:
+        return _build_inline_output_message(
+            normalized_result=normalized_result,
+            action=action,
+            tool_attachments=tool_attachments,
+            message=message,
+            max_size=_get_max_tool_size(),
+        )
+
     result_path = await _save_tool_result(
         normalized_result, action=action, config=config
     )
