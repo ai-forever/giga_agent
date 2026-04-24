@@ -12,7 +12,9 @@ import rehypeKatex from "@/lib/rehype_katex.ts";
 import {
   buildContentByPathUrl,
   inferAttachmentTypeFromPath,
+  isInlineMarkdownAttachmentPath,
 } from "./file-utils.ts";
+import Text from "./Text.tsx";
 import MermaidDiagram, { MermaidStreamingContext } from "./MermaidDiagram.tsx";
 
 // Оборачивает ссылки/картинки вида ](attachment:...) с пробелами или скобками в <...>,
@@ -330,6 +332,10 @@ const markdownComponents = {
         fileType === "video"
       ) {
         return <MessageAttachment path={path} fileType={fileType} />;
+      }
+      if (fileType === "text" && isInlineMarkdownAttachmentPath(path)) {
+        const fileLabel = path.split("/").filter(Boolean).pop() || "file";
+        return <Text id={fileLabel} path={path} />;
       }
       return (
         <a

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ChevronRight,
+  Download,
   Plus,
   Files,
   Settings as SettingsIcon,
@@ -27,8 +28,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { exportChat, type ExportFormat } from "@/lib/chat-export";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -656,6 +661,19 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     }
   };
 
+  const handleThreadExport = async (t: Thread, format: ExportFormat) => {
+    if (!langGraphClient) return;
+    try {
+      const state = await langGraphClient.threads.getState(t.thread_id);
+      const messages = (state.values as any)?.messages;
+      if (!messages?.length) return;
+      const title = getThreadTitle(t);
+      await exportChat(messages, format, title);
+    } catch {
+      // silently fail for now
+    }
+  };
+
   const LogoComponent = isDark ? DarkLogoSvg : LightLogoSvg;
 
   return (
@@ -877,6 +895,29 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                               <Pencil className="mr-2 h-4 w-4" />
                               Переименовать
                             </DropdownMenuItem>
+                            <DropdownMenuSub>
+                              <DropdownMenuSubTrigger>
+                                <Download className="mr-2 h-4 w-4" />
+                                Скачать
+                              </DropdownMenuSubTrigger>
+                              <DropdownMenuSubContent>
+                                <DropdownMenuItem
+                                  onSelect={() => handleThreadExport(t, "pdf")}
+                                >
+                                  PDF
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => handleThreadExport(t, "docx")}
+                                >
+                                  DOCX
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => handleThreadExport(t, "md")}
+                                >
+                                  Markdown
+                                </DropdownMenuItem>
+                              </DropdownMenuSubContent>
+                            </DropdownMenuSub>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"

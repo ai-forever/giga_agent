@@ -11,15 +11,38 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   Pencil,
   RefreshCw,
   X,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  exportChat,
+  extractMessagePair,
+  stripAssistantReasoningTags,
+  type ExportFormat,
+} from "@/lib/chat-export";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { BROWSER_USE_NAME } from "@/config.ts";
+
+function getMessageText(message: Message_): string {
+  if (Array.isArray(message.content)) {
+    return message.content
+      .filter((p: any) => p.type === "text")
+      .map((p: any) => p.text)
+      .join("\n\n");
+  }
+  return (message.content as string) ?? "";
+}
 
 function BranchSwitcher({
   thread,
@@ -96,8 +119,23 @@ const Message: React.FC<MessageProps> = ({
   const [edit, setEdit] = useState<boolean>(false);
   const [showEdit, setShowEdit] = useState<boolean>(false);
   const [isApprovalLoading, setIsApprovalLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
+
+  const handleExport = async (format: ExportFormat) => {
+    if (!thread || isExporting) return;
+    setIsExporting(true);
+    try {
+      const pair = extractMessagePair(thread.messages, message);
+      const title =
+        getMessageText(message).slice(0, 60).replace(/\s+/g, " ").trim() ||
+        "chat";
+      await exportChat(pair, format, title);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const idxRef = useRef<number>(0);
 
@@ -484,13 +522,37 @@ const Message: React.FC<MessageProps> = ({
               </button>
             )}
             {message.type === "ai" && (
-              <button
-                disabled={!thread || thread.isLoading}
-                onClick={onRefresh}
-                className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
-              >
-                <RefreshCw size={16} />
-              </button>
+              <>
+                <button
+                  disabled={!thread || thread.isLoading}
+                  onClick={onRefresh}
+                  className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
+                >
+                  <RefreshCw size={16} />
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      disabled={isExporting}
+                      className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 hover:scale-110 disabled:hover:scale-100"
+                      title="Скачать"
+                    >
+                      <Download size={16} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onSelect={() => handleExport("pdf")}>
+                      PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleExport("docx")}>
+                      DOCX
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleExport("md")}>
+                      Markdown
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
             )}
             <BranchSwitcher thread={thread} message={message} />
           </div>
