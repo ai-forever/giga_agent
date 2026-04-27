@@ -69,11 +69,7 @@ const Text: React.FC<TextProps> = ({ id, path }) => {
         </a>
       </div>
     );
-  const fileLabel =
-    path
-      .split("/")
-      .filter(Boolean)
-      .pop() || id;
+  const fileLabel = path.split("/").filter(Boolean).pop() || id;
   return (
     <div className="rounded-md overflow-hidden border-2 border-border bg-card text-card-foreground shadow-sm">
       <div

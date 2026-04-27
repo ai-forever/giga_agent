@@ -18,11 +18,21 @@ interface ExportImage {
   blob: Blob;
 }
 
+interface InlineMdSection {
+  filename: string;
+  body: string; // markdown, with attachment image refs replaced by bundled filenames
+  images: ExportImage[];
+}
+
 interface ExportableMessage {
   role: "user" | "assistant";
   text: string;
   images: ExportImage[];
+  inlineMdSections: InlineMdSection[];
 }
+
+const INLINE_MD_PLACEHOLDER_RE = /<<<IMD:(\d+)>>>/g;
+const inlineMdPlaceholder = (idx: number) => `<<<IMD:${idx}>>>`;
 
 export type ExportFormat = "pdf" | "docx" | "md";
 
@@ -173,11 +183,32 @@ function getMessageText(message: Message): string {
   return (message.content as string) ?? "";
 }
 
-/** Strips model "reasoning" / thinking tags (including common typos) from display and export. */
+/**
+ * Strips model "reasoning" / thinking tags from display and export.
+ *
+ * Handles:
+ *  - well-formed blocks: `<thinking>…</thinking>`, `<thinkining>…</thinkining>` (typo), `<think>…</think>`;
+ *  - tags carrying attributes: `<thinking foo="bar">…</thinking>`;
+ *  - any case;
+ *  - **unclosed** trailing blocks (streaming chunks before the closing tag arrives,
+ *    or when the model forgets to close the tag at all).
+ */
+const REASONING_TAGS = ["thinking", "thinkining", "think"] as const;
+
 export function stripAssistantReasoningTags(text: string): string {
-  return text
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-    .replace(/<thinkining>[\s\S]*?<\/thinkining>/gi, "");
+  let out = text;
+  for (const tag of REASONING_TAGS) {
+    const closed = new RegExp(
+      `<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}\\s*>`,
+      "gi",
+    );
+    out = out.replace(closed, "");
+  }
+  for (const tag of REASONING_TAGS) {
+    const trailing = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*$`, "i");
+    out = out.replace(trailing, "");
+  }
+  return out;
 }
 
 function stripThinkingBlocks(text: string): string {
@@ -205,7 +236,10 @@ function parseTextSegments(text: string): TextSegment[] {
   let match;
   while ((match = re.exec(text)) !== null) {
     if (match.index > lastIdx) {
-      segments.push({ type: "text", content: text.slice(lastIdx, match.index) });
+      segments.push({
+        type: "text",
+        content: text.slice(lastIdx, match.index),
+      });
     }
     segments.push({
       type: "code",
@@ -245,20 +279,84 @@ const PY_COLORS = {
 };
 
 const PY_KEYWORDS = new Set([
-  "False", "None", "True", "and", "as", "assert", "async", "await",
-  "break", "class", "continue", "def", "del", "elif", "else", "except",
-  "finally", "for", "from", "global", "if", "import", "in", "is",
-  "lambda", "nonlocal", "not", "or", "pass", "raise", "return",
-  "try", "while", "with", "yield",
+  "False",
+  "None",
+  "True",
+  "and",
+  "as",
+  "assert",
+  "async",
+  "await",
+  "break",
+  "class",
+  "continue",
+  "def",
+  "del",
+  "elif",
+  "else",
+  "except",
+  "finally",
+  "for",
+  "from",
+  "global",
+  "if",
+  "import",
+  "in",
+  "is",
+  "lambda",
+  "nonlocal",
+  "not",
+  "or",
+  "pass",
+  "raise",
+  "return",
+  "try",
+  "while",
+  "with",
+  "yield",
 ]);
 
 const PY_BUILTINS = new Set([
-  "print", "len", "range", "int", "str", "float", "list", "dict",
-  "set", "tuple", "bool", "type", "isinstance", "enumerate", "zip",
-  "map", "filter", "sorted", "reversed", "open", "super", "property",
-  "staticmethod", "classmethod", "input", "abs", "max", "min", "sum",
-  "any", "all", "hasattr", "getattr", "setattr", "ValueError",
-  "TypeError", "KeyError", "IndexError", "Exception", "self",
+  "print",
+  "len",
+  "range",
+  "int",
+  "str",
+  "float",
+  "list",
+  "dict",
+  "set",
+  "tuple",
+  "bool",
+  "type",
+  "isinstance",
+  "enumerate",
+  "zip",
+  "map",
+  "filter",
+  "sorted",
+  "reversed",
+  "open",
+  "super",
+  "property",
+  "staticmethod",
+  "classmethod",
+  "input",
+  "abs",
+  "max",
+  "min",
+  "sum",
+  "any",
+  "all",
+  "hasattr",
+  "getattr",
+  "setattr",
+  "ValueError",
+  "TypeError",
+  "KeyError",
+  "IndexError",
+  "Exception",
+  "self",
 ]);
 
 const PY_TOKEN_RE = new RegExp(
@@ -331,7 +429,11 @@ function parseTextBlocks(text: string): TextBlock[] {
     const m = line.match(/^(#{1,6})\s+(.*)/);
     if (m) {
       flush();
-      blocks.push({ type: "heading", level: m[1].length, content: m[2].trim() });
+      blocks.push({
+        type: "heading",
+        level: m[1].length,
+        content: m[2].trim(),
+      });
     } else {
       buf.push(line);
     }
@@ -416,12 +518,89 @@ async function fetchAttachmentText(path: string): Promise<string> {
   return raw;
 }
 
-function uniqueBundleFileName(
-  suggested: string,
-  used: Set<string>,
-): string {
+/**
+ * For an inline-markdown attachment body: find every `attachment:` reference
+ * (image or plotly), resolve to an `ExportImage`, and rewrite the markdown
+ * so the reference points at the resolved bundled filename. Non-image
+ * attachments referenced from the body are left alone (treated as the
+ * surrounding markdown will still link them out).
+ */
+async function resolveInlineMdImages(
+  body: string,
+  imageCounter: { n: number },
+): Promise<{ body: string; images: ExportImage[] }> {
+  const refRe = /(!?)\[([^\]]*)\]\(\s*<?\s*attachment:([^)>]+?)\s*>?\s*\)/g;
+  const images: ExportImage[] = [];
+
+  type Match = {
+    full: string;
+    isImage: boolean;
+    alt: string;
+    rawPath: string;
+    start: number;
+    end: number;
+  };
+  const matches: Match[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = refRe.exec(body)) !== null) {
+    matches.push({
+      full: m[0],
+      isImage: m[1] === "!",
+      alt: m[2],
+      rawPath: m[3].trim(),
+      start: m.index,
+      end: m.index + m[0].length,
+    });
+  }
+  if (matches.length === 0) return { body, images };
+
+  let out = "";
+  let cursor = 0;
+  for (const match of matches) {
+    out += body.slice(cursor, match.start);
+    const path = decodeURI(match.rawPath);
+    const fileType = inferAttachmentTypeFromPath(path);
+    if (
+      match.isImage &&
+      (fileType === "image" || fileType === "plotly_graph")
+    ) {
+      const img = await resolveAttachmentImage(
+        { path, file_type: fileType },
+        imageCounter.n++,
+      );
+      if (img) {
+        images.push(img);
+        out += `![${match.alt || img.name}](${img.name})`;
+      }
+    } else {
+      out += match.full;
+    }
+    cursor = match.end;
+  }
+  out += body.slice(cursor);
+  return { body: out, images };
+}
+
+async function buildInlineMdSection(
+  path: string,
+  title: string,
+  imageCounter: { n: number },
+): Promise<InlineMdSection | null> {
+  try {
+    const raw = await fetchAttachmentText(path);
+    const { body, images } = await resolveInlineMdImages(raw, imageCounter);
+    return { filename: title, body, images };
+  } catch {
+    return null;
+  }
+}
+
+function uniqueBundleFileName(suggested: string, used: Set<string>): string {
   const cleaned =
-    suggested.replace(/[/\\?%*:|"<>]/g, "_").trim().slice(0, 120) || "file";
+    suggested
+      .replace(/[/\\?%*:|"<>]/g, "_")
+      .trim()
+      .slice(0, 120) || "file";
   if (!used.has(cleaned)) {
     used.add(cleaned);
     return cleaned;
@@ -448,10 +627,7 @@ function recordBundleIfNeeded(
   if (bundleByPath.has(path)) return;
   const hint =
     att.original_name?.trim() ||
-    path
-      .split("/")
-      .filter(Boolean)
-      .pop() ||
+    path.split("/").filter(Boolean).pop() ||
     "file";
   bundleByPath.set(path, uniqueBundleFileName(hint, usedFileNames));
 }
@@ -468,7 +644,8 @@ function processAttachmentForQueues(
 ) {
   const path = att.sandbox_path ?? att.path;
   if (!path) return;
-  const fileType = (att.file_type as string) ?? inferAttachmentTypeFromPath(path);
+  const fileType =
+    (att.file_type as string) ?? inferAttachmentTypeFromPath(path);
 
   if (fileType === "plotly_graph" || fileType === "image") {
     opts.pendingToolImages.push(
@@ -479,21 +656,13 @@ function processAttachmentForQueues(
   if (fileType === "text" && isInlineMarkdownAttachmentPath(path)) {
     const title =
       att.original_name?.trim() ||
-      path
-        .split("/")
-        .filter(Boolean)
-        .pop() ||
+      path.split("/").filter(Boolean).pop() ||
       "file";
     opts.pendingInlines.push({ path, title });
     return;
   }
   if (shouldBundleInExport(fileType as any, path)) {
-    recordBundleIfNeeded(
-      path,
-      att,
-      opts.bundleByPath,
-      opts.usedFileNames,
-    );
+    recordBundleIfNeeded(path, att, opts.bundleByPath, opts.usedFileNames);
   }
 }
 
@@ -505,7 +674,8 @@ function collectBundlesFromMessage(
   for (const att of collectAttachments(message)) {
     const path = att.sandbox_path ?? att.path;
     if (!path) continue;
-    const fileType = (att.file_type as string) ?? inferAttachmentTypeFromPath(path);
+    const fileType =
+      (att.file_type as string) ?? inferAttachmentTypeFromPath(path);
     if (shouldBundleInExport(fileType as any, path)) {
       recordBundleIfNeeded(path, att, bundleByPath, usedFileNames);
     }
@@ -532,15 +702,26 @@ export async function prepareMessagesForExport(
   const bundleByPath = new Map<string, string>();
   const usedFileNames = new Set<string>();
 
+  const appendInlineSection = (
+    row: ExportableMessage,
+    section: InlineMdSection,
+  ) => {
+    const idx = row.inlineMdSections.length;
+    row.inlineMdSections.push(section);
+    row.text +=
+      (row.text.endsWith("\n") ? "" : row.text ? "\n\n" : "") +
+      inlineMdPlaceholder(idx);
+  };
+
   const flushPendingInlinesToAssistant = async (row: ExportableMessage) => {
     if (row.role !== "assistant" || pendingInlines.length === 0) return;
     for (const inc of pendingInlines.splice(0, pendingInlines.length)) {
-      try {
-        const body = await fetchAttachmentText(inc.path);
-        row.text += `\n\n### ${inc.title}\n\n${body}`;
-      } catch {
-        // skip
-      }
+      const section = await buildInlineMdSection(
+        inc.path,
+        inc.title,
+        imageCounter,
+      );
+      if (section) appendInlineSection(row, section);
     }
   };
 
@@ -580,7 +761,7 @@ export async function prepareMessagesForExport(
 
       const text = getHumanDisplayText(msg);
       if (!text) continue;
-      result.push({ role: "user", text, images: [] });
+      result.push({ role: "user", text, images: [], inlineMdSections: [] });
       continue;
     }
 
@@ -594,50 +775,55 @@ export async function prepareMessagesForExport(
       ) as ExportImage[];
       pendingToolImages = [];
 
+      const row: ExportableMessage = {
+        role: "assistant",
+        text,
+        images: toolImages,
+        inlineMdSections: [],
+      };
+
       for (const inc of pendingInlines.splice(0, pendingInlines.length)) {
-        try {
-          const body = await fetchAttachmentText(inc.path);
-          text += `\n\n### ${inc.title}\n\n${body}`;
-        } catch {
-          // skip
-        }
+        const section = await buildInlineMdSection(
+          inc.path,
+          inc.title,
+          imageCounter,
+        );
+        if (section) appendInlineSection(row, section);
       }
 
-      if (!text.trim() && toolImages.length === 0) continue;
-
       const ownAtts = collectAttachments(msg);
-      const ownImages: ExportImage[] = [];
       for (const att of ownAtts) {
         const path = att.sandbox_path ?? att.path;
         if (!path) continue;
-        const fileType = (att.file_type as string) ?? inferAttachmentTypeFromPath(path);
+        const fileType =
+          (att.file_type as string) ?? inferAttachmentTypeFromPath(path);
         if (fileType === "plotly_graph" || fileType === "image") {
           const img = await resolveAttachmentImage(att, imageCounter.n++);
-          if (img) ownImages.push(img);
-        } else if (fileType === "text" && isInlineMarkdownAttachmentPath(path)) {
-          try {
-            const body = await fetchAttachmentText(path);
-            const title =
-              att.original_name?.trim() ||
-              path
-                .split("/")
-                .filter(Boolean)
-                .pop() ||
-              "file";
-            text += `\n\n### ${title}\n\n${body}`;
-          } catch {
-            // skip
-          }
+          if (img) row.images.push(img);
+        } else if (
+          fileType === "text" &&
+          isInlineMarkdownAttachmentPath(path)
+        ) {
+          const title =
+            att.original_name?.trim() ||
+            path.split("/").filter(Boolean).pop() ||
+            "file";
+          const section = await buildInlineMdSection(path, title, imageCounter);
+          if (section) appendInlineSection(row, section);
         } else if (shouldBundleInExport(fileType as any, path)) {
           recordBundleIfNeeded(path, att, bundleByPath, usedFileNames);
         }
       }
 
-      result.push({
-        role: "assistant",
-        text,
-        images: [...toolImages, ...ownImages],
-      });
+      if (
+        !row.text.trim() &&
+        row.images.length === 0 &&
+        row.inlineMdSections.length === 0
+      ) {
+        continue;
+      }
+
+      result.push(row);
       continue;
     }
   }
@@ -701,6 +887,68 @@ export function extractMessagePair(
 // Markdown export
 // ---------------------------------------------------------------------------
 
+/**
+ * Splits an assistant text into ordered chunks of either plain markdown or
+ * an `InlineMdSection`. The placeholder `<<<IMD:N>>>` is removed and replaced
+ * by the structured section reference.
+ */
+type AssistantTextChunk =
+  | { type: "text"; content: string }
+  | { type: "inlineMd"; section: InlineMdSection };
+
+function splitAssistantText(
+  text: string,
+  sections: InlineMdSection[],
+): AssistantTextChunk[] {
+  if (sections.length === 0) return [{ type: "text", content: text }];
+  const out: AssistantTextChunk[] = [];
+  let cursor = 0;
+  INLINE_MD_PLACEHOLDER_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = INLINE_MD_PLACEHOLDER_RE.exec(text)) !== null) {
+    if (m.index > cursor) {
+      const slice = text.slice(cursor, m.index);
+      if (slice.trim()) out.push({ type: "text", content: slice });
+    }
+    const idx = parseInt(m[1], 10);
+    const section = sections[idx];
+    if (section) out.push({ type: "inlineMd", section });
+    cursor = m.index + m[0].length;
+  }
+  if (cursor < text.length) {
+    const tail = text.slice(cursor);
+    if (tail.trim()) out.push({ type: "text", content: tail });
+  }
+  return out;
+}
+
+function renderInlineMdAsBlockquote(
+  section: InlineMdSection,
+  embedImages: boolean,
+  imageRefs: ExportImage[],
+): string {
+  const headerLine = `📄 **${section.filename}**`;
+  const bodyText = section.body.trim();
+  const bodyLines = bodyText.length ? bodyText.split("\n") : [""];
+
+  const imageBlock: string[] = [];
+  for (const img of section.images) {
+    if (embedImages) {
+      imageBlock.push(`![${img.name}](${img.name})`);
+    } else {
+      imageBlock.push(`![${img.name}](${img.dataUrl})`);
+    }
+    imageRefs.push(img);
+  }
+
+  const all = [headerLine, "", ...bodyLines];
+  if (imageBlock.length) {
+    all.push("");
+    all.push(...imageBlock);
+  }
+  return all.map((l) => `> ${l}`).join("\n");
+}
+
 function messagesToMarkdown(
   exportable: ExportableMessage[],
   embedImages: boolean,
@@ -712,24 +960,34 @@ function messagesToMarkdown(
     if (msg.role === "user") {
       lines.push(`# ${msg.text}`);
       lines.push("");
-    } else {
-      const text = downshiftHeadings(msg.text);
-      lines.push(text);
-      lines.push("");
-
-      for (const img of msg.images) {
-        if (embedImages) {
-          lines.push(`![${img.name}](${img.name})`);
-        } else {
-          lines.push(`![${img.name}](${img.dataUrl})`);
-        }
-        lines.push("");
-        imageRefs.push(img);
-      }
-
-      lines.push("---");
-      lines.push("");
+      continue;
     }
+
+    const chunks = splitAssistantText(msg.text, msg.inlineMdSections);
+    for (const chunk of chunks) {
+      if (chunk.type === "text") {
+        lines.push(downshiftHeadings(chunk.content));
+        lines.push("");
+      } else {
+        lines.push(
+          renderInlineMdAsBlockquote(chunk.section, embedImages, imageRefs),
+        );
+        lines.push("");
+      }
+    }
+
+    for (const img of msg.images) {
+      if (embedImages) {
+        lines.push(`![${img.name}](${img.name})`);
+      } else {
+        lines.push(`![${img.name}](${img.dataUrl})`);
+      }
+      lines.push("");
+      imageRefs.push(img);
+    }
+
+    lines.push("---");
+    lines.push("");
   }
 
   return { markdown: lines.join("\n"), imageRefs };
@@ -743,12 +1001,7 @@ function appendBundleSectionMarkdown(
   const list = bundle
     .map((f) => `- [\`${f.nameInZip}\`](attachments/${f.nameInZip})`)
     .join("\n");
-  return (
-    body.trimEnd() +
-    "\n\n## Прикреплённые файлы\n\n" +
-    list +
-    "\n"
-  );
+  return body.trimEnd() + "\n\n## Прикреплённые файлы\n\n" + list + "\n";
 }
 
 async function exportAsMarkdown(
@@ -756,13 +1009,20 @@ async function exportAsMarkdown(
   title: string,
   bundle: ExportBundleFile[],
 ): Promise<Blob> {
-  const hasExportImages = exportable.some((m) => m.images.length > 0);
+  const hasExportImages = exportable.some(
+    (m) =>
+      m.images.length > 0 ||
+      m.inlineMdSections.some((s) => s.images.length > 0),
+  );
   if (!hasExportImages && bundle.length === 0) {
     const { markdown } = messagesToMarkdown(exportable, false);
     return new Blob([markdown], { type: "text/markdown" });
   }
 
-  const { markdown, imageRefs } = messagesToMarkdown(exportable, hasExportImages);
+  const { markdown, imageRefs } = messagesToMarkdown(
+    exportable,
+    hasExportImages,
+  );
   const withBundle = appendBundleSectionMarkdown(markdown, bundle);
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
@@ -948,29 +1208,116 @@ async function exportAsPdf(
       continue;
     }
 
-    const shifted = downshiftHeadings(msg.text);
-    const segments = parseTextSegments(shifted);
-
-    for (const seg of segments) {
-      if (seg.type === "code") {
-        renderCodeBlock(seg);
-      } else {
-        renderTextBlocks(seg.content);
-      }
-    }
-    y += 3;
-
-    for (const img of msg.images) {
+    const renderImageCentered = (
+      img: ExportImage,
+      widthRatio: number,
+      offsetX = margin,
+      areaWidth = contentWidth,
+    ) => {
       try {
-        const imgWidth = contentWidth * 0.8;
+        const imgWidth = areaWidth * widthRatio;
         const imgHeight = imgWidth * 0.55;
         ensureSpace(imgHeight + 5);
-        const imgX = margin + (contentWidth - imgWidth) / 2;
+        const imgX = offsetX + (areaWidth - imgWidth) / 2;
         doc.addImage(img.dataUrl, "PNG", imgX, y, imgWidth, imgHeight);
         y += imgHeight + 5;
       } catch {
         // skip broken images
       }
+    };
+
+    const renderInlineMdCard = (section: InlineMdSection) => {
+      const inset = 4;
+      const innerMargin = margin + inset;
+      const innerWidth = contentWidth - inset * 2;
+      const startY = y;
+
+      ensureSpace(10);
+      y += 2;
+      doc.setFont("Roboto", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`📄 ${section.filename}`, innerMargin, y + 4);
+      y += 7;
+      doc.setDrawColor(220, 220, 220);
+      doc.line(innerMargin, y, innerMargin + innerWidth, y);
+      y += 3;
+      doc.setTextColor(0, 0, 0);
+
+      const renderInner = (text: string) => {
+        const blocks = parseTextBlocks(text);
+        for (const block of blocks) {
+          if (block.type === "heading") {
+            // Downshift inside a card so the body heading never matches outer H1.
+            const sz = HEADING_SIZES[Math.min(block.level ?? 1, 5)];
+            const lineH = sz * 0.55;
+            ensureSpace(lineH + 3);
+            y += 2;
+            doc.setFont("Roboto", "bold");
+            doc.setFontSize(sz);
+            const wrapped = doc.splitTextToSize(
+              stripMarkdownInline(block.content),
+              innerWidth,
+            );
+            for (const wl of wrapped) {
+              ensureSpace(lineH);
+              doc.text(wl, innerMargin, y);
+              y += lineH;
+            }
+            y += 2;
+          } else {
+            const clean = stripMarkdownInline(block.content);
+            if (!clean.trim()) continue;
+            doc.setFont("Roboto", "normal");
+            doc.setFontSize(10);
+            for (const tl of doc.splitTextToSize(clean, innerWidth)) {
+              ensureSpace(5);
+              doc.text(tl, innerMargin, y);
+              y += 5;
+            }
+          }
+        }
+      };
+
+      const innerSegments = parseTextSegments(downshiftHeadings(section.body));
+      for (const seg of innerSegments) {
+        if (seg.type === "code") {
+          renderCodeBlock(seg);
+        } else {
+          renderInner(seg.content);
+        }
+      }
+
+      for (const img of section.images) {
+        renderImageCentered(img, 0.85, innerMargin, innerWidth);
+      }
+
+      y += 2;
+
+      // Left vertical bar spanning the card content (best-effort, single-page only).
+      doc.setDrawColor(120, 120, 200);
+      doc.setLineWidth(0.6);
+      doc.line(margin + 1, startY + 2, margin + 1, y - 1);
+      doc.setLineWidth(0.2);
+    };
+
+    const shifted = downshiftHeadings(msg.text);
+    const chunks = splitAssistantText(shifted, msg.inlineMdSections);
+    for (const chunk of chunks) {
+      if (chunk.type === "inlineMd") {
+        renderInlineMdCard(chunk.section);
+        continue;
+      }
+      const segments = parseTextSegments(chunk.content);
+      for (const seg of segments) {
+        if (seg.type === "code") renderCodeBlock(seg);
+        else renderTextBlocks(seg.content);
+      }
+    }
+    y += 3;
+
+    for (const img of msg.images) {
+      renderImageCentered(img, 0.8);
     }
 
     ensureSpace(3);
@@ -994,7 +1341,10 @@ async function exportAsPdf(
     doc.setFont("Roboto", "normal");
     doc.setFontSize(10);
     for (const f of bundle) {
-      for (const line of doc.splitTextToSize(`• ${f.nameInZip}`, contentWidth)) {
+      for (const line of doc.splitTextToSize(
+        `• ${f.nameInZip}`,
+        contentWidth,
+      )) {
         ensureSpace(5);
         doc.text(line, margin, y);
         y += 5;
@@ -1041,7 +1391,10 @@ async function exportAsDocx(
     type: "png",
   });
 
-  const DOCX_HEADING_MAP: Record<number, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
+  const DOCX_HEADING_MAP: Record<
+    number,
+    (typeof HeadingLevel)[keyof typeof HeadingLevel]
+  > = {
     1: HeadingLevel.HEADING_1,
     2: HeadingLevel.HEADING_2,
     3: HeadingLevel.HEADING_3,
@@ -1138,13 +1491,127 @@ async function exportAsDocx(
       continue;
     }
 
+    const cardBorder = {
+      top: { style: BorderStyle.SINGLE, size: 4, color: "BFBFE8" },
+      bottom: { style: BorderStyle.SINGLE, size: 4, color: "BFBFE8" },
+      left: { style: BorderStyle.SINGLE, size: 12, color: "7D7DCC" },
+      right: { style: BorderStyle.SINGLE, size: 4, color: "BFBFE8" },
+    } as const;
+    const cardShading = {
+      type: ShadingType.CLEAR,
+      fill: "F6F7FB",
+    } as const;
+
+    const pushInlineMdCard = async (section: InlineMdSection) => {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `📄 ${section.filename}`,
+              size: 24,
+              bold: true,
+              font: "Roboto",
+              color: "333333",
+            }),
+          ],
+          spacing: { before: 200, after: 80 },
+          border: cardBorder,
+          shading: cardShading,
+          indent: { left: 200 },
+        }),
+      );
+
+      const downshifted = downshiftHeadings(section.body);
+      const innerSegments = parseTextSegments(downshifted);
+      for (const seg of innerSegments) {
+        if (seg.type === "code") {
+          pushCodeBlock(seg);
+          continue;
+        }
+        const blocks = parseTextBlocks(seg.content);
+        for (const block of blocks) {
+          if (block.type === "heading") {
+            const lvl = Math.min((block.level ?? 1) + 1, 6);
+            children.push(
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: stripMarkdownInline(block.content),
+                    size: 22,
+                    bold: true,
+                    font: "Roboto",
+                  }),
+                ],
+                heading: DOCX_HEADING_MAP[lvl] ?? HeadingLevel.HEADING_6,
+                spacing: { before: 120, after: 60 },
+                border: cardBorder,
+                shading: cardShading,
+                indent: { left: 200 },
+              }),
+            );
+          } else {
+            const clean = stripMarkdownInline(block.content);
+            for (const para of clean.split(/\n{2,}/)) {
+              if (!para.trim()) continue;
+              children.push(
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: para.trim(),
+                      size: 22,
+                      font: "Roboto",
+                    }),
+                  ],
+                  spacing: { after: 60 },
+                  border: cardBorder,
+                  shading: cardShading,
+                  indent: { left: 200 },
+                }),
+              );
+            }
+          }
+        }
+      }
+
+      for (const img of section.images) {
+        try {
+          const imgBuffer = await blobToArrayBuffer(img.blob);
+          children.push(
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  data: imgBuffer,
+                  transformation: { width: 460, height: 260 },
+                  type: "png",
+                }),
+              ],
+              spacing: { before: 80, after: 80 },
+              alignment: AlignmentType.CENTER,
+              border: cardBorder,
+              shading: cardShading,
+              indent: { left: 200 },
+            }),
+          );
+        } catch {
+          // skip
+        }
+      }
+    };
+
     const shifted = downshiftHeadings(msg.text);
-    const segments = parseTextSegments(shifted);
-    for (const seg of segments) {
-      if (seg.type === "code") {
-        pushCodeBlock(seg);
-      } else {
-        pushTextBlocks(seg.content);
+    const chunks = splitAssistantText(shifted, msg.inlineMdSections);
+    for (const chunk of chunks) {
+      if (chunk.type === "inlineMd") {
+        await pushInlineMdCard(chunk.section);
+        continue;
+      }
+      const segments = parseTextSegments(chunk.content);
+      for (const seg of segments) {
+        if (seg.type === "code") {
+          pushCodeBlock(seg);
+        } else {
+          pushTextBlocks(seg.content);
+        }
       }
     }
 
@@ -1267,10 +1734,8 @@ async function downloadZippedFileWithAttachments(
     zip.file(`attachments/${f.nameInZip}`, blob);
   }
   const out = await zip.generateAsync({ type: "blob" });
-  const zipName = mainFileName.replace(
-    /\.(md|docx|pdf|zip)$/i,
-    ".zip",
-  ) || "export.zip";
+  const zipName =
+    mainFileName.replace(/\.(md|docx|pdf|zip)$/i, ".zip") || "export.zip";
   const safeZipName = zipName.endsWith(".zip") ? zipName : `${zipName}.zip`;
   downloadBlob(out, safeZipName);
 }
@@ -1281,9 +1746,8 @@ export async function exportChat(
   title: string,
 ): Promise<void> {
   const safeTitle = title.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 80) || "chat";
-  const { exportable, bundle: bundleList } = await prepareMessagesForExport(
-    messages,
-  );
+  const { exportable, bundle: bundleList } =
+    await prepareMessagesForExport(messages);
   const hasBundle = bundleList.length > 0;
 
   if (format === "md") {
