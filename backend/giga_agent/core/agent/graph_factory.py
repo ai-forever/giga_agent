@@ -32,6 +32,7 @@ from langgraph._internal._runnable import RunnableCallable
 from langgraph.constants import END, START
 from langgraph.graph.state import StateGraph
 from langgraph.runtime import Runtime
+from langgraph.typing import ContextT
 from langgraph.types import Command, Send
 from langgraph.typing import ContextT
 
@@ -62,9 +63,23 @@ from giga_agent.core.agent.multi_tool_use import (
     collapse_tool_messages,
     expand_multi_tool_use,
 )
+from giga_agent.conf import (
+    GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
+    GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
+    GIGA_AGENT_ENABLE_THINK_TOOL,
+    GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+)
 from giga_agent.core.agent.prompt import BASE_PROMPT
+from giga_agent.core.agent.think import (
+    THINK_VIA_FAST_MODEL,
+    collapse_think_hops,
+    is_single_think_call,
+    process_think_via_fast_model,
+    resolve_bound_tool_choice,
+)
 from giga_agent.core.agent.tool_node import ToolNode
 from giga_agent.core.db import get_session_factory
+from giga_agent.core.agent.tools import think, multi_tool_use
 from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository
 from giga_agent.utils.mcp import transform_tool
@@ -79,27 +94,21 @@ if TYPE_CHECKING:
     from langgraph.types import Checkpointer
 
     from giga_agent.core.agent.base import BaseAgent
+from giga_agent.core.agent.utils import merge_state
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.agent.utils import merge_state
 
 logger = get_logger(__name__)
 
-THINK_TOOL_NAME = "think"
-MAX_FORCED_THINK_FOLLOWUPS = 2
-THINK_VIA_FAST_MODEL = False
-THINK_HOP_RESULT = (
-    "Подумай еще глубже и подробнее. Проверь, что ты мог упустить, "
-    "покритикуй свой текущий ход мысли, проверь слабые места плана. "
-    "Пересмотри выводы, попробуй найти оставшиеся противоречия, неочевидные "
-    "риски и альтернативные трактовки. Убедись, что твой следующий шаг "
-    "действительно самый лучший."
-)
-FAST_MODEL_THINK_PROMPT = (
-    "Расширь и углуби предыдущие рассуждения ассистента. "
-    "Найди слабые места, оцени плюсы и минусы подхода, "
-    "предложи альтернативы и укажи, что ещё стоит учесть. "
-)
 
+def _is_feature_enabled_for_provider(
+    enabled: bool,
+    allowed_providers: list[str],
+    llm_type: str,
+) -> bool:
+    if not enabled:
+        return False
+    return llm_type.lower() in {p.lower() for p in allowed_providers}
 
 
 def _generate_user_info(state: AgentState) -> str:
@@ -268,201 +277,6 @@ def _fetch_last_ai_and_tool_messages(
             return last_ai_message, tool_messages
 
     return None, []
-
-
-def _count_trailing_think_tool_pairs(messages: list[AnyMessage]) -> int:
-    """Count trailing consecutive AI(think) -> ToolMessage pairs."""
-    pairs = 0
-    index = len(messages) - 1
-
-    while index >= 1:
-        tool_message = messages[index]
-        ai_message = messages[index - 1]
-
-        if not isinstance(tool_message, ToolMessage):
-            break
-        if not isinstance(ai_message, AIMessage):
-            break
-        if len(ai_message.tool_calls) != 1:
-            break
-
-        tool_call = ai_message.tool_calls[0]
-        if tool_call.get("name") != THINK_TOOL_NAME:
-            break
-        if tool_call.get("id") != tool_message.tool_call_id:
-            break
-
-        pairs += 1
-        index -= 2
-
-    return pairs
-
-
-def _is_think_pair(ai_msg: AnyMessage, tool_msg: AnyMessage) -> bool:
-    """Check if an AI+ToolMessage pair is a single think tool call."""
-    if not isinstance(ai_msg, AIMessage) or not isinstance(tool_msg, ToolMessage):
-        return False
-    if len(ai_msg.tool_calls) != 1:
-        return False
-    call = ai_msg.tool_calls[0]
-    return (
-        call.get("name") == THINK_TOOL_NAME
-        and call.get("id") == tool_msg.tool_call_id
-    )
-
-
-def _merge_think_group(
-    pairs: list[tuple[AIMessage, ToolMessage]],
-) -> list[AnyMessage]:
-    """Collapse a group of consecutive think pairs into one AI+ToolMessage.
-
-    Single pairs are returned as-is. For 2+ pairs the thoughts are joined
-    and content on the merged AIMessage is cleared.
-    """
-    if len(pairs) == 1:
-        return [pairs[0][0], pairs[0][1]]
-
-    thoughts = [_extract_think_thoughts(ai) for ai, _ in pairs]
-    merged_thoughts = "\n---\n".join(t for t in thoughts if t)
-
-    last_ai, last_tool = pairs[-1]
-
-    merged_call = last_ai.tool_calls[0].copy()
-    merged_args = dict(merged_call.get("args", {}))
-    merged_args["thoughts"] = merged_thoughts
-    merged_call["args"] = merged_args
-
-    merged_ai = last_ai.model_copy(
-        update={"tool_calls": [merged_call], "content": ""}
-    )
-    merged_tool = last_tool.model_copy(update={"content": ""})
-    return [merged_ai, merged_tool]
-
-
-def collapse_think_hops(messages: list[AnyMessage]) -> list[AnyMessage]:
-    """Merge every run of consecutive AI(think)+ToolMessage pairs across
-    the whole conversation into a single pair per run.
-    """
-    if len(messages) < 4:
-        return messages
-
-    result: list[AnyMessage] = []
-    i = 0
-
-    while i < len(messages) - 1:
-        if _is_think_pair(messages[i], messages[i + 1]):
-            group: list[tuple[AIMessage, ToolMessage]] = []
-            while (
-                i < len(messages) - 1
-                and _is_think_pair(messages[i], messages[i + 1])
-            ):
-                group.append(
-                    (cast("AIMessage", messages[i]),
-                     cast("ToolMessage", messages[i + 1]))
-                )
-                i += 2
-            result.extend(_merge_think_group(group))
-        else:
-            result.append(messages[i])
-            i += 1
-
-    if i < len(messages):
-        result.append(messages[i])
-
-    return result
-
-
-def _resolve_bound_tool_choice(messages: list[AnyMessage]) -> str:
-    """Force repeated think calls for a limited trailing think/tool chain."""
-    trailing_think_pairs = _count_trailing_think_tool_pairs(messages)
-    if 1 <= trailing_think_pairs <= MAX_FORCED_THINK_FOLLOWUPS:
-        return THINK_TOOL_NAME
-    return "auto"
-
-
-async def _wrap_think_hop_result(
-    request: ToolCallRequest,
-    execute: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]],
-) -> ToolMessage | Command[Any]:
-    """Inject hop-specific reflection prompts for repeated think calls."""
-    response = await execute(request)
-    if request.tool_call.get("name") != THINK_TOOL_NAME:
-        return response
-    if not isinstance(response, ToolMessage):
-        return response
-
-    state_messages = request.state.get("messages", []) + [response]
-    if not isinstance(state_messages, list):
-        return response
-
-    trailing_think_pairs = _count_trailing_think_tool_pairs(state_messages)
-    if trailing_think_pairs >= MAX_FORCED_THINK_FOLLOWUPS:
-        return response
-
-    return response.model_copy(
-        update={"content": json.dumps(THINK_HOP_RESULT, ensure_ascii=False)}
-    )
-
-
-def _is_single_think_call(ai_message: AIMessage) -> bool:
-    """Check if AIMessage contains exactly one think tool_call and nothing else."""
-    return (
-        len(ai_message.tool_calls) == 1
-        and ai_message.tool_calls[0].get("name") == THINK_TOOL_NAME
-    )
-
-
-def _extract_think_thoughts(ai_message: AIMessage) -> str:
-    """Extract thoughts text from a single think tool_call."""
-    args = ai_message.tool_calls[0].get("args", {})
-    return args.get("thoughts") or args.get("thought") or ""
-
-
-async def _process_think_via_fast_model(
-    ai_message: AIMessage,
-    *,
-    user,
-    session,
-    messages_for_llm: list[AnyMessage],
-    system_message: SystemMessage,
-    tools: list[BaseTool],
-) -> list[AnyMessage]:
-    """Replace think tool_call with fast_model reasoning and return patched messages.
-
-    Flow:
-    1. Strip think tool_call from AIMessage, move thoughts into content
-    2. Append HumanMessage asking fast_model to critique/analyze
-    3. Call fast_model
-    4. Wrap fast_model answer as ToolMessage for the original think call
-    5. Return [original AIMessage with tool_call, ToolMessage with fast_model answer]
-    """
-    thoughts = _extract_think_thoughts(ai_message)
-    think_call = ai_message.tool_calls[0]
-    think_call_id = think_call.get("id") or str(uuid.uuid4())
-
-    fast_llm_id = user.fast_llm_id or user.llm_id
-    if fast_llm_id is None:
-        return [ai_message]
-
-    fast_llm_runtime = await LLMManager.resolve_by_id(fast_llm_id, session=session)
-    fast_llm = await fast_llm_runtime.get_llm()
-    fast_llm = fast_llm.with_config(tags=["nostream"])
-
-    ai_as_content = ai_message.model_copy(
-        update={"tool_calls": [], "content": f"{thoughts}", "additional_kwargs": {}}
-    )
-    critique_request = HumanMessage(content=FAST_MODEL_THINK_PROMPT)
-    fast_messages = [system_message] + messages_for_llm[:-1] + [ai_as_content, critique_request]
-    agent = fast_llm
-    fast_response = await agent.ainvoke(fast_messages)
-    fast_text = (
-        fast_response.content
-        if isinstance(fast_response.content, str)
-        else str(fast_response.content)
-    )
-    think_call['args']['thoughts'] = thoughts + "\n" + fast_text
-
-    return [ai_message.model_copy(update={"tool_calls": [think_call]})]
 
 
 def _make_model_to_tools_edge(
@@ -642,18 +456,21 @@ def create_graph(
 
     # Chain all wrap_tool_call handlers into a single composed handler
     wrap_tool_call_wrapper = None
-    wrappers = [_wrap_think_hop_result]
     if middleware_w_wrap_tool_call:
-        wrappers.extend(m.wrap_tool_call for m in middleware_w_wrap_tool_call)
-    if wrappers:
+        wrappers = [m.wrap_tool_call for m in middleware_w_wrap_tool_call]
         wrap_tool_call_wrapper = _chain_async_tool_call_wrappers(wrappers)
 
     # Extract built-in provider tools (dict format) and regular tools (BaseTool/callables)
     built_in_tools = [t for t in tools if isinstance(t, dict)]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
 
-    # Tools that require client-side execution (must be in ToolNode)
-    available_tools = middleware_tools + regular_tools
+    builtin_tools: list[BaseTool] = []
+    if GIGA_AGENT_ENABLE_THINK_TOOL:
+        builtin_tools.append(think)
+    if GIGA_AGENT_ENABLE_MULTI_TOOL_USE:
+        builtin_tools.append(multi_tool_use)
+
+    available_tools = builtin_tools + middleware_tools + regular_tools
 
     # Only create ToolNode if we have client-side tools
     tool_node = ToolNode(
@@ -661,15 +478,6 @@ def create_graph(
         wrap_tool_call=wrap_tool_call_wrapper,
         agent=agent,
     )
-
-    # Default tools for ModelRequest initialization
-    # Use converted BaseTool instances from ToolNode (not raw callables)
-    # Include built-ins and converted tools (can be changed dynamically by middleware)
-    # Structured tools are NOT included - they're added dynamically based on response_format
-    if tool_node:
-        default_tools = list(tool_node.tools_by_name.values()) + built_in_tools
-    else:
-        default_tools = list(built_in_tools)
 
     # validate middleware
     if len({m.name for m in middleware}) != len(middleware):
@@ -706,7 +514,6 @@ def create_graph(
 
         Raises any exceptions that occur during model invocation.
         """
-        # Get the bound model (with auto-detection if needed)
         model_ = request.model.bind(**request.model_settings)
         messages = request.messages
         if request.system_message:
@@ -719,8 +526,6 @@ def create_graph(
         output.additional_kwargs["rendered"] = True
         for call in output.tool_calls:
             call.setdefault("id", str(uuid.uuid4()))
-
-        output = expand_multi_tool_use(output)
 
         return ModelResponse(
             result=[output],
@@ -745,15 +550,35 @@ def create_graph(
 
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
             llm = await llm_runtime.get_llm()
+
+        llm_type = llm_runtime.get_llm_type()
+        think_enabled = _is_feature_enabled_for_provider(
+            GIGA_AGENT_ENABLE_THINK_TOOL,
+            GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+            llm_type,
+        )
+        multi_tool_use_enabled = _is_feature_enabled_for_provider(
+            GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
+            GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
+            llm_type,
+        )
+
+        if multi_tool_use_enabled:
+            few_shots_collapse = collapse_tool_messages(
+                FEW_SHOT_EXAMPLES_SINGLE + list(state["messages"])
+            )
+            collapsed_messages = collapse_tool_messages(state["messages"])
+        else:
+            few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE + list(state["messages"]))
+            collapsed_messages = list(state["messages"])
+        state_messages_collapse = (
+            collapse_think_hops(collapsed_messages)
+            if think_enabled
+            else collapsed_messages
+        )
         configurable = (config or {}).get("configurable") or {}
         deep_research_forced = bool(configurable.get("deep_research_forced"))
 
-        few_shots_collapse = collapse_tool_messages(
-            FEW_SHOT_EXAMPLES_SINGLE + list(state["messages"])
-        )
-        state_messages_collapse = collapse_think_hops(
-            collapse_tool_messages(state["messages"])
-        )
         messages_for_llm = few_shots_collapse + state_messages_collapse
         if messages_for_llm and messages_for_llm[-1].type == "human":
             last_message = messages_for_llm[-1]
@@ -807,9 +632,11 @@ def create_graph(
             )
             for tool in state.get("mcp_tools", [])
         ]
-        tool_choice = _resolve_bound_tool_choice(state["messages"])
-        llm = llm.bind_tools(
-            tools=agent_tools + default_tools + mcp_tools, tool_choice=tool_choice
+
+        tool_choice = (
+            resolve_bound_tool_choice(state["messages"])
+            if think_enabled
+            else "auto"
         )
         # TODO: Сейчас ломается для deepseek, при мерже v0.2 будем включать только для GigaChat
         # chosen_tool_choice: Any = "auto"
@@ -823,6 +650,21 @@ def create_graph(
         #         # Флаг пришёл, но тул не зарегистрирован у юзера (нет llm/search_engine).
         #         # Оставляем auto — юзер увидит обычный ответ.
         #         pass
+        optional_tools: list[BaseTool] = []
+        if think_enabled:
+            optional_tools.append(think)
+        if multi_tool_use_enabled:
+            optional_tools.append(multi_tool_use)
+
+        all_tools = (
+            optional_tools
+            + built_in_tools
+            + regular_tools
+            + middleware_tools
+            + agent_tools
+            + mcp_tools
+        )
+        llm = llm.bind_tools(tools=all_tools, tool_choice=tool_choice)
         channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
@@ -830,12 +672,14 @@ def create_graph(
                 state=state,
                 config=config,
                 channel_prompt=channel_prompt,
+                enable_think=think_enabled,
+                enable_multi_tool_use=multi_tool_use_enabled,
             )
         )
 
         request = ModelRequest(
             model=llm,
-            tools=default_tools,
+            tools=all_tools,
             system_message=system_message,
             messages=messages_for_llm,
             tool_choice=tool_choice,
@@ -843,27 +687,38 @@ def create_graph(
             runtime=runtime,
         )
 
+        async def _execute_with_expand(req: ModelRequest) -> ModelResponse:
+            response = await _execute_model_async(req)
+            if not multi_tool_use_enabled:
+                return response
+            expanded = [
+                expand_multi_tool_use(m) if isinstance(m, AIMessage) else m
+                for m in response.result
+            ]
+            return ModelResponse(
+                result=expanded,
+                structured_response=response.structured_response,
+            )
+
         if wrap_model_call_handler is None:
-            # No async handlers - execute directly
-            response = await _execute_model_async(request)
+            response = await _execute_with_expand(request)
         else:
-            # Call composed async handler with base handler
-            response = await wrap_model_call_handler(request, _execute_model_async)
+            response = await wrap_model_call_handler(request, _execute_with_expand)
 
         result_messages = list(response.result)
 
-        if THINK_VIA_FAST_MODEL and len(result_messages) == 1:
+        if think_enabled and THINK_VIA_FAST_MODEL and len(result_messages) == 1:
             ai_msg = result_messages[0]
-            if isinstance(ai_msg, AIMessage) and _is_single_think_call(ai_msg):
+            if isinstance(ai_msg, AIMessage) and is_single_think_call(ai_msg):
                 factory = await get_session_factory()
                 async with factory() as session:
-                    result_messages = await _process_think_via_fast_model(
+                    result_messages = await process_think_via_fast_model(
                         ai_msg,
                         user=user,
                         session=session,
                         messages_for_llm=state_messages_collapse,
                         system_message=system_message,
-                        tools=agent_tools + default_tools + mcp_tools
+                        tools=all_tools
                     )
 
         state_updates = {"messages": result_messages}
