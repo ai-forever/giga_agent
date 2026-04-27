@@ -39,8 +39,13 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         "connector",
         "model_id",
     }
+    _registered_llm_type: ClassVar[str] = ""
 
     _llm_instance: BaseChatModel | None = PrivateAttr(default=None)
+
+    @classmethod
+    def get_llm_type(cls) -> str:
+        return cls._registered_llm_type
 
     @classmethod
     @abc.abstractmethod

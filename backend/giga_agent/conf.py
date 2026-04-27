@@ -191,6 +191,21 @@ class Settings(BaseSettings):
         False, alias="GIGA_AGENT_SCRAPER_DISABLED"
     )
 
+    giga_agent_enable_think_tool: bool = Field(
+        True, alias="GIGA_AGENT_ENABLE_THINK_TOOL"
+    )
+    giga_agent_enable_think_tool_providers: list[str] = Field(
+        default_factory=lambda: ["gigachat"],
+        alias="GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS",
+    )
+    giga_agent_enable_multi_tool_use: bool = Field(
+        False, alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE"
+    )
+    giga_agent_enable_multi_tool_use_providers: list[str] = Field(
+        default_factory=lambda: ["gigachat"],
+        alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS",
+    )
+
     giga_agent_tool_max_size: int = Field(25000, alias="GIGA_AGENT_TOOL_MAX_SIZE")
 
     giga_agent_sandbox_idle_sweeper_enabled: bool = Field(
@@ -406,6 +421,14 @@ GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC = (
 )
 GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY = (
     get_settings().giga_agent_sandbox_orphan_sweeper_concurrency
+)
+GIGA_AGENT_ENABLE_THINK_TOOL = get_settings().giga_agent_enable_think_tool
+GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS = (
+    get_settings().giga_agent_enable_think_tool_providers
+)
+GIGA_AGENT_ENABLE_MULTI_TOOL_USE = get_settings().giga_agent_enable_multi_tool_use
+GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS = (
+    get_settings().giga_agent_enable_multi_tool_use_providers
 )
 GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
 GIGA_AGENT_SKIP_ONBOARDING = get_settings().giga_agent_skip_onboarding

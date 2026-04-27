@@ -25,6 +25,7 @@ class LLMRegistry:
                     llm_cls.__name__,
                 )
             cls._registry[key] = llm_cls
+            llm_cls._registered_llm_type = key
             return llm_cls
 
         return decorator

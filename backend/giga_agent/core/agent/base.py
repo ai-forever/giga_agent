@@ -28,8 +28,7 @@ from giga_agent.core.migrations import apply_migrations
 from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
 from uuid import UUID
 
-from giga_agent.core.agent.prompt import BASE_PROMPT
-from giga_agent.core.agent.tools import think, multi_tool_use
+from giga_agent.core.agent.prompt import build_base_prompt
 from giga_agent.core.module import BaseModule
 from langchain_core.tools import BaseTool
 
@@ -237,6 +236,9 @@ class BaseAgent(BaseModel):
         state: AgentState | None = None,
         config: RunnableConfig | None = None,
         channel_prompt: str = "",
+        *,
+        enable_think: bool = True,
+        enable_multi_tool_use: bool = False,
     ) -> str:
         modules_prompts = []
         for module in self._agent_modules:
@@ -251,8 +253,12 @@ class BaseAgent(BaseModel):
         instructions_prompt = ""
         if instructions:
             instructions_prompt = NOTES_PROMPT.format(instructions)
+        base_prompt = build_base_prompt(
+            enable_think=enable_think,
+            enable_multi_tool_use=enable_multi_tool_use,
+        )
         return (
-            BASE_PROMPT.format(modules="\n===\n\n".join(modules_prompts))
+            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
             + instructions_prompt
         )
 
@@ -268,8 +274,7 @@ class BaseAgent(BaseModel):
         if cached is not None:
             return cached
 
-        all_tools: list[BaseTool] = [think, multi_tool_use]
-        all_tools.extend(self.tools)
+        all_tools: list[BaseTool] = list(self.tools)
         for module in self._agent_modules:
             all_tools.extend(await module.get_tools(user=user, agent=self))
 
