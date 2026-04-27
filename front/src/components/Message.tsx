@@ -44,6 +44,15 @@ function getMessageText(message: Message_): string {
   return (message.content as string) ?? "";
 }
 
+const EXPORT_TITLE_MAX_LEN = 60;
+
+function getHumanMessageText(message: Message_): string {
+  const rawText =
+    (message.additional_kwargs as Record<string, string>)?.user_input ??
+    getMessageText(message);
+  return rawText.replace(/\n*\[system:[\s\S]*$/i, "").trimEnd();
+}
+
 function BranchSwitcher({
   thread,
   message,
@@ -128,8 +137,12 @@ const Message: React.FC<MessageProps> = ({
     setIsExporting(true);
     try {
       const pair = extractMessagePair(thread.messages, message);
+      const originHuman = pair.find((m) => m.type === "human");
       const title =
-        getMessageText(message).slice(0, 60).replace(/\s+/g, " ").trim() ||
+        (originHuman ? getHumanMessageText(originHuman as Message_) : "")
+          .slice(0, EXPORT_TITLE_MAX_LEN)
+          .replace(/\s+/g, " ")
+          .trim() ||
         "chat";
       await exportChat(pair, format, title);
     } finally {
