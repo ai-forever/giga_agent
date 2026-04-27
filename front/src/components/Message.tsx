@@ -142,8 +142,7 @@ const Message: React.FC<MessageProps> = ({
         (originHuman ? getHumanMessageText(originHuman as Message_) : "")
           .slice(0, EXPORT_TITLE_MAX_LEN)
           .replace(/\s+/g, " ")
-          .trim() ||
-        "chat";
+          .trim() || "chat";
       await exportChat(pair, format, title);
     } finally {
       setIsExporting(false);

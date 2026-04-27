@@ -153,6 +153,91 @@ async function renderPlotlyToPng(
 }
 
 // ---------------------------------------------------------------------------
+// Mermaid rendering helpers
+// ---------------------------------------------------------------------------
+
+interface MermaidPngResult {
+  dataUrl: string;
+  blob: Blob;
+  aspectRatio: number;
+}
+
+async function renderMermaidToPng(
+  chart: string,
+  targetWidth = 800,
+): Promise<MermaidPngResult | null> {
+  try {
+    const mermaid = (await import("mermaid")).default;
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: "default",
+      securityLevel: "loose",
+    });
+    const id = `mermaid-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const { svg } = await mermaid.render(id, chart);
+    const el = document.getElementById(id);
+    if (el) el.remove();
+
+    // Parse SVG to derive aspect ratio
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svg, "image/svg+xml");
+    const svgEl = svgDoc.querySelector("svg");
+    let aspectRatio = 0.5;
+    if (svgEl) {
+      const vb = svgEl.getAttribute("viewBox");
+      const sw = svgEl.getAttribute("width");
+      const sh = svgEl.getAttribute("height");
+      if (vb) {
+        const parts = vb
+          .trim()
+          .split(/[\s,]+/)
+          .map(Number);
+        if (parts.length >= 4 && parts[2] > 0) {
+          aspectRatio = parts[3] / parts[2];
+        }
+      } else if (sw && sh) {
+        const pw = parseFloat(sw);
+        const ph = parseFloat(sh);
+        if (pw > 0) aspectRatio = ph / pw;
+      }
+    }
+
+    const height = Math.max(Math.round(targetWidth * aspectRatio), 50);
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, targetWidth, height);
+
+    const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(svgBlob);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, targetWidth, height);
+        URL.revokeObjectURL(objectUrl);
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+          "image/png",
+        );
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Failed to load SVG as image"));
+      };
+      img.src = objectUrl;
+    });
+
+    const dataUrl = await blobToDataUrl(blob);
+    return { dataUrl, blob, aspectRatio };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Fetch helpers
 // ---------------------------------------------------------------------------
 
@@ -224,7 +309,7 @@ function stripJsonArtifactReferences(text: string): string {
 }
 
 interface TextSegment {
-  type: "text" | "code";
+  type: "text" | "code" | "mermaid";
   content: string;
   lang?: string;
 }
@@ -241,10 +326,11 @@ function parseTextSegments(text: string): TextSegment[] {
         content: text.slice(lastIdx, match.index),
       });
     }
+    const lang = match[1] || undefined;
     segments.push({
-      type: "code",
+      type: isMermaidLang(lang) ? "mermaid" : "code",
       content: match[2],
-      lang: match[1] || undefined,
+      lang,
     });
     lastIdx = match.index + match[0].length;
   }
@@ -257,6 +343,10 @@ function parseTextSegments(text: string): TextSegment[] {
 function isPythonLang(lang?: string): boolean {
   if (!lang) return false;
   return /^(?:python|py|python3|py3)$/i.test(lang);
+}
+
+function isMermaidLang(lang?: string): boolean {
+  return lang?.toLowerCase() === "mermaid";
 }
 
 // ---------------------------------------------------------------------------
@@ -1226,7 +1316,25 @@ async function exportAsPdf(
       }
     };
 
-    const renderInlineMdCard = (section: InlineMdSection) => {
+    const renderMermaidInPdf = async (
+      seg: TextSegment,
+      offsetX: number,
+      areaWidth: number,
+    ) => {
+      const result = await renderMermaidToPng(seg.content.trim(), 1600);
+      if (!result) {
+        renderCodeBlock({ ...seg, type: "code" });
+        return;
+      }
+      const imgWidth = areaWidth * 0.9;
+      const imgHeight = imgWidth * result.aspectRatio;
+      ensureSpace(imgHeight + 8);
+      const imgX = offsetX + (areaWidth - imgWidth) / 2;
+      doc.addImage(result.dataUrl, "PNG", imgX, y, imgWidth, imgHeight);
+      y += imgHeight + 8;
+    };
+
+    const renderInlineMdCard = async (section: InlineMdSection) => {
       const inset = 4;
       const innerMargin = margin + inset;
       const innerWidth = contentWidth - inset * 2;
@@ -1281,7 +1389,9 @@ async function exportAsPdf(
 
       const innerSegments = parseTextSegments(downshiftHeadings(section.body));
       for (const seg of innerSegments) {
-        if (seg.type === "code") {
+        if (seg.type === "mermaid") {
+          await renderMermaidInPdf(seg, innerMargin, innerWidth);
+        } else if (seg.type === "code") {
           renderCodeBlock(seg);
         } else {
           renderInner(seg.content);
@@ -1305,12 +1415,14 @@ async function exportAsPdf(
     const chunks = splitAssistantText(shifted, msg.inlineMdSections);
     for (const chunk of chunks) {
       if (chunk.type === "inlineMd") {
-        renderInlineMdCard(chunk.section);
+        await renderInlineMdCard(chunk.section);
         continue;
       }
       const segments = parseTextSegments(chunk.content);
       for (const seg of segments) {
-        if (seg.type === "code") renderCodeBlock(seg);
+        if (seg.type === "mermaid")
+          await renderMermaidInPdf(seg, margin, contentWidth);
+        else if (seg.type === "code") renderCodeBlock(seg);
         else renderTextBlocks(seg.content);
       }
     }
@@ -1441,6 +1553,34 @@ async function exportAsDocx(
     children.push(new Paragraph({ spacing: { after: 80 } }));
   };
 
+  const pushMermaidBlock = async (seg: TextSegment) => {
+    const result = await renderMermaidToPng(seg.content.trim(), 1800);
+    if (!result) {
+      pushCodeBlock({ ...seg, type: "code" });
+      return;
+    }
+    try {
+      const imgBuffer = await result.blob.arrayBuffer();
+      const imgWidth = 500;
+      const imgHeight = Math.max(Math.round(imgWidth * result.aspectRatio), 40);
+      children.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: imgBuffer,
+              transformation: { width: imgWidth, height: imgHeight },
+              type: "png",
+            }),
+          ],
+          spacing: { before: 120, after: 120 },
+          alignment: AlignmentType.CENTER,
+        }),
+      );
+    } catch {
+      pushCodeBlock({ ...seg, type: "code" });
+    }
+  };
+
   const pushTextBlocks = (text: string) => {
     const blocks = parseTextBlocks(text);
     for (const block of blocks) {
@@ -1524,6 +1664,10 @@ async function exportAsDocx(
       const downshifted = downshiftHeadings(section.body);
       const innerSegments = parseTextSegments(downshifted);
       for (const seg of innerSegments) {
+        if (seg.type === "mermaid") {
+          await pushMermaidBlock(seg);
+          continue;
+        }
         if (seg.type === "code") {
           pushCodeBlock(seg);
           continue;
@@ -1607,7 +1751,9 @@ async function exportAsDocx(
       }
       const segments = parseTextSegments(chunk.content);
       for (const seg of segments) {
-        if (seg.type === "code") {
+        if (seg.type === "mermaid") {
+          await pushMermaidBlock(seg);
+        } else if (seg.type === "code") {
           pushCodeBlock(seg);
         } else {
           pushTextBlocks(seg.content);
