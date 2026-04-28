@@ -39,7 +39,11 @@ import { compactObject } from "./forms/schema-fields-utils";
 
 type FormMode = "create" | "edit";
 
-const MANAGED_CONNECTOR_TYPES: ConnectorType[] = ["openai", "deepseek", "gigachat"];
+const MANAGED_CONNECTOR_TYPES: ConnectorType[] = [
+  "openai",
+  "deepseek",
+  "gigachat",
+];
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
 
