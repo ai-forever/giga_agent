@@ -45,6 +45,9 @@ class _ChatDeepSeekWithReplay(ChatDeepSeek):
             reasoning = ai_msg.additional_kwargs.get("reasoning_content")
             if reasoning:
                 msg_dict["reasoning_content"] = reasoning
+            else:
+                # For case if we add few shot messages (they not have reasoning content)
+                msg_dict["reasoning_content"] = ""
 
         return payload
 

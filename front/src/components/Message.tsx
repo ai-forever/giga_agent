@@ -75,6 +75,14 @@ interface MessageProps {
   thread?: UseStream<GraphState, GraphTemplate>;
 }
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const Message: React.FC<MessageProps> = ({
   message,
   onWrite,
@@ -152,6 +160,7 @@ const Message: React.FC<MessageProps> = ({
   }, [message.content, message.additional_kwargs, message.type]);
   const normalizedContent = useMemo(() => {
     let md = displayed ?? "";
+    const reasoningContent = message.additional_kwargs?.reasoning_content;
 
     // 1) перед каждым ``` вставляем гарантированно пустую строку
     md = md.replace(/(^|\n)(```[^\n]*)/g, "$1\n$2");
@@ -161,8 +170,16 @@ const Message: React.FC<MessageProps> = ({
         `<thinking>${content.replace(/\n/g, "<br>")}</thinking>\n`,
     );
     // md = md.replace(/\$\\?([^\$]+)\$/g, "\n$$$$$1$$$$\n");
+    if (reasoningContent) {
+      const thinking = escapeHtml(String(reasoningContent)).replace(
+        /\r?\n/g,
+        "<br>",
+      );
+      md = `<thinking>${thinking}</thinking>\n\n${md}`;
+    }
+
     return md;
-  }, [displayed]);
+  }, [displayed, message.additional_kwargs?.reasoning_content]);
 
   useEffect(() => {
     onWrite();
