@@ -19,6 +19,7 @@ import type {
 } from "./types";
 
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
 const GIGACHAT_DEFAULT_BASE_URL = "https://gigachat.devices.sberbank.ru/api/v1";
 const GIGACHAT_DEFAULT_AUTH_URL =
   "https://ngw.devices.sberbank.ru:9443/api/v2/oauth";
@@ -47,6 +48,7 @@ interface ConnectorFormProps {
 
 const CONNECTOR_TYPES: { id: ConnectorType; label: string }[] = [
   { id: "openai", label: "OpenAI Compatible" },
+  { id: "deepseek", label: "DeepSeek" },
   { id: "gigachat", label: "GigaChat" },
 ];
 
@@ -72,6 +74,29 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
       [key]: value || undefined,
     });
   };
+
+  const renderDeepSeekFields = () => (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="api_key">API Token</Label>
+        <SecretInput
+          id="api_key"
+          placeholder="sk-..."
+          value={settings.api_key || ""}
+          onChange={(e) => handleSettingChange("api_key", e.target.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="base_url">BASE_URL</Label>
+        <Input
+          id="base_url"
+          placeholder={DEEPSEEK_DEFAULT_BASE_URL}
+          value={settings.base_url || DEEPSEEK_DEFAULT_BASE_URL}
+          onChange={(e) => handleSettingChange("base_url", e.target.value)}
+        />
+      </div>
+    </>
+  );
 
   const renderOpenAIFields = () => (
     <>
@@ -263,6 +288,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
       )}
 
       {connectorType === "openai" && renderOpenAIFields()}
+
+      {connectorType === "deepseek" && renderDeepSeekFields()}
 
       {connectorType === "gigachat" && (
         <>
