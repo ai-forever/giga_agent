@@ -130,17 +130,6 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
       },
     } as HumanMessage;
 
-    const meta = thread?.getMessagesMetadata(message);
-    const parentCheckpoint = meta?.branch
-      ? ({
-          ...meta?.firstSeenState?.parent_checkpoint,
-          thread_id: meta.firstSeenState?.checkpoint.thread_id,
-          checkpoint_id:
-            meta.branch.split(">").length > 1
-              ? meta.branch.split(">")[0]
-              : meta.branch,
-        } as Checkpoint)
-      : meta?.firstSeenState?.parent_checkpoint;
     const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
     const contextInstructions =
       typeof userSettings.contextInstructions === "string"
@@ -161,6 +150,53 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
         selected: selected,
       },
     } as unknown as HumanMessage;
+    const targetMessageId = (message as any)?.id ?? null;
+    const currentMessages = thread?.messages ?? [];
+    const targetIndex = targetMessageId
+      ? currentMessages.findIndex((m) => (m as any)?.id === targetMessageId)
+      : -1;
+    const segmentEnd =
+      targetIndex >= 0
+        ? currentMessages.findIndex(
+            (m, index) => index > targetIndex && m.type === "human",
+          )
+        : -1;
+    const checkpointMessage =
+      targetIndex >= 0
+        ? currentMessages
+            .slice(targetIndex + 1, segmentEnd >= 0 ? segmentEnd : undefined)
+            .findLast((m) => m.type === "ai")
+        : undefined;
+    const meta = checkpointMessage
+      ? thread?.getMessagesMetadata(checkpointMessage)
+      : thread?.getMessagesMetadata(message);
+    const metadataCheckpoint = meta?.branch
+      ? ({
+          ...meta?.firstSeenState?.parent_checkpoint,
+          thread_id: meta.firstSeenState?.checkpoint.thread_id,
+          checkpoint_id:
+            meta.branch.split(">").length > 1
+              ? meta.branch.split(">")[0]
+              : meta.branch,
+        } as Checkpoint)
+      : meta?.firstSeenState?.parent_checkpoint;
+
+    type MessageHistory = NonNullable<typeof thread>["history"];
+    const findHumanTailCheckpoint = (history: MessageHistory = []) =>
+      history.find((state) => {
+        const stateMessages = state.values?.messages ?? [];
+        const lastMessage = stateMessages.at(-1);
+        return (
+          stateMessages.length === targetIndex + 1 &&
+          lastMessage?.id === targetMessageId &&
+          lastMessage?.type === "human"
+        );
+      })?.checkpoint as Checkpoint | undefined;
+
+    const localTailCheckpoint = targetMessageId
+      ? findHumanTailCheckpoint(thread?.history ?? [])
+      : undefined;
+    const parentCheckpoint = localTailCheckpoint ?? metadataCheckpoint;
 
     thread?.submit(
       {
@@ -173,14 +209,13 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
       {
         optimisticValues(prev: GraphState) {
           const prevMessages = prev.messages ?? [];
-          const targetMessageId = (message as any)?.id ?? null;
           const idx = targetMessageId
             ? prevMessages.findIndex((m) => (m as any)?.id === targetMessageId)
             : -1;
           const matched = idx >= 0;
 
           // При редактировании мы НЕ добавляем новое сообщение в конец.
-          // Вместо этого заменяем текущее и отсекаем хвост (последующие сообщения будут пересчитаны сервером от checkpoint).
+          // Вместо этого заменяем текущее и отсекаем хвост; сервер пересчитает его от checkpoint.
           const newMessages = matched
             ? [
                 ...prevMessages.slice(0, idx),
@@ -199,9 +234,9 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
           onCancel();
           return { ...prev, messages: newMessages };
         },
+        checkpoint: parentCheckpoint,
         streamMode: ["messages"],
         onDisconnect: "continue",
-        checkpoint: parentCheckpoint,
       },
     );
   }, [

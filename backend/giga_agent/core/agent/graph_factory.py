@@ -545,12 +545,10 @@ def create_graph(
         )
 
         if multi_tool_use_enabled:
-            few_shots_collapse = collapse_tool_messages(
-                FEW_SHOT_EXAMPLES_SINGLE + list(state["messages"])
-            )
+            few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
             collapsed_messages = collapse_tool_messages(state["messages"])
         else:
-            few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE + list(state["messages"]))
+            few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE)
             collapsed_messages = list(state["messages"])
         state_messages_collapse = (
             collapse_think_hops(collapsed_messages)

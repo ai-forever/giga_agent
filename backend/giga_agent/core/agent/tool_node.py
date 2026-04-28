@@ -392,8 +392,7 @@ class ToolNode(RunnableCallable):
             if user is None:
                 raise ValueError(f"User with id {user_id} not found")
 
-        tools = await self._agent.get_tools(user)
-        tools.extend(self._tools)
+        tools = [*await self._agent.get_tools(user), *self._tools]
         for tool in tools:
             if not isinstance(tool, BaseTool):
                 tool_ = create_tool(cast("type[BaseTool]", tool))

@@ -30,5 +30,5 @@ class GigaAgent(BaseAgent):
             # GitHubModule(),
             # VKModule(),
             # WeatherModule(),
-            SubAgentLegacyModule(),
+            # SubAgentLegacyModule(),
         ]
