@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from langchain_openai import ChatOpenAI
 from openai import AsyncOpenAI
 
 from giga_agent.connectors.base import BaseConnector
 from giga_agent.llm.base import AvailableModel, BaseLLMRuntime, ModelFetchError
-from giga_agent.llm.openai_reasoning import ChatOpenAIReasoning
 from giga_agent.llm.registry import LLMRegistry
 
 
@@ -43,7 +43,7 @@ class OpenAIRuntime(BaseLLMRuntime):
         except Exception as e:
             raise ModelFetchError("openai", str(e)) from e
 
-    async def _create_llm(self) -> ChatOpenAIReasoning:
+    async def _create_llm(self) -> ChatOpenAI:
         connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
             raise ValueError(
@@ -56,7 +56,7 @@ class OpenAIRuntime(BaseLLMRuntime):
             "top_p": settings.get("top_p"),
         }
         clean_model_kwargs = {k: v for k, v in model_kwargs.items() if v is not None}
-        return ChatOpenAIReasoning(
+        return ChatOpenAI(
             model=self.model_id,
             **connection_kwargs,
             **clean_model_kwargs,
