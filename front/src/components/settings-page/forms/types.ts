@@ -1,6 +1,6 @@
 // Shared types for settings-page forms
 
-export type ConnectorType = "openai" | "gigachat" | "tavily";
+export type ConnectorType = "openai" | "gigachat" | "tavily" | "deepseek";
 
 /** GigaChat API type: prod uses credentials + urls; dev uses base_url + username + password */
 export type GigaChatApiType = "prod" | "dev";

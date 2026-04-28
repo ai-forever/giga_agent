@@ -39,8 +39,13 @@ import { compactObject } from "./forms/schema-fields-utils";
 
 type FormMode = "create" | "edit";
 
-const MANAGED_CONNECTOR_TYPES: ConnectorType[] = ["openai", "gigachat"];
+const MANAGED_CONNECTOR_TYPES: ConnectorType[] = [
+  "openai",
+  "deepseek",
+  "gigachat",
+];
 const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
 
 interface ConnectorItemProps {
   connector: ConnectorResponse;
@@ -607,9 +612,15 @@ export const ConnectorsSettings: React.FC = () => {
             submitDisabled={isSubmitDisabled}
             onTypeChange={(type) => {
               setSelectedType(type);
-              setSettingsValues(
-                type === "openai" ? { base_url: OPENAI_DEFAULT_BASE_URL } : {},
-              );
+              if (type === "openai") {
+                setSettingsValues({ base_url: OPENAI_DEFAULT_BASE_URL });
+                return;
+              }
+              if (type === "deepseek") {
+                setSettingsValues({ base_url: DEEPSEEK_DEFAULT_BASE_URL });
+                return;
+              }
+              setSettingsValues({});
             }}
             onConnectorNameChange={setConnectorName}
             onSettingsChange={setSettingsValues}
