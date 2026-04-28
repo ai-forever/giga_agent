@@ -265,11 +265,10 @@ const Message: React.FC<MessageProps> = ({
   }, [normalizedContent, onWrite]);
 
   const onRefresh = () => {
-    const parentMessage = thread?.messages.filter(
-      (_: Message_, i: number) =>
-        i + 1 < thread.messages.length &&
-        thread.messages[i + 1].id === message.id,
-    ); // Получаем сообщение которое идет до AI сообщения
+    const messages = thread?.messages ?? [];
+    const targetIndex = messages.findIndex((m) => m.id === message.id);
+    if (targetIndex < 0) return;
+    const parentMessage: Message_[] = [];
     // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegra, так как в их API нельзя просто передавать checkpoint (без input)
     const meta = thread?.getMessagesMetadata(message);
     const parentCheckpoint = meta?.branch
@@ -285,7 +284,15 @@ const Message: React.FC<MessageProps> = ({
 
     thread?.submit(
       { messages: parentMessage },
-      { checkpoint: parentCheckpoint },
+      {
+        checkpoint: parentCheckpoint,
+        optimisticValues(prev: GraphState) {
+          const prevMessages = prev.messages ?? [];
+          return { ...prev, messages: prevMessages.slice(0, targetIndex) };
+        },
+        streamMode: ["messages"],
+        onDisconnect: "continue",
+      },
     );
   };
 
