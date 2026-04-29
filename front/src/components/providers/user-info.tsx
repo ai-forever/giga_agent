@@ -7,7 +7,25 @@ import React, {
 } from "react";
 import McpServerModal, { MCPTool } from "@/components/mcp/mcp-modal.tsx";
 import ContextModal from "@/components/modals/context-modal.tsx";
-import CollectionsModal from "@/components/modals/collections-modal.tsx";
+
+const ENABLED_MODULES_KEY = "giga_agent_enabled_modules";
+
+const readEnabledModules = (): Record<string, boolean> => {
+  try {
+    const raw = localStorage.getItem(ENABLED_MODULES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return {};
+    const result: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "boolean") result[k] = v;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+};
 
 type UserInfoContextType = {
   mcpTools: MCPTool[];
@@ -16,8 +34,8 @@ type UserInfoContextType = {
   closeMcpModal: () => void;
   openContextModal: () => void;
   closeContextModal: () => void;
-  openCollectionsModal: () => void;
-  closeCollectionsModal: () => void;
+  enabledModules: Record<string, boolean>;
+  toggleModule: (moduleId: string, enabled: boolean) => void;
 };
 
 const UserInfoContext = createContext<UserInfoContextType | null>(null);
@@ -26,7 +44,9 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
   const [contextModalOpen, setContextModalOpen] = useState(false);
-  const [collectionsModalOpen, setCollectionModalOpen] = useState(false);
+  const [enabledModules, setEnabledModules] = useState<
+    Record<string, boolean>
+  >(readEnabledModules);
 
   const openMcpModal = useCallback(() => {
     setMcpModalOpen(true);
@@ -44,13 +64,20 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
     setContextModalOpen(false);
   }, [setContextModalOpen]);
 
-  const openCollectionsModal = useCallback(() => {
-    setCollectionModalOpen(true);
-  }, [setCollectionModalOpen]);
-
-  const closeCollectionsModal = useCallback(() => {
-    setCollectionModalOpen(false);
-  }, [setCollectionModalOpen]);
+  const toggleModule = useCallback(
+    (moduleId: string, enabled: boolean) => {
+      setEnabledModules((prev) => {
+        const next = { ...prev, [moduleId]: enabled };
+        try {
+          localStorage.setItem(ENABLED_MODULES_KEY, JSON.stringify(next));
+        } catch {
+          /* storage unavailable */
+        }
+        return next;
+      });
+    },
+    [setEnabledModules],
+  );
 
   return (
     <UserInfoContext.Provider
@@ -61,8 +88,8 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
         closeMcpModal,
         openContextModal,
         closeContextModal,
-        openCollectionsModal,
-        closeCollectionsModal,
+        enabledModules,
+        toggleModule,
       }}
     >
       {children}
@@ -72,10 +99,6 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
         onToolsUpdate={setMcpTools}
       />
       <ContextModal isOpen={contextModalOpen} onClose={closeContextModal} />
-      <CollectionsModal
-        isOpen={collectionsModalOpen}
-        onClose={closeCollectionsModal}
-      />
     </UserInfoContext.Provider>
   );
 };
