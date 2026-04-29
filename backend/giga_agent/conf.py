@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urlsplit
 from urllib.parse import urlunsplit
 
@@ -25,6 +26,7 @@ class Settings(BaseSettings):
     giga_agent_ui_prefix: Optional[str] = Field(None, alias="GIGA_AGENT_UI_PREFIX")
 
     giga_agent_runtime: str = Field("local", alias="GIGA_AGENT_RUNTIME")
+    giga_agent_runtime_local: bool = Field(False, alias="GIGA_AGENT_RUNTIME_LOCAL")
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",
@@ -172,6 +174,27 @@ class Settings(BaseSettings):
     giga_agent_local_jupyter_python_executable: str | None = Field(
         None, alias="GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE"
     )
+    giga_agent_local_jupyter_secure_exec_default: bool = Field(
+        False, alias="GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_DEFAULT"
+    )
+    giga_agent_local_jupyter_secure_exec_backend: str = Field(
+        "auto", alias="GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND"
+    )
+    giga_agent_local_jupyter_allowed_read_roots: list[Path] = Field(
+        default_factory=lambda: [Path("/")],
+        alias="GIGA_AGENT_LOCAL_JUPYTER_ALLOWED_READ_ROOTS",
+    )
+    giga_agent_local_jupyter_allowed_write_roots: list[Path] = Field(
+        default_factory=list,
+        alias="GIGA_AGENT_LOCAL_JUPYTER_ALLOWED_WRITE_ROOTS",
+    )
+    giga_agent_local_jupyter_deny_read_roots: list[Path] = Field(
+        default_factory=list,
+        alias="GIGA_AGENT_LOCAL_JUPYTER_DENY_READ_ROOTS",
+    )
+    giga_agent_local_jupyter_network_mode: str = Field(
+        "host", alias="GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE"
+    )
 
     giga_agent_qdrant_pool_size: int | None = Field(
         None, alias="GIGA_AGENT_QDRANT_POOL_SIZE"
@@ -292,6 +315,50 @@ class Settings(BaseSettings):
             return None
         return value.expanduser()
 
+    @field_validator(
+        "giga_agent_local_jupyter_allowed_read_roots",
+        "giga_agent_local_jupyter_allowed_write_roots",
+        "giga_agent_local_jupyter_deny_read_roots",
+        mode="before",
+    )
+    @classmethod
+    def _parse_path_list(cls, value: Any) -> list[Path]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                return []
+            if cleaned.startswith("["):
+                parsed = json.loads(cleaned)
+                return [Path(item).expanduser() for item in parsed]
+            separator = "," if "," in cleaned else os.pathsep
+            return [
+                Path(item.strip()).expanduser()
+                for item in cleaned.split(separator)
+                if item.strip()
+            ]
+        return [Path(item).expanduser() for item in value]
+
+    @field_validator("giga_agent_local_jupyter_network_mode", mode="after")
+    @classmethod
+    def _normalize_local_jupyter_network_mode(cls, value: str) -> str:
+        cleaned = (value or "host").strip().lower()
+        if cleaned not in {"host", "none"}:
+            raise ValueError("GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE must be host or none")
+        return cleaned
+
+    @field_validator("giga_agent_local_jupyter_secure_exec_backend", mode="after")
+    @classmethod
+    def _normalize_local_jupyter_secure_exec_backend(cls, value: str) -> str:
+        cleaned = (value or "auto").strip().lower()
+        if cleaned not in {"auto", "macos_sandbox_exec", "linux_bwrap"}:
+            raise ValueError(
+                "GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND must be "
+                "auto, macos_sandbox_exec, or linux_bwrap"
+            )
+        return cleaned
+
     @field_validator("giga_agent_scraper_jina_base_url", mode="after")
     @classmethod
     def _normalize_jina_base_url(cls, value: str) -> str:
@@ -384,6 +451,7 @@ def get_local_docker_max_active_sandboxes_from_env() -> int | None:
 
 GIGA_AGENT_PREFIX_API = get_settings().giga_agent_prefix_api
 GIGA_PREFIX_API = GIGA_AGENT_PREFIX_API
+GIGA_AGENT_RUNTIME_LOCAL = get_settings().giga_agent_runtime_local
 GIGA_AGENT_STT_RUNTIME = get_settings().giga_agent_stt_runtime
 GIGA_AGENT_BASE_URL = get_settings().giga_agent_base_url
 GIGA_AGENT_FRONTEND_DIR = get_settings().giga_agent_frontend_dir

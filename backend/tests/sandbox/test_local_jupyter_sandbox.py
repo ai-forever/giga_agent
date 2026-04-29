@@ -19,6 +19,7 @@ from giga_agent.sandbox.local_jupyter.manager import (
 from giga_agent.sandbox.local_jupyter.runtime import LocalJupyterSandbox
 from giga_agent.sandbox.mixins.code import ShellMeta
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
+from giga_agent.sandbox.secure_exec.errors import SandboxAccessDeniedError
 
 
 class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
@@ -72,6 +73,36 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(validated, {})
         self.assertEqual(runtime._sandbox_root_dir, Path(tmp_dir).resolve())
+
+    async def test_safe_execution_settings_are_validated(self):
+        with patch(
+            "giga_agent.sandbox.local_jupyter.runtime.ensure_jupyter_dependencies",
+            return_value=None,
+        ):
+            validated = await LocalJupyterSandbox.validate_settings(
+                {
+                    "safe_execution": True,
+                    "write_dirs": ["/tmp/allowed"],
+                    "exclude_read_dirs": ["/tmp/denied"],
+                }
+            )
+
+        self.assertEqual(
+            validated,
+            {
+                "safe_execution": True,
+                "write_dirs": ["/tmp/allowed"],
+                "exclude_read_dirs": ["/tmp/denied"],
+            },
+        )
+
+    async def test_default_exclude_read_dirs_uses_absolute_ssh_path(self):
+        runtime = LocalJupyterSandbox(owner_id=uuid.uuid4())
+
+        self.assertEqual(
+            runtime.exclude_read_dirs,
+            [str((Path.home() / ".ssh").resolve())],
+        )
 
     async def test_up_uses_singleton_manager_handle(self):
         handle = LocalJupyterHandle(
@@ -185,6 +216,43 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsInstance(result, ContentResult)
         self.assertEqual(result.data, b"system-data")
+
+    async def test_read_file_rejects_runtime_exclude_read_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            denied_path = os.path.join(tmp_dir, "secret.txt")
+            with open(denied_path, "wb") as file_obj:
+                file_obj.write(b"secret")
+
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                exclude_read_dirs=[tmp_dir],
+            )
+
+            with self.assertRaises(SandboxAccessDeniedError):
+                await runtime.read_file(denied_path)
+
+    async def test_write_file_rejects_absolute_path_without_write_grant(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            outside_path = os.path.join(tmp_dir, "outside.txt")
+            runtime = LocalJupyterSandbox(owner_id=uuid.uuid4())
+
+            with self.assertRaises(SandboxAccessDeniedError):
+                await runtime.write_file_content(outside_path, b"blocked")
+
+    async def test_write_file_allows_runtime_write_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target_path = os.path.join(tmp_dir, "allowed.txt")
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                write_dirs=[tmp_dir],
+            )
+
+            await runtime.write_file_content(target_path, b"allowed")
+
+            result = await runtime.read_file(target_path)
+
+        self.assertIsInstance(result, ContentResult)
+        self.assertEqual(result.data, b"allowed")
 
     async def test_cleanup_orphans_marks_running_sandboxes_stopped_when_server_missing(
         self,

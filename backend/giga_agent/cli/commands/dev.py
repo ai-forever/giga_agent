@@ -291,6 +291,7 @@ def dev(
     _ensure_dev_secret_key_env()
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")
     os.environ.setdefault("GIGA_AGENT_HOST", f"http://{str(host)}")
     os.environ.setdefault("GIGA_AGENT_PORT", str(port))
     reset_settings_cache()
