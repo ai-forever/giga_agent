@@ -168,6 +168,13 @@ _MIME_EXTENSION_MAP = {
 }
 
 
+def _should_skip_process(tool: Optional[BaseTool]) -> bool:
+    if tool is None:
+        return False
+    extras = getattr(tool, "extras", {}) or {}
+    return bool(extras.get("not_process"))
+
+
 async def process_tool_result(
     result: Any,
     action: dict[str, Any],
@@ -177,23 +184,27 @@ async def process_tool_result(
     message: str = "",
 ) -> ToolMessage:
     normalized_result = _normalize_result_payload(result)
-    if action.get("name") in ["message"]:
+    tool_name = action.get("name")
+    if tool_name == "think" and normalized_result in ("", None):
+        normalized_result = ""
+
+    if action.get("name") in ["message", "think"] or _should_skip_process(tool):
         return ToolMessage(
             tool_call_id=action.get("id"),
             content=_safe_json_dumps(normalized_result),
             additional_kwargs={
                 "tool_attachments": tool_attachments,
-                "tool_name": action.get("name"),
+                "tool_name": tool_name,
+                "tool_args": action.get("args"),
             },
         )
+
     result_path = await _save_tool_result(
         normalized_result, action=action, config=config
     )
     saved_result_message = (
-        "Полный результат вызова инструмента сохранен в файле JSON по пути "
+        "Результат вызова инструмента сохранен в файле JSON по пути "
         f"'{result_path}'. "
-        "Этот путь нужно читать через python; внутри хранится полный JSON-результат "
-        "выполнения инструмента."
     )
 
     serialized = _safe_json_dumps(normalized_result)
@@ -231,7 +242,8 @@ async def process_tool_result(
         content=_safe_json_dumps(payload),
         additional_kwargs={
             "tool_attachments": tool_attachments,
-            "tool_name": action.get("name"),
+            "tool_name": tool_name,
+            "tool_args": action.get("args"),
         },
     )
 
@@ -350,6 +362,8 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
+        if all(action.get("name") == "think" for action in actions):
+            return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]
         frontend_actions = [
@@ -366,7 +380,7 @@ class ToolResultMiddleware(AgentMiddleware):
             user_message = value.get("message")
             if user_message:
                 tool_message = (
-                    "Пользователь оставил комментарий к твоему вызову инструмента. "
+                    "Пользователь отменил вызов инструмента и оставил комментарий к твоему вызову инструмента. "
                     f'Прочитай его и реши, как действовать дальше: "{user_message}"'
                 )
             else:

@@ -38,7 +38,6 @@ class HTMLParser(BaseOutputParser):
                 result_inner = self.extract_tags(inner_content)
                 if result_inner:
                     return result_inner
-            print(text)
             raise OutputParserException(error=f"Tag <{self.tag}> not found in output!")
 
         # 3. Если тег не задан — старая логика (возвращаем содержимое ```html блоков)

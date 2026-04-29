@@ -179,6 +179,8 @@ class TelegramMessageToolRuntime:
                 await message.answer_photo(input_file, caption=caption, **reply_kwargs)
             elif kind == "audio":
                 await message.answer_audio(input_file, caption=caption, **reply_kwargs)
+            elif kind == "voice":
+                await message.answer_voice(input_file, caption=caption, **reply_kwargs)
             elif kind == "video":
                 await message.answer_video(input_file, caption=caption, **reply_kwargs)
             else:

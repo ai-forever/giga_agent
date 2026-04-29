@@ -1,159 +1,207 @@
-import json
+"""Few-shot examples demonstrating autonomous agent behavior.
+
+Examples are inserted at the beginning of the message history so the model
+sees ideal interaction patterns before the real conversation.
+Each example is a list of messages (HumanMessage → AIMessage with tool_calls →
+ToolMessage → AIMessage) that showcases a specific autonomous behavior.
+
+All messages use name="example_..." to signal the LLM that these are
+demonstration patterns, NOT real conversation history with real files.
+"""
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-FEW_SHOTS = [
+
+AUTONOMOUS_CHAIN_EXAMPLE = [
     HumanMessage(
-        content="""<task>Сгенерируй изображение супер крутого сберкота</task> Активно планируй и следуй своему плану! Действуй по простым шагам!
-Следующий шаг:""",
+        content="[Пример взаимодействия — демонстрация автономной цепочки действий]\n"
+        "Проанализируй данные из файла и построй график",
+        name="example_user",
     ),
     AIMessage(
-        content=""""<thinking>
-Нужно сгенерировать изображение супер крутого сберкота. Для этого буду использовать инструмент `gen_image`.
-</thinking>
-
-План:
-1. Сгенерировать изображение супер крутого сберкота с использованием инструмента gen_image.
-
-Начнем с первого пункта плана.
-""",
+        content="",
+        name="example_assistant",
         tool_calls=[
-            dict(
-                name="gen_image",
-                args={"theme": "супер крутой сберкот"},
-                id="123",
-            ),
-        ],
-    ),
-    ToolMessage(
-        tool_call_id="123",
-        content=json.dumps(
             {
-                "image_description": "Динамичный супергеройский образ кота-персонажа Сбербанка, бежит вперёд, вытянув лапы, взгляд направлен прямо на зрителя. Находится в центре кадра на фоне футуристической городской улицы ночью, окружён неоновыми огнями синего, зелёного и фиолетового цветов. Изображение выполнено в стиле гиперреализма с яркими контрастными цветами и чёткой прорисовкой деталей.",
-                "message": 'В результате выполнения было сгенерировано изображение /runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/images/2623d531-4c9f-4ab8-86e8-f13d0a0691cd.png. Покажи его пользователю через "![описание изображения](attachment:/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/images/2623d531-4c9f-4ab8-86e8-f13d0a0691cd.png)"',
-            },
-            ensure_ascii=False,
-        ),
-    ),
-    AIMessage(
-        content=""""Вот изображение супер крутого сберкота:  
-![Динамичный супергеройский образ кота-персонажа Сбербанка](attachment:/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/images/2623d531-4c9f-4ab8-86e8-f13d0a0691cd.png)""",
-    ),
-    HumanMessage(
-        content="""<task>Получи последние 100 постов с https://vk.com/sberkot и построй график лайков. X —  показывает дату, Y — количество лайков за этот день</task> Активно планируй и следуй своему плану! Действуй по простым шагам!<user_info>
-Текущая дата: 12.08.2025 22:04
-</user_info>
-
-
-Следующий шаг: """,
-    ),
-    AIMessage(
-        content="""<thinking>
-Необходимо получить последние 100 постов с указанной страницы в VK и построить график лайков. Сначала воспользуюсь инструментом vk_get_posts для получения постов, затем обработаю полученные данные и построю график с помощью Python.
-</thinking>
-
-План:
-1. Получить последние 100 постов с указанного домена.
-2. Подготовить данные для построения графика.
-3. Построить график лайков с помощью библиотеки Plotly.
-
-Шаг 1: Получение постов.
-""",
-        tool_calls=[
-            dict(
-                name="vk_get_posts",
-                args={"count": 100, "domain": "sberkot", "offset": 0},
-                id="vk1",
-            ),
-        ],
-    ),
-    ToolMessage(
-        tool_call_id="vk1",
-        content=json.dumps(
-            {
-                "message": "Результат функции сохранен в переменную `function_results[0]['data']` Результат функции вышел слишком длинным изучи результат функции в переменной с помощью python. \n Схема данных: {'$schema': 'http://json-schema.org/schema#', 'type': 'array', 'items': {'type': 'object', 'properties': {'inner_type': {'type': 'string'}, 'donut': {'type': 'object', 'properties': {'is_donut': {'type': 'boolean'}}, 'required': ['is_donut']}, 'comments': {'type': 'object', 'properties': {'count': {'type': 'integer'}}, 'required': ['count']}, 'marked_as_ads': {'type': 'integer'}, 'hash': {'type': 'string'}, 'type': {'type': 'string'}, 'push_subscription': {'type': 'object', 'properties': {'is_subscribed': {'type': 'boolean'}}, 'required': ['is_subscribed']}, 'date': {'type': 'integer'}, 'from_id': {'type': 'integer'}, 'id': {'type': 'integer'}, 'likes': {'type': 'object', 'properties': {'can_like': {'type': 'integer'}, 'count': {'type': 'integer'}, 'user_likes': {'type': 'integer'}}, 'required': ['can_like', 'count', 'user_likes']}, 'reaction_set_id': {'type': 'string'}, 'reactions': {'type': 'object', 'properties': {'count': {'type': 'integer'}, 'items': {'type': 'array', 'items': {'type': 'object', 'properties': {'id': {'type': 'integer'}, 'count': {'type': 'integer'}}, 'required': ['count', 'id']}}}, 'required': ['count', 'items']}, 'owner_id': {'type': 'integer'}, 'post_type': {'type': 'string'}, 'reposts': {'type': 'object', 'properties': {'count': {'type': 'integer'}}, 'required': ['count']}, 'text': {'type': 'string'}, 'views': {'type': 'object', 'properties': {'count': {'type': 'integer'}}, 'required': ['count']}, 'carousel_offset': {'type': 'integer'}, 'zoom_text': {'type': 'boolean'}, 'edited': {'type': 'integer'}}, 'required': ['comments', 'date', 'donut', 'from_id', 'hash', 'id', 'inner_type', 'likes', 'marked_as_ads', 'owner_id', 'post_type', 'push_subscription', 'reaction_set_id', 'reactions', 'reposts', 'text', 'type', 'views']}}",
-            },
-            ensure_ascii=False,
-        ),
-    ),
-    AIMessage(
-        content="""<thinking>
-Теперь у нас есть данные о постах. Следующим шагом будет подготовка данных для построения графика. Нужно извлечь даты и количество лайков из полученных данных и подготовить их для визуализации.
-</thinking>
-""",
-        tool_calls=[
-            dict(
-                name="python",
-                args={
-                    "code": "import pandas as pd\nimport plotly.express as px\n\n# Преобразуем данные в датафрейм\ndf = pd.DataFrame(function_results[0]['data'])\n\n# Преобразуем timestamp в дату\ndf['date'] = pd.to_datetime(df['date'], unit='s').dt.date\n\n# Агрегируем лайки по дням\nlikes_per_day = df.groupby('date')['likes'].sum().reset_index()\n\n# Строим график\nfig = px.line(likes_per_day, x='date', y='likes', title='График лайков')\nfig.show()",
+                "id": "ex_think_1",
+                "name": "think",
+                "args": {
+                    "thought": (
+                        "Задача: прочитать файл, проанализировать данные, построить график.\n"
+                        "План:\n"
+                        "1. Прочитать файл\n"
+                        "2. Проанализировать структуру и содержимое\n"
+                        "3. Построить подходящий график\n"
+                        "4. Сохранить результат"
+                    )
                 },
-                id="py1",
-            ),
+            },
+            {
+                "id": "ex_read_1",
+                "name": "read_file",
+                "args": {"path": "<путь к файлу пользователя>"},
+            },
         ],
     ),
     ToolMessage(
-        tool_call_id="py1",
-        content=json.dumps(
-            {
-                "message": "Результат выполнения: \"\".\n Во время исполнения кода произошла ошибка: \"---------------------------------------------------------------------------\nTypeError                                 Traceback (most recent call last)\nCell In[3], line 148\n    145 df['date'] = pd.to_datetime(df['date'], unit='s').dt.date\n    147 # Агрегируем лайки по дням\n--> 148 likes_per_day = df.groupby('date')['likes'].sum().reset_index()\n    150 # Строим график\n    151 fig = px.line(likes_per_day, x='date', y='likes', title='График лайков')\n\nFile groupby.pyx:725, in pandas._libs.groupby.group_sum()\n\nTypeError: unsupported operand type(s) for +: 'dict' and 'dict'\"!!.\nИсправь ошибку.",
-                "is_exception": True,
-            },
-            ensure_ascii=False,
-        ),
+        content="Задача: прочитать файл, проанализировать данные, построить график.\n"
+        "План:\n"
+        "1. Прочитать файл\n"
+        "2. Проанализировать структуру и содержимое\n"
+        "3. Построить подходящий график\n"
+        "4. Сохранить результат",
+        tool_call_id="ex_think_1",
+    ),
+    ToolMessage(
+        content="date,value\n2024-01-01,100\n2024-02-01,150\n2024-03-01,130\n...",
+        tool_call_id="ex_read_1",
     ),
     AIMessage(
-        content="""<thinking>
-Ошибка возникает потому, что столбец 'likes' содержит словарь, а не числовое значение. Нам нужно извлечь количество лайков из этого словаря перед агрегированием.
-</thinking>
-""",
+        content="",
+        name="example_assistant",
         tool_calls=[
-            dict(
-                name="python",
-                args={
-                    "code": "import pandas as pd\nimport plotly.express as px\n\n# Преобразуем данные в датафрейм\ndf = pd.DataFrame(function_results[0]['data'])\n\n# Преобразуем timestamp в дату\ndf['date'] = pd.to_datetime(df['date'], unit='s').dt.date\n\n# Извлекаем количество лайков из словаря\ndf['likes_count'] = df['likes'].apply(lambda x: x['count'])\n\n# Агрегируем лайки по дням\nlikes_per_day = df.groupby('date')['likes_count'].sum().reset_index()\n\n# Строим график\nfig = px.line(likes_per_day, x='date', y='likes_count', title='График лайков')\nfig.show()",
+            {
+                "id": "ex_think_2",
+                "name": "think",
+                "args": {
+                    "thought": (
+                        "Файл — CSV с двумя колонками: date и value. "
+                        "Построю линейный график изменения value по дате."
+                    )
                 },
-                id="py2",
-            ),
+            },
+            {
+                "id": "ex_python_1",
+                "name": "python",
+                "args": {
+                    "code": (
+                        "import pandas as pd\n"
+                        "import plotly.express as px\n\n"
+                        "df = pd.read_csv('<путь к файлу>', parse_dates=['date'])\n"
+                        "fig = px.line(df, x='date', y='value', title='Динамика value')\n"
+                        "fig.show()\n"
+                        "print('График построен')"
+                    )
+                },
+            },
         ],
     ),
     ToolMessage(
-        tool_call_id="py2",
-        content=json.dumps(
-            {
-                "message": 'Результат выполнения: "В результате выполнения был сгенерирован график. \nВ результате выполнения был сгенерирован график. Путь до него \'/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/3cb709b9-4533-4961-81e7-652baa58a806.json\'. Ты можешь показать это пользователю с помощью через "![alt-текст](attachment:/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/3cb709b9-4533-4961-81e7-652baa58a806.json)" \nНе забывай, что у тебя есть анализ изображений. С помощью анализа ты можешь сравнить то, что ты ожидал получить в графике с тем что получилось на деле!\nТакже не забывай, что ты ОБЯЗАН вывести изображения/графики пользователю при формировании финального ответа!". Код выполнился без ошибок. Проверь нужные переменные. Не забудь, что пользователь не видит этот результат, поэтому если нужно перепиши его.\nСверься со своим планом. Помни, что тебе нужно выполнить всю задачу пользователя, поэтому не спеши со своим ответом. Твой следующий шаг: ',
-                "is_exception": False,
-            },
-            ensure_ascii=False,
+        content="Файл — CSV с двумя колонками: date и value. "
+        "Построю линейный график изменения value по дате.",
+        tool_call_id="ex_think_2",
+    ),
+    ToolMessage(
+        content="График построен",
+        tool_call_id="ex_python_1",
+    ),
+    AIMessage(
+        content=(
+            "Данные содержат временной ряд с колонками `date` и `value` "
+            "(3 записи). Построил линейный график динамики."
         ),
-    ),
-    AIMessage(
-        content="""<thinking>
-График построен успешно. Осталось показать его пользователю.
-</thinking>
-
-Вот график лайков по дням:  
-![График лайков](attachment:/runs/ebccb2d7-5b4c-4236-adea-6de6adbdc9de/3cb709b9-4533-4961-81e7-652baa58a806.json)""",
-    ),
-    HumanMessage(
-        content="""Ок, супер! Это была учебная переписка, которая показывает тебе ПОДХОД к решению задач (планирование, использование инструментов, итеративность).
-
-ВАЖНО: Стиль общения в примерах выше — это просто ДЕМОНСТРАЦИЯ. Твой реальный стиль общения должен определяться ДОПОЛНИТЕЛЬНЫМИ ИНСТРУКЦИЯМИ ПОЛЬЗОВАТЕЛЯ, если они указаны.
-
-Забудь конкретные задачи из примеров и приступай к реальной задаче пользователя.
-""",
-    ),
-    AIMessage(
-        content="""<thinking>
-Понял. Учебная переписка показала мне:
-- Как планировать и действовать пошагово
-- Как использовать инструменты итеративно
-- Как анализировать результаты и исправлять ошибки
-
-НО: Примеры НЕ показывают стиль общения, который я должен использовать.
-Мой стиль общения, манера изложения и все особенности поведения определяются ДОПОЛНИТЕЛЬНЫМИ ИНСТРУКЦИЯМИ ПОЛЬЗОВАТЕЛЯ.
-Если пользователь задал инструкции по стилю общения - я ОБЯЗАН им следовать во всех аспектах: в thinking писать размышления следуя доп инструкциям, в коде, в промежуточных ответах, в финальных выводах.
-
-Теперь я готов применять усвоенный ПОДХОД к решению реальных задач пользователя, следуя его дополнительным инструкциям.
-</thinking>""",
+        name="example_assistant",
     ),
 ]
+
+ERROR_RECOVERY_EXAMPLE = [
+    HumanMessage(
+        content="[Пример взаимодействия — демонстрация обработки ошибок]\n"
+        "Установи pandas и посчитай среднее из файла",
+        name="example_user",
+    ),
+    AIMessage(
+        content="",
+        name="example_assistant",
+        tool_calls=[
+            {
+                "id": "ex_think_3",
+                "name": "think",
+                "args": {
+                    "thought": (
+                        "План:\n"
+                        "1. Попробовать прочитать файл и посчитать среднее через python\n"
+                        "2. Если pandas не установлен — установить и повторить"
+                    )
+                },
+            },
+            {
+                "id": "ex_python_2",
+                "name": "python",
+                "args": {
+                    "code": (
+                        "import pandas as pd\n"
+                        "df = pd.read_csv('<путь к файлу>')\n"
+                        "print(df.mean())"
+                    )
+                },
+            },
+        ],
+    ),
+    ToolMessage(
+        content="План:\n"
+        "1. Попробовать прочитать файл и посчитать среднее через python\n"
+        "2. Если pandas не установлен — установить и повторить",
+        tool_call_id="ex_think_3",
+    ),
+    ToolMessage(
+        content="ModuleNotFoundError: No module named 'pandas'",
+        tool_call_id="ex_python_2",
+    ),
+    AIMessage(
+        content="",
+        name="example_assistant",
+        tool_calls=[
+            {
+                "id": "ex_think_4",
+                "name": "think",
+                "args": {
+                    "thought": "pandas не установлен. Установлю через pip и повторю вычисление."
+                },
+            },
+            {
+                "id": "ex_shell_1",
+                "name": "shell",
+                "args": {"command": "pip install pandas"},
+            },
+        ],
+    ),
+    ToolMessage(
+        content="pandas не установлен. Установлю через pip и повторю вычисление.",
+        tool_call_id="ex_think_4",
+    ),
+    ToolMessage(
+        content="Successfully installed pandas-2.2.0",
+        tool_call_id="ex_shell_1",
+    ),
+    AIMessage(
+        content="",
+        name="example_assistant",
+        tool_calls=[
+            {
+                "id": "ex_python_3",
+                "name": "python",
+                "args": {
+                    "code": (
+                        "import pandas as pd\n"
+                        "df = pd.read_csv('<путь к файлу>')\n"
+                        "print(df.mean())"
+                    )
+                },
+            }
+        ],
+    ),
+    ToolMessage(
+        content="value    42.5\ndtype: float64",
+        tool_call_id="ex_python_3",
+    ),
+    AIMessage(
+        content="Среднее значение по колонке `value`: **42.5**.",
+        name="example_assistant",
+    ),
+]
+
+
+FEW_SHOT_EXAMPLES: list = (
+    AUTONOMOUS_CHAIN_EXAMPLE + ERROR_RECOVERY_EXAMPLE
+)

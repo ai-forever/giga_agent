@@ -34,7 +34,7 @@ class FrontendMCPMiddleware(AgentMiddleware):
                 value = interrupt({"type": "approve"})
             if value.get("type") == "comment":
                 tool_message = (
-                    f"Пользователь оставил комментарий к твоему вызову инструмента. "
+                    f"Пользователь отменил вызов инструмента и оставил комментарий к твоему вызову инструмента. "
                     f'Прочитай его и реши, как действовать дальше: "{value.get("message")}"'
                 )
                 tools_response = [

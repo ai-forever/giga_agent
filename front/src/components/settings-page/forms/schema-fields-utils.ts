@@ -1,6 +1,11 @@
 import type { JsonSchema, JsonSchemaProperty } from "./types";
 
-export type SupportedPropertyType = "string" | "number" | "integer" | "boolean";
+export type SupportedPropertyType =
+  | "string"
+  | "number"
+  | "integer"
+  | "boolean"
+  | "array";
 
 export type EnumOption = {
   value: string | number | boolean | null;
@@ -39,7 +44,8 @@ export function resolvePropertyType(
     directType === "string" ||
     directType === "number" ||
     directType === "integer" ||
-    directType === "boolean"
+    directType === "boolean" ||
+    directType === "array"
   ) {
     return directType;
   }
@@ -50,7 +56,8 @@ export function resolvePropertyType(
       optionType === "string" ||
       optionType === "number" ||
       optionType === "integer" ||
-      optionType === "boolean"
+      optionType === "boolean" ||
+      optionType === "array"
     ) {
       return optionType;
     }
@@ -136,4 +143,42 @@ export function compactObject(
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined),
   );
+}
+
+function isStringArrayProperty(property: JsonSchemaProperty): boolean {
+  if (property.type === "array") {
+    return property.items?.type === "string";
+  }
+
+  return (property.anyOf || []).some(
+    (option) => option.type === "array" && option.items?.type === "string",
+  );
+}
+
+export function compactSchemaValues(
+  schema: JsonSchema | null | undefined,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const compacted = compactObject(values);
+  const properties = schema?.properties;
+  if (!properties) return compacted;
+
+  for (const [name, property] of Object.entries(properties)) {
+    if (!isStringArrayProperty(property)) continue;
+    const rawValue = compacted[name];
+    if (!Array.isArray(rawValue)) continue;
+
+    const normalizedValue = rawValue
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (normalizedValue.length > 0) {
+      compacted[name] = normalizedValue;
+    } else {
+      delete compacted[name];
+    }
+  }
+
+  return compacted;
 }

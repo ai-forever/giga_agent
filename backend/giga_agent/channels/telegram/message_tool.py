@@ -14,7 +14,7 @@ TELEGRAM_MESSAGE_TOOL_KIND = "message"
 
 class TelegramMessageAttachment(BaseModel):
     path: str = ""
-    kind: Literal["image", "document", "audio", "video"] = "document"
+    kind: Literal["image", "document", "audio", "video", "voice"] = "document"
     caption: str = ""
     filename: str = ""
 
@@ -112,7 +112,7 @@ def build_telegram_message_tool_schema() -> dict[str, object]:
                             },
                             "kind": {
                                 "type": "string",
-                                "enum": ["image", "document", "audio", "video"],
+                                "enum": ["image", "document", "audio", "video", "voice"],
                                 "default": "document",
                             },
                             "caption": {

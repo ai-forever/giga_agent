@@ -30,8 +30,10 @@ from giga_agent.sandbox.local_jupyter.manager import (
     LOCAL_JUPYTER_KERNEL_NAME,
     get_local_jupyter_server_manager,
 )
+from giga_agent.sandbox.local_jupyter.shell import LocalShellMixin
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.sandbox.secure_exec.policy import NetworkMode, SandboxAccessPolicy
 
 if TYPE_CHECKING:
     from giga_agent.core.agent.base import BaseAgent
@@ -39,7 +41,9 @@ if TYPE_CHECKING:
     from giga_agent.models.users import UserShort
 
 BUCKET_PREFIX = "/bucket/"
-_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_LOCAL_FILE_SUFFIX_ALPHABET = (
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
 
 
 def _describe_local_os() -> str:
@@ -87,8 +91,12 @@ def _format_directory(path: Path) -> str:
     return f"{path.as_posix().rstrip('/')}/"
 
 
+def _default_exclude_read_dirs() -> list[str]:
+    return [str((Path.home() / ".ssh").resolve())]
+
+
 @SandboxRegistry.register("local_jupyter")
-class LocalJupyterSandbox(JupyterSandbox):
+class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     owner_id: uuid.UUID | None = Field(
         default=None,
         description="Sandbox owner id injected by runtime factory",
@@ -108,6 +116,18 @@ class LocalJupyterSandbox(JupyterSandbox):
     base_url: str = Field(
         default="",
         description="Base URL of the managed local Jupyter server",
+    )
+    safe_execution: bool = Field(
+        default_factory=lambda: get_settings().giga_agent_local_jupyter_secure_exec_default,
+        description="Run local Jupyter processes under OS-level filesystem sandboxing",
+    )
+    write_dirs: list[str] = Field(
+        default_factory=list,
+        description="Additional host directories explicitly granted for writes",
+    )
+    exclude_read_dirs: list[str] = Field(
+        default_factory=_default_exclude_read_dirs,
+        description="Additional host directories explicitly denied for reads",
     )
 
     _runtime_fields = JupyterSandbox._runtime_fields | {
@@ -131,7 +151,11 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     @classmethod
     async def validate_settings(cls, settings: dict) -> dict:
-        validated = await super().validate_settings(settings)
+        schema = cls.settings_schema()
+        validated = schema(**settings).model_dump(
+            exclude_none=True,
+            exclude_defaults=True,
+        )
         ensure_jupyter_dependencies()
 
         return validated
@@ -186,7 +210,16 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     async def up(self) -> None:
         ensure_jupyter_dependencies()
-        handle = await get_local_jupyter_server_manager().ensure_started()
+        policy = (
+            self._build_access_policy(network_mode="host")
+            if self.safe_execution
+            else None
+        )
+        handle = await get_local_jupyter_server_manager().ensure_started(
+            safe_execution=self.safe_execution,
+            policy=policy,
+            secure_exec_backend=get_settings().giga_agent_local_jupyter_secure_exec_backend,
+        )
         self.base_url = handle.base_url
         self.runtime_dir = handle.runtime_dir
         self._token = handle.token
@@ -255,7 +288,9 @@ class LocalJupyterSandbox(JupyterSandbox):
         file_name: str,
         content: bytes,
     ) -> str:
-        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
+        rel_path = self._uniquify_bucket_rel_path(
+            owner_id=owner_id, file_name=file_name
+        )
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(target, "wb") as file_obj:
@@ -267,6 +302,7 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     async def read_file(self, sandbox_path: str) -> FileReadResult:
         local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_read(local_path)
         if not local_path.exists() or not local_path.is_file():
             raise FileNotFoundError(f"File not found: {sandbox_path}")
 
@@ -294,12 +330,31 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     async def delete_file(self, sandbox_path: str) -> None:
         local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_delete(local_path)
         try:
             await aiofiles.os.remove(local_path)
         except FileNotFoundError:
             pass
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
+        return False
+
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_write(local_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(local_path, "wb") as file_obj:
+            await file_obj.write(content)
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_read(local_path)
+        return local_path.exists() and local_path.is_file()
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        return False
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
         return False
 
     async def _stream_local_file(
@@ -377,6 +432,41 @@ class LocalJupyterSandbox(JupyterSandbox):
         user_root = (root / str(owner_id)).resolve()
         user_root.mkdir(parents=True, exist_ok=True)
         return user_root
+
+    def _build_access_policy(
+        self,
+        *,
+        cwd: Path | str | None = None,
+        network_mode: NetworkMode | None = None,
+    ) -> SandboxAccessPolicy:
+        settings = get_settings()
+        manager = get_local_jupyter_server_manager()
+        workspace_root = manager._working_dir()
+        runtime_roots = [
+            manager._runtime_dir(),
+            manager._config_dir(),
+            manager._data_dir(),
+            manager._shims_dir(),
+            manager._shell_sessions_root(),
+            self._sandbox_root_dir,
+        ]
+        write_roots = [
+            *settings.giga_agent_local_jupyter_allowed_write_roots,
+            *[Path(path) for path in self.write_dirs],
+        ]
+        deny_roots = [
+            *settings.giga_agent_local_jupyter_deny_read_roots,
+            *[Path(path) for path in self.exclude_read_dirs],
+        ]
+        return SandboxAccessPolicy(
+            workspace_root=workspace_root,
+            runtime_roots=runtime_roots,
+            read_roots=settings.giga_agent_local_jupyter_allowed_read_roots,
+            write_roots=write_roots,
+            deny_roots=deny_roots,
+            cwd=Path(cwd) if cwd is not None else None,
+            network_mode=network_mode or settings.giga_agent_local_jupyter_network_mode,
+        )
 
     def _local_path_from_bucket_path(self, sandbox_path: str) -> Path:
         if self.owner_id is None:

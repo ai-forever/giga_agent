@@ -1,17 +1,16 @@
+"""LocalDockerSandbox — Docker-backed Jupyter sandbox runtime."""
+
 import asyncio
-import mimetypes
 import secrets
-import shlex
 import time
 import uuid
-from collections.abc import AsyncIterator
-from pathlib import Path, PurePosixPath
+from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any, Optional
 
-import aiofiles
-import aiofiles.os
 import docker
-from docker.errors import NotFound, DockerException
+from cashews import cache
+from docker.errors import DockerException, NotFound
 from docker.types import Ulimit
 from pydantic import Field, PrivateAttr
 
@@ -20,16 +19,23 @@ from giga_agent.conf import (
     get_settings,
 )
 from giga_agent.core.logging import get_logger
-from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.core.paths import ensure_giga_agent_dir
-from giga_agent.sandbox.base import (
-    LARGE_FILE_THRESHOLD,
-    ContentResult,
-    FileReadResult,
-    StreamResult,
-)
+from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.jupyter import JupyterSandbox
-from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.sandbox.local_docker.constants import (
+    BUCKET_PREFIX,
+    JUPYTER_PORT,
+    MANAGED_LABEL,
+    OWNER_ID_LABEL,
+    PROVIDER_ID_LABEL,
+    PROVIDER_TYPE_LABEL,
+    PROXY_LABEL,
+    SANDBOX_ID_LABEL,
+)
+from giga_agent.sandbox.local_docker.container import ContainerMixin
+from giga_agent.sandbox.local_docker.files import FilesMixin
+from giga_agent.sandbox.local_docker.proxy import PortProxyMixin
+from giga_agent.sandbox.local_docker.shell import ShellMixin
 from giga_agent.sandbox.manager.types import (
     LogOnlyOrphanAction,
     OrphanAction,
@@ -37,21 +43,15 @@ from giga_agent.sandbox.manager.types import (
     SetSandboxStatusAction,
     StopExternalRuntimeAction,
 )
+from giga_agent.sandbox.registry import SandboxRegistry
 
 logger = get_logger(__name__)
 
-JUPYTER_PORT = 8888
-BUCKET_PREFIX = "/bucket/"
-_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-MANAGED_LABEL = "giga_agent.managed"
-PROVIDER_TYPE_LABEL = "giga_agent.provider_type"
-PROVIDER_ID_LABEL = "giga_agent.provider_id"
-SANDBOX_ID_LABEL = "giga_agent.sandbox_id"
-OWNER_ID_LABEL = "giga_agent.owner_id"
-
 
 @SandboxRegistry.register("local_docker")
-class LocalDockerSandbox(JupyterSandbox):
+class LocalDockerSandbox(
+    ContainerMixin, ShellMixin, FilesMixin, PortProxyMixin, JupyterSandbox,
+):
     image: str = Field(
         default_factory=lambda: get_settings().giga_agent_local_docker_image,
         description="Docker image to run for local sandbox",
@@ -135,6 +135,10 @@ class LocalDockerSandbox(JupyterSandbox):
     _container: Any = PrivateAttr(default=None)
     _sandbox_root_dir: Path = PrivateAttr(default_factory=Path)
 
+    # ------------------------------------------------------------------
+    # Docker network / naming
+    # ------------------------------------------------------------------
+
     def _docker_network(self) -> str | None:
         return get_settings().giga_agent_docker_network
 
@@ -164,18 +168,9 @@ class LocalDockerSandbox(JupyterSandbox):
             OWNER_ID_LABEL: str(self.owner_id),
         }
 
-    @staticmethod
-    def _get_env_value(container: Any, key: str) -> str | None:
-        try:
-            env = (container.attrs.get("Config") or {}).get("Env") or []
-        except Exception:
-            return None
-        for item in env:
-            if not isinstance(item, str):
-                continue
-            if item.startswith(f"{key}="):
-                return item.split("=", 1)[1]
-        return None
+    # ------------------------------------------------------------------
+    # init / connection settings
+    # ------------------------------------------------------------------
 
     def model_post_init(self, __context: Any) -> None:
         self._client = docker.from_env()
@@ -199,6 +194,18 @@ class LocalDockerSandbox(JupyterSandbox):
             "host_port": self.host_port,
         }
         return {k: v for k, v in settings.items() if v is not None}
+
+    @staticmethod
+    def get_tools() -> list:
+        if get_settings().giga_agent_docker_network is not None:
+            return []
+        from giga_agent.sandbox.local_docker.tools import open_port
+
+        return [open_port]
+
+    # ------------------------------------------------------------------
+    # validation
+    # ------------------------------------------------------------------
 
     @classmethod
     async def validate_settings(cls, settings: dict) -> dict:
@@ -257,6 +264,10 @@ class LocalDockerSandbox(JupyterSandbox):
                 except Exception:
                     pass
 
+    # ------------------------------------------------------------------
+    # lifecycle: up / stop / is_up
+    # ------------------------------------------------------------------
+
     async def up(self) -> None:
         if self.owner_id is None:
             raise RuntimeError("owner_id is required for local_docker runtime")
@@ -272,20 +283,14 @@ class LocalDockerSandbox(JupyterSandbox):
                 existing = None
 
             if existing is not None:
-                existing.reload()
-                token = (
-                    self.jupyter_token
-                    or getattr(self, "_token", None)
-                    or self._get_env_value(existing, "JUPYTER_TOKEN")
-                )
-                if token:
-                    self._token = token
-                    self.jupyter_token = token
+                try:
+                    existing.reload()
+                except NotFound:
+                    existing = None
 
-                self._container = existing
-                self.external_id = existing.id
-
-                if await super().is_up():
+            if existing is not None:
+                self._apply_container_connection(existing)
+                if self._token and self._container_is_running(existing):
                     return
 
                 try:
@@ -328,6 +333,7 @@ class LocalDockerSandbox(JupyterSandbox):
                 / ".giga_agent"
                 / rel_under_giga_dir
             )
+        bucket_mount = BUCKET_PREFIX.rstrip("/")
         run_kwargs: dict[str, Any] = {
             "command": "sleep infinity",
             "detach": True,
@@ -335,7 +341,7 @@ class LocalDockerSandbox(JupyterSandbox):
             "environment": envs,
             "labels": self._container_labels(),
             "volumes": {
-                str(bind_source): {"bind": BUCKET_PREFIX.rstrip("/"), "mode": "rw"}
+                str(bind_source): {"bind": bucket_mount, "mode": "rw"}
             },
             "nano_cpus": int(self.vcpu * 1_000_000_000),
             "mem_limit": f"{self.memory_limit_mb}m",
@@ -370,35 +376,12 @@ class LocalDockerSandbox(JupyterSandbox):
 
         self.external_id = self._container.id
         self._container.reload()
-        if docker_network:
-            self.host_port = None
-            self.base_url = self._internal_base_url()
-        else:
-            ports = self._container.attrs["NetworkSettings"]["Ports"]
-            binding = ports.get(f"{JUPYTER_PORT}/tcp")
-            if not binding:
-                raise RuntimeError(f"Could not find mapped port for {JUPYTER_PORT}")
-
-            self.host_port = int(binding[0]["HostPort"])
-            self.base_url = f"http://localhost:{self.host_port}"
-
-        cmd = (
-            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
-            '--ServerApp.token="${JUPYTER_TOKEN}" > /dev/null 2>&1 &'
-        )
-        self._container.exec_run(f"sh -c {shlex.quote(cmd)}", detach=True)
-
-        start = time.time()
-        while True:
-            if await self.is_up():
-                return
-            if time.time() - start > self.startup_timeout_sec:
-                raise TimeoutError(
-                    f"Jupyter did not start within {self.startup_timeout_sec} seconds"
-                )
-            await asyncio.sleep(1)
+        self._apply_container_connection(self._container)
 
     async def stop(self) -> None:
+        self._stop_proxy_containers()
+        self._remove_proxy_network()
+
         container = self._container
         if container is None and self.external_id:
             try:
@@ -415,6 +398,189 @@ class LocalDockerSandbox(JupyterSandbox):
 
         self._container = None
 
+    async def is_up(self) -> bool:
+        return await self._is_container_up()
+
+    # ------------------------------------------------------------------
+    # reconnect / connection state
+    # ------------------------------------------------------------------
+
+    async def _reconnect(self) -> None:
+        if not self.external_id:
+            return
+        try:
+            container = self._client.containers.get(self.external_id)
+            try:
+                container.reload()
+            except Exception:
+                pass
+            self._apply_container_connection(container)
+        except NotFound:
+            self._container = None
+
+    def _apply_container_connection(self, container: Any) -> None:
+        self._container = container
+        container_id = getattr(container, "id", None)
+        if isinstance(container_id, str) and container_id:
+            self.external_id = container_id
+
+        token = (
+            self.jupyter_token
+            or getattr(self, "_token", None)
+            or self._get_env_value(container, "JUPYTER_TOKEN")
+        )
+        if token:
+            self._token = token
+            self.jupyter_token = token
+
+        self._ensure_base_url()
+
+    def _ensure_base_url(self) -> None:
+        if self._docker_network() and self.sandbox_id is not None:
+            self.host_port = None
+            self.base_url = self._internal_base_url()
+            return
+        binding = None
+        if self._container is not None:
+            ports = (self._container.attrs.get("NetworkSettings") or {}).get("Ports") or {}
+            binding = ports.get(f"{JUPYTER_PORT}/tcp")
+        if binding:
+            self.host_port = int(binding[0]["HostPort"])
+            self.base_url = f"http://localhost:{self.host_port}"
+            return
+        if not self.host_port:
+            return
+        self.base_url = f"http://localhost:{self.host_port}"
+
+    async def _is_container_up(self) -> bool:
+        try:
+            await self._ensure_container_connected()
+        except RuntimeError:
+            return False
+        assert self._container is not None
+        try:
+            self._container.reload()
+        except NotFound:
+            self._container = None
+            return False
+        except DockerException:
+            return False
+        self._apply_container_connection(self._container)
+        return self._container_is_running(self._container)
+
+    # ------------------------------------------------------------------
+    # Jupyter lazy start
+    # ------------------------------------------------------------------
+
+    async def _is_jupyter_ready(self) -> bool:
+        if not await self._is_container_up():
+            return False
+        if not self._token:
+            return False
+        self._ensure_base_url()
+        if not self.base_url:
+            return False
+        return await super().is_up()
+
+    def _jupyter_start_lock_key(self) -> str:
+        identity = (
+            str(self.sandbox_id)
+            if self.sandbox_id is not None
+            else self.external_id
+            or (str(self.owner_id) if self.owner_id is not None else None)
+        )
+        if not identity:
+            raise RuntimeError("sandbox identity is required for jupyter startup lock")
+        return f"sandbox:jupyter-start:{identity}"
+
+    async def _start_jupyter_server(self) -> None:
+        await self._ensure_container_connected()
+        assert self._container is not None
+        cmd = (
+            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
+            '--ServerApp.token="${JUPYTER_TOKEN}" > /dev/null 2>&1 &'
+        )
+        logger.info(
+            "Starting Jupyter inside local sandbox container %s",
+            getattr(self._container, "id", "")[:12],
+        )
+        exit_code, output = await self._run_exec_in_container(cmd=["sh", "-lc", cmd])
+        if exit_code != 0:
+            raise RuntimeError(
+                "Failed to start Jupyter server: "
+                + self._decode_container_output(output).strip()
+            )
+
+    async def _wait_for_jupyter_ready(self) -> None:
+        start = time.time()
+        while True:
+            if await self._is_jupyter_ready():
+                return
+            if time.time() - start > self.startup_timeout_sec:
+                raise TimeoutError(
+                    f"Jupyter did not start within {self.startup_timeout_sec} seconds"
+                )
+            await asyncio.sleep(1)
+
+    async def _ensure_jupyter_ready(self) -> bool:
+        if await self._is_jupyter_ready():
+            return False
+
+        lock_timeout = float(max(self.startup_timeout_sec + 5, 5))
+        try:
+            async with asyncio.timeout(lock_timeout):
+                async with cache.lock(
+                    self._jupyter_start_lock_key(),
+                    expire=lock_timeout + 5,
+                    wait=True,
+                    check_interval=0.05,
+                ):
+                    if await self._is_jupyter_ready():
+                        return False
+                    if not await self._is_container_up():
+                        raise RuntimeError(
+                            "Local docker sandbox container is not running"
+                        )
+                    await self._start_jupyter_server()
+                    await self._wait_for_jupyter_ready()
+                    return True
+        except TimeoutError as exc:
+            raise TimeoutError(
+                "Timed out while waiting to start Jupyter in local docker sandbox"
+            ) from exc
+
+    async def run_code(
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        envs: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        jupyter_started = await self._ensure_jupyter_ready()
+        effective_kernel_id = kernel_id
+        if jupyter_started:
+            logger.info(
+                "Jupyter was started lazily for sandbox %s; resetting kernel state",
+                self.sandbox_id,
+            )
+            self._kernel_id = None
+            effective_kernel_id = None
+
+        async for chunk in super().run_code(
+            code,
+            kernel_id=effective_kernel_id,
+            allow_stdin=allow_stdin,
+            envs=envs,
+            **kwargs,
+        ):
+            yield chunk
+
+    # ------------------------------------------------------------------
+    # orphan cleanup (class-level)
+    # ------------------------------------------------------------------
+
     @classmethod
     def _make_docker_client(cls) -> Any:
         return docker.from_env()
@@ -427,24 +593,6 @@ class LocalDockerSandbox(JupyterSandbox):
                 f"{PROVIDER_TYPE_LABEL}=local_docker",
             ]
         }
-
-    @classmethod
-    def _parse_uuid_label(cls, labels: dict[str, str], key: str) -> uuid.UUID | None:
-        raw = labels.get(key)
-        if not raw:
-            return None
-        try:
-            return uuid.UUID(raw)
-        except ValueError:
-            return None
-
-    @classmethod
-    def _container_is_running(cls, container: Any) -> bool:
-        try:
-            state = (container.attrs.get("State") or {})
-            return bool(state.get("Running"))
-        except Exception:
-            return getattr(container, "status", None) == "running"
 
     @classmethod
     async def cleanup_orphans(
@@ -472,6 +620,10 @@ class LocalDockerSandbox(JupyterSandbox):
                 labels = getattr(container, "labels", None) or (
                     container.attrs.get("Config") or {}
                 ).get("Labels", {}) or {}
+
+                if labels.get(PROXY_LABEL) == "true":
+                    continue
+
                 sandbox_id = cls._parse_uuid_label(labels, SANDBOX_ID_LABEL)
                 provider_id = cls._parse_uuid_label(labels, PROVIDER_ID_LABEL)
                 external_id = getattr(container, "id", "")
@@ -492,6 +644,7 @@ class LocalDockerSandbox(JupyterSandbox):
                 container_ids_by_sandbox_id.setdefault(sandbox_id, set()).add(external_id)
                 sandbox = sandbox_by_id.get(sandbox_id)
                 if sandbox is None:
+                    cls._cleanup_proxy_for_sandbox(client, sandbox_id)
                     actions.append(
                         RemoveExternalRuntimeAction(
                             provider_type="local_docker",
@@ -516,6 +669,7 @@ class LocalDockerSandbox(JupyterSandbox):
                     continue
 
                 if not cls._container_is_running(container):
+                    cls._cleanup_proxy_for_sandbox(client, sandbox.id)
                     actions.append(
                         SetSandboxStatusAction(
                             provider_type="local_docker",
@@ -533,6 +687,7 @@ class LocalDockerSandbox(JupyterSandbox):
                     SandboxStatus.STOPPED,
                     SandboxStatus.ERROR,
                 ):
+                    cls._cleanup_proxy_for_sandbox(client, sandbox.id)
                     actions.append(
                         StopExternalRuntimeAction(
                             provider_type="local_docker",
@@ -562,6 +717,7 @@ class LocalDockerSandbox(JupyterSandbox):
                 discovered_ids = container_ids_by_sandbox_id.get(sandbox.id, set())
                 if sandbox.external_id and sandbox.external_id in discovered_ids:
                     continue
+                cls._cleanup_proxy_for_sandbox(client, sandbox.id)
                 actions.append(
                     SetSandboxStatusAction(
                         provider_type="local_docker",
@@ -572,7 +728,9 @@ class LocalDockerSandbox(JupyterSandbox):
                         clear_runtime_connection=True,
                     )
                 )
-        except DockerException as e:
+
+            cls._cleanup_orphan_proxy_containers(client, sandbox_by_id)
+        except DockerException:
             pass
             return []
         finally:
@@ -585,6 +743,47 @@ class LocalDockerSandbox(JupyterSandbox):
         return actions
 
     @classmethod
+    def _cleanup_orphan_proxy_containers(
+        cls,
+        client: Any,
+        sandbox_by_id: dict[uuid.UUID, Any],
+    ) -> None:
+        """Remove proxy containers whose sandbox no longer exists or is stopped."""
+        try:
+            proxies = client.containers.list(
+                all=True,
+                filters={
+                    "label": [
+                        f"{MANAGED_LABEL}=true",
+                        f"{PROXY_LABEL}=true",
+                    ]
+                },
+            )
+        except DockerException:
+            return
+
+        orphan_sandbox_ids: set[uuid.UUID] = set()
+        for proxy in proxies:
+            labels = getattr(proxy, "labels", None) or {}
+            sandbox_id = cls._parse_uuid_label(labels, SANDBOX_ID_LABEL)
+            if sandbox_id is None:
+                try:
+                    proxy.remove(force=True)
+                except Exception:
+                    pass
+                continue
+            sandbox = sandbox_by_id.get(sandbox_id)
+            if sandbox is None or sandbox.status in (
+                SandboxStatus.PENDING,
+                SandboxStatus.STOPPED,
+                SandboxStatus.ERROR,
+            ):
+                orphan_sandbox_ids.add(sandbox_id)
+
+        for sid in orphan_sandbox_ids:
+            cls._cleanup_proxy_for_sandbox(client, sid)
+
+    @classmethod
     async def stop_external_runtime(cls, external_id: str) -> None:
         client = None
         try:
@@ -593,6 +792,11 @@ class LocalDockerSandbox(JupyterSandbox):
                 container = client.containers.get(external_id)
             except NotFound:
                 return
+            sandbox_id = cls._parse_uuid_label(
+                getattr(container, "labels", None) or {}, SANDBOX_ID_LABEL,
+            )
+            if sandbox_id is not None:
+                cls._cleanup_proxy_for_sandbox(client, sandbox_id)
             try:
                 container.stop(timeout=5)
             except NotFound:
@@ -613,6 +817,11 @@ class LocalDockerSandbox(JupyterSandbox):
                 container = client.containers.get(external_id)
             except NotFound:
                 return
+            sandbox_id = cls._parse_uuid_label(
+                getattr(container, "labels", None) or {}, SANDBOX_ID_LABEL,
+            )
+            if sandbox_id is not None:
+                cls._cleanup_proxy_for_sandbox(client, sandbox_id)
             try:
                 container.remove(force=True)
             except NotFound:
@@ -623,218 +832,3 @@ class LocalDockerSandbox(JupyterSandbox):
                     client.close()
                 except Exception:
                     pass
-
-    async def _reconnect(self) -> None:
-        if not self.external_id:
-            return
-        try:
-            self._container = self._client.containers.get(self.external_id)
-            if self.host_port:
-                self.base_url = f"http://localhost:{self.host_port}"
-        except NotFound:
-            self._container = None
-
-    async def is_up(self) -> bool:
-        if (
-            not self.base_url
-            and self._docker_network()
-            and self.sandbox_id is not None
-        ):
-            self.base_url = self._internal_base_url()
-        if not self.base_url and self.host_port:
-            self.base_url = f"http://localhost:{self.host_port}"
-        if not self.base_url and self.external_id:
-            await self._reconnect()
-        if not self.base_url:
-            return False
-        return await super().is_up()
-
-    async def upload_file(
-        self,
-        *,
-        owner_id: uuid.UUID,
-        file_name: str,
-        content: bytes,
-    ) -> str:
-        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
-        target = self._user_root_dir(owner_id) / rel_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        async with aiofiles.open(target, "wb") as f:
-            await f.write(content)
-        return f"{BUCKET_PREFIX}{rel_path.as_posix()}"
-
-    def requires_running_for_upload(self) -> bool:
-        return False
-
-    async def read_file(self, sandbox_path: str) -> FileReadResult:
-        if self._is_bucket_path(sandbox_path):
-            local_path = self._local_path_from_bucket_path(sandbox_path)
-            if not local_path.exists() or not local_path.is_file():
-                raise FileNotFoundError(f"File not found: {sandbox_path}")
-
-            media_type, _ = mimetypes.guess_type(local_path.name)
-            if not media_type:
-                media_type = "application/octet-stream"
-            inline = local_path.suffix.lower() in {".html", ".htm"}
-
-            size = local_path.stat().st_size
-            if size >= LARGE_FILE_THRESHOLD:
-                return StreamResult(
-                    stream=self._stream_local_file(local_path),
-                    media_type=media_type,
-                    inline=inline,
-                    content_length=size,
-                )
-
-            async with aiofiles.open(local_path, "rb") as f:
-                data = await f.read()
-
-            return ContentResult(data=data, media_type=media_type, inline=inline)
-
-        await self._ensure_container_connected()
-        assert self._container is not None
-        exit_code, output = self._container.exec_run(
-            cmd=["cat", "--", sandbox_path],
-            stdout=True,
-            stderr=True,
-        )
-        if exit_code != 0:
-            stderr = output.decode(errors="ignore")
-            if "No such file or directory" in stderr:
-                raise FileNotFoundError(f"File not found: {sandbox_path}")
-            raise RuntimeError(
-                f"Failed to read file '{sandbox_path}': {stderr}".strip()
-            )
-
-        media_type, _ = mimetypes.guess_type(sandbox_path)
-        return ContentResult(
-            data=bytes(output), media_type=media_type or "application/octet-stream"
-        )
-
-    def requires_running_for_read(self, sandbox_path: str) -> bool:
-        return not self._is_bucket_path(sandbox_path)
-
-    async def delete_file(self, sandbox_path: str) -> None:
-        if self._is_bucket_path(sandbox_path):
-            local_path = self._local_path_from_bucket_path(sandbox_path)
-            try:
-                await aiofiles.os.remove(local_path)
-            except FileNotFoundError:
-                pass
-            return
-
-        await self._ensure_container_connected()
-        assert self._container is not None
-        exit_code, output = self._container.exec_run(
-            cmd=["rm", "-f", "--", sandbox_path],
-            stdout=True,
-            stderr=True,
-        )
-        if exit_code != 0:
-            stderr = output.decode(errors="ignore")
-            raise RuntimeError(
-                f"Failed to delete file '{sandbox_path}': {stderr}".strip()
-            )
-
-    def requires_running_for_delete(self, sandbox_path: str) -> bool:
-        return not self._is_bucket_path(sandbox_path)
-
-    def _is_bucket_path(self, path: str) -> bool:
-        return path.startswith(BUCKET_PREFIX)
-
-    async def _stream_local_file(
-        self, path: Path, chunk_size: int = 1024 * 1024
-    ) -> AsyncIterator[bytes]:
-        async with aiofiles.open(path, "rb") as f:
-            while True:
-                chunk = await f.read(chunk_size)
-                if not chunk:
-                    break
-                yield chunk
-                await asyncio.sleep(0)
-
-    def _validate_relative_file_name(self, file_name: str) -> PurePosixPath:
-        clean = file_name.strip().replace("\\", "/").lstrip("/")
-        path = PurePosixPath(clean)
-        if path.name in {"", ".", ".."}:
-            raise ValueError("file_name must contain a valid file name")
-        if any(part in {".", ".."} for part in path.parts):
-            raise ValueError("file_name must not contain '.' or '..' path segments")
-        return path
-
-    def _uniquify_bucket_rel_path(
-        self,
-        *,
-        owner_id: uuid.UUID,
-        file_name: str,
-    ) -> PurePosixPath:
-        path = self._validate_relative_file_name(file_name)
-        plotly_json_suffix = ".plotly.json"
-        name = path.name
-        if name.lower().endswith(plotly_json_suffix) and len(name) > len(
-            plotly_json_suffix
-        ):
-            suffix_start = len(name) - len(plotly_json_suffix)
-            stem = name[:suffix_start]
-            suffix = name[suffix_start:]
-        else:
-            stem = path.stem or path.name
-            suffix = path.suffix
-
-        parent = path.parent
-        parent_parts = (
-            []
-            if str(parent) in {"", "."}
-            else [p for p in parent.parts if p not in {"", "."}]
-        )
-        user_root = self._user_root_dir(owner_id)
-        for _ in range(10):
-            suffix_id = self._random_key_suffix()
-            candidate_name = (
-                f"{stem}--{suffix_id}{suffix}" if suffix else f"{stem}--{suffix_id}"
-            )
-            rel_path = (
-                PurePosixPath(*parent_parts, candidate_name)
-                if parent_parts
-                else PurePosixPath(candidate_name)
-            )
-            target = user_root / Path(*rel_path.parts)
-            if not target.exists():
-                return rel_path
-
-        raise RuntimeError(
-            "Failed to generate unique local upload file name after retries"
-        )
-
-    def _random_key_suffix(self) -> str:
-        return "".join(secrets.choice(_LOCAL_FILE_SUFFIX_ALPHABET) for _ in range(8))
-
-    def _user_root_dir(self, owner_id: uuid.UUID) -> Path:
-        root = self._sandbox_root_dir
-        root.mkdir(parents=True, exist_ok=True)
-        user_root = (root / str(owner_id)).resolve()
-        user_root.mkdir(parents=True, exist_ok=True)
-        return user_root
-
-    def _local_path_from_bucket_path(self, sandbox_path: str) -> Path:
-        if self.owner_id is None:
-            raise RuntimeError("owner_id is required to resolve sandbox path")
-        key = sandbox_path[len(BUCKET_PREFIX) :].strip("/")
-        if not key:
-            raise ValueError(f"Invalid bucket path: {sandbox_path}")
-
-        rel = PurePosixPath(key)
-        if any(part in {".", ".."} for part in rel.parts):
-            raise ValueError(f"Invalid bucket path: {sandbox_path}")
-
-        user_root = self._user_root_dir(self.owner_id).resolve()
-        local_path = (user_root / Path(*rel.parts)).resolve()
-        if user_root != local_path and user_root not in local_path.parents:
-            raise ValueError(f"Path escapes user sandbox root: {sandbox_path}")
-        return local_path
-
-    async def _ensure_container_connected(self) -> None:
-        if self._container is None and self.external_id:
-            await self._reconnect()
-        if self._container is None:
-            raise RuntimeError("Local docker sandbox is not connected")

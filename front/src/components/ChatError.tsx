@@ -41,16 +41,15 @@ const ChatError = ({ thread }: ChatErrorProps) => {
     return null;
   }
 
+  const handleRetry = () => {
+    thread.submit(undefined);
+  };
+
   return (
     <Wrapper>
       <Inner>
         В чате произошла ошибка{" "}
-        <RefreshButton
-          onClick={
-            // @ts-ignore
-            () => thread?.submit()
-          }
-        >
+        <RefreshButton onClick={handleRetry}>
           <RefreshCw color={"white"} size={16} />
         </RefreshButton>
       </Inner>

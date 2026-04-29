@@ -75,6 +75,30 @@ interface MessageProps {
   thread?: UseStream<GraphState, GraphTemplate>;
 }
 
+const THINK_TOOL_NAME = "think";
+
+interface RenderToolCall {
+  name: string;
+  args: Record<string, any>;
+}
+
+const getThinkText = (toolCall: RenderToolCall): string => {
+  const args = toolCall?.args;
+  if (!args || typeof args !== "object") {
+    return "";
+  }
+
+  if (typeof args.thought === "string" && args.thought.trim()) {
+    return args.thought;
+  }
+
+  if (typeof args.thoughts === "string" && args.thoughts.trim()) {
+    return args.thoughts;
+  }
+
+  return "";
+};
+
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, "&amp;")
@@ -186,11 +210,10 @@ const Message: React.FC<MessageProps> = ({
   }, [normalizedContent, onWrite]);
 
   const onRefresh = () => {
-    const parentMessage = thread?.messages.filter(
-      (_: Message_, i: number) =>
-        i + 1 < thread.messages.length &&
-        thread.messages[i + 1].id === message.id,
-    ); // Получаем сообщение которое идет до AI сообщения
+    const messages = thread?.messages ?? [];
+    const targetIndex = messages.findIndex((m) => m.id === message.id);
+    if (targetIndex < 0) return;
+    const parentMessage: Message_[] = [];
     // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegra, так как в их API нельзя просто передавать checkpoint (без input)
     const meta = thread?.getMessagesMetadata(message);
     const parentCheckpoint = meta?.branch
@@ -206,7 +229,15 @@ const Message: React.FC<MessageProps> = ({
 
     thread?.submit(
       { messages: parentMessage },
-      { checkpoint: parentCheckpoint },
+      {
+        checkpoint: parentCheckpoint,
+        optimisticValues(prev: GraphState) {
+          const prevMessages = prev.messages ?? [];
+          return { ...prev, messages: prevMessages.slice(0, targetIndex) };
+        },
+        streamMode: ["messages"],
+        onDisconnect: "continue",
+      },
     );
   };
 
@@ -273,6 +304,16 @@ const Message: React.FC<MessageProps> = ({
     });
   };
 
+  const toolCalls = ((message as any).tool_calls ?? []) as RenderToolCall[];
+
+  const thinkToolCalls = toolCalls.filter(
+    (toolCall) => toolCall.name === THINK_TOOL_NAME,
+  );
+
+  const visibleToolCalls = toolCalls.filter(
+    (toolCall) => toolCall.name !== THINK_TOOL_NAME,
+  );
+
   return (
     <div
       style={{ marginBottom: "20px", padding: "0 20px" }}
@@ -313,10 +354,22 @@ const Message: React.FC<MessageProps> = ({
               </TextMarkdown>
 
               {
-                // @ts-ignore
-                message.tool_calls &&
-                  // @ts-ignore
-                  message.tool_calls.map((tool_call, index) => (
+                thinkToolCalls.map((toolCall, index) => {
+                  const thinkText = getThinkText(toolCall);
+                  if (!thinkText) return null;
+                  return (
+                    <div key={`think-${index}`} className="mt-2">
+                      {React.createElement(
+                        "thinking",
+                        { className: "whitespace-pre-wrap" },
+                        thinkText,
+                      )}
+                    </div>
+                  );
+                })
+              }
+              {
+                visibleToolCalls.map((tool_call, index) => (
                     <div key={index} className="mt-2">
                       <div>
                         Действие:{" "}

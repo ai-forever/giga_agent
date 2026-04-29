@@ -56,7 +56,7 @@ class SandboxManager:
         settings: dict | None = None,
         *,
         use_cache: bool = True,
-        ) -> SandboxResolved:
+    ) -> SandboxResolved:
         return await self._resolve.get_or_create_for_user(
             user_id=user_id,
             provider_id=provider_id,
@@ -165,6 +165,28 @@ class SandboxManager:
         sandbox_path: str,
     ) -> None:
         await self._files.delete_file_by_path_for_user(
+            user_id=user_id,
+            sandbox_path=sandbox_path,
+        )
+
+    async def write_file_content_for_user(
+        self,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+        content: bytes,
+    ) -> None:
+        await self._files.write_file_content_for_user(
+            user_id=user_id,
+            sandbox_path=sandbox_path,
+            content=content,
+        )
+
+    async def file_exists_for_user(
+        self,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+    ) -> bool:
+        return await self._files.file_exists_for_user(
             user_id=user_id,
             sandbox_path=sandbox_path,
         )

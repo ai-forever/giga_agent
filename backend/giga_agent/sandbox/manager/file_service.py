@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 import uuid
 from pathlib import PurePosixPath
 
@@ -81,6 +82,10 @@ class SandboxFileService:
             needs_running = runtime.requires_running_for_read(sandbox_path)
         elif for_op == "delete":
             needs_running = runtime.requires_running_for_delete(sandbox_path)
+        elif for_op == "write":
+            needs_running = runtime.requires_running_for_write(sandbox_path)
+        elif for_op == "file_exists":
+            needs_running = runtime.requires_running_for_file_exists(sandbox_path)
 
         if needs_running:
             runtime = await self._lifecycle.ensure_running_for_user(
@@ -272,7 +277,9 @@ class SandboxFileService:
             sandbox_path=sandbox_path,
         )
         if file is None:
-            user = await UserRepository.get_cached_or_db(user_id=user_id, session=self.db)
+            user = await UserRepository.get_cached_or_db(
+                user_id=user_id, session=self.db
+            )
             runtime, provider = await self._resolve_runtime_for_file(
                 user_id=user_id,
                 provider_id=user.sandbox_provider_id,
@@ -345,3 +352,54 @@ class SandboxFileService:
         if file is None:
             return
         await self.delete_file_for_user(user_id=user_id, file_id=file.id)
+
+    async def _resolve_runtime_for_user(
+        self,
+        *,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+        for_op: str,
+    ):
+        user = await UserRepository.get_cached_or_db(user_id=user_id, session=self.db)
+        return await self._resolve_runtime_for_file(
+            user_id=user_id,
+            provider_id=user.sandbox_provider_id,
+            sandbox_path=sandbox_path,
+            for_op=for_op,
+        )
+
+    async def write_file_content_for_user(
+        self,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+        content: bytes,
+    ) -> None:
+        runtime, _ = await self._resolve_runtime_for_user(
+            user_id=user_id,
+            sandbox_path=sandbox_path,
+            for_op="write",
+        )
+        try:
+            await runtime.write_file_content(sandbox_path, content)
+        except Exception as e:
+            raise StorageOperationError(
+                f"Failed to write file '{sandbox_path}': {e}"
+            ) from e
+
+    async def file_exists_for_user(
+        self,
+        user_id: uuid.UUID,
+        sandbox_path: str,
+    ) -> bool:
+        runtime, _ = await self._resolve_runtime_for_user(
+            user_id=user_id,
+            sandbox_path=sandbox_path,
+            for_op="file_exists",
+        )
+        try:
+            return await runtime.file_exists(sandbox_path)
+        except Exception as e:
+            traceback.print_exc()
+            raise StorageOperationError(
+                f"Failed to check file existence '{sandbox_path}': {e}"
+            ) from e

@@ -23,6 +23,7 @@ from langchain_core.runnables import RunnableConfig
 
 import giga_agent.channels  # noqa: F401
 from giga_agent.channels.registry import ChannelRegistry
+from giga_agent.core.logging import get_logger
 from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
@@ -41,8 +42,27 @@ from langchain.tools.tool_node import (
 import uuid
 
 from giga_agent.core.db import get_session_factory
+from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
+from giga_agent.core.agent.multi_tool_use import (
+    collapse_tool_messages,
+    expand_multi_tool_use,
+)
+from giga_agent.conf import (
+    GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
+    GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
+    GIGA_AGENT_ENABLE_THINK_TOOL,
+    GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+)
 from giga_agent.core.agent.prompt import BASE_PROMPT
+from giga_agent.core.agent.think import (
+    THINK_VIA_FAST_MODEL,
+    collapse_think_hops,
+    is_single_think_call,
+    process_think_via_fast_model,
+    resolve_bound_tool_choice,
+)
 from giga_agent.core.agent.tool_node import ToolNode
+from giga_agent.core.agent.tools import think, multi_tool_use
 from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository
 from giga_agent.utils.mcp import transform_tool
@@ -59,6 +79,18 @@ if TYPE_CHECKING:
 from giga_agent.core.agent.utils import merge_state
 from giga_agent.core.agent.types import AgentState, Context
 
+logger = get_logger(__name__)
+
+
+def _is_feature_enabled_for_provider(
+    enabled: bool,
+    allowed_providers: list[str],
+    llm_type: str,
+) -> bool:
+    if not enabled:
+        return False
+    return llm_type.lower() in {p.lower() for p in allowed_providers}
+
 
 def _generate_user_info(state: AgentState) -> str:
     # TODO: Вынести язык пользователя в явные пользовательские настройки
@@ -66,11 +98,10 @@ def _generate_user_info(state: AgentState) -> str:
     language_prompt = ""
     if not language.startswith("ru"):
         language_prompt = f"\nВыбранный язык пользователя: {language}\n"
-    instructions = state.get("instructions", "")
     return (
         f"<user_info>\n"
         f"Текущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}"
-        f"{language_prompt}{instructions}</user_info>"
+        f"{language_prompt}</user_info>"
     )
 
 
@@ -414,8 +445,13 @@ def create_graph(
     built_in_tools = [t for t in tools if isinstance(t, dict)]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
 
-    # Tools that require client-side execution (must be in ToolNode)
-    available_tools = middleware_tools + regular_tools
+    builtin_tools: list[BaseTool] = []
+    if GIGA_AGENT_ENABLE_THINK_TOOL:
+        builtin_tools.append(think)
+    if GIGA_AGENT_ENABLE_MULTI_TOOL_USE:
+        builtin_tools.append(multi_tool_use)
+
+    available_tools = builtin_tools + middleware_tools + regular_tools
 
     # Only create ToolNode if we have client-side tools
     tool_node = ToolNode(
@@ -423,15 +459,6 @@ def create_graph(
         wrap_tool_call=wrap_tool_call_wrapper,
         agent=agent,
     )
-
-    # Default tools for ModelRequest initialization
-    # Use converted BaseTool instances from ToolNode (not raw callables)
-    # Include built-ins and converted tools (can be changed dynamically by middleware)
-    # Structured tools are NOT included - they're added dynamically based on response_format
-    if tool_node:
-        default_tools = list(tool_node.tools_by_name.values()) + built_in_tools
-    else:
-        default_tools = list(built_in_tools)
 
     # validate middleware
     if len({m.name for m in middleware}) != len(middleware):
@@ -468,7 +495,6 @@ def create_graph(
 
         Raises any exceptions that occur during model invocation.
         """
-        # Get the bound model (with auto-detection if needed)
         model_ = request.model.bind(**request.model_settings)
         messages = request.messages
         if request.system_message:
@@ -480,7 +506,6 @@ def create_graph(
         output.additional_kwargs.pop("function_call", None)
         output.additional_kwargs["rendered"] = True
         for call in output.tool_calls:
-            # Проставляем ID вызовов тулов, если их нет, как в гиге
             call.setdefault("id", str(uuid.uuid4()))
 
         return ModelResponse(
@@ -507,7 +532,30 @@ def create_graph(
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
             llm = await llm_runtime.get_llm()
 
-        messages_for_llm = list(state["messages"])
+        llm_type = llm_runtime.get_llm_type()
+        think_enabled = _is_feature_enabled_for_provider(
+            GIGA_AGENT_ENABLE_THINK_TOOL,
+            GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+            llm_type,
+        )
+        multi_tool_use_enabled = _is_feature_enabled_for_provider(
+            GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
+            GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
+            llm_type,
+        )
+
+        if multi_tool_use_enabled:
+            few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
+            collapsed_messages = collapse_tool_messages(state["messages"])
+        else:
+            few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE)
+            collapsed_messages = list(state["messages"])
+        state_messages_collapse = (
+            collapse_think_hops(collapsed_messages)
+            if think_enabled
+            else collapsed_messages
+        )
+        messages_for_llm = few_shots_collapse + state_messages_collapse
         if messages_for_llm and messages_for_llm[-1].type == "human":
             last_message = messages_for_llm[-1]
             user_input = last_message.content
@@ -521,7 +569,6 @@ def create_graph(
             )
 
             final_parts = [
-                f"<task>{user_input}</task>",
                 _generate_user_info(state),
             ]
             if file_prompt:
@@ -530,11 +577,12 @@ def create_graph(
                 final_parts.append(selected_prompt)
             if extended_task:
                 final_parts.append(extended_task)
-            final_parts.append(
-                "Активно планируй и следуй своему плану! "
-                "Действуй по простым шагам!"
-                "Следующий шаг: "
-            )
+            # final_parts.append(
+            #     "Активно планируй и следуй своему плану! "
+            #     "Действуй по простым шагам!"
+            #     "Следующий шаг: "
+            # )
+            final_parts.append(f"<user_query>{user_input}<user_query>")
             enriched_message = last_message.model_copy(
                 update={"content": "\n".join(final_parts)}
             )
@@ -551,9 +599,27 @@ def create_graph(
             )
             for tool in state.get("mcp_tools", [])
         ]
-        llm = llm.bind_tools(
-            tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
+
+        tool_choice = (
+            resolve_bound_tool_choice(state["messages"])
+            if think_enabled
+            else "auto"
         )
+        optional_tools: list[BaseTool] = []
+        if think_enabled:
+            optional_tools.append(think)
+        if multi_tool_use_enabled:
+            optional_tools.append(multi_tool_use)
+
+        all_tools = (
+            optional_tools
+            + built_in_tools
+            + regular_tools
+            + middleware_tools
+            + agent_tools
+            + mcp_tools
+        )
+        llm = llm.bind_tools(tools=all_tools, tool_choice=tool_choice)
         channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
@@ -561,28 +627,56 @@ def create_graph(
                 state=state,
                 config=config,
                 channel_prompt=channel_prompt,
+                enable_think=think_enabled,
+                enable_multi_tool_use=multi_tool_use_enabled,
             )
         )
 
         request = ModelRequest(
             model=llm,
-            tools=default_tools,
+            tools=all_tools,
             system_message=system_message,
             messages=messages_for_llm,
-            tool_choice=None,
+            tool_choice=tool_choice,
             state=state,
             runtime=runtime,
         )
 
-        if wrap_model_call_handler is None:
-            # No async handlers - execute directly
-            response = await _execute_model_async(request)
-        else:
-            # Call composed async handler with base handler
-            response = await wrap_model_call_handler(request, _execute_model_async)
+        async def _execute_with_expand(req: ModelRequest) -> ModelResponse:
+            response = await _execute_model_async(req)
+            if not multi_tool_use_enabled:
+                return response
+            expanded = [
+                expand_multi_tool_use(m) if isinstance(m, AIMessage) else m
+                for m in response.result
+            ]
+            return ModelResponse(
+                result=expanded,
+                structured_response=response.structured_response,
+            )
 
-        # Extract state updates from ModelResponse
-        state_updates = {"messages": response.result}
+        if wrap_model_call_handler is None:
+            response = await _execute_with_expand(request)
+        else:
+            response = await wrap_model_call_handler(request, _execute_with_expand)
+
+        result_messages = list(response.result)
+
+        if think_enabled and THINK_VIA_FAST_MODEL and len(result_messages) == 1:
+            ai_msg = result_messages[0]
+            if isinstance(ai_msg, AIMessage) and is_single_think_call(ai_msg):
+                factory = await get_session_factory()
+                async with factory() as session:
+                    result_messages = await process_think_via_fast_model(
+                        ai_msg,
+                        user=user,
+                        session=session,
+                        messages_for_llm=state_messages_collapse,
+                        system_message=system_message,
+                        tools=all_tools
+                    )
+
+        state_updates = {"messages": result_messages}
         if response.structured_response is not None:
             state_updates["structured_response"] = response.structured_response
 
