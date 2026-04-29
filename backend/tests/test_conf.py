@@ -1,6 +1,7 @@
 import os
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import patch
 
 from giga_agent.conf import get_settings, reset_settings_cache
@@ -68,6 +69,21 @@ class ConfSettingsTests(unittest.TestCase):
             settings = get_settings()
             self.assertTrue(settings.giga_agent_gigachat_skip_cache_token)
 
+    def test_runtime_local_disabled_by_default(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertFalse(settings.giga_agent_runtime_local)
+
+    def test_reads_runtime_local_flag(self):
+        with self._patched_env({"GIGA_AGENT_RUNTIME_LOCAL": "1"}, clear=True):
+            settings = get_settings()
+            self.assertTrue(settings.giga_agent_runtime_local)
+
+    def test_local_jupyter_deny_read_roots_empty_by_default(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertEqual(settings.giga_agent_local_jupyter_deny_read_roots, [])
+
     def test_reads_local_jupyter_settings(self):
         with self._patched_env(
             {
@@ -77,6 +93,12 @@ class ConfSettingsTests(unittest.TestCase):
                 "GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH": "~/files",
                 "GIGA_AGENT_LOCAL_JUPYTER_RUNTIME_DIR": "~/runtime",
                 "GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE": "/usr/bin/python3",
+                "GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_DEFAULT": "1",
+                "GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND": "linux_bwrap",
+                "GIGA_AGENT_LOCAL_JUPYTER_ALLOWED_READ_ROOTS": '["/"]',
+                "GIGA_AGENT_LOCAL_JUPYTER_ALLOWED_WRITE_ROOTS": '["/tmp/write"]',
+                "GIGA_AGENT_LOCAL_JUPYTER_DENY_READ_ROOTS": '["~/.ssh"]',
+                "GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE": "none",
             },
             clear=True,
         ):
@@ -93,3 +115,18 @@ class ConfSettingsTests(unittest.TestCase):
                 settings.giga_agent_local_jupyter_python_executable,
                 "/usr/bin/python3",
             )
+            self.assertTrue(settings.giga_agent_local_jupyter_secure_exec_default)
+            self.assertEqual(
+                settings.giga_agent_local_jupyter_secure_exec_backend,
+                "linux_bwrap",
+            )
+            self.assertEqual(settings.giga_agent_local_jupyter_allowed_read_roots, [Path("/")])
+            self.assertEqual(
+                settings.giga_agent_local_jupyter_allowed_write_roots,
+                [Path("/tmp/write")],
+            )
+            self.assertEqual(
+                settings.giga_agent_local_jupyter_deny_read_roots,
+                [Path("~/.ssh").expanduser()],
+            )
+            self.assertEqual(settings.giga_agent_local_jupyter_network_mode, "none")

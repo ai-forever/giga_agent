@@ -14,13 +14,16 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
+from giga_agent.core.paths import ensure_giga_agent_dir
 from giga_agent.core.process_supervisor import (
     ManagedProcessRecord,
     get_process_supervisor,
 )
 from giga_agent.sandbox.local_jupyter.manager import get_local_jupyter_server_manager
 from giga_agent.sandbox.mixins.code import ShellAwaitResult, ShellMeta, ShellRunResult
+from giga_agent.sandbox.secure_exec import SecureProcessConfig, launch_secure_process
 
 logger = get_logger(__name__)
 
@@ -231,7 +234,10 @@ class LocalShellMixin:
     # ------------------------------------------------------------------
 
     def _shell_sessions_root(self) -> Path:
-        return get_local_jupyter_server_manager()._shell_sessions_root()
+        manager = get_local_jupyter_server_manager()
+        if hasattr(manager, "_shell_sessions_root"):
+            return manager._shell_sessions_root()
+        return (ensure_giga_agent_dir() / "local_jupyter" / "shell_sessions").resolve()
 
     def _shell_session_dir(self, shell_id: str) -> Path:
         return self._shell_sessions_root() / self._validate_shell_id(shell_id)
@@ -268,6 +274,8 @@ class LocalShellMixin:
         output_path = self._shell_log_path(shell_id)
         exit_code_path = self._shell_exit_code_path(shell_id)
         env = self._build_shell_env(envs)
+        policy = None
+        safe_execution = bool(getattr(self, "safe_execution", False))
 
         if os.name == "nt":
             exit_code_path_escaped = str(exit_code_path).replace("'", "''")
@@ -286,17 +294,42 @@ class LocalShellMixin:
             )
             shell_cmd = ["sh", "-lc", shell_wrapper]
 
+        if safe_execution:
+            build_policy = getattr(self, "_build_access_policy")
+            policy = build_policy(
+                cwd=Path(cwd),
+                network_mode=get_settings().giga_agent_local_jupyter_network_mode,
+            )
+            policy.assert_valid_cwd(require_writable=True)
+            policy.assert_can_write(output_path)
+            policy.assert_can_write(exit_code_path)
+
         output_handle = open(output_path, "ab", buffering=0)  # noqa: SIM115
         try:
-            process = subprocess.Popen(
-                shell_cmd,
-                cwd=cwd,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                stdout=output_handle,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
+            if safe_execution and policy is not None:
+                launch = launch_secure_process(
+                    SecureProcessConfig(
+                        command=shell_cmd,
+                        policy=policy,
+                        backend=get_settings().giga_agent_local_jupyter_secure_exec_backend,  # type: ignore[arg-type]
+                        cwd=Path(cwd),
+                        env=env,
+                        stdin=subprocess.DEVNULL,
+                        stdout=output_handle,
+                        stderr=subprocess.STDOUT,
+                    )
+                )
+                process = launch.process
+            else:
+                process = subprocess.Popen(
+                    shell_cmd,
+                    cwd=cwd,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output_handle,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
         except Exception:
             output_handle.close()
             raise

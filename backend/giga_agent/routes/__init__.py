@@ -3,7 +3,7 @@ API Routes для Giga Agent.
 """
 
 from fastapi import APIRouter
-from giga_agent.conf import GIGA_AGENT_PREFIX_API
+from giga_agent.conf import GIGA_AGENT_PREFIX_API, GIGA_AGENT_RUNTIME_LOCAL
 
 from giga_agent.routes.agent import router as agent_router
 from giga_agent.routes.channels import router as channels_router
@@ -31,6 +31,9 @@ router.include_router(search_engines_router)
 router.include_router(groups_router)
 router.include_router(resource_permissions_router)
 router.include_router(stt_router)
+if GIGA_AGENT_RUNTIME_LOCAL:
+    from giga_agent.routes.local_functions import router as local_functions_router
+    router.include_router(local_functions_router)
 
 __all__ = [
     "router",

@@ -21,6 +21,7 @@ class RuntimeConfigRouteTests(unittest.TestCase):
             patch("giga_agent.runtime_config.GIGA_AGENT_BASE_URL", None),
             patch("giga_agent.runtime_config.GIGA_AGENT_UI_PREFIX", "/ui"),
             patch("giga_agent.runtime_config.GIGA_AGENT_PREFIX_API", "/agent"),
+            patch("giga_agent.runtime_config.GIGA_AGENT_RUNTIME_LOCAL", True),
             patch("giga_agent.runtime_config.GIGA_AGENT_SKIP_ONBOARDING", True),
         ):
             response = client.get("/app-config.js")
@@ -31,6 +32,7 @@ class RuntimeConfigRouteTests(unittest.TestCase):
         self.assertEqual(payload["basePath"], "/ui/")
         self.assertEqual(payload["apiBasePath"], "/ui/api")
         self.assertEqual(payload["apiAgentBasePath"], "/ui/api/agent")
+        self.assertTrue(payload["runtimeLocal"])
         self.assertTrue(payload["skipOnboarding"])
 
     def test_ui_mount_keeps_prefixed_app_config_route(self):
@@ -52,6 +54,7 @@ class RuntimeConfigRouteTests(unittest.TestCase):
                 patch("giga_agent.runtime_config.GIGA_AGENT_BASE_URL", None),
                 patch("giga_agent.runtime_config.GIGA_AGENT_UI_PREFIX", "/ui"),
                 patch("giga_agent.runtime_config.GIGA_AGENT_PREFIX_API", "/agent"),
+                patch("giga_agent.runtime_config.GIGA_AGENT_RUNTIME_LOCAL", False),
                 patch("giga_agent.runtime_config.GIGA_AGENT_SKIP_ONBOARDING", False),
             ):
                 response = client.get("/ui/app-config.js")
@@ -61,6 +64,7 @@ class RuntimeConfigRouteTests(unittest.TestCase):
         payload = self._read_runtime_payload(response.text)
         self.assertEqual(payload["basePath"], "/ui/")
         self.assertEqual(payload["apiBasePath"], "/ui/api")
+        self.assertFalse(payload["runtimeLocal"])
         self.assertFalse(payload["skipOnboarding"])
         self.assertEqual(index_response.status_code, 200)
         self.assertIn('<base href="/ui/"/>', index_response.text)
