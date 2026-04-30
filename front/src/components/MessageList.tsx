@@ -33,22 +33,27 @@ const MessageList: React.FC<MessageListProps> = ({
       {messages.length === 0 && !notShowWelcomeMessage ? (
         <WellcomeMessage />
       ) : null}
-      {messages.filter((message) => (message.additional_kwargs?.tool_name as string) !== "think").map((message, idx) =>
-        message.type === "tool" ? (
-          <ToolMessage
-            key={idx}
-            message={message}
-            name={(message.additional_kwargs?.tool_name as string) ?? ""}
-          />
-        ) : (
-          <Message
-            key={idx}
-            message={message}
-            onWrite={maybeAutoScroll}
-            thread={thread}
-          />
-        ),
-      )}
+      {messages
+        .filter(
+          (message) =>
+            (message.additional_kwargs?.tool_name as string) !== "think",
+        )
+        .map((message, idx) =>
+          message.type === "tool" ? (
+            <ToolMessage
+              key={idx}
+              message={message}
+              name={(message.additional_kwargs?.tool_name as string) ?? ""}
+            />
+          ) : (
+            <Message
+              key={idx}
+              message={message}
+              onWrite={maybeAutoScroll}
+              thread={thread}
+            />
+          ),
+        )}
       <ChatError thread={thread} />
       {lastMessage && lastMessage.type === "ai" && (
         <ToolsExecuting message={lastMessage} thread={thread} />

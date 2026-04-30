@@ -44,9 +44,8 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
   const [contextModalOpen, setContextModalOpen] = useState(false);
-  const [enabledModules, setEnabledModules] = useState<
-    Record<string, boolean>
-  >(readEnabledModules);
+  const [enabledModules, setEnabledModules] =
+    useState<Record<string, boolean>>(readEnabledModules);
 
   const openMcpModal = useCallback(() => {
     setMcpModalOpen(true);

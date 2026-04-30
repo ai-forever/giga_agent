@@ -353,44 +353,38 @@ const Message: React.FC<MessageProps> = ({
                 {normalizedContent}
               </TextMarkdown>
 
-              {
-                thinkToolCalls.map((toolCall, index) => {
-                  const thinkText = getThinkText(toolCall);
-                  if (!thinkText) return null;
-                  return (
-                    <div key={`think-${index}`} className="mt-2">
-                      {React.createElement(
-                        "thinking",
-                        { className: "whitespace-pre-wrap" },
-                        thinkText,
-                      )}
-                    </div>
-                  );
-                })
-              }
-              {
-                visibleToolCalls.map((tool_call, index) => (
-                    <div key={index} className="mt-2">
-                      <div>
-                        Действие:{" "}
-                        {tool_call.name in TOOL_MAP
-                          ? // @ts-ignore
-                            `${TOOL_MAP[tool_call.name]} `
-                          : tool_call.name}
-                      </div>
-                      <SyntaxHighlighter
-                        language={
-                          tool_call.name === "python" ? "python" : "json"
-                        }
-                        style={vscDarkPlus}
-                      >
-                        {tool_call.name === "python"
-                          ? tool_call.args.code
-                          : JSON.stringify(tool_call.args)}
-                      </SyntaxHighlighter>
-                    </div>
-                  ))
-              }
+              {thinkToolCalls.map((toolCall, index) => {
+                const thinkText = getThinkText(toolCall);
+                if (!thinkText) return null;
+                return (
+                  <div key={`think-${index}`} className="mt-2">
+                    {React.createElement(
+                      "thinking",
+                      { className: "whitespace-pre-wrap" },
+                      thinkText,
+                    )}
+                  </div>
+                );
+              })}
+              {visibleToolCalls.map((tool_call, index) => (
+                <div key={index} className="mt-2">
+                  <div>
+                    Действие:{" "}
+                    {tool_call.name in TOOL_MAP
+                      ? // @ts-ignore
+                        `${TOOL_MAP[tool_call.name]} `
+                      : tool_call.name}
+                  </div>
+                  <SyntaxHighlighter
+                    language={tool_call.name === "python" ? "python" : "json"}
+                    style={vscDarkPlus}
+                  >
+                    {tool_call.name === "python"
+                      ? tool_call.args.code
+                      : JSON.stringify(tool_call.args)}
+                  </SyntaxHighlighter>
+                </div>
+              ))}
               {
                 //@ts-ignore
                 message.additional_kwargs &&
