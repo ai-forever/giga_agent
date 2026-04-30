@@ -63,14 +63,14 @@ import ModelPicker from "./ModelPicker";
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
 const MOCK_MODULES = [
-  { id: "repl", name: "Песочница (REPL)", description: "python, shell" },
-  { id: "io", name: "Файловые операции", description: "read_file, write_file, edit_file" },
-  { id: "analyze_images", name: "Анализ изображений", description: "analyze_image" },
-  { id: "scraper", name: "Веб-скрапер", description: "get_urls" },
-  { id: "rag", name: "Документы (RAG)", description: "get_documents, get_rag_info" },
-  { id: "search", name: "Поиск", description: "web_search" },
-  { id: "image", name: "Генерация изображений", description: "generate_image" },
-  { id: "github", name: "GitHub", description: "github_*" },
+  { id: "repl", name: "Песочница (REPL)", description: "Выполнение Python и shell-команд в изолированной среде" },
+  { id: "io", name: "Файловые операции", description: "Чтение, запись и редактирование файлов" },
+  { id: "analyze_images", name: "Анализ изображений", description: "Распознавание и описание содержимого изображений" },
+  { id: "scraper", name: "Веб-скрапер", description: "Извлечение данных с веб-страниц по URL" },
+  { id: "rag", name: "Документы (RAG)", description: "Поиск и извлечение информации из загруженных документов" },
+  { id: "search", name: "Поиск", description: "Поиск информации в интернете" },
+  { id: "image", name: "Генерация изображений", description: "Создание изображений по текстовому описанию" },
+  { id: "github", name: "GitHub", description: "Работа с репозиториями, issues и pull requests" },
 ];
 
 const getInitialIsMobileDevice = () => {
