@@ -80,6 +80,8 @@ def _mount_args(policy: SandboxAccessPolicy) -> list[str]:
         args.extend(["--dir", str(path), "--tmpfs", str(path)])
 
     for path in policy.writable_roots():
+        if not path.exists():
+            continue
         args.extend(["--bind", str(path), str(path)])
 
     return args
