@@ -33,7 +33,11 @@ from giga_agent.sandbox.local_jupyter.manager import (
 from giga_agent.sandbox.local_jupyter.shell import LocalShellMixin
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 from giga_agent.sandbox.registry import SandboxRegistry
-from giga_agent.sandbox.secure_exec.policy import NetworkMode, SandboxAccessPolicy
+from giga_agent.sandbox.secure_exec.policy import (
+    NetworkMode,
+    SandboxAccessPolicy,
+    default_package_cache_write_roots,
+)
 
 if TYPE_CHECKING:
     from giga_agent.core.agent.base import BaseAgent
@@ -451,6 +455,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             self._sandbox_root_dir,
         ]
         write_roots = [
+            *default_package_cache_write_roots(),
             *settings.giga_agent_local_jupyter_allowed_write_roots,
             *[Path(path) for path in self.write_dirs],
         ]

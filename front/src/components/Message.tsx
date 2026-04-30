@@ -264,14 +264,15 @@ const Message: React.FC<MessageProps> = ({
     onWrite();
   }, [normalizedContent, onWrite]);
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     const messages = thread?.messages ?? [];
     const targetIndex = messages.findIndex((m) => m.id === message.id);
     if (targetIndex < 0) return;
+    const previousMessage = messages[targetIndex - 1];
     const parentMessage: Message_[] = [];
     // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegra, так как в их API нельзя просто передавать checkpoint (без input)
     const meta = thread?.getMessagesMetadata(message);
-    const parentCheckpoint = meta?.branch
+    const selectedMessageParentCheckpoint = meta?.branch
       ? ({
           ...meta?.firstSeenState?.parent_checkpoint,
           thread_id: meta.firstSeenState?.checkpoint.thread_id,
@@ -281,14 +282,57 @@ const Message: React.FC<MessageProps> = ({
               : meta.branch,
         } as Checkpoint)
       : meta?.firstSeenState?.parent_checkpoint;
+    const parentCheckpoint = selectedMessageParentCheckpoint;
+
+    let effectiveParentCheckpoint = parentCheckpoint;
+    if (previousMessage) {
+      const localMatchingState = (thread?.history ?? []).find((state) => {
+        const stateMessages = state.values?.messages ?? [];
+        const lastMessage = stateMessages.at(-1);
+        return (
+          stateMessages.length === targetIndex &&
+          lastMessage?.id === previousMessage.id
+        );
+      });
+      if (localMatchingState?.checkpoint) {
+        effectiveParentCheckpoint = localMatchingState.checkpoint as Checkpoint;
+      }
+    }
+
+    if (
+      effectiveParentCheckpoint === parentCheckpoint &&
+      parentCheckpoint?.thread_id &&
+      thread?.client &&
+      previousMessage
+    ) {
+      const threadsClient = (thread.client as any).threads;
+      const fullHistory = await threadsClient
+        .getHistory(parentCheckpoint.thread_id, { limit: 200 })
+        .catch((error: unknown) => ({ error: String(error) }));
+      const historyStates = Array.isArray(fullHistory) ? fullHistory : [];
+      const matchingState = historyStates.find((state: any) => {
+        const stateMessages = state.values?.messages ?? [];
+        const lastMessage = stateMessages.at(-1);
+        return (
+          stateMessages.length === targetIndex &&
+          lastMessage?.id === previousMessage.id
+        );
+      });
+      if (matchingState?.checkpoint) {
+        effectiveParentCheckpoint = matchingState.checkpoint as Checkpoint;
+      }
+    }
 
     thread?.submit(
       { messages: parentMessage },
       {
-        checkpoint: parentCheckpoint,
+        checkpoint: effectiveParentCheckpoint
+          ? ({ ...effectiveParentCheckpoint } as Checkpoint)
+          : undefined,
         optimisticValues(prev: GraphState) {
           const prevMessages = prev.messages ?? [];
-          return { ...prev, messages: prevMessages.slice(0, targetIndex) };
+          const nextMessages = prevMessages.slice(0, targetIndex);
+          return { ...prev, messages: nextMessages };
         },
         streamMode: ["messages"],
         onDisconnect: "continue",

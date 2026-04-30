@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import platform
+import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -10,6 +13,81 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from giga_agent.sandbox.secure_exec.errors import SandboxAccessDeniedError
 
 NetworkMode = Literal["host", "none"]
+
+
+def default_package_cache_write_roots() -> list[Path]:
+    """Well-known cache/data directories used by popular package managers and
+    build toolchains.
+
+    Covers both cache (downloaded artefacts) and data (installed tools, global
+    stores) locations.  On macOS the XDG-style paths live under ~/Library;
+    on Linux they follow $XDG_CACHE_HOME / $XDG_DATA_HOME conventions.
+
+    Returned paths are resolved; non-existing directories are included so that
+    the sandbox profile is ready when a tool creates them on first run.
+    """
+    home = Path.home()
+    is_darwin = platform.system() == "Darwin"
+
+    if is_darwin:
+        xdg_cache = home / "Library" / "Caches"
+        xdg_data = home / "Library" / "Application Support"
+    else:
+        xdg_cache = Path(os.environ.get("XDG_CACHE_HOME") or (home / ".cache"))
+        xdg_data = Path(
+            os.environ.get("XDG_DATA_HOME") or (home / ".local" / "share")
+        )
+
+    tmpdir = Path(tempfile.gettempdir())
+
+    roots: list[Path] = [
+        # ── Temp directories (used by virtually every build tool) ──
+        Path("/tmp"),
+        tmpdir,
+        # ── Node.js ecosystem (npm / npx / yarn / pnpm / bun) ──
+        home / ".npm",
+        home / ".yarn",
+        home / ".yarnrc",
+        home / ".pnpm-store",
+        home / ".bun",
+        home / ".node-gyp",
+        home / ".local" / "share" / "pnpm",
+        xdg_cache / "yarn",
+        xdg_cache / "pnpm",
+        xdg_cache / "bun",
+        xdg_data / "pnpm",
+        # ── Python (pip / uv / uvx / pipx) ──
+        xdg_cache / "pip",
+        xdg_cache / "uv",
+        xdg_data / "uv",
+        xdg_data / "pipx",
+        home / ".local",
+        # ── Rust ──
+        home / ".cargo",
+        home / ".rustup",
+        # ── JVM (Gradle / Maven / SBT) ──
+        home / ".gradle",
+        home / ".m2",
+        home / ".ivy2",
+        home / ".sbt",
+        # ── Go ──
+        xdg_cache / "go-build",
+        # ── Ruby ──
+        home / ".gem",
+        home / ".bundle",
+        # ── .NET ──
+        home / ".nuget",
+        home / ".dotnet",
+        # ── PHP ──
+        home / ".composer",
+        # ── Dart / Flutter ──
+        home / ".pub-cache",
+    ]
+
+    if is_darwin:
+        roots.append(home / "Library" / "pnpm")
+
+    return [p.resolve() for p in roots]
 
 
 def normalize_path(value: Path | str) -> Path:

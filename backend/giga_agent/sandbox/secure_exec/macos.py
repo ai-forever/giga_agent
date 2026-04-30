@@ -119,6 +119,9 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
         "(allow process-info* (target same-sandbox))",
         "(allow signal (target same-sandbox))",
         "",
+        "; Shared library loading (dlopen) — required for native addons",
+        "(allow file-map-executable)",
+        "",
         "; User preferences and logging",
         "(allow user-preference-read)",
         '(allow mach-lookup (global-name "com.apple.coreservices.launchservicesd"))',
@@ -133,9 +136,10 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
         '(allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))',
         '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))',
         "",
-        "; POSIX IPC",
-        "(allow ipc-posix-shm)",
-        "(allow ipc-posix-sem)",
+        "; POSIX and System V IPC",
+        "(allow ipc-posix-shm*)",
+        "(allow ipc-posix-sem*)",
+        "(allow ipc-sysv-sem)",
         "",
         "; Device files",
         '(allow file-read* file-write* (literal "/dev/null"))',
@@ -164,6 +168,7 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
     for path in write_roots:
         profile.append(_subpath_rule("file-write*", path))
         profile.append(_subpath_rule("file-write-unlink", path))
+        profile.append(_subpath_rule("file-ioctl", path))
 
     profile.extend(["", "; Local server bindings"])
     if config.allow_local_network:
