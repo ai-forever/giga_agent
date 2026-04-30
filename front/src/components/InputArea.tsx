@@ -59,18 +59,47 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import ModelPicker from "./ModelPicker";
+import TokenUsageIndicator from "./TokenUsageIndicator";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
 const MOCK_MODULES = [
-  { id: "repl", name: "Песочница (REPL)", description: "Выполнение Python и shell-команд в изолированной среде" },
-  { id: "io", name: "Файловые операции", description: "Чтение, запись и редактирование файлов" },
-  { id: "analyze_images", name: "Анализ изображений", description: "Распознавание и описание содержимого изображений" },
-  { id: "scraper", name: "Веб-скрапер", description: "Извлечение данных с веб-страниц по URL" },
-  { id: "rag", name: "Документы (RAG)", description: "Поиск и извлечение информации из загруженных документов" },
+  {
+    id: "repl",
+    name: "Песочница (REPL)",
+    description: "Выполнение Python и shell-команд в изолированной среде",
+  },
+  {
+    id: "io",
+    name: "Файловые операции",
+    description: "Чтение, запись и редактирование файлов",
+  },
+  {
+    id: "analyze_images",
+    name: "Анализ изображений",
+    description: "Распознавание и описание содержимого изображений",
+  },
+  {
+    id: "scraper",
+    name: "Веб-скрапер",
+    description: "Извлечение данных с веб-страниц по URL",
+  },
+  {
+    id: "rag",
+    name: "Документы (RAG)",
+    description: "Поиск и извлечение информации из загруженных документов",
+  },
   { id: "search", name: "Поиск", description: "Поиск информации в интернете" },
-  { id: "image", name: "Генерация изображений", description: "Создание изображений по текстовому описанию" },
-  { id: "github", name: "GitHub", description: "Работа с репозиториями, issues и pull requests" },
+  {
+    id: "image",
+    name: "Генерация изображений",
+    description: "Создание изображений по текстовому описанию",
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Работа с репозиториями, issues и pull requests",
+  },
 ];
 
 const getInitialIsMobileDevice = () => {
@@ -160,12 +189,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   } = useRagContext();
   const { settings, setSettings } = useSettings();
   const { user } = useAuth();
-  const {
-    mcpTools,
-    openMcpModal,
-    enabledModules,
-    toggleModule,
-  } = useUserInfo();
+  const { mcpTools, openMcpModal, enabledModules, toggleModule } =
+    useUserInfo();
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -235,7 +260,15 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         },
       );
     },
-    [thread, selected, clear, mcpToolsPayload, enabledCollections, user, disabledModules],
+    [
+      thread,
+      selected,
+      clear,
+      mcpToolsPayload,
+      enabledCollections,
+      user,
+      disabledModules,
+    ],
   );
   const handleContinueThread = useCallback(
     async (data: any) => {
@@ -978,7 +1011,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               )}
             </div>
           </div>
-          <div className="self-end mb-1 shrink-0 max-[900px]:hidden">
+          <div className="self-end mb-1 shrink-0 max-[900px]:hidden flex items-center gap-1">
+            <TokenUsageIndicator messages={thread?.messages ?? []} />
             <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
           </div>
           <div className="max-[900px]:hidden">{renderInputActions()}</div>
@@ -997,6 +1031,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         </div>
         <div className="hidden max-[900px]:flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 shrink-0">
+            <TokenUsageIndicator messages={thread?.messages ?? []} />
             <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
             {renderInputActions("flex items-center gap-2")}
           </div>
