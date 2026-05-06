@@ -222,7 +222,7 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS",
     )
     giga_agent_enable_multi_tool_use: bool = Field(
-        True, alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE"
+        False, alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE"
     )
     giga_agent_enable_multi_tool_use_providers: list[str] = Field(
         default_factory=lambda: ["gigachat"],

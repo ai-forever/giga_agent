@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -28,12 +29,13 @@ def default_package_cache_write_roots() -> list[Path]:
     """
     home = Path.home()
     is_darwin = platform.system() == "Darwin"
+    posix_xdg_cache = Path(os.environ.get("XDG_CACHE_HOME") or (home / ".cache"))
 
     if is_darwin:
         xdg_cache = home / "Library" / "Caches"
         xdg_data = home / "Library" / "Application Support"
     else:
-        xdg_cache = Path(os.environ.get("XDG_CACHE_HOME") or (home / ".cache"))
+        xdg_cache = posix_xdg_cache
         xdg_data = Path(
             os.environ.get("XDG_DATA_HOME") or (home / ".local" / "share")
         )
@@ -57,11 +59,13 @@ def default_package_cache_write_roots() -> list[Path]:
         xdg_cache / "bun",
         xdg_data / "pnpm",
         # ── Python (pip / uv / uvx / pipx) ──
+        posix_xdg_cache,
         xdg_cache / "pip",
         xdg_cache / "uv",
         xdg_data / "uv",
         xdg_data / "pipx",
         home / ".local",
+        home / ".venv",
         # ── Rust ──
         home / ".cargo",
         home / ".rustup",
@@ -90,6 +94,23 @@ def default_package_cache_write_roots() -> list[Path]:
     return [p.resolve() for p in roots]
 
 
+def python_virtual_env_write_roots(
+    python_executable: Path | str | None = None,
+) -> list[Path]:
+    """Return the active Python virtualenv root when pip may need to mutate it."""
+    executable = Path(python_executable or sys.executable).expanduser()
+    roots = _python_virtual_env_candidates(executable)
+
+    if python_executable is None and (virtual_env := os.environ.get("VIRTUAL_ENV")):
+        roots.append(Path(virtual_env).expanduser())
+
+    return [
+        path.resolve()
+        for path in _dedupe_paths(roots)
+        if _looks_like_python_virtual_env(path)
+    ]
+
+
 def normalize_path(value: Path | str) -> Path:
     return Path(value).expanduser().resolve()
 
@@ -106,6 +127,19 @@ def is_path_within(path: Path, root: Path) -> bool:
     if root == Path("/"):
         return path.is_absolute()
     return path == root or root in path.parents
+
+
+def _python_virtual_env_candidates(python_executable: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for executable in (python_executable, python_executable.resolve(strict=False)):
+        python_bin_dir = executable.parent
+        if python_bin_dir.name.lower() in {"bin", "scripts"}:
+            candidates.append(python_bin_dir.parent)
+    return _dedupe_paths(candidates)
+
+
+def _looks_like_python_virtual_env(path: Path) -> bool:
+    return (path / "pyvenv.cfg").is_file()
 
 
 class SandboxAccessPolicy(BaseModel):

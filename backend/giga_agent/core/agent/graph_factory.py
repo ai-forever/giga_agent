@@ -719,7 +719,7 @@ def create_graph(
                         tools=all_tools
                     )
 
-        state_updates = {"messages": result_messages}
+        state_updates = {"messages": [messages_for_llm[-1]] + result_messages}
         if response.structured_response is not None:
             state_updates["structured_response"] = response.structured_response
 

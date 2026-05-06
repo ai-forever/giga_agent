@@ -1,7 +1,9 @@
 """LocalDockerSandbox — Docker-backed Jupyter sandbox runtime."""
 
 import asyncio
+import os
 import secrets
+import shutil
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -832,3 +834,110 @@ class LocalDockerSandbox(
                     client.close()
                 except Exception:
                     pass
+
+    # ------------------------------------------------------------------
+    # Skill file operations
+    # ------------------------------------------------------------------
+
+    _SKILL_CACHE_TTL = int(os.getenv("GIGA_AGENT_SKILL_CACHE_TTL", "300"))
+    _SKILL_CACHE_ENABLED = os.getenv("GIGA_AGENT_SKILL_CACHE_ENABLED", "true").lower() != "false"
+
+    def _skill_dir(self, owner_id: uuid.UUID, skill_name: str) -> Path:
+        return self._user_root_dir(owner_id) / ".skills" / skill_name
+
+    def _skill_cache_key(self, owner_id: uuid.UUID, skill_name: str, rel: str) -> str:
+        return f"skill:file:{owner_id}:{skill_name}:{rel}"
+
+    def _skill_list_cache_key(self, owner_id: uuid.UUID, skill_name: str) -> str:
+        return f"skill:list:{owner_id}:{skill_name}"
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir: str | Path,
+    ) -> str:
+        source = Path(source_dir)
+        if not source.is_dir():
+            raise FileNotFoundError(f"Source directory not found: {source}")
+        dest = self._skill_dir(owner_id, skill_name)
+        if dest.exists():
+            shutil.rmtree(dest)
+        await asyncio.to_thread(shutil.copytree, source, dest)
+        await self._invalidate_skill_cache(owner_id, skill_name)
+        return f".skills/{skill_name}"
+
+    async def read_skill_file(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        skill_name = storage_path.split("/")[-1]
+        cache_key = self._skill_cache_key(owner_id, skill_name, relative_path)
+
+        if self._SKILL_CACHE_ENABLED:
+            cached = await cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        file_path = self._skill_dir(owner_id, skill_name) / relative_path
+        if not file_path.is_file():
+            raise FileNotFoundError(f"Skill file not found: {relative_path}")
+
+        import aiofiles
+
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+            content = await f.read()
+
+        if self._SKILL_CACHE_ENABLED and self._SKILL_CACHE_TTL > 0:
+            await cache.set(cache_key, content, expire=self._SKILL_CACHE_TTL)
+
+        return content
+
+    async def list_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> list[str]:
+        skill_name = storage_path.split("/")[-1]
+        cache_key = self._skill_list_cache_key(owner_id, skill_name)
+
+        if self._SKILL_CACHE_ENABLED:
+            cached = await cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        skill_dir = self._skill_dir(owner_id, skill_name)
+        if not skill_dir.is_dir():
+            return []
+
+        result: list[str] = []
+        for root, _dirs, files in os.walk(skill_dir):
+            for fname in files:
+                full = Path(root) / fname
+                result.append(str(full.relative_to(skill_dir)))
+        result.sort()
+
+        if self._SKILL_CACHE_ENABLED and self._SKILL_CACHE_TTL > 0:
+            await cache.set(cache_key, result, expire=self._SKILL_CACHE_TTL)
+
+        return result
+
+    async def remove_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> None:
+        skill_name = storage_path.split("/")[-1]
+        skill_dir = self._skill_dir(owner_id, skill_name)
+        if skill_dir.is_dir():
+            await asyncio.to_thread(shutil.rmtree, skill_dir)
+        await self._invalidate_skill_cache(owner_id, skill_name)
+
+    def get_skill_sandbox_path(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        return f"{BUCKET_PREFIX}{storage_path}/{relative_path}"
+
+    async def _invalidate_skill_cache(self, owner_id: uuid.UUID, skill_name: str) -> None:
+        if not self._SKILL_CACHE_ENABLED:
+            return
+        pattern = f"skill:*:{owner_id}:{skill_name}*"
+        try:
+            await cache.delete_match(pattern)
+        except Exception:
+            pass
