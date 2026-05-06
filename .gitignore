@@ -18,3 +18,4 @@ qdrant_storage
 .giga_agent
 .cursor
 agents_md
+.claude
