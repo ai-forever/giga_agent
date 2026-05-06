@@ -9,6 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import giga_agent.connectors  # noqa: F401
+import giga_agent.embeddings  # noqa: F401
+import giga_agent.generators.image  # noqa: F401
+import giga_agent.llm  # noqa: F401
+import giga_agent.search_engines  # noqa: F401
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.db import get_session
 from giga_agent.embeddings.registry import EmbeddingRegistry
@@ -32,17 +37,8 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
-from giga_agent.routes._shared.schema import (
-    build_settings_schema_with_computed_defaults,
-)
+from giga_agent.routes._shared.schema import build_settings_schema_with_computed_defaults
 from giga_agent.search_engines.registry import SearchEngineRegistry
-
-# Ensure runtime registrations
-import giga_agent.connectors  # noqa: F401
-import giga_agent.embeddings  # noqa: F401
-import giga_agent.generators.image  # noqa: F401
-import giga_agent.llm  # noqa: F401
-import giga_agent.search_engines  # noqa: F401
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
 

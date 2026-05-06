@@ -7,12 +7,8 @@ from langchain_core.tools import BaseTool
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule, SecretMetadata
 from giga_agent.models.users import UserShort
-from giga_agent.modules.vk.tools import (
-    vk_get_comments,
-    vk_get_last_comments,
-    vk_get_posts,
-    VK_SECRET_KEY,
-)
+
+VK_SECRET_KEY = "VK_TOKEN"
 
 
 def _has_secret(user: UserShort | None, key: str) -> bool:
@@ -46,4 +42,10 @@ class VKModule(BaseModule):
         _ = agent
         if not _has_secret(user, VK_SECRET_KEY):
             return []
+        from giga_agent.modules.vk.tools import (
+            vk_get_comments,
+            vk_get_last_comments,
+            vk_get_posts,
+        )
+
         return [vk_get_posts, vk_get_comments, vk_get_last_comments]

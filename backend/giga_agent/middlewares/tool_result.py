@@ -1,16 +1,16 @@
+from __future__ import annotations
+
 import base64
 import binascii
 import json
 import mimetypes
 import uuid
 from copy import deepcopy
-from typing import Any, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
-from genson import SchemaBuilder
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 
@@ -18,8 +18,25 @@ from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
-from giga_agent.models.file import FileResponse, FileType
-from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
+
+if TYPE_CHECKING:
+    from langgraph.prebuilt.tool_node import ToolCallRequest
+
+    from giga_agent.models.file import FileType
+    from giga_agent.sandbox.manager import UploadFileSpec
+
+
+def _get_schema_builder_cls():
+    from genson import SchemaBuilder
+
+    return SchemaBuilder
+
+
+def _get_file_upload_helpers():
+    from giga_agent.models.file import FileResponse
+    from giga_agent.sandbox.manager import SandboxManager
+
+    return FileResponse, SandboxManager
 
 
 def _get_max_tool_size() -> int:
@@ -85,6 +102,7 @@ async def _upload_files_for_owner(
 
     factory = await get_session_factory()
     async with factory() as session:
+        FileResponse, SandboxManager = _get_file_upload_helpers()
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(user_id=owner_id, files=files)
 
@@ -214,7 +232,7 @@ async def process_tool_result(
 
     payload: dict[str, Any]
     if compress:
-        schema = SchemaBuilder()
+        schema = _get_schema_builder_cls()()
         schema.add_object(obj=normalized_result)
         extra_msg = (
             "Результат функции вышел слишком длинным. "

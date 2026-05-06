@@ -11,14 +11,21 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.core.agent.types import Collection
 from giga_agent.embeddings.manager import EmbeddingManager
 from giga_agent.models.rag import RagCollectionsRepository
-from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
 )
-from giga_agent.vectorstores.qdrant import (
-    get_qdrant_client,
-    resolve_qdrant_collection,
-)
+
+
+def _qdrant_search_helpers():
+    from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
+    from giga_agent.vectorstores.qdrant import (
+        get_qdrant_client,
+        resolve_qdrant_collection,
+    )
+
+    return build_filter, search_chunks, get_qdrant_client, resolve_qdrant_collection
+
+
 @tool(
     description="""Семантический поиск по базе знаний пользователя через векторный поиск.
 
@@ -66,6 +73,9 @@ async def get_documents(
         )
         embeddings = await embedding_runtime.get_embeddings()
 
+    build_filter, search_chunks, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_search_helpers()
+    )
     qdrant_client = get_qdrant_client()
     try:
         qfilter = build_filter(owner_id=owner_id, collection_id=collection_id)

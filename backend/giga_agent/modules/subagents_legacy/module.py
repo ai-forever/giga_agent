@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any, List, Optional
 
 from langchain_core.tools import BaseTool
@@ -10,28 +11,23 @@ from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule, SecretMetadata
 from giga_agent.models.users import UserShort
-from giga_agent.modules.subagents_legacy.runtime import get_legacy_capabilities
-from giga_agent.modules.subagents_legacy.agents.lean_canvas import (
-    lean_canvas,
-)
-from giga_agent.modules.subagents_legacy.agents.podcast.graph import (
-    podcast_generate,
-)
-from giga_agent.modules.subagents_legacy.agents.landing_agent.graph import (
-    create_landing,
-)
-from giga_agent.modules.subagents_legacy.agents.presentation_agent.graph import (
-    generate_presentation,
-)
-from giga_agent.modules.subagents_legacy.agents.meme_agent.graph import (
-    create_meme,
-)
-from giga_agent.modules.subagents_legacy.agents.gis_agent.graph import (
-    city_explore,
-)
-from giga_agent.modules.subagents_legacy.agents.researcher.graph import (
-    researcher_agent,
-)
+
+
+def _import_attr(module_path: str, attr_name: str):
+    module = importlib.import_module(module_path)
+    return getattr(module, attr_name)
+
+
+def _get_legacy_capabilities(user: UserShort):
+    get_legacy_capabilities = _import_attr(
+        "giga_agent.modules.subagents_legacy.runtime",
+        "get_legacy_capabilities",
+    )
+    return get_legacy_capabilities(user)
+
+
+def _legacy_tool(module_path: str, attr_name: str) -> BaseTool:
+    return _import_attr(module_path, attr_name)
 
 
 class SubAgentLegacyModule(BaseModule):
@@ -88,23 +84,58 @@ class SubAgentLegacyModule(BaseModule):
         if user is None:
             return []
 
-        caps = get_legacy_capabilities(user)
+        caps = _get_legacy_capabilities(user)
         tools: list[BaseTool] = []
 
         if caps.has_llm:
-            tools.extend([lean_canvas])
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.lean_canvas",
+                    "lean_canvas",
+                )
+            )
 
         if caps.has_search:
-            tools.append(researcher_agent)
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.researcher.graph",
+                    "researcher_agent",
+                )
+            )
 
         if caps.has_twogis_token:
-            tools.append(city_explore)
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.gis_agent.graph",
+                    "city_explore",
+                )
+            )
 
         if caps.has_llm and caps.has_salute_speech:
-            tools.append(podcast_generate)
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.podcast.graph",
+                    "podcast_generate",
+                )
+            )
 
         if caps.has_llm and caps.has_image_generator:
-            tools.extend([create_landing, generate_presentation, create_meme])
+            tools.extend(
+                [
+                    _legacy_tool(
+                        "giga_agent.modules.subagents_legacy.agents.landing_agent.graph",
+                        "create_landing",
+                    ),
+                    _legacy_tool(
+                        "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph",
+                        "generate_presentation",
+                    ),
+                    _legacy_tool(
+                        "giga_agent.modules.subagents_legacy.agents.meme_agent.graph",
+                        "create_meme",
+                    ),
+                ]
+            )
 
         return tools
 
@@ -119,7 +150,7 @@ class SubAgentLegacyModule(BaseModule):
         if user is None:
             return ""
 
-        caps = get_legacy_capabilities(user)
+        caps = _get_legacy_capabilities(user)
         instructions: list[str] = []
 
         if caps.has_llm and caps.has_search:
