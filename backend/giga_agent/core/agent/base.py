@@ -1,15 +1,18 @@
 import asyncio
 import os
-from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Set
+from uuid import UUID
 
 from cashews import cache
 from fastapi import FastAPI
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
+from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
 from giga_agent.conf import (
     GIGA_AGENT_PREFIX_API,
-    GIGA_AGENT_UI,
-    GIGA_AGENT_UI_PREFIX,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
@@ -19,25 +22,20 @@ from giga_agent.conf import (
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY,
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC,
+    GIGA_AGENT_UI,
+    GIGA_AGENT_UI_PREFIX,
     get_settings,
 )
-from giga_agent.channels.manager import get_channel_manager
+from giga_agent.core.agent.graph_factory import create_graph
+from giga_agent.core.agent.prompt import build_base_prompt
+from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.migrations import apply_migrations
-from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
-from uuid import UUID
-
-from giga_agent.core.agent.prompt import build_base_prompt
 from giga_agent.core.module import BaseModule
-from langchain_core.tools import BaseTool
-
-from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.middlewares.thread_title import ThreadTitleMiddleware
+from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.models.users import UserShort
-from giga_agent.core.agent.graph_factory import create_graph
-from langgraph.graph.state import CompiledStateGraph
-from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import router as api_router
 from giga_agent.runtime_config import mount_runtime_config_route
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
@@ -112,9 +110,6 @@ class BaseAgent(BaseModel):
 
         setup_cache()
 
-        # Ensure cached resources are closed on shutdown (dev server reload included).
-        from giga_agent.vectorstores.qdrant import shutdown_qdrant_client
-
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
             from giga_agent.sandbox.local_jupyter.manager import (
@@ -128,6 +123,8 @@ class BaseAgent(BaseModel):
             settings = get_settings()
             setup_cli_logging(settings.giga_agent_log_level)
             await self.run_startup_migrations()
+            from giga_agent.channels.manager import get_channel_manager
+
             await get_channel_manager().start_all()
             await self.run_startup_hooks()
             if self._idle_sandbox_sweeper is not None:
@@ -145,7 +142,12 @@ class BaseAgent(BaseModel):
                 stack = getattr(_app.state, "_ui_resources_stack", None)
                 if stack is not None:
                     stack.close()
+                from giga_agent.channels.manager import get_channel_manager
+
                 await get_channel_manager().stop_all()
+                # Ensure cached resources are closed on shutdown (dev server reload included).
+                from giga_agent.vectorstores.qdrant import shutdown_qdrant_client
+
                 await shutdown_qdrant_client()
 
         self._app = FastAPI(lifespan=_lifespan)
@@ -194,6 +196,7 @@ class BaseAgent(BaseModel):
         ]
 
         self._graph = create_graph(self, middleware=all_middleware)
+
         setattr(self.graph, "giga_agent", self)
         self.__check_for_unique_ids()
         self._idle_sandbox_sweeper = IdleSandboxSweeper(

@@ -12,11 +12,6 @@ from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
 )
-from giga_agent.vectorstores.qdrant import (
-    get_qdrant_client,
-    resolve_qdrant_collection,
-)
-from giga_agent.modules.rag.database.qdrant_store import build_filter, delete_by_filter
 from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
@@ -29,6 +24,42 @@ from giga_agent.modules.rag.schemas.collection import (
 from giga_agent.sandbox.manager import SandboxManager
 
 router = APIRouter(prefix="/collections", tags=["collections"])
+
+
+def get_qdrant_client():
+    from giga_agent.vectorstores.qdrant import get_qdrant_client as _get_qdrant_client
+
+    return _get_qdrant_client()
+
+
+async def resolve_qdrant_collection(**kwargs):
+    from giga_agent.vectorstores.qdrant import (
+        resolve_qdrant_collection as _resolve_qdrant_collection,
+    )
+
+    return await _resolve_qdrant_collection(**kwargs)
+
+
+def build_filter(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import build_filter as _build_filter
+
+    return _build_filter(**kwargs)
+
+
+async def delete_by_filter(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import (
+        delete_by_filter as _delete_by_filter,
+    )
+
+    return await _delete_by_filter(**kwargs)
+
+
+def _qdrant_create_helpers():
+    return get_qdrant_client, resolve_qdrant_collection
+
+
+def _qdrant_delete_helpers():
+    return build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection
 
 
 @router.post(
@@ -55,6 +86,7 @@ async def collections_create(
     )
     vector_size = int(runtime.vector_size)
 
+    get_qdrant_client, resolve_qdrant_collection = _qdrant_create_helpers()
     client = get_qdrant_client()
     await resolve_qdrant_collection(
         client=client,
@@ -181,6 +213,9 @@ async def collections_delete(
         offset += len(docs)
 
     # Remove all chunks belonging to this collection from the vector DB.
+    build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_delete_helpers()
+    )
     qdrant_client = get_qdrant_client()
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
     vector_size = int(runtime.vector_size)

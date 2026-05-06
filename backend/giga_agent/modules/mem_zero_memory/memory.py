@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from mem0 import AsyncMemory
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.conf import get_settings
@@ -15,11 +15,15 @@ from giga_agent.core.logging import get_logger
 from giga_agent.embeddings.manager import EmbeddingManager
 from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository, UserShort
-from giga_agent.vectorstores.qdrant import (
-    get_qdrant_client,
-    qdrant_connection_config,
-    resolve_qdrant_collection,
-)
+
+
+def _lazy_import_attr(module_path: str, attr_name: str):
+    module = importlib.import_module(module_path)
+    return getattr(module, attr_name)
+
+
+if TYPE_CHECKING:
+    from mem0 import AsyncMemory
 
 logger = get_logger(__name__)
 
@@ -51,6 +55,14 @@ def _qdrant_ensure_cache_enabled() -> bool:
 def _mem0_collection_name_for_embedding(embedding_id: uuid.UUID) -> str:
     # Keep names simple ASCII for compatibility.
     return f"mem0__{embedding_id.hex}"
+
+
+def _get_qdrant_helpers():
+    return (
+        _lazy_import_attr("giga_agent.vectorstores.qdrant", "get_qdrant_client"),
+        _lazy_import_attr("giga_agent.vectorstores.qdrant", "qdrant_connection_config"),
+        _lazy_import_attr("giga_agent.vectorstores.qdrant", "resolve_qdrant_collection"),
+    )
 
 
 def _default_mem0_storage_path() -> Path:
@@ -111,6 +123,7 @@ async def _get_memory_for_user_with_embedding_id(
             already_ensured = _ENSURED_COLLECTIONS.get(collection_name) == vector_size
 
     if not already_ensured:
+        get_qdrant_client, _, resolve_qdrant_collection = _get_qdrant_helpers()
         qdrant_client = get_qdrant_client()
         await resolve_qdrant_collection(
             client=qdrant_client,
@@ -121,6 +134,7 @@ async def _get_memory_for_user_with_embedding_id(
         if _qdrant_ensure_cache_enabled():
             async with _ENSURED_LOCK:
                 _ENSURED_COLLECTIONS[collection_name] = vector_size
+    get_qdrant_client, qdrant_connection_config, _ = _get_qdrant_helpers()
     qdrant_config = qdrant_connection_config()
     if "path" in qdrant_config:
         qdrant_config["client"] = get_qdrant_client()
@@ -141,6 +155,7 @@ async def _get_memory_for_user_with_embedding_id(
         "history_db_path": str(_default_mem0_storage_path()),
     }
 
+    AsyncMemory = _lazy_import_attr("mem0", "AsyncMemory")
     return await AsyncMemory.from_config(config)
 
 

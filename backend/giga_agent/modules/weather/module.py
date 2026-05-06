@@ -7,7 +7,8 @@ from langchain_core.tools import BaseTool
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule, SecretMetadata
 from giga_agent.models.users import UserShort
-from giga_agent.modules.weather.tools import weather, WEATHER_SECRET_KEY
+
+WEATHER_SECRET_KEY = "OWM_API_KEY"
 
 
 def _has_secret(user: UserShort | None, key: str) -> bool:
@@ -41,4 +42,6 @@ class WeatherModule(BaseModule):
         _ = agent
         if not _has_secret(user, WEATHER_SECRET_KEY):
             return []
+        from giga_agent.modules.weather.tools import weather
+
         return [weather]

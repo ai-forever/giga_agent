@@ -36,8 +36,6 @@ from langgraph.typing import ContextT
 from langgraph.types import Command, Send
 from langgraph.typing import ContextT
 
-import giga_agent.channels  # noqa: F401
-from giga_agent.channels.registry import ChannelRegistry
 from giga_agent.core.logging import get_logger
 from langchain.agents.middleware.types import (
     ModelRequest,
@@ -170,6 +168,9 @@ def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
     channel_type = metadata.get("channel")
     if not isinstance(channel_type, str) or not channel_type.strip():
         return ""
+
+    import giga_agent.channels  # noqa: F401
+    from giga_agent.channels.registry import ChannelRegistry
 
     normalized_channel_type = channel_type.strip().lower()
     if not ChannelRegistry.is_registered(normalized_channel_type):
@@ -438,7 +439,6 @@ def create_graph(
     For more details on using `create_agent`,
     visit the [Agents](https://docs.langchain.com/oss/python/langchain/agents) docs.
     """
-
     # Handle tools being None or empty
     if tools is None:
         tools = []
@@ -802,10 +802,11 @@ def create_graph(
         graph.add_edge("model", "after_model")
         graph.add_edge("after_model", "after_agent")
 
-    return graph.compile(
+    compiled = graph.compile(
         checkpointer=checkpointer,
         store=store,
         debug=debug,
         name=name,
         cache=cache,
     ).with_config({"recursion_limit": 10_000})
+    return compiled

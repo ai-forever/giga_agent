@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import inspect
 from typing import TYPE_CHECKING, Any, Optional, List, TypedDict, Literal
@@ -7,7 +9,6 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict, PrivateAttr
 from langchain_core.load.serializable import Serializable
 from langchain_core.tools import BaseTool
-from giga_agent.models.users import UserShort
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from giga_agent.core.agent.middleware import AgentMiddleware
     from giga_agent.core.agent.base import BaseAgent
     from giga_agent.core.agent.types import AgentState
+    from giga_agent.models.users import UserShort
 
 
 class SecretMetadata(TypedDict):

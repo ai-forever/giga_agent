@@ -7,7 +7,6 @@ import asyncio
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
-from qdrant_client.http import models as qmodels
 
 from giga_agent.core.db import get_session
 from giga_agent.models.users import UserShort
@@ -15,16 +14,6 @@ from giga_agent.embeddings.manager import EmbeddingManager
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
-)
-from giga_agent.vectorstores.qdrant import (
-    get_qdrant_client,
-    resolve_qdrant_collection,
-)
-from giga_agent.modules.rag.database.qdrant_store import (
-    build_filter,
-    delete_by_filter,
-    search_chunks as qdrant_search_chunks,
-    upsert_chunks,
 )
 from giga_agent.models.rag import (
     RagCollectionsRepository,
@@ -35,7 +24,6 @@ from giga_agent.modules.rag.schemas.document import (
     SearchQuery,
     SearchResult,
 )
-from giga_agent.modules.rag.services import process_document
 from giga_agent.sandbox.manager import SandboxManager
 
 # Create a TypeAdapter that enforces “list of dict”
@@ -44,6 +32,64 @@ _metadata_adapter = TypeAdapter(list[dict[str, Any]])
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["documents"])
+
+
+def get_qdrant_client():
+    from giga_agent.vectorstores.qdrant import get_qdrant_client as _get_qdrant_client
+
+    return _get_qdrant_client()
+
+
+async def resolve_qdrant_collection(**kwargs):
+    from giga_agent.vectorstores.qdrant import (
+        resolve_qdrant_collection as _resolve_qdrant_collection,
+    )
+
+    return await _resolve_qdrant_collection(**kwargs)
+
+
+def build_filter(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import build_filter as _build_filter
+
+    return _build_filter(**kwargs)
+
+
+async def delete_by_filter(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import (
+        delete_by_filter as _delete_by_filter,
+    )
+
+    return await _delete_by_filter(**kwargs)
+
+
+async def search_chunks(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import (
+        search_chunks as _search_chunks,
+    )
+
+    return await _search_chunks(**kwargs)
+
+
+async def upsert_chunks(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import (
+        upsert_chunks as _upsert_chunks,
+    )
+
+    return await _upsert_chunks(**kwargs)
+
+
+def _qdrant_write_helpers():
+    from qdrant_client.http import models as qmodels
+
+    return qmodels, get_qdrant_client, resolve_qdrant_collection, upsert_chunks
+
+
+def _qdrant_delete_helpers():
+    return build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection
+
+
+def _qdrant_search_helpers():
+    return build_filter, search_chunks, get_qdrant_client, resolve_qdrant_collection
 
 
 @router.post("/collections/{collection_id}/documents", response_model=dict[str, Any])
@@ -55,6 +101,8 @@ async def documents_create(
     metadatas_json: str | None = Form(None),
 ):
     """Processes and indexes (adds) new document files with optional metadata."""
+    from giga_agent.modules.rag.services import process_document
+
     # If no metadata JSON is provided, fill with None
     if not metadatas_json:
         metadatas: list[dict] | list[None] = [None] * len(files)
@@ -95,6 +143,9 @@ async def documents_create(
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
     embeddings = await runtime.get_embeddings()
     vector_size = int(runtime.vector_size)
+    qmodels, get_qdrant_client, resolve_qdrant_collection, upsert_chunks = (
+        _qdrant_write_helpers()
+    )
     qdrant_client = get_qdrant_client()
     qdrant_collection = await resolve_qdrant_collection(
         client=qdrant_client,
@@ -281,6 +332,9 @@ async def documents_delete(
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
+    build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_delete_helpers()
+    )
     qdrant_client = get_qdrant_client()
     runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
     vector_size = int(runtime.vector_size)
@@ -350,6 +404,9 @@ async def documents_search(
         else await asyncio.to_thread(embeddings.embed_query, search_query.query)
     )
 
+    build_filter, qdrant_search_chunks, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_search_helpers()
+    )
     qdrant_client = get_qdrant_client()
     qdrant_collection = await resolve_qdrant_collection(
         client=qdrant_client,

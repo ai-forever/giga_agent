@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import giga_agent.channels  # noqa: F401
 from giga_agent.channels.manager import get_channel_manager
 from giga_agent.channels.registry import ChannelRegistry
 from giga_agent.core.db import get_session
@@ -25,14 +26,13 @@ from giga_agent.models.channel import (
 )
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.routes._shared.schema import (
-    build_settings_schema_with_computed_defaults,
-)
-
-# Ensure runtime registrations.
-import giga_agent.channels  # noqa: F401
+from giga_agent.routes._shared.schema import build_settings_schema_with_computed_defaults
 
 router = APIRouter(prefix="/channels", tags=["channels"])
+
+
+def _get_channel_manager():
+    return get_channel_manager()
 
 
 async def get_channel_repository(
@@ -209,7 +209,7 @@ async def create_channel_bot(
         bot_username=metadata.bot_username,
     )
     if bot.is_enabled:
-        await get_channel_manager().start_bot(bot.id)
+        await _get_channel_manager().start_bot(bot.id)
     return ChannelBotResponse.model_validate(bot)
 
 
@@ -239,7 +239,7 @@ async def update_channel_bot(
     if data.is_enabled is not None:
         updates["is_enabled"] = data.is_enabled
 
-    manager = get_channel_manager()
+    manager = _get_channel_manager()
     should_restart = False
     previous_enabled = bot.is_enabled
     if updates:
@@ -268,7 +268,7 @@ async def delete_channel_bot(
         user_id=current_user.id,
         channel_repo=channel_repo,
     )
-    await get_channel_manager().stop_bot(bot.id)
+    await _get_channel_manager().stop_bot(bot.id)
     await channel_repo.delete(bot)
 
 
