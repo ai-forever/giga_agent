@@ -1,12 +1,16 @@
 """E2BSandbox — E2B Cloud-backed Jupyter sandbox runtime."""
 
 import asyncio
+import os
 import secrets
 import shlex
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any, Optional
+
+from cashews import cache
 
 from pydantic import Field, PrivateAttr
 
@@ -341,3 +345,163 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
 
     async def is_up(self) -> bool:
         return await self._is_e2b_sandbox_ready()
+
+    # ------------------------------------------------------------------
+    # Skill file operations (S3-backed + cashews cache)
+    # ------------------------------------------------------------------
+
+    _SKILL_CACHE_TTL = int(os.getenv("GIGA_AGENT_SKILL_CACHE_TTL", "300"))
+    _SKILL_CACHE_ENABLED = os.getenv("GIGA_AGENT_SKILL_CACHE_ENABLED", "true").lower() != "false"
+
+    def _skill_s3_prefix(self, owner_id: uuid.UUID, skill_name: str) -> str:
+        return f"skills/{owner_id}/{skill_name}"
+
+    def _skill_cache_key(self, owner_id: uuid.UUID, skill_name: str, rel: str) -> str:
+        return f"skill:file:{owner_id}:{skill_name}:{rel}"
+
+    def _skill_list_cache_key(self, owner_id: uuid.UUID, skill_name: str) -> str:
+        return f"skill:list:{owner_id}:{skill_name}"
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir: str | Path,
+    ) -> str:
+        import aioboto3
+
+        source = Path(source_dir)
+        if not source.is_dir():
+            raise FileNotFoundError(f"Source directory not found: {source}")
+
+        prefix = self._skill_s3_prefix(owner_id, skill_name)
+        session = aioboto3.Session()
+
+        async with session.client(
+            "s3",
+            endpoint_url=self.s3_endpoint,
+            region_name=self.s3_region,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        ) as s3:
+            for file_path in source.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                rel = str(file_path.relative_to(source))
+                key = f"{prefix}/{rel}"
+                content = file_path.read_bytes()
+                await s3.put_object(
+                    Bucket=self.s3_bucket,
+                    Key=key,
+                    Body=content,
+                )
+
+        await self._invalidate_skill_cache(owner_id, skill_name)
+        return f"skills/{skill_name}"
+
+    async def read_skill_file(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        skill_name = storage_path.split("/")[-1]
+        cache_key = self._skill_cache_key(owner_id, skill_name, relative_path)
+
+        if self._SKILL_CACHE_ENABLED:
+            cached = await cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        prefix = self._skill_s3_prefix(owner_id, skill_name)
+        key = f"{prefix}/{relative_path}"
+        data = await self._download_s3_object(key)
+        content = data.decode("utf-8")
+
+        if self._SKILL_CACHE_ENABLED and self._SKILL_CACHE_TTL > 0:
+            await cache.set(cache_key, content, expire=self._SKILL_CACHE_TTL)
+
+        return content
+
+    async def list_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> list[str]:
+        import aioboto3
+
+        skill_name = storage_path.split("/")[-1]
+        cache_key = self._skill_list_cache_key(owner_id, skill_name)
+
+        if self._SKILL_CACHE_ENABLED:
+            cached = await cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        prefix = self._skill_s3_prefix(owner_id, skill_name) + "/"
+        result: list[str] = []
+        session = aioboto3.Session()
+
+        async with session.client(
+            "s3",
+            endpoint_url=self.s3_endpoint,
+            region_name=self.s3_region,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        ) as s3:
+            paginator = s3.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(
+                Bucket=self.s3_bucket, Prefix=prefix
+            ):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    rel = key[len(prefix):]
+                    if rel:
+                        result.append(rel)
+
+        result.sort()
+        if self._SKILL_CACHE_ENABLED and self._SKILL_CACHE_TTL > 0:
+            await cache.set(cache_key, result, expire=self._SKILL_CACHE_TTL)
+
+        return result
+
+    async def remove_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> None:
+        import aioboto3
+
+        skill_name = storage_path.split("/")[-1]
+        prefix = self._skill_s3_prefix(owner_id, skill_name) + "/"
+        session = aioboto3.Session()
+
+        async with session.client(
+            "s3",
+            endpoint_url=self.s3_endpoint,
+            region_name=self.s3_region,
+            aws_access_key_id=self.aws_access_key_id,
+            aws_secret_access_key=self.aws_secret_access_key,
+        ) as s3:
+            paginator = s3.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(
+                Bucket=self.s3_bucket, Prefix=prefix
+            ):
+                objects = [
+                    {"Key": obj["Key"]} for obj in page.get("Contents", [])
+                ]
+                if objects:
+                    await s3.delete_objects(
+                        Bucket=self.s3_bucket,
+                        Delete={"Objects": objects},
+                    )
+
+        await self._invalidate_skill_cache(owner_id, skill_name)
+
+    def get_skill_sandbox_path(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        skill_name = storage_path.split("/")[-1]
+        return f"{S3_MOUNT_PREFIX}.skills/{skill_name}/{relative_path}"
+
+    async def _invalidate_skill_cache(self, owner_id: uuid.UUID, skill_name: str) -> None:
+        if not self._SKILL_CACHE_ENABLED:
+            return
+        pattern = f"skill:*:{owner_id}:{skill_name}*"
+        try:
+            await cache.delete_match(pattern)
+        except Exception:
+            pass

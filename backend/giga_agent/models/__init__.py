@@ -110,6 +110,19 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionsPayload,
     ResourcePermissionRepository,
 )
+from giga_agent.models.skill import (
+    Skill,
+    SkillSourceType,
+    SkillSummary,
+    SkillResponse,
+    SkillFile,
+    SkillActivation,
+    BuiltinSkillInfo,
+    SkillCreate,
+    SkillUpdate,
+    SkillRepository,
+)
+
 from giga_agent.models.channel import (
     ChannelBot,
     ChannelThread,
@@ -219,6 +232,17 @@ __all__ = [
     "ResourcePermission",
     "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
+    # Skills
+    "Skill",
+    "SkillSourceType",
+    "SkillSummary",
+    "SkillResponse",
+    "SkillFile",
+    "SkillActivation",
+    "BuiltinSkillInfo",
+    "SkillCreate",
+    "SkillUpdate",
+    "SkillRepository",
     # Channels
     "ChannelBot",
     "ChannelThread",

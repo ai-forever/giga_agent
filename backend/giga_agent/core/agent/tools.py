@@ -36,7 +36,7 @@ def think(thoughts: str, runtime: ToolRuntime) -> str:
         preceding = messages[:-1]
         trailing = _count_trailing_think_tool_pairs(preceding)
         if trailing + 1 < MAX_FORCED_THINK_FOLLOWUPS:
-            return json.dumps(THINK_HOP_RESULT, ensure_ascii=False)
+            return THINK_HOP_RESULT
     return "{}"
 
 

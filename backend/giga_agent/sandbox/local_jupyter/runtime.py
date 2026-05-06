@@ -5,6 +5,7 @@ import mimetypes
 import os
 import platform
 import secrets
+import shutil
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
@@ -22,6 +23,7 @@ from giga_agent.sandbox.base import (
     LARGE_FILE_THRESHOLD,
     ContentResult,
     FileReadResult,
+    RuntimeSkillInfo,
     StreamResult,
 )
 from giga_agent.sandbox.jupyter import JupyterSandbox
@@ -37,6 +39,7 @@ from giga_agent.sandbox.secure_exec.policy import (
     NetworkMode,
     SandboxAccessPolicy,
     default_package_cache_write_roots,
+    python_virtual_env_write_roots,
 )
 
 if TYPE_CHECKING:
@@ -122,7 +125,9 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         description="Base URL of the managed local Jupyter server",
     )
     safe_execution: bool = Field(
-        default_factory=lambda: get_settings().giga_agent_local_jupyter_secure_exec_default,
+        default_factory=lambda: (
+            get_settings().giga_agent_local_jupyter_secure_exec_default
+        ),
         description="Run local Jupyter processes under OS-level filesystem sandboxing",
     )
     write_dirs: list[str] = Field(
@@ -456,6 +461,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         ]
         write_roots = [
             *default_package_cache_write_roots(),
+            *python_virtual_env_write_roots(manager._python_executable()),
             *settings.giga_agent_local_jupyter_allowed_write_roots,
             *[Path(path) for path in self.write_dirs],
         ]
@@ -497,3 +503,117 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         if sandbox_path.startswith(BUCKET_PREFIX):
             return self._local_path_from_bucket_path(sandbox_path)
         return Path(sandbox_path).expanduser().resolve()
+
+    # ---- Skill file operations ----
+
+    def _skill_dir(self, owner_id: uuid.UUID, skill_name: str) -> Path:
+        return self._user_root_dir(owner_id) / "skills" / skill_name
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir: str | Path,
+    ) -> str:
+        source = Path(source_dir)
+        if not source.is_dir():
+            raise FileNotFoundError(f"Source directory not found: {source}")
+        dest = self._skill_dir(owner_id, skill_name)
+        if dest.exists():
+            shutil.rmtree(dest)
+        await asyncio.to_thread(shutil.copytree, source, dest)
+        return f"skills/{skill_name}"
+
+    async def read_skill_file(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        skill_name = storage_path.split("/")[-1]
+        file_path = self._skill_dir(owner_id, skill_name) / relative_path
+        if not file_path.is_file():
+            raise FileNotFoundError(f"Skill file not found: {relative_path}")
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+            return await f.read()
+
+    async def list_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> list[str]:
+        skill_name = storage_path.split("/")[-1]
+        skill_dir = self._skill_dir(owner_id, skill_name)
+        if not skill_dir.is_dir():
+            return []
+        result: list[str] = []
+        for root, _dirs, files in os.walk(skill_dir):
+            for fname in files:
+                full = Path(root) / fname
+                result.append(str(full.relative_to(skill_dir)))
+        return sorted(result)
+
+    async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
+        skill_name = storage_path.split("/")[-1]
+        skill_dir = self._skill_dir(owner_id, skill_name)
+        if skill_dir.is_dir():
+            await asyncio.to_thread(shutil.rmtree, skill_dir)
+
+    def get_skill_sandbox_path(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        skill_name = storage_path.split("/")[-1]
+        return str(self._skill_dir(owner_id, skill_name) / relative_path)
+
+    def supports_runtime_skill_listing(self) -> bool:
+        return True
+
+    async def list_skills(self, owner_id: uuid.UUID) -> list[RuntimeSkillInfo]:
+        found = await self.scan_skill_dirs(owner_id)
+        return [
+            RuntimeSkillInfo(
+                name=info["name"],
+                description=info["description"],
+                storage_path=f"skills/{info['name']}",
+                source_url=info["source_dir"],
+            )
+            for info in found
+        ]
+
+    async def scan_skill_dirs(
+        self,
+        owner_id: uuid.UUID,
+        extra_dirs: list[str] | None = None,
+    ) -> list[dict]:
+        """
+        Scan the user skills directory (and optionally extra dirs)
+        for folders containing SKILL.md. Returns list of dicts with
+        ``name``, ``description``, ``source_dir``.
+        """
+        from giga_agent.modules.skills.parser import parse_skill_md, SkillParseError
+
+        dirs_to_scan: list[Path] = []
+        user_skills = self._user_root_dir(owner_id) / "skills"
+        if user_skills.is_dir():
+            dirs_to_scan.append(user_skills)
+        for d in extra_dirs or []:
+            p = Path(d).expanduser().resolve()
+            if p.is_dir():
+                dirs_to_scan.append(p)
+
+        found: list[dict] = []
+        for scan_root in dirs_to_scan:
+            for entry in scan_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                skill_md = entry / "SKILL.md"
+                if not skill_md.is_file():
+                    continue
+                try:
+                    content = skill_md.read_text(encoding="utf-8")
+                    parsed = parse_skill_md(content)
+                    found.append(
+                        {
+                            "name": parsed.name,
+                            "description": parsed.description,
+                            "source_dir": str(entry),
+                        }
+                    )
+                except (SkillParseError, OSError):
+                    continue
+        return found

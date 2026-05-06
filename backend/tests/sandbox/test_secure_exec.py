@@ -13,7 +13,15 @@ from giga_agent.sandbox.secure_exec.linux_bwrap import (
     build_linux_bwrap_command,
     launch_linux_bwrap,
 )
-from giga_agent.sandbox.secure_exec.policy import SandboxAccessPolicy
+from giga_agent.sandbox.secure_exec.macos import (
+    MacSandboxExecConfig,
+    build_macos_sandbox_profile,
+)
+from giga_agent.sandbox.secure_exec.policy import (
+    SandboxAccessPolicy,
+    default_package_cache_write_roots,
+    python_virtual_env_write_roots,
+)
 
 
 class SandboxAccessPolicyTests(unittest.TestCase):
@@ -63,6 +71,46 @@ class SandboxAccessPolicyTests(unittest.TestCase):
             self.assertTrue(policy.can_read(write_root / "file.txt"))
             self.assertTrue(policy.can_write(write_root / "file.txt"))
             self.assertTrue(policy.can_delete(write_root / "file.txt"))
+
+    def test_python_virtual_env_write_roots_include_venv_root(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            venv = Path(tmp_dir) / ".venv"
+            python = venv / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.write_text("", encoding="utf-8")
+            (venv / "pyvenv.cfg").write_text("", encoding="utf-8")
+
+            self.assertIn(venv.resolve(), python_virtual_env_write_roots(python))
+
+    def test_python_virtual_env_write_roots_ignore_non_venv_bin_parent(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            python = Path(tmp_dir) / "bin" / "python"
+            python.parent.mkdir(parents=True)
+            python.write_text("", encoding="utf-8")
+
+            self.assertNotIn(
+                Path(tmp_dir).resolve(),
+                python_virtual_env_write_roots(python),
+            )
+
+    def test_default_package_cache_write_roots_include_posix_cache_on_macos(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / "home"
+
+            with (
+                patch(
+                    "giga_agent.sandbox.secure_exec.policy.platform.system",
+                    return_value="Darwin",
+                ),
+                patch(
+                    "giga_agent.sandbox.secure_exec.policy.Path.home",
+                    return_value=home,
+                ),
+            ):
+                roots = default_package_cache_write_roots()
+
+        self.assertIn((home / ".cache").resolve(), roots)
+        self.assertIn((home / "Library" / "Caches" / "uv").resolve(), roots)
 
 
 class LinuxBubblewrapCommandTests(unittest.TestCase):
@@ -193,3 +241,20 @@ class LinuxBubblewrapCommandTests(unittest.TestCase):
         if result.returncode == 0:
             self.fail("bwrap allowed a write outside writable roots")
         self.assertFalse(target.exists())
+
+
+class MacSandboxExecProfileTests(unittest.TestCase):
+    def test_profile_allows_macos_trust_services_for_tls_verification(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            profile = build_macos_sandbox_profile(
+                MacSandboxExecConfig(
+                    command=["python", "-m", "pip", "index", "versions", "pip"],
+                    profile_path=Path(tmp_dir) / "profile.sb",
+                    allow_outbound_network=True,
+                )
+            )
+
+        self.assertIn('"com.apple.securityd"', profile)
+        self.assertIn('"com.apple.securityd.xpc"', profile)
+        self.assertIn('"com.apple.trustd"', profile)
+        self.assertIn('"com.apple.trustd.agent"', profile)

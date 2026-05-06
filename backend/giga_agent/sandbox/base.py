@@ -2,6 +2,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Type
 
 from langchain_core.runnables import RunnableConfig
@@ -47,6 +48,16 @@ class StreamResult:
 
 
 FileReadResult = RedirectResult | ContentResult | StreamResult
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSkillInfo:
+    """Skill metadata discovered directly from a sandbox runtime."""
+
+    name: str
+    description: str = ""
+    storage_path: str | None = None
+    source_url: str | None = None
 
 
 class BaseSandbox(BaseModel, ABC):
@@ -282,3 +293,71 @@ class BaseSandbox(BaseModel, ABC):
         хранилищу могут вернуть False.
         """
         return True
+
+    # ---- Runtime skill discovery ----
+
+    def supports_runtime_skill_listing(self) -> bool:
+        """
+        Может ли sandbox быть источником правды для списка доступных skills.
+        """
+        return False
+
+    async def list_skills(self, owner_id: uuid.UUID) -> list[RuntimeSkillInfo]:
+        """
+        Вернуть skills, обнаруженные напрямую в runtime.
+
+        Базовая реализация пустая: сервис вызывает этот метод только если
+        supports_runtime_skill_listing() возвращает True.
+        """
+        _ = owner_id
+        return []
+
+    # ---- Skill file operations ----
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir: str | Path,
+    ) -> str:
+        """
+        Install skill files into the sandbox storage.
+
+        Returns the storage_path that uniquely identifies this skill's files.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement install_skill_files()"
+        )
+
+    async def read_skill_file(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        """Read a skill file (SKILL.md, scripts/*, references/*)."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement read_skill_file()"
+        )
+
+    async def list_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> list[str]:
+        """List all files of a skill by storage_path. Returns relative paths."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement list_skill_files()"
+        )
+
+    async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
+        """Remove all skill files from sandbox storage."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement remove_skill_files()"
+        )
+
+    def get_skill_sandbox_path(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        """
+        Return the sandbox-visible path for a skill file, so the agent can
+        pass it to read_file / cat / python tools.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement get_skill_sandbox_path()"
+        )

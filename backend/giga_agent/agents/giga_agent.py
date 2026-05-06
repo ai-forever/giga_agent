@@ -10,6 +10,7 @@ from giga_agent.modules.rag import RagModule
 from giga_agent.modules.repl import ReplModule
 from giga_agent.modules.scraper import ScraperModule
 from giga_agent.modules.search import SearchModule
+from giga_agent.modules.skills.module import SkillsModule
 from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
 from giga_agent.modules.vk import VKModule
 from giga_agent.modules.weather import WeatherModule
@@ -27,6 +28,7 @@ class GigaAgent(BaseAgent):
             SearchModule(),
             RagModule(),
             MemZeroModule(),
+            SkillsModule(),
             # GitHubModule(),
             # VKModule(),
             # WeatherModule(),
