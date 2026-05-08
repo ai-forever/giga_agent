@@ -110,7 +110,46 @@ class SandboxAccessPolicyTests(unittest.TestCase):
                 roots = default_package_cache_write_roots()
 
         self.assertIn((home / ".cache").resolve(), roots)
+        self.assertIn((home / "Library" / "Caches" / "Cypress").resolve(), roots)
+        self.assertIn((home / "Library" / "Caches" / "Homebrew").resolve(), roots)
+        self.assertIn((home / "Library" / "Caches" / "ms-playwright").resolve(), roots)
+        self.assertIn((home / "Library" / "Caches" / "puppeteer").resolve(), roots)
+        self.assertIn(
+            (home / "Library" / "Developer" / "Xcode" / "DerivedData").resolve(),
+            roots,
+        )
         self.assertIn((home / "Library" / "Caches" / "uv").resolve(), roots)
+        self.assertIn((home / "Library" / "Application Support" / "Cypress").resolve(), roots)
+
+    def test_default_package_cache_write_roots_include_common_agent_tool_state(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / "home"
+
+            with patch(
+                "giga_agent.sandbox.secure_exec.policy.Path.home",
+                return_value=home,
+            ):
+                roots = default_package_cache_write_roots()
+
+        self.assertIn((home / ".colima").resolve(), roots)
+        self.assertIn((home / ".lima").resolve(), roots)
+        self.assertIn((home / ".ollama").resolve(), roots)
+        self.assertIn((home / ".orbstack").resolve(), roots)
+        self.assertIn((home / ".swiftpm").resolve(), roots)
+        self.assertIn((home / ".wdm").resolve(), roots)
+        self.assertIn((home / "go").resolve(), roots)
+
+    def test_default_package_cache_write_roots_include_docker_state(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / "home"
+
+            with patch(
+                "giga_agent.sandbox.secure_exec.policy.Path.home",
+                return_value=home,
+            ):
+                roots = default_package_cache_write_roots()
+
+        self.assertIn((home / ".docker").resolve(), roots)
 
 
 class LinuxBubblewrapCommandTests(unittest.TestCase):

@@ -547,23 +547,14 @@ async def python(
 
     result = "\n".join(outputs).strip()
     if not result:
-        data = {
-            "output": "Код выполнен успешно (нет вывода).",
-        }
-    else:
-        data = {
-            "output": result,
-        }
+        result = "Код выполнился без вывода."
     kernel_id = sandbox_runtime._kernel_id
     return Command(
         update={
             "messages": [
                 ToolMessage(
                     tool_call_id=runtime.tool_call_id,
-                    content=json.dumps(
-                        data,
-                        ensure_ascii=False,
-                    ),
+                    content=result,
                     additional_kwargs={
                         "tool_attachments": giga_attachments,
                         "tool_name": "python",

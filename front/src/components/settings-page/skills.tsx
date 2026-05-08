@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Plus,
   Trash2,
@@ -11,6 +11,7 @@ import {
   Zap,
   FileText,
   FolderSync,
+  Files,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ interface SkillSummary {
   source_type: string;
   created_at: string;
   is_readonly?: boolean;
+  can_toggle?: boolean;
 }
 
 interface BuiltinSkillInfo {
@@ -71,7 +73,7 @@ const SkillItem: React.FC<{
   onView: (id: string) => void;
   disabled?: boolean;
 }> = ({ skill, onToggle, onDelete, onView, disabled }) => {
-  const actionDisabled = disabled || skill.is_readonly;
+  const canToggle = skill.can_toggle !== false && !skill.is_readonly;
 
   return (
     <div className="flex items-center justify-between p-4 border border-border rounded-lg bg-card hover:bg-accent/50 transition-colors">
@@ -103,31 +105,27 @@ const SkillItem: React.FC<{
         >
           <FileText className="size-4" />
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => onToggle(skill.id, !skill.is_enabled)}
-          title={
-            skill.is_readonly
-              ? "Read-only"
-              : skill.is_enabled
-                ? "Отключить"
-                : "Включить"
-          }
-          disabled={actionDisabled}
-        >
-          {skill.is_enabled ? (
-            <ToggleRight className="size-4 text-green-500" />
-          ) : (
-            <ToggleLeft className="size-4 text-muted-foreground" />
-          )}
-        </Button>
+        {canToggle && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onToggle(skill.id, !skill.is_enabled)}
+            title={skill.is_enabled ? "Отключить" : "Включить"}
+            disabled={disabled}
+          >
+            {skill.is_enabled ? (
+              <ToggleRight className="size-4 text-green-500" />
+            ) : (
+              <ToggleLeft className="size-4 text-muted-foreground" />
+            )}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => onDelete(skill.id)}
           title={skill.is_readonly ? "Read-only" : "Удалить"}
-          disabled={actionDisabled}
+          disabled={disabled || skill.is_readonly}
         >
           <Trash2 className="size-4 text-destructive" />
         </Button>
@@ -142,9 +140,12 @@ export const SkillsSettings: React.FC = () => {
   const [builtins, setBuiltins] = useState<BuiltinSkillInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [showBuiltinCatalog, setShowBuiltinCatalog] = useState(false);
   const [viewDetail, setViewDetail] = useState<SkillDetail | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const dragCounterRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -210,31 +211,37 @@ export const SkillsSettings: React.FC = () => {
     }
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadSkillArchive = useCallback(
+    async (file: File) => {
+      const maxSize = 10 * 1024 * 1024;
+      if (file.size > maxSize) {
+        toast.error("Размер архива не может превышать 10 МБ");
+        return;
+      }
+
+      setUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        await apiClient.post(`${API_AGENT_PREFIX}/skills/upload`, formData);
+        toast.success("Скилл установлен");
+        loadSkills();
+        loadBuiltins();
+      } catch (err: any) {
+        const msg = err?.data?.detail || "Не удалось загрузить скилл";
+        toast.error(msg);
+      } finally {
+        setUploading(false);
+      }
+    },
+    [loadBuiltins, loadSkills],
+  );
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
-
-    const maxSize = 10 * 1024 * 1024;
-    if (file.size > maxSize) {
-      toast.error("Размер архива не может превышать 10 МБ");
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      await apiClient.post(`${API_AGENT_PREFIX}/skills/upload`, formData);
-      toast.success("Скилл установлен");
-      loadSkills();
-      loadBuiltins();
-    } catch (err: any) {
-      const msg = err?.data?.detail || "Не удалось загрузить скилл";
-      toast.error(msg);
-    } finally {
-      setUploading(false);
-    }
+    void uploadSkillArchive(file);
   };
 
   const handleInstallBuiltin = async (name: string) => {
@@ -275,10 +282,62 @@ export const SkillsSettings: React.FC = () => {
     }
   };
 
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragCounterRef.current += 1;
+      if (!uploading) setIsDragging(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = uploading ? "none" : "copy";
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) setIsDragging(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      if (uploading) return;
+
+      const file = e.dataTransfer?.files?.[0];
+      if (file) void uploadSkillArchive(file);
+    };
+
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [uploadSkillArchive, uploading]);
 
   return (
     <div className="flex flex-col gap-6">
+      {isDragging && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm pointer-events-none print:hidden animate-in fade-in duration-150">
+          <div className="m-6 flex flex-col items-center gap-4 px-8 py-10 text-foreground text-base font-medium">
+            <Files className="size-14 text-foreground/90" />
+            Отпустите, чтобы загрузить архив со скиллом
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Скиллы агента</h2>
         <div className="flex gap-2">

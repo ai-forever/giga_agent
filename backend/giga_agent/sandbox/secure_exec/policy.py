@@ -54,6 +54,12 @@ def default_package_cache_write_roots() -> list[Path]:
         home / ".bun",
         home / ".node-gyp",
         home / ".local" / "share" / "pnpm",
+        # ── Browser automation (Playwright / Cypress / Puppeteer) ──
+        xdg_cache / "ms-playwright",
+        xdg_cache / "Cypress",
+        xdg_cache / "puppeteer",
+        xdg_data / "Cypress",
+        home / ".wdm",
         xdg_cache / "yarn",
         xdg_cache / "pnpm",
         xdg_cache / "bun",
@@ -75,7 +81,11 @@ def default_package_cache_write_roots() -> list[Path]:
         home / ".ivy2",
         home / ".sbt",
         # ── Go ──
+        home / "go",
         xdg_cache / "go-build",
+        # ── Swift / Xcode ──
+        home / ".swiftpm",
+        xdg_cache / "org.swift.swiftpm",
         # ── Ruby ──
         home / ".gem",
         home / ".bundle",
@@ -86,10 +96,24 @@ def default_package_cache_write_roots() -> list[Path]:
         home / ".composer",
         # ── Dart / Flutter ──
         home / ".pub-cache",
+        # ── Homebrew ──
+        xdg_cache / "Homebrew",
+        # ── Docker / BuildKit ──
+        home / ".docker",
+        home / ".colima",
+        home / ".lima",
+        home / ".orbstack",
+        # ── Local model runtimes ──
+        home / ".ollama",
     ]
 
     if is_darwin:
-        roots.append(home / "Library" / "pnpm")
+        roots.extend(
+            [
+                home / "Library" / "pnpm",
+                home / "Library" / "Developer" / "Xcode" / "DerivedData",
+            ]
+        )
 
     return [p.resolve() for p in roots]
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import mimetypes
 import re
 import uuid
 from typing import Annotated
@@ -19,6 +20,76 @@ logger = get_logger(__name__)
 
 MAX_READ_FILE_CHARS = 100_000
 DEFAULT_READ_FILE_LIMIT = 1000
+TABULAR_FILE_EXTENSIONS = frozenset(
+    {
+        ".csv",
+        ".csv.gz",
+        ".tsv",
+        ".tsv.gz",
+        ".xls",
+        ".xlsx",
+        ".xlsm",
+        ".xlsb",
+        ".ods",
+        ".parquet",
+        ".pq",
+        ".feather",
+        ".arrow",
+        ".orc",
+    }
+)
+TABULAR_MEDIA_TYPES = frozenset(
+    {
+        "text/csv",
+        "text/tab-separated-values",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+        "application/vnd.ms-excel.sheet.macroenabled.12",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+        "application/vnd.apache.parquet",
+        "application/x-parquet",
+        "application/vnd.apache.arrow.file",
+        "application/x-feather",
+        "application/vnd.apache.orc",
+    }
+)
+
+
+def _normalize_media_type(media_type: str | None) -> str:
+    return (media_type or "").split(";", 1)[0].strip().lower()
+
+
+def _is_tabular_file_reference(
+    *,
+    sandbox_path: str,
+    file_name: str | None = None,
+    media_type: str | None = None,
+) -> bool:
+    normalized_media_type = _normalize_media_type(media_type)
+    if normalized_media_type in TABULAR_MEDIA_TYPES:
+        return True
+
+    for candidate in (sandbox_path, file_name):
+        lower_candidate = (candidate or "").lower()
+        if lower_candidate.endswith(tuple(TABULAR_FILE_EXTENSIONS)):
+            return True
+
+        guessed_media_type, _ = mimetypes.guess_type(lower_candidate)
+        if _normalize_media_type(guessed_media_type) in TABULAR_MEDIA_TYPES:
+            return True
+
+    return False
+
+
+def _build_tabular_read_hint(*, sandbox_path: str) -> str:
+    return (
+        f"Файл: {sandbox_path}\n"
+        "Это похоже на табличные данные. read_file не читает такие файлы напрямую. "
+        "Используй python tool и читай файл через подходящую библиотеку "
+        "(например pandas, csv, openpyxl или pyarrow)."
+    )
 
 
 def _extract_pdf_text(data: bytes) -> str | None:
@@ -66,7 +137,7 @@ def _text_from_file_bytes(
     file_name: str | None = None,
     media_type: str | None = None,
 ) -> str | None:
-    normalized_media_type = (media_type or "").split(";", 1)[0].strip().lower()
+    normalized_media_type = _normalize_media_type(media_type)
     lower_name = (file_name or "").lower()
     lower_path = sandbox_path.lower()
 
@@ -249,6 +320,7 @@ async def _read_file_text(
 - Можно опционально указать offset и limit по строкам, что особенно удобно для длинных файлов, но по умолчанию читаются первые 1000 строк файла. Чтобы читать его дальше повышай offset и читай файл дальше.
 - Строки в результате нумеруются начиная с 1 в формате: НОМЕР_СТРОКИ|СОДЕРЖИМОЕ_СТРОКИ
 - Если файл существует, но пустой, инструмент вернёт 'File is empty.'
+- Табличные файлы (например CSV, TSV, Excel, ODS, Parquet, Arrow, Feather, ORC) нужно читать через python tool, а не через read_file.
 - PDF и DOCX-файлы автоматически конвертируются в текст (с теми же ограничениями на размер ответа, что и для остальных файлов).""",
     extras={"repl_skip": True, "not_compress": True, "not_process": True},
 )
@@ -279,6 +351,9 @@ async def read_file(
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
+    if _is_tabular_file_reference(sandbox_path=sandbox_path):
+        return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
+
     factory = await get_session_factory()
     async with factory() as session:
         manager = SandboxManager(session)
@@ -291,8 +366,21 @@ async def read_file(
             logger.warning("read_file failed for %s: %s", sandbox_path, e)
             return _result(f"Ошибка: {e}")
 
+    if _is_tabular_file_reference(
+        sandbox_path=sandbox_path,
+        file_name=file_record.original_name,
+    ):
+        return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
+
     text: str | None
     if isinstance(result, ContentResult):
+        if _is_tabular_file_reference(
+            sandbox_path=sandbox_path,
+            file_name=file_record.original_name,
+            media_type=result.media_type,
+        ):
+            return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
+
         text = _text_from_file_bytes(
             data=result.data,
             sandbox_path=sandbox_path,
@@ -306,6 +394,13 @@ async def read_file(
         async for chunk in result.stream:
             chunks.append(chunk)
         data = b"".join(chunks)
+        if _is_tabular_file_reference(
+            sandbox_path=sandbox_path,
+            file_name=file_record.original_name,
+            media_type=result.media_type,
+        ):
+            return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
+
         text = _text_from_file_bytes(
             data=data,
             sandbox_path=sandbox_path,

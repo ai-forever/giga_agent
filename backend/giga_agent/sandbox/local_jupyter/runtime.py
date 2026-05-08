@@ -48,6 +48,8 @@ if TYPE_CHECKING:
     from giga_agent.models.users import UserShort
 
 BUCKET_PREFIX = "/bucket/"
+_EXTERNAL_AGENT_SKILL_PREFIX = "external/agent/"
+_EXTERNAL_AGENT_SKILL_NAMESPACE = "agent/"
 _LOCAL_FILE_SUFFIX_ALPHABET = (
     "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
@@ -509,6 +511,58 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     def _skill_dir(self, owner_id: uuid.UUID, skill_name: str) -> Path:
         return self._user_root_dir(owner_id) / "skills" / skill_name
 
+    @staticmethod
+    def _external_agent_skills_dir() -> Path:
+        return (Path.home() / ".agents" / "skills").expanduser().resolve()
+
+    @classmethod
+    def _external_agent_skill_dirs(cls) -> list[Path]:
+        roots = [
+            cls._external_agent_skills_dir(),
+            (Path.home() / ".agent" / "skills").expanduser().resolve(),
+        ]
+        result: list[Path] = []
+        for root in roots:
+            if root not in result:
+                result.append(root)
+        return result
+
+    @staticmethod
+    def _external_agent_skill_name(skill_name: str) -> str:
+        return f"{_EXTERNAL_AGENT_SKILL_NAMESPACE}{skill_name}"
+
+    def _external_agent_skill_dir(self, storage_path: str) -> Path:
+        rel = PurePosixPath(storage_path)
+        if (
+            len(rel.parts) != 3
+            or rel.parts[0] != "external"
+            or rel.parts[1] != "agent"
+            or rel.parts[2] in {"", ".", ".."}
+        ):
+            raise ValueError(f"Invalid external skill storage path: {storage_path}")
+
+        fallback: Path | None = None
+        for root in self._external_agent_skill_dirs():
+            skill_dir = (root / rel.parts[2]).resolve()
+            if root != skill_dir and root not in skill_dir.parents:
+                raise ValueError(
+                    f"External skill path escapes skills root: {storage_path}"
+                )
+            if fallback is None:
+                fallback = skill_dir
+            if skill_dir.exists():
+                return skill_dir
+        if fallback is None:
+            raise ValueError(f"No external skill roots configured: {storage_path}")
+        return fallback
+
+    def _resolve_skill_dir(self, owner_id: uuid.UUID, storage_path: str) -> Path:
+        if storage_path.startswith(_EXTERNAL_AGENT_SKILL_PREFIX):
+            return self._external_agent_skill_dir(storage_path)
+
+        skill_name = storage_path.split("/")[-1]
+        return self._skill_dir(owner_id, skill_name)
+
     async def install_skill_files(
         self,
         owner_id: uuid.UUID,
@@ -527,8 +581,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     async def read_skill_file(
         self, owner_id: uuid.UUID, storage_path: str, relative_path: str
     ) -> str:
-        skill_name = storage_path.split("/")[-1]
-        file_path = self._skill_dir(owner_id, skill_name) / relative_path
+        file_path = self._resolve_skill_dir(owner_id, storage_path) / relative_path
         if not file_path.is_file():
             raise FileNotFoundError(f"Skill file not found: {relative_path}")
         async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
@@ -537,8 +590,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     async def list_skill_files(
         self, owner_id: uuid.UUID, storage_path: str
     ) -> list[str]:
-        skill_name = storage_path.split("/")[-1]
-        skill_dir = self._skill_dir(owner_id, skill_name)
+        skill_dir = self._resolve_skill_dir(owner_id, storage_path)
         if not skill_dir.is_dir():
             return []
         result: list[str] = []
@@ -549,16 +601,14 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         return sorted(result)
 
     async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
-        skill_name = storage_path.split("/")[-1]
-        skill_dir = self._skill_dir(owner_id, skill_name)
+        skill_dir = self._resolve_skill_dir(owner_id, storage_path)
         if skill_dir.is_dir():
             await asyncio.to_thread(shutil.rmtree, skill_dir)
 
     def get_skill_sandbox_path(
         self, owner_id: uuid.UUID, storage_path: str, relative_path: str
     ) -> str:
-        skill_name = storage_path.split("/")[-1]
-        return str(self._skill_dir(owner_id, skill_name) / relative_path)
+        return str(self._resolve_skill_dir(owner_id, storage_path) / relative_path)
 
     def supports_runtime_skill_listing(self) -> bool:
         return True
@@ -569,7 +619,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             RuntimeSkillInfo(
                 name=info["name"],
                 description=info["description"],
-                storage_path=f"skills/{info['name']}",
+                storage_path=info["storage_path"],
                 source_url=info["source_dir"],
             )
             for info in found
@@ -579,25 +629,31 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         self,
         owner_id: uuid.UUID,
         extra_dirs: list[str] | None = None,
+        include_agent_skills: bool = True,
     ) -> list[dict]:
         """
         Scan the user skills directory (and optionally extra dirs)
         for folders containing SKILL.md. Returns list of dicts with
-        ``name``, ``description``, ``source_dir``.
+        ``name``, ``description``, ``source_dir``, ``storage_path``.
         """
         from giga_agent.modules.skills.parser import parse_skill_md, SkillParseError
 
-        dirs_to_scan: list[Path] = []
+        dirs_to_scan: list[tuple[Path, str]] = []
         user_skills = self._user_root_dir(owner_id) / "skills"
         if user_skills.is_dir():
-            dirs_to_scan.append(user_skills)
+            dirs_to_scan.append((user_skills, "sandbox"))
+        if include_agent_skills:
+            for agent_skills in self._external_agent_skill_dirs():
+                if agent_skills.is_dir():
+                    dirs_to_scan.append((agent_skills, "agent"))
         for d in extra_dirs or []:
             p = Path(d).expanduser().resolve()
             if p.is_dir():
-                dirs_to_scan.append(p)
+                dirs_to_scan.append((p, "sandbox"))
 
         found: list[dict] = []
-        for scan_root in dirs_to_scan:
+        found_names: set[str] = set()
+        for scan_root, source in dirs_to_scan:
             for entry in scan_root.iterdir():
                 if not entry.is_dir():
                     continue
@@ -607,11 +663,20 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
                 try:
                     content = skill_md.read_text(encoding="utf-8")
                     parsed = parse_skill_md(content)
+                    name = parsed.name
+                    storage_path = f"skills/{name}"
+                    if source == "agent":
+                        name = self._external_agent_skill_name(parsed.name)
+                        storage_path = f"{_EXTERNAL_AGENT_SKILL_PREFIX}{entry.name}"
+                    if name in found_names:
+                        continue
+                    found_names.add(name)
                     found.append(
                         {
-                            "name": parsed.name,
+                            "name": name,
                             "description": parsed.description,
                             "source_dir": str(entry),
+                            "storage_path": storage_path,
                         }
                     )
                 except (SkillParseError, OSError):

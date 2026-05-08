@@ -26,7 +26,7 @@ from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 logger = get_logger(__name__)
 
-_SKILL_MENTION_RE = re.compile(r"(?:^|[\s])[@/]([\w-]+)", re.MULTILINE)
+_SKILL_MENTION_RE = re.compile(r"(?:^|[\s])[@/]([\w-]+(?:/[\w-]+)*)", re.MULTILINE)
 
 
 class SkillsModule(BaseModule):
