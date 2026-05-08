@@ -815,7 +815,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                       <div
                         key={t.thread_id}
                         className={[
-                          "group px-2 py-1 text-sm rounded-lg cursor-pointer transition-colors flex items-center gap-2",
+                          "group relative px-2 py-1 h-10 text-sm rounded-lg cursor-pointer transition-colors flex items-center gap-2",
                           isActive
                             ? "bg-accent text-accent-foreground border border-border"
                             : "hover:bg-muted/50",
@@ -851,7 +851,8 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                         )}
                         <span
                           className={[
-                            "flex-1 min-w-0 truncate",
+                            "flex-1 min-w-0 truncate transition-[padding]",
+                            "group-hover:pr-8 group-focus-within:pr-8",
                             needsInput || hasUpdate ? "font-medium" : "",
                           ].join(" ")}
                         >
@@ -862,7 +863,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              className="absolute right-1 h-8 w-8 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus:opacity-100 focus:pointer-events-auto data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto"
                               onClick={(e) => e.stopPropagation()}
                               aria-label="Действия чата"
                             >

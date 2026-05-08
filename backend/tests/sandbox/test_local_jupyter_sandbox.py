@@ -104,6 +104,88 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
             [str((Path.home() / ".ssh").resolve())],
         )
 
+    async def test_scan_skill_dirs_includes_agent_skills(self):
+        owner_id = uuid.uuid4()
+        with (
+            tempfile.TemporaryDirectory() as files_dir,
+            tempfile.TemporaryDirectory() as home_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH": files_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_jupyter.runtime.LocalJupyterSandbox._external_agent_skills_dir",
+                return_value=(Path(home_dir) / ".agents" / "skills").resolve(),
+            ),
+        ):
+            skill_dir = Path(home_dir) / ".agents" / "skills" / "summarize"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                """---
+name: summarize
+description: Agent skill
+---
+
+Use this skill.
+""",
+                encoding="utf-8",
+            )
+
+            runtime = LocalJupyterSandbox(owner_id=owner_id)
+            found = await runtime.scan_skill_dirs(owner_id)
+
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["name"], "agent/summarize")
+        self.assertEqual(found[0]["description"], "Agent skill")
+        self.assertEqual(found[0]["storage_path"], "external/agent/summarize")
+
+    async def test_external_agent_skill_file_operations_use_source_dir(self):
+        owner_id = uuid.uuid4()
+        with (
+            tempfile.TemporaryDirectory() as files_dir,
+            tempfile.TemporaryDirectory() as home_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH": files_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_jupyter.runtime.LocalJupyterSandbox._external_agent_skills_dir",
+                return_value=(Path(home_dir) / ".agents" / "skills").resolve(),
+            ),
+        ):
+            skill_dir = Path(home_dir) / ".agents" / "skills" / "summarize"
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text(
+                """---
+name: summarize
+description: Agent skill
+---
+
+Use this skill.
+""",
+                encoding="utf-8",
+            )
+            (scripts_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+
+            runtime = LocalJupyterSandbox(owner_id=owner_id)
+            storage_path = "external/agent/summarize"
+
+            body = await runtime.read_skill_file(owner_id, storage_path, "SKILL.md")
+            files = await runtime.list_skill_files(owner_id, storage_path)
+            sandbox_path = runtime.get_skill_sandbox_path(
+                owner_id,
+                storage_path,
+                "scripts/run.py",
+            )
+            await runtime.remove_skill_files(owner_id, storage_path)
+            exists_after_delete = skill_dir.exists()
+
+        self.assertIn("name: summarize", body)
+        self.assertEqual(files, ["SKILL.md", "scripts/run.py"])
+        self.assertEqual(sandbox_path, str((skill_dir / "scripts" / "run.py").resolve()))
+        self.assertFalse(exists_after_delete)
+
     async def test_up_uses_singleton_manager_handle(self):
         handle = LocalJupyterHandle(
             pid=12345,

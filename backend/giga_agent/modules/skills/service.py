@@ -76,6 +76,10 @@ class SkillsService:
             f"giga-agent:skill:{owner_id}:{skill_name}",
         )
 
+    @staticmethod
+    def _runtime_skill_storage_path(skill_name: str) -> str:
+        return f"skills/{skill_name}"
+
     async def install_from_upload(
         self,
         owner_id: uuid.UUID,
@@ -174,7 +178,11 @@ class SkillsService:
         if not isinstance(sandbox, LocalJupyterSandbox):
             return []
 
-        found = await sandbox.scan_skill_dirs(owner_id, extra_dirs)
+        found = await sandbox.scan_skill_dirs(
+            owner_id,
+            extra_dirs,
+            include_agent_skills=False,
+        )
         found_names: set[str] = set()
         result: list[Skill] = []
 
@@ -270,7 +278,8 @@ class SkillsService:
                 is_enabled=True,
                 source_type=SkillSourceType.LOCAL_DIR,
                 created_at=_RUNTIME_SKILL_CREATED_AT,
-                is_readonly=True,
+                is_readonly=False,
+                can_toggle=False,
             )
             for s in sorted(skills, key=lambda item: item.name)
         ]
@@ -339,7 +348,9 @@ class SkillsService:
         if runtime_skill is None:
             return None
 
-        storage_path = runtime_skill.storage_path or f"skills/{runtime_skill.name}"
+        storage_path = runtime_skill.storage_path or self._runtime_skill_storage_path(
+            runtime_skill.name
+        )
         body = await sandbox.read_skill_file(owner_id, storage_path, "SKILL.md")
         file_list = await sandbox.list_skill_files(owner_id, storage_path)
         files = [
@@ -380,6 +391,21 @@ class SkillsService:
         skill_id: uuid.UUID,
         sandbox: BaseSandbox,
     ) -> None:
+        if sandbox.supports_runtime_skill_listing():
+            runtime_skill = await self._get_runtime_skill_by_id(
+                owner_id,
+                skill_id,
+                sandbox,
+            )
+            if runtime_skill is not None:
+                storage_path = (
+                    runtime_skill.storage_path
+                    or self._runtime_skill_storage_path(runtime_skill.name)
+                )
+                await sandbox.remove_skill_files(owner_id, storage_path)
+                await self.invalidate_list_cache(owner_id)
+                return
+
         skill = await self._get_owned_skill(owner_id, skill_id)
         try:
             await sandbox.remove_skill_files(owner_id, skill.storage_path)
@@ -427,7 +453,9 @@ class SkillsService:
             if self._runtime_skill_id(owner_id, skill.name) != skill_id:
                 continue
 
-            storage_path = skill.storage_path or f"skills/{skill.name}"
+            storage_path = skill.storage_path or self._runtime_skill_storage_path(
+                skill.name
+            )
             try:
                 body = await sandbox.read_skill_file(
                     owner_id,
@@ -453,6 +481,17 @@ class SkillsService:
                 },
                 "body": body,
             }
+        return None
+
+    async def _get_runtime_skill_by_id(
+        self,
+        owner_id: uuid.UUID,
+        skill_id: uuid.UUID,
+        sandbox: BaseSandbox,
+    ):
+        for skill in await sandbox.list_skills(owner_id):
+            if self._runtime_skill_id(owner_id, skill.name) == skill_id:
+                return skill
         return None
 
     async def _get_owned_skill(self, owner_id: uuid.UUID, skill_id: uuid.UUID) -> Skill:

@@ -76,6 +76,7 @@ class SkillSummary(BaseModel):
     source_type: str
     created_at: datetime
     is_readonly: bool = False
+    can_toggle: bool = True
 
     class Config:
         from_attributes = True

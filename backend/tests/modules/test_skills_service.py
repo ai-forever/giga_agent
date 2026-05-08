@@ -16,6 +16,7 @@ class FakeRuntimeSkillSandbox(BaseSandbox):
     skills: list[RuntimeSkillInfo] = Field(default_factory=list)
     file_lists: dict[str, list[str]] = Field(default_factory=dict)
     file_contents: dict[str, str] = Field(default_factory=dict)
+    removed_storage_paths: list[str] = Field(default_factory=list)
 
     async def up(self) -> None:
         return None
@@ -61,6 +62,14 @@ class FakeRuntimeSkillSandbox(BaseSandbox):
         _ = owner_id
         return f"/runtime/{storage_path}/{relative_path}"
 
+    async def remove_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        storage_path: str,
+    ) -> None:
+        _ = owner_id
+        self.removed_storage_paths.append(storage_path)
+
 
 class SkillsServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -87,7 +96,7 @@ class SkillsServiceTests(unittest.IsolatedAsyncioTestCase):
             await session.refresh(user)
             return user
 
-    async def test_runtime_list_skills_returns_readonly_summaries(self) -> None:
+    async def test_runtime_list_skills_returns_non_toggleable_summaries(self) -> None:
         owner_id = uuid.uuid4()
         sandbox = FakeRuntimeSkillSandbox(
             skills=[
@@ -107,7 +116,8 @@ class SkillsServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summaries[0].description, "Runtime description")
         self.assertEqual(summaries[0].source_type, SkillSourceType.LOCAL_DIR)
         self.assertTrue(summaries[0].is_enabled)
-        self.assertTrue(summaries[0].is_readonly)
+        self.assertFalse(summaries[0].is_readonly)
+        self.assertFalse(summaries[0].can_toggle)
 
     async def test_get_skill_body_activates_runtime_skill_without_db_record(
         self,
@@ -151,6 +161,24 @@ Follow these runtime instructions.
             activation.files[0].sandbox_path,
             "/runtime/skills/runtime-skill/scripts/run.py",
         )
+
+    async def test_remove_skill_deletes_runtime_skill_without_db_record(self) -> None:
+        owner_id = uuid.uuid4()
+        sandbox = FakeRuntimeSkillSandbox(
+            skills=[
+                RuntimeSkillInfo(
+                    name="runtime-skill",
+                    description="Runtime description",
+                    storage_path="skills/runtime-skill",
+                )
+            ],
+        )
+
+        service = SkillsService(session=object())
+        summaries = await service.list_skills(owner_id, sandbox)
+        await service.remove_skill(owner_id, summaries[0].id, sandbox)
+
+        self.assertEqual(sandbox.removed_storage_paths, ["skills/runtime-skill"])
 
     async def test_db_list_skills_uses_cache_until_invalidated(self) -> None:
         user = await self._create_user("skills-cache@example.com")
