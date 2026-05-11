@@ -13,7 +13,6 @@ import uuid
 from typing import Any
 import types
 
-from cashews import cache
 from giga_agent.core.agent.tool_node import AgentToolNode
 from giga_agent.modules.repl.args_monkey_patch import _parse_input
 from langchain.tools import tool, ToolRuntime
@@ -24,7 +23,7 @@ from pydantic import ValidationError, BaseModel, Field
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.models import UserShort, UserRepository
+from giga_agent.models import UserShort
 from giga_agent.models.file import FileResponse
 from giga_agent.sandbox.manager import (
     SandboxBusyError,
@@ -120,18 +119,26 @@ def _extract_upload_specs_from_display_data(
 def _build_attachment_info(file_type: str, path: str) -> str:
     attachment_info = ""
     if file_type == "plotly_graph":
-        attachment_info = "В результате выполнения был сгенерирован график. "
+        attachment_info = "В результате выполнения был сгенерирован Plotly-график. "
     elif file_type == "image":
         attachment_info = "В результате выполнения было сгенерировано изображение. "
     elif file_type == "audio":
         attachment_info = "В результате выполнения был сгенерирован аудиофайл. "
     elif file_type == "video":
         attachment_info = "В результате выполнения был сгенерирован видеофайл. "
+    else:
+        attachment_info = "В результате выполнения был сгенерирован файл. "
 
     if file_type == "image":
         render_hint = (
             f"Ты можешь показать это пользователю с помощью через "
             f'"![alt-текст](attachment:{path})" '
+        )
+    elif file_type == "plotly_graph":
+        render_hint = (
+            f"Ты можешь показать его пользователю как attachment: "
+            f'"[Plotly-график](attachment:{path})". '
+            "На стороне пользователя такой .plotly.json отрендерится как график. "
         )
     elif file_type == "audio":
         render_hint = (
@@ -145,8 +152,8 @@ def _build_attachment_info(file_type: str, path: str) -> str:
         )
     else:
         render_hint = (
-            f"Ты можешь показать это пользователю с помощью через "
-            f'"![alt-текст](attachment:{path})" '
+            f"Ты можешь показать его пользователю как attachment: "
+            f'"[файл](attachment:{path})". '
         )
 
     attachment_info += f"Путь до него '{path}'. {render_hint}"
@@ -573,36 +580,36 @@ python._parse_input = types.MethodType(_parse_input, python)
 async def _resolve_repl_runtime_context(
     runtime: ToolRuntime,
 ) -> tuple[Any, UserShort, uuid.UUID]:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+    from giga_agent.conf import get_settings
+    from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
-    cached_user = await cache.get(UserRepository.cache_key(owner_id))
-    user = UserShort.model_validate(cached_user) if cached_user is not None else None
-    factory = await get_session_factory()
-    async with factory() as session:
-        if user is None:
-            user = await UserRepository(session).get_by_id(
-                owner_id,
-                use_cache=False,
-            )
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
-        resolved = await SandboxManager.get_cached_or_db(
-            user_id=owner_id,
-            session=session,
+    resolver = RuntimeResolver.from_config(runtime.config)
+    user = resolver.user
+    owner_id = user.id
+
+    resolved = await resolver.get_sandbox()
+
+    if get_settings().giga_agent_runtime == "cli":
+        sandbox_runtime = SandboxRuntimeFactory.build(
+            resolved.provider, resolved.sandbox
         )
-        manager = SandboxManager(session)
-        try:
-            sandbox_runtime = await manager.ensure_running_for_user(
-                user_id=owner_id,
-                provider_id=resolved.provider.id,
-            )
-        except SandboxBusyError as e:
-            raise ValueError(
-                "Ты не можешь выполнить код, так как в системе превышен лимит "
-                "виртуальных окружений. Скажи пользователю обратиться к "
-                "администратору!" + repr(e)
-            ) from e
+        await sandbox_runtime.up()
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            try:
+                sandbox_runtime = await manager.ensure_running_for_user(
+                    user_id=owner_id,
+                    provider_id=resolved.provider.id,
+                )
+            except SandboxBusyError as e:
+                raise ValueError(
+                    "Ты не можешь выполнить код, так как в системе превышен лимит "
+                    "виртуальных окружений. Скажи пользователю обратиться к "
+                    "администратору!" + repr(e)
+                ) from e
     return sandbox_runtime, user, owner_id
 
 

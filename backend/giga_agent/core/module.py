@@ -73,6 +73,9 @@ class BaseModule(Serializable):
         self,
         user: UserShort | None,
         agent: "BaseAgent",
+        *,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
     ) -> List[BaseTool]:
         """
         Возвращает список инструментов (tools), предоставляемых модулем.

@@ -265,7 +265,9 @@ class BaseAgent(BaseModel):
             + instructions_prompt
         )
 
-    async def get_tools(self, user: UserShort) -> List[BaseTool]:
+    async def get_tools(
+        self, user: UserShort, *, config: RunnableConfig | None = None
+    ) -> List[BaseTool]:
         user_id = getattr(user, "id", None)
         try:
             user_fingerprint = hash(user)
@@ -279,7 +281,9 @@ class BaseAgent(BaseModel):
 
         all_tools: list[BaseTool] = list(self.tools)
         for module in self._agent_modules:
-            all_tools.extend(await module.get_tools(user=user, agent=self))
+            all_tools.extend(
+                await module.get_tools(user=user, agent=self, config=config)
+            )
 
         self._tools_cache[cache_key] = all_tools
         return all_tools
@@ -307,7 +311,7 @@ class BaseAgent(BaseModel):
 
         lock_key = settings.giga_agent_startup_migrations_lock_key
         lock_ttl_sec = settings.giga_agent_startup_migrations_lock_ttl_sec
-        if settings.giga_agent_runtime == "local":
+        if settings.giga_agent_runtime in ("local", "cli"):
             logger.warning(
                 "Startup migration lock uses in-memory cache in local runtime; "
                 "it does not coordinate across multiple processes."

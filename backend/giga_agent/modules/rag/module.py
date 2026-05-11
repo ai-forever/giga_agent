@@ -23,8 +23,17 @@ class RagModule(BaseModule):
         _ = kwargs
         return rag_api_router
 
-    async def get_tools(self, user: UserShort | None, agent: BaseAgent) -> List[BaseTool]:
-        _ = user, agent
+    async def get_tools(
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
+    ) -> List[BaseTool]:
+        _ = agent
+        from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+        if config is not None:
+            resolver = RuntimeResolver.from_config(config)
+            if resolver.has_embedding:
+                return [get_documents]
+            return []
         if user and user.embedding_id:
             return [get_documents]
         return []
@@ -34,6 +43,7 @@ class RagModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
         _ = agent, state, kwargs

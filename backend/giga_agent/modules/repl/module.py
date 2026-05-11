@@ -159,7 +159,9 @@ class ReplModule(BaseModule):
     id: str = "repl"
     _repl_tools: List[Coroutine] = [predict_sentiments, summarize, get_embeddings]
 
-    async def get_tools(self, user: UserShort, agent: BaseAgent) -> List[BaseTool]:
+    async def get_tools(
+        self, user: UserShort, agent: BaseAgent, *, config=None, **kwargs
+    ) -> List[BaseTool]:
         if python.extras is None:
             python.extras = {"repl_tools": self._repl_tools}
         else:
@@ -202,6 +204,6 @@ class ReplModule(BaseModule):
             + sandbox_prompt
             + get_user_secrets_prompt(user)
             + generate_repl_tools_description(
-                self._repl_tools, await agent.get_tools(user)
+                self._repl_tools, await agent.get_tools(user, config=config)
             )
         )

@@ -1,5 +1,4 @@
 import re
-import uuid
 from typing import Any, Mapping
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -8,10 +7,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from giga_agent.core.agent.middleware import AgentMiddleware
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.core.db import get_session_factory
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.users import UserRepository
 from giga_agent.utils.langgraph_sdk import get_client
 
 _TITLE_MAX_LEN = 80
@@ -33,24 +30,6 @@ def _resolve_thread_id(config: RunnableConfig | dict[str, Any]) -> str | None:
     if isinstance(thread_id, str) and thread_id.strip():
         return thread_id.strip().strip("/")
 
-    return None
-
-
-def _resolve_owner_id(config: RunnableConfig | dict[str, Any]) -> uuid.UUID | None:
-    if not isinstance(config, dict):
-        return None
-    configurable = config.get("configurable", {}) or {}
-    user = configurable.get("langgraph_auth_user", {}) or {}
-    identity = user.get("identity")
-    if identity is None:
-        return None
-    if isinstance(identity, uuid.UUID):
-        return identity
-    if isinstance(identity, str):
-        try:
-            return uuid.UUID(identity)
-        except ValueError:
-            return None
     return None
 
 
@@ -155,22 +134,17 @@ class ThreadTitleMiddleware(AgentMiddleware):
         if not first_message:
             return None
 
-        owner_id = _resolve_owner_id(config)
-        if owner_id is None:
+        try:
+            resolver = RuntimeResolver.from_config(config)
+        except ValueError:
             return None
 
-        factory = await get_session_factory()
-        async with factory() as session:
-            user = await UserRepository.get_cached_or_db(owner_id, session=session)
-            if user is None:
-                return None
+        user = resolver.user
+        if not (user.fast_llm_id or user.llm_id):
+            return None
 
-            llm_id = user.fast_llm_id or user.llm_id
-            if not llm_id:
-                return None
-
-            llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-            llm = await llm_runtime.get_llm()
+        fast_llm_runtime = await resolver.get_fast_llm_runtime()
+        llm = await fast_llm_runtime.get_llm()
 
         title = await _generate_title(llm, first_message)
         metadata = {"thread_title": title}

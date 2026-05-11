@@ -16,9 +16,8 @@ from langchain_core.tools import tool
 from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.llm.manager import LLMManager
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.models.llm import LLMRepository
-from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.utils.messages import filter_tool_calls
 
 logger = get_logger(__name__)
@@ -102,29 +101,16 @@ async def _load_via_jina_reader(
                 pass
 
 
-async def _resolve_current_user(runtime: ToolRuntime) -> UserShort:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-    if user is None:
-        raise ValueError(f"Пользователь {owner_id} не найден")
-    return user
-
-
 async def _resolve_fast_llm(runtime: ToolRuntime):
-    user = await _resolve_current_user(runtime)
-    llm_id = user.fast_llm_id or user.llm_id
-    if llm_id is None:
-        raise ValueError("У пользователя не выбран fast_llm_id или llm_id")
+    resolver = RuntimeResolver.from_config(runtime.config)
+    fast_llm_runtime = await resolver.get_fast_llm_runtime()
 
+    llm_id = resolver.user.fast_llm_id or resolver.user.llm_id
     factory = await get_session_factory()
     async with factory() as session:
         llm_context = await LLMRepository.get_cached_or_db(llm_id, session=session)
-        llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
     parallel_calls = max(1, int(llm_context.parallel_calls)) if llm_context else 1
-    llm = await llm_runtime.get_llm()
+    llm = await fast_llm_runtime.get_llm()
     return (
         llm.bind(top_p=0.3).with_config(tags=["nostream"]),
         parallel_calls,

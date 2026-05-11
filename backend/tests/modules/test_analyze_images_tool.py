@@ -5,15 +5,22 @@ import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import ANY, AsyncMock, patch
 
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.modules.analyze_images.tool import analyze_image
 from giga_agent.sandbox.base import ContentResult, RedirectResult
 from PIL import Image
 
 
 class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
-    def _runtime(self, owner_id: uuid.UUID):
+    def _runtime(self, owner_id: uuid.UUID, *, user=None, llm_runtime=None):
+        config = {"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
+        if user is not None:
+            resolver = RuntimeResolver(user)
+            if llm_runtime is not None:
+                resolver._cache["llm"] = llm_runtime
+            config["configurable"]["runtime_resolver"] = resolver
         return types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}},
+            config=config,
             tool_call_id="tool-call-1",
         )
 
@@ -27,13 +34,13 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_happy_path(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="image analysis"),
             model_id="gpt-4o",
         )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
 
         @asynccontextmanager
         async def _session_context():
@@ -50,12 +57,6 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
                     ContentResult(data=self._png_bytes(), media_type="image/png"),
                 )
             ),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
-            AsyncMock(return_value=llm_runtime),
         ):
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
@@ -78,7 +79,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_when_file_not_found(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        runtime = self._runtime(owner_id, user=user)
 
         @asynccontextmanager
         async def _session_context():
@@ -101,8 +103,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_when_user_has_no_llm(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
         user = types.SimpleNamespace(id=owner_id, llm_id=None)
+        runtime = self._runtime(owner_id, user=user)
 
         @asynccontextmanager
         async def _session_context():
@@ -119,9 +121,6 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
                     ContentResult(data=self._png_bytes(), media_type="image/png"),
                 )
             ),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
         ):
             assert analyze_image.coroutine is not None
             with self.assertRaisesRegex(ValueError, "llm_id"):
@@ -133,12 +132,12 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_when_runtime_has_no_capability(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: False,
             model_id="model",
         )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
 
         @asynccontextmanager
         async def _session_context():
@@ -155,12 +154,6 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
                     ContentResult(data=self._png_bytes(), media_type="image/png"),
                 )
             ),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
-            AsyncMock(return_value=llm_runtime),
         ):
             assert analyze_image.coroutine is not None
             with self.assertRaisesRegex(ValueError, "не поддерживает"):
@@ -172,13 +165,13 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_downloads_redirect_content(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="analysis"),
             model_id="model",
         )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
 
         @asynccontextmanager
         async def _session_context():
@@ -193,12 +186,6 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "giga_agent.modules.analyze_images.tool._download_redirect_bytes",
             AsyncMock(return_value=(self._png_bytes(), "image/png")),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
-            AsyncMock(return_value=llm_runtime),
         ):
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
@@ -213,13 +200,13 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_converts_plotly_json_before_analysis(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="chart analysis"),
             model_id="gpt-4o",
         )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
 
         @asynccontextmanager
         async def _session_context():
@@ -244,13 +231,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "giga_agent.modules.analyze_images.tool._plotly_json_to_png_bytes",
             return_value=self._png_bytes(),
-        ) as plotly_to_png, patch(
-            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
-            AsyncMock(return_value=llm_runtime),
-        ):
+        ) as plotly_to_png:
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
                 image_path="/runs/test/chart.plotly.json",
@@ -269,7 +250,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_for_non_plotly_json(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        runtime = self._runtime(owner_id, user=user)
 
         @asynccontextmanager
         async def _session_context():
@@ -300,13 +282,13 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_converts_plotly_json_by_path_when_mime_is_generic(self):
         owner_id = uuid.uuid4()
-        runtime = self._runtime(owner_id)
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="chart analysis"),
             model_id="gpt-4o",
         )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
 
         @asynccontextmanager
         async def _session_context():
@@ -331,13 +313,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ), patch(
             "giga_agent.modules.analyze_images.tool._plotly_json_to_png_bytes",
             return_value=self._png_bytes(),
-        ) as plotly_to_png, patch(
-            "giga_agent.modules.analyze_images.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.modules.analyze_images.tool.LLMManager.resolve_by_id",
-            AsyncMock(return_value=llm_runtime),
-        ):
+        ) as plotly_to_png:
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
                 image_path="/runs/test/chart.plotly.json",

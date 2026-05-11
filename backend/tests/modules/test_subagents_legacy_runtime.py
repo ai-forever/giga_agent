@@ -47,6 +47,7 @@ class SubagentsLegacyRuntimeTests(unittest.IsolatedAsyncioTestCase):
             llm_id=uuid.uuid4(),
             search_engine_id=uuid.uuid4(),
             image_generator_id=uuid.uuid4(),
+            secrets={},
         )
         session = object()
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value="llm"))
@@ -55,10 +56,10 @@ class SubagentsLegacyRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.modules.subagents_legacy.runtime.LLMManager.resolve_by_id",
             AsyncMock(return_value=llm_runtime),
         ) as llm_resolve, patch(
-            "giga_agent.modules.subagents_legacy.runtime.SearchEngineManager.resolve_by_id",
+            "giga_agent.search_engines.manager.SearchEngineManager.resolve_by_id",
             AsyncMock(return_value="search"),
         ) as search_resolve, patch(
-            "giga_agent.modules.subagents_legacy.runtime.ImageGeneratorManager.resolve_by_id",
+            "giga_agent.generators.image.manager.ImageGeneratorManager.resolve_by_id",
             AsyncMock(return_value="image"),
         ) as image_resolve:
             self.assertEqual(await resolve_user_llm(user, session=session), "llm")

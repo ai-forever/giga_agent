@@ -50,8 +50,16 @@ class SearchModule(BaseModule):
         except ValueError:
             return None
 
-    async def get_tools(self, user: UserShort | None, agent: BaseAgent) -> List[BaseTool]:
+    async def get_tools(
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
+    ) -> List[BaseTool]:
         _ = agent
+        from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+        if config is not None:
+            resolver = RuntimeResolver.from_config(config)
+            if not resolver.has_search_engine:
+                return []
         runtime_cls = await self._resolve_runtime_cls(user)
         if runtime_cls is None:
             return []
@@ -62,9 +70,10 @@ class SearchModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
-        _ = agent, state, kwargs
+        _ = agent, state, config, kwargs
         runtime_cls = await self._resolve_runtime_cls(user)
         if runtime_cls is None:
             return None

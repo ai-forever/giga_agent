@@ -160,6 +160,7 @@ class UserShort(UserBase):
     """Короткая версия пользователя без дат"""
 
     id: uuid.UUID
+    is_synthetic: bool = False
 
     def __hash__(self):
         def _freeze(value):

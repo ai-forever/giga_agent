@@ -9,12 +9,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables.config import RunnableConfig
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.generators.image.base import BaseImageGenerator
-from giga_agent.generators.image.manager import ImageGeneratorManager
 from giga_agent.llm.manager import LLMManager
-from giga_agent.models.users import UserShort, UserRepository
+from giga_agent.models.users import UserShort
 from giga_agent.search_engines.base import BaseSearchEngine
-from giga_agent.search_engines.manager import SearchEngineManager
 
 SecretKey = Literal[
     "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE",
@@ -32,30 +31,43 @@ class LegacyCapabilities:
     has_salute_scope: bool
 
 
+async def _get_or_create_resolver(config: RunnableConfig | dict) -> RuntimeResolver:
+    """Get existing resolver from config or create one on-the-fly for subgraphs."""
+    try:
+        return RuntimeResolver.from_config(config)
+    except ValueError:
+        return await RuntimeResolver.create(config)
+
+
 async def get_current_user_from_runtime(
     runtime: ToolRuntime,
     *,
     session: AsyncSession,
 ) -> UserShort:
-    owner_id = get_owner_id_from_runtime(runtime)
-    user = await UserRepository.get_cached_or_db(owner_id, session=session)
-    if user is None:
-        raise ValueError(f"Пользователь {owner_id} не найден")
-    return user
+    resolver = await _get_or_create_resolver(runtime.config)
+    return resolver.user
 
 
 def get_owner_id_from_runtime(runtime: ToolRuntime) -> uuid.UUID:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    try:
+        resolver = RuntimeResolver.from_config(runtime.config)
+        return resolver.user.id
+    except ValueError:
+        user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+        return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
 def get_owner_id_from_config(config: RunnableConfig | dict) -> uuid.UUID:
-    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-    user_data = configurable.get("langgraph_auth_user", {})
-    user_id = user_data.get("identity")
-    if user_id is None:
-        raise ValueError("langgraph_auth_user.identity отсутствует в config")
-    return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    try:
+        resolver = RuntimeResolver.from_config(config)
+        return resolver.user.id
+    except ValueError:
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        user_data = configurable.get("langgraph_auth_user", {})
+        user_id = user_data.get("identity")
+        if user_id is None:
+            raise ValueError("langgraph_auth_user.identity отсутствует в config")
+        return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
 async def get_current_user_from_config(
@@ -63,11 +75,8 @@ async def get_current_user_from_config(
     *,
     session: AsyncSession,
 ) -> UserShort:
-    owner_id = get_owner_id_from_config(config)
-    user = await UserRepository.get_cached_or_db(owner_id, session=session)
-    if user is None:
-        raise ValueError(f"Пользователь {owner_id} не найден")
-    return user
+    resolver = await _get_or_create_resolver(config)
+    return resolver.user
 
 
 def get_user_secret(user: UserShort, key: SecretKey) -> str | None:
@@ -91,7 +100,6 @@ async def resolve_user_llm(
         try:
             llm_id = uuid.UUID(subagents_llm_id)
         except ValueError:
-            # Fallback to user's default LLM when secret value is invalid.
             llm_id = user.llm_id
 
     if llm_id is None:
@@ -105,6 +113,8 @@ async def resolve_user_search_engine(
     *,
     session: AsyncSession,
 ) -> BaseSearchEngine:
+    from giga_agent.search_engines.manager import SearchEngineManager
+
     if user.search_engine_id is None:
         raise ValueError("У пользователя не выбран search_engine_id")
     return await SearchEngineManager.resolve_by_id(
@@ -118,6 +128,8 @@ async def resolve_user_image_generator(
     *,
     session: AsyncSession,
 ) -> BaseImageGenerator:
+    from giga_agent.generators.image.manager import ImageGeneratorManager
+
     if user.image_generator_id is None:
         raise ValueError("У пользователя не выбран image_generator_id")
     return await ImageGeneratorManager.resolve_by_id(
