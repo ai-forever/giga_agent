@@ -110,3 +110,6 @@ class DeepSeekRuntime(BaseLLMRuntime):
             **chat_kwargs,
             **clean_model_kwargs,
         )
+
+    def can_analyze_image(self) -> bool:
+        return False

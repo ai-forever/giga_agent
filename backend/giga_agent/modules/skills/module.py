@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.types import AgentState
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -21,7 +22,6 @@ from giga_agent.modules.skills.prompts import (
 from giga_agent.modules.skills.service import SkillsService
 from giga_agent.modules.skills.tools import activate_skill
 from giga_agent.modules.skills.api import router as skills_router
-from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 logger = get_logger(__name__)
@@ -33,10 +33,21 @@ class SkillsModule(BaseModule):
     id: str = "skills"
 
     async def get_tools(
-        self, user: UserShort | None, agent: BaseAgent
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent
         return [activate_skill]
+
+    @staticmethod
+    async def _resolve_sandbox(config: RunnableConfig | None):
+        if config is None:
+            return None
+        try:
+            resolver = RuntimeResolver.from_config(config)
+            resolved = await resolver.get_sandbox()
+            return SandboxRuntimeFactory.build(resolved.provider, resolved.sandbox)
+        except Exception:
+            return None
 
     async def get_instructions(
         self,
@@ -46,25 +57,14 @@ class SkillsModule(BaseModule):
         config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> str | None:
-        _ = agent, state, config, kwargs
+        _ = agent, state, kwargs
         if user is None:
             return None
 
         try:
+            sandbox = await self._resolve_sandbox(config)
             factory = await get_session_factory()
             async with factory() as session:
-                sandbox = None
-                try:
-                    resolved = await SandboxManager.get_cached_or_db(
-                        user_id=user.id,
-                        session=session,
-                    )
-                    sandbox = SandboxRuntimeFactory.build(
-                        resolved.provider,
-                        resolved.sandbox,
-                    )
-                except Exception:
-                    sandbox = None
                 svc = SkillsService(session)
                 skills = await svc.list_skills(user.id, sandbox)
         except Exception as e:
@@ -104,20 +104,9 @@ class SkillsModule(BaseModule):
             return None
 
         try:
+            sandbox = await self._resolve_sandbox(config)
             factory = await get_session_factory()
             async with factory() as session:
-                sandbox = None
-                try:
-                    resolved = await SandboxManager.get_cached_or_db(
-                        user_id=user.id,
-                        session=session,
-                    )
-                    sandbox = SandboxRuntimeFactory.build(
-                        resolved.provider,
-                        resolved.sandbox,
-                    )
-                except Exception:
-                    sandbox = None
                 svc = SkillsService(session)
                 all_skills = await svc.list_skills(user.id, sandbox)
         except Exception:

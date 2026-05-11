@@ -37,7 +37,7 @@ class VKModule(BaseModule):
         ]
 
     async def get_tools(
-        self, user: UserShort | None, agent: BaseAgent
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
         if not _has_secret(user, VK_SECRET_KEY):

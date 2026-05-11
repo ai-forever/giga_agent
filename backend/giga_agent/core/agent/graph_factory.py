@@ -34,7 +34,6 @@ from giga_agent.core.agent.middleware import AgentMiddleware
 
 from langchain.tools.tool_node import (
     ToolCallRequest,
-    ToolCallWithContext,
 )
 
 import uuid
@@ -59,10 +58,9 @@ from giga_agent.core.agent.think import (
     process_think_via_fast_model,
     resolve_bound_tool_choice,
 )
-from giga_agent.core.agent.tool_node import ToolNode
+from giga_agent.core.agent.tool_node import ToolCallsWithContext, ToolNode
 from giga_agent.core.agent.tools import think, multi_tool_use
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.users import UserRepository
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.utils.mcp import transform_tool
 
 if TYPE_CHECKING:
@@ -294,13 +292,12 @@ def _make_model_to_tools_edge(
             return [
                 Send(
                     "tools",
-                    ToolCallWithContext(
-                        __type="tool_call_with_context",
-                        tool_call=tool_call,
+                    ToolCallsWithContext(
+                        __type="tool_calls_with_context",
+                        tool_calls=pending_tool_calls,
                         state=state,
                     ),
                 )
-                for tool_call in pending_tool_calls
             ]
 
         # 4. If there is a structured response, exit the loop
@@ -516,21 +513,13 @@ def create_graph(
         state: AgentState, runtime: Runtime[ContextT], config
     ) -> dict[str, Any]:
         """Async model request handler with sequential middleware processing."""
-        # Получаем user_id из конфигурации langgraph auth
-        user_id = config["configurable"]["langgraph_auth_user"]["identity"]
-        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+        resolver = await RuntimeResolver.create(config)
+        resolver.inject(config)
 
-        factory = await get_session_factory()
-        async with factory() as session:
-            user = await UserRepository.get_cached_or_db(user_uuid, session=session)
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
+        user = resolver.user
 
-            if not user.llm_id:
-                raise ValueError("User has no default LLM configured")
-
-            llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
-            llm = await llm_runtime.get_llm()
+        llm_runtime = await resolver.get_llm_runtime()
+        llm = await llm_runtime.get_llm()
 
         llm_type = llm_runtime.get_llm_type()
         think_enabled = _is_feature_enabled_for_provider(
@@ -588,7 +577,7 @@ def create_graph(
             )
             messages_for_llm[-1] = enriched_message
 
-        agent_tools = await agent.get_tools(user)
+        agent_tools = await agent.get_tools(user, config=config)
         mcp_tools = [
             transform_tool(
                 {
@@ -702,6 +691,9 @@ def create_graph(
             runtime: Runtime[ContextT],
             config: RunnableConfig,
         ) -> dict[str, Any]:
+            resolver = await RuntimeResolver.create(config)
+            resolver.inject(config)
+
             for m in middleware:
                 if getattr(m.__class__, callback_type) is not getattr(
                     AgentMiddleware, callback_type

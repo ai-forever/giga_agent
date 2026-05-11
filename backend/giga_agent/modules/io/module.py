@@ -16,7 +16,7 @@ class IOModule(BaseModule):
     id: str = "io"
 
     async def get_tools(
-        self, user: UserShort | None, agent: BaseAgent
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent
         return [read_file, write_file, edit_file]
@@ -26,9 +26,10 @@ class IOModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
-        _ = user, agent, state, kwargs
+        _ = user, agent, state, config, kwargs
         return IO_MODULE_INSTRUCTIONS
 
     def get_api_router(self, **kwargs: Any):

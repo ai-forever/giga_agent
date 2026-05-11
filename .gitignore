@@ -16,6 +16,7 @@ __pycache__
 data
 qdrant_storage
 .giga_agent
+giga_agent.conf.json
 .cursor
 agents_md
 .claude

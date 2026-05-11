@@ -4,7 +4,6 @@ import asyncio
 import inspect
 import json
 import traceback
-import uuid
 from collections.abc import Callable
 from copy import copy, deepcopy
 from dataclasses import dataclass, replace
@@ -14,13 +13,12 @@ from typing import (
     Annotated,
     Any,
     Literal,
+    TypedDict,
     Union,
     cast,
     get_args,
     get_origin,
     get_type_hints,
-    Awaitable,
-    Coroutine,
 )
 
 from langchain_core.messages import (
@@ -50,6 +48,7 @@ from pydantic import BaseModel, ValidationError
 from langchain.tools.tool_node import (
     ToolRuntime,
     ToolCallRequest,
+    ToolCallWithContext,
     InjectedStore,
     InjectedState,
 )
@@ -61,9 +60,8 @@ from langgraph.prebuilt.tool_node import (
     AsyncToolCallWrapper,
 )
 
-from giga_agent.core.db import get_session_factory
 from giga_agent.core.agent.types import AgentState
-from giga_agent.models import UserRepository
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -71,6 +69,14 @@ if TYPE_CHECKING:
     from langgraph.runtime import Runtime
     from pydantic_core import ErrorDetails
     from giga_agent.core.agent.base import BaseAgent
+
+
+class ToolCallsWithContext(TypedDict):
+    """Multiple tool calls with graph state for dispatch through Send."""
+
+    tool_calls: list[ToolCall]
+    __type: Literal["tool_calls_with_context"]
+    state: Any
 
 
 def _default_handle_tool_errors(e: Exception) -> str:
@@ -382,17 +388,9 @@ class ToolNode(RunnableCallable):
         """Mapping from tool name to BaseTool instance."""
         return self._tools_by_name
 
-    async def _fill_tools(self, config: RunnableConfig):
-        user_id = config["configurable"]["langgraph_auth_user"]["identity"]
-        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-        factory = await get_session_factory()
-        async with factory() as session:
-            user = await UserRepository.get_cached_or_db(user_uuid, session=session)
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
-
-        tools = [*await self._agent.get_tools(user), *self._tools]
+    async def _fill_tools(self, resolver: RuntimeResolver, config: RunnableConfig | None = None):
+        user = resolver.user
+        tools = [*await self._agent.get_tools(user, config=config), *self._tools]
         for tool in tools:
             if not isinstance(tool, BaseTool):
                 tool_ = create_tool(cast("type[BaseTool]", tool))
@@ -408,7 +406,10 @@ class ToolNode(RunnableCallable):
         config: RunnableConfig,
         runtime: Runtime,
     ) -> Any:
-        await self._fill_tools(config)
+        resolver = await RuntimeResolver.create(config)
+        resolver.inject(config)
+
+        await self._fill_tools(resolver, config)
         tool_calls, input_type = self._parse_input(input)
         config_list = get_config_list(config, len(tool_calls))
 
@@ -661,6 +662,12 @@ class ToolNode(RunnableCallable):
             input_with_ctx = cast("ToolCallWithContext", input)
             input_type = "tool_calls"
             return [input_with_ctx["tool_call"]], input_type
+        elif (
+            isinstance(input, dict) and input.get("__type") == "tool_calls_with_context"
+        ):
+            input_with_ctx = cast("ToolCallsWithContext", input)
+            input_type = "tool_calls"
+            return input_with_ctx["tool_calls"], input_type
         elif isinstance(input, dict) and (
             messages := input.get(self._messages_key, [])
         ):
@@ -699,15 +706,18 @@ class ToolNode(RunnableCallable):
     def _extract_state(
         self, input: list[AnyMessage] | dict[str, Any] | BaseModel
     ) -> list[AnyMessage] | dict[str, Any] | BaseModel:
-        """Extract state from input, handling ToolCallWithContext if present.
+        """Extract state from input, handling context-wrapped tool calls if present.
 
         Args:
-            input: The input which may be raw state or ToolCallWithContext.
+            input: The input which may be raw state or context-wrapped tool calls.
 
         Returns:
             The actual state to pass to wrap_tool_call wrappers.
         """
-        if isinstance(input, dict) and input.get("__type") == "tool_call_with_context":
+        if isinstance(input, dict) and input.get("__type") in {
+            "tool_call_with_context",
+            "tool_calls_with_context",
+        }:
             return input["state"]
         return input
 

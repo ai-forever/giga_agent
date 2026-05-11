@@ -21,7 +21,7 @@ def setup_cache() -> None:
         return
 
     runtime = get_settings().giga_agent_runtime
-    if runtime == "local":
+    if runtime in ("local", "cli"):
         cache.setup(_DEFAULT_MEM_URL, size=2048)
     else:
         cache.setup(os.getenv("REDIS_URL", _DEFAULT_REDIS_URL))

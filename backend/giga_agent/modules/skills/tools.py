@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import uuid
-
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.modules.skills.service import SkillNotFoundError, SkillsService
-from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 logger = get_logger(__name__)
@@ -36,17 +34,10 @@ def _build_activate_skill_result(
 
 
 async def _resolve_owner_and_runtime(runtime: ToolRuntime):
-    user_id_raw = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id_raw) if isinstance(user_id_raw, str) else user_id_raw
-
-    factory = await get_session_factory()
-    async with factory() as session:
-        resolved = await SandboxManager.get_cached_or_db(
-            user_id=owner_id,
-            session=session,
-        )
+    resolver = RuntimeResolver.from_config(runtime.config)
+    resolved = await resolver.get_sandbox()
     sandbox = SandboxRuntimeFactory.build(resolved.provider, resolved.sandbox)
-    return owner_id, sandbox
+    return resolver.user.id, sandbox
 
 
 @tool(parse_docstring=False, extras={"repl_save": False})

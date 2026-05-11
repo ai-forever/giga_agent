@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +9,8 @@ import numpy as np
 from langchain.tools import ToolRuntime
 
 from giga_agent.core.logging import get_logger
-from giga_agent.core.db import get_session_factory
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.embeddings.base import BaseEmbeddingRuntime
-from giga_agent.embeddings.manager import EmbeddingManager
-from giga_agent.models.users import UserRepository
 
 _MODELS_DIR = Path(__file__).resolve().parent / "models"
 _MODEL_PREFIX = "sentiment_"
@@ -93,25 +90,9 @@ def _preload_models() -> dict[str, Any]:
 async def _resolve_user_embeddings(
     tool_runtime: ToolRuntime,
 ) -> tuple[BaseEmbeddingRuntime, str]:
-    user_id = tool_runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-        if user is None:
-            raise ValueError(f"Пользователь {owner_id} не найден")
-        if user.embedding_id is None:
-            raise ValueError(
-                "У пользователя не настроены эмбеддинги. "
-                "Укажите embedding_id в настройках пользователя."
-            )
-
-        embedding_runtime = await EmbeddingManager.resolve_by_id(
-            user.embedding_id,
-            session=session,
-        )
-        return embedding_runtime, embedding_runtime.model_id
+    resolver = RuntimeResolver.from_config(tool_runtime.config)
+    embedding_runtime = await resolver.get_embedding_runtime()
+    return embedding_runtime, embedding_runtime.model_id
 
 
 async def predict_sentiments(

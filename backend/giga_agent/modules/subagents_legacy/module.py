@@ -78,7 +78,7 @@ class SubAgentLegacyModule(BaseModule):
         ]
 
     async def get_tools(
-        self, user: UserShort | None, agent: BaseAgent
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
         if user is None:
@@ -144,9 +144,10 @@ class SubAgentLegacyModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
-        _ = agent, state, kwargs
+        _ = agent, state, config, kwargs
         if user is None:
             return ""
 

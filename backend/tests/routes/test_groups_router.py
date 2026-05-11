@@ -89,6 +89,7 @@ class GroupsRouterTests(unittest.TestCase):
             "llm_id": None,
             "fast_llm_id": None,
             "sandbox_provider_id": None,
+            "is_synthetic": False,
         }
 
     def test_superuser_guard_forbidden(self):

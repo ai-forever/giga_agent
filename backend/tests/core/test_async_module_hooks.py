@@ -27,7 +27,7 @@ class _AsyncHooksModule(BaseModule):
     def calls(self) -> list[str]:
         return self._calls
 
-    async def get_tools(self, user, agent):
+    async def get_tools(self, user, agent, *, config=None, **kwargs):
         _ = (user, agent)
         self._calls.append("get_tools")
         return [async_contract_tool]
@@ -66,22 +66,12 @@ class AsyncModuleHooksTests(unittest.IsolatedAsyncioTestCase):
             get_tools=AsyncMock(return_value=[async_contract_tool]),
         )
         node = ToolNode(tools=[], agent=agent)
-        config = {
-            "configurable": {"langgraph_auth_user": {"identity": str(user.id)}},
-        }
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
+        from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
-        with patch(
-            "giga_agent.core.agent.tool_node.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.core.agent.tool_node.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ):
-            await node._fill_tools(config)
+        resolver = RuntimeResolver(user)
+        config = {"configurable": {}}
+        await node._fill_tools(resolver, config)
 
-        agent.get_tools.assert_awaited_once_with(user)
+        agent.get_tools.assert_awaited_once_with(user, config=config)
         self.assertIn("async_contract_tool", node.tools_by_name)

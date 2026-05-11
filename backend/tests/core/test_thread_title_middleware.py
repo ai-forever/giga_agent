@@ -1,11 +1,11 @@
 import types
 import unittest
 import uuid
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch, Mock
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.middlewares.thread_title import ThreadTitleMiddleware
 
 
@@ -41,6 +41,12 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         fast_llm_id = uuid.uuid4()
         fallback_llm_id = uuid.uuid4()
 
+        user = types.SimpleNamespace(
+            id=user_id,
+            fast_llm_id=fast_llm_id,
+            llm_id=fallback_llm_id,
+        )
+
         state = {
             "messages": [HumanMessage(content="Помоги выбрать ноутбук для работы")]
         }
@@ -48,6 +54,7 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             "configurable": {
                 "thread_id": "t-2",
                 "langgraph_auth_user": {"identity": str(user_id)},
+                "runtime_resolver": RuntimeResolver(user),
             }
         }
 
@@ -66,29 +73,14 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         llm.with_config = Mock(return_value=llm)
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
-        user = types.SimpleNamespace(fast_llm_id=fast_llm_id, llm_id=fallback_llm_id)
-
         with patch(
             "giga_agent.middlewares.thread_title.get_client", return_value=client
-        ), patch(
-            "giga_agent.middlewares.thread_title.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.middlewares.thread_title.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.middlewares.thread_title.LLMManager.resolve_by_id",
+        ), patch.object(
+            RuntimeResolver,
+            "get_fast_llm_runtime",
             AsyncMock(return_value=llm_runtime),
-        ) as resolve_llm:
+        ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
-
-        resolve_llm.assert_awaited_once()
-        called_llm_id = resolve_llm.await_args.args[0]
-        self.assertEqual(called_llm_id, fast_llm_id)
 
         client.threads.update.assert_awaited_once()
         args, kwargs = client.threads.update.await_args
@@ -100,6 +92,12 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         user_id = uuid.uuid4()
         llm_id = uuid.uuid4()
 
+        user = types.SimpleNamespace(
+            id=user_id,
+            fast_llm_id=None,
+            llm_id=llm_id,
+        )
+
         state = {
             "messages": [HumanMessage(content="Помоги выбрать ноутбук для работы")]
         }
@@ -107,6 +105,7 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             "configurable": {
                 "thread_id": "t-3",
                 "langgraph_auth_user": {"identity": str(user_id)},
+                "runtime_resolver": RuntimeResolver(user),
             }
         }
 
@@ -123,22 +122,11 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         llm.with_config = Mock(return_value=llm)
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
-        user = types.SimpleNamespace(fast_llm_id=None, llm_id=llm_id)
-
         with patch(
             "giga_agent.middlewares.thread_title.get_client", return_value=client
-        ), patch(
-            "giga_agent.middlewares.thread_title.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.middlewares.thread_title.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.middlewares.thread_title.LLMManager.resolve_by_id",
+        ), patch.object(
+            RuntimeResolver,
+            "get_fast_llm_runtime",
             AsyncMock(return_value=llm_runtime),
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)

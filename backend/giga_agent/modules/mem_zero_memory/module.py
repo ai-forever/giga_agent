@@ -10,12 +10,13 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from giga_agent.core.agent.base import BaseAgent
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.events import event_bus
 from giga_agent.core.module import BaseModule
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 from giga_agent.modules.mem_zero_memory.memory import (
     MemZeroEmbeddingsNotConfigured,
@@ -41,18 +42,13 @@ async def _background_save_memory(
     human_content: str, ai_content: str, config: RunnableConfig
 ):
     try:
-        user_id = config["configurable"]["langgraph_auth_user"]["identity"]
-        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+        resolver = RuntimeResolver.from_config(config)
+        user = resolver.user
+        if user.embedding_id is None:
+            return
 
         factory = await get_session_factory()
         async with factory() as session:
-            user = await UserRepository.get_cached_or_db(user_uuid, session=session)
-            if user is None:
-                return
-            if user.embedding_id is None:
-                # Module is disabled for users without embeddings configured.
-                return
-
             memory = await get_memory_for_user(user=user, session=session)
         interaction = [
             {"role": "user", "content": human_content},
