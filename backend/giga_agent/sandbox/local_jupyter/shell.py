@@ -68,7 +68,11 @@ class LocalShellMixin:
         if block_until_ms < 0:
             raise ValueError("block_until_ms must be >= 0")
 
-        default_cwd = str(get_local_jupyter_server_manager()._working_dir())
+        default_workdir = getattr(self, "_default_workdir", None)
+        if getattr(self, "default_cwd", None) and callable(default_workdir):
+            default_cwd = str(default_workdir())
+        else:
+            default_cwd = str(get_local_jupyter_server_manager()._working_dir())
         cwd = (working_directory or default_cwd).strip() or default_cwd
 
         shell_id = uuid.uuid4().hex

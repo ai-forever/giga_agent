@@ -8,6 +8,7 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.conf import get_settings
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     ConfigSchema,
@@ -22,7 +23,6 @@ from giga_agent.modules.subagents_legacy.agents.presentation_agent.nodes.plan im
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.nodes.slides import (
     slides_node,
 )
-from giga_agent.modules.subagents_legacy.runtime import with_auth_from_runtime
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
 from giga_agent.utils.langgraph_sdk import get_client
 from giga_agent.utils.messages import filter_tool_calls
@@ -55,40 +55,47 @@ async def generate_presentation(
         presentation_task: Описание презентации
 
     """
-    client = get_client(runtime.config)
-    thread = await client.threads.create()
-    thread_id = thread["thread_id"]
-    push_ui_message(
-        "agent_execution",
-        {
-            "agent": "generate_presentation",
-            "node": "__start__",
-            "tool_call_id": runtime.tool_call_id,
-        },
-    )
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
-    state = {}
-    async for chunk in client.runs.stream(
-        thread_id=thread_id,
-        assistant_id="presentation",
-        input={
-            "messages": runtime.state["messages"][:-1] + [last_mes],
-            "task": presentation_task,
-        },
-        stream_mode=["values", "updates"],
-        on_disconnect="cancel",
-    ):
-        if chunk.event == "values":
-            state = chunk.data
-        elif chunk.event == "updates":
-            push_ui_message(
-                "agent_execution",
-                {
-                    "agent": "generate_presentation",
-                    "node": list(chunk.data.keys())[0],
-                    "tool_call_id": runtime.tool_call_id,
-                },
-            )
+    input_data = {
+        "messages": runtime.state["messages"][:-1] + [last_mes],
+        "task": presentation_task,
+    }
+
+    if get_settings().giga_agent_runtime == "cli":
+        from giga_agent.modules.subagents_legacy.runtime import invoke_subgraph_cli
+
+        state = await invoke_subgraph_cli(graph, input_data, runtime)
+    else:
+        client = get_client(runtime.config)
+        thread = await client.threads.create()
+        thread_id = thread["thread_id"]
+        push_ui_message(
+            "agent_execution",
+            {
+                "agent": "generate_presentation",
+                "node": "__start__",
+                "tool_call_id": runtime.tool_call_id,
+            },
+        )
+        state = {}
+        async for chunk in client.runs.stream(
+            thread_id=thread_id,
+            assistant_id="presentation",
+            input=input_data,
+            stream_mode=["values", "updates"],
+            on_disconnect="cancel",
+        ):
+            if chunk.event == "values":
+                state = chunk.data
+            elif chunk.event == "updates":
+                push_ui_message(
+                    "agent_execution",
+                    {
+                        "agent": "generate_presentation",
+                        "node": list(chunk.data.keys())[0],
+                        "tool_call_id": runtime.tool_call_id,
+                    },
+                )
     code = FileResponse.model_validate(state["presentation_html"])
     return build_tool_message(
         runtime,

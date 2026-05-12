@@ -20,7 +20,7 @@ async def text_node(state: MemeState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     ch = (
         MEME_TEXT_PROMPT
         | llm.with_config(tags=["nostream"])

@@ -1,7 +1,7 @@
 import types
 import unittest
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -9,7 +9,11 @@ from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.file import FileRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
-from giga_agent.models.sandbox import SandboxProvider
+from giga_agent.models.sandbox import (
+    SandboxProvider,
+    SandboxProviderSnapshot,
+    SandboxSnapshot,
+)
 from giga_agent.models.users import User
 from giga_agent.sandbox.base import ContentResult
 from giga_agent.sandbox.manager import (
@@ -17,6 +21,7 @@ from giga_agent.sandbox.manager import (
     ProviderNotFoundError,
     SandboxManager,
 )
+from giga_agent.sandbox.manager.types import SandboxResolved
 
 
 class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
@@ -265,6 +270,62 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 file_id=file.id,
             )
 
+    async def test_read_file_by_path_for_user_reads_cli_sandbox_directly(self):
+        user_id = uuid.uuid4()
+        provider_id = uuid.uuid4()
+        sandbox_id = uuid.uuid4()
+        sandbox_path = "/tmp/cli-output.txt"
+        content = ContentResult(data=b"cli-data")
+        provider = SandboxProviderSnapshot(
+            id=provider_id,
+            owner_id=user_id,
+            type="local_jupyter",
+            name="cli_local_jupyter",
+        )
+        sandbox = SandboxSnapshot(
+            id=sandbox_id,
+            owner_id=user_id,
+            provider_id=provider_id,
+            status="pending",
+        )
+        runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=content))
+
+        async with self.session_factory() as session:
+            manager = SandboxManager(session)
+            manager._resolve.get_or_create_for_user = AsyncMock(
+                return_value=SandboxResolved(provider=provider, sandbox=sandbox)
+            )
+            manager._runtime_factory.build = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+
+            with (
+                patch(
+                    "giga_agent.sandbox.manager.file_service._is_cli_runtime",
+                    return_value=True,
+                ),
+                patch(
+                    "giga_agent.sandbox.manager.file_service.UserRepository.get_cached_or_db",
+                    side_effect=AssertionError("DB user lookup should not run in CLI mode"),
+                ),
+            ):
+                fetched, result = await manager.read_file_by_path_for_user(
+                    user_id=user_id,
+                    sandbox_path=sandbox_path,
+                )
+
+        self.assertEqual(fetched.owner_id, user_id)
+        self.assertEqual(fetched.provider_id, provider_id)
+        self.assertEqual(fetched.sandbox_path, sandbox_path)
+        self.assertEqual(fetched.original_name, "cli-output.txt")
+        self.assertEqual(fetched.file_type, "other")
+        self.assertEqual(fetched.size, 0)
+        self.assertIs(result, content)
+        manager._resolve.get_or_create_for_user.assert_awaited_once_with(
+            user_id=user_id,
+            provider_id=None,
+            use_cache=True,
+        )
+        runtime.read_file.assert_awaited_once_with(sandbox_path)
+
     async def test_upload_files_for_user_creates_db_records_in_input_order(self):
         user = await self._create_user("m6@example.com")
         await self._create_provider(user.id)
@@ -414,3 +475,68 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             )
             hot_runtime.delete_file.assert_awaited_once_with(file.sandbox_path)
             self.assertIsNone(await repo.get_by_id(file.id))
+
+    async def test_path_write_and_exists_resolve_cli_sandbox_directly(self):
+        user_id = uuid.uuid4()
+        provider_id = uuid.uuid4()
+        sandbox_id = uuid.uuid4()
+        sandbox_path = "/tmp/cli-output.txt"
+        provider = SandboxProviderSnapshot(
+            id=provider_id,
+            owner_id=user_id,
+            type="local_jupyter",
+            name="cli_local_jupyter",
+        )
+        sandbox = SandboxSnapshot(
+            id=sandbox_id,
+            owner_id=user_id,
+            provider_id=provider_id,
+            status="pending",
+        )
+        runtime = types.SimpleNamespace(
+            write_file_content=AsyncMock(return_value=None),
+            file_exists=AsyncMock(return_value=True),
+        )
+
+        async with self.session_factory() as session:
+            manager = SandboxManager(session)
+            manager._resolve.get_or_create_for_user = AsyncMock(
+                return_value=SandboxResolved(provider=provider, sandbox=sandbox)
+            )
+            manager._runtime_factory.build = lambda provider, sandbox: runtime  # type: ignore[method-assign]
+
+            with (
+                patch(
+                    "giga_agent.sandbox.manager.file_service._is_cli_runtime",
+                    return_value=True,
+                ),
+                patch(
+                    "giga_agent.sandbox.manager.file_service.UserRepository.get_cached_or_db",
+                    side_effect=AssertionError(
+                        "DB user lookup should not run in CLI mode"
+                    ),
+                ),
+            ):
+                await manager.write_file_content_for_user(
+                    user_id=user_id,
+                    sandbox_path=sandbox_path,
+                    content=b"cli-data",
+                )
+                exists = await manager.file_exists_for_user(
+                    user_id=user_id,
+                    sandbox_path=sandbox_path,
+                )
+
+        self.assertTrue(exists)
+        self.assertEqual(manager._resolve.get_or_create_for_user.await_count, 2)
+        for awaited in manager._resolve.get_or_create_for_user.await_args_list:
+            self.assertEqual(
+                awaited.kwargs,
+                {
+                    "user_id": user_id,
+                    "provider_id": None,
+                    "use_cache": True,
+                },
+            )
+        runtime.write_file_content.assert_awaited_once_with(sandbox_path, b"cli-data")
+        runtime.file_exists.assert_awaited_once_with(sandbox_path)

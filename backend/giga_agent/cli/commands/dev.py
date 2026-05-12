@@ -5,7 +5,6 @@ import importlib
 import inspect
 import json
 import os
-import secrets
 import signal
 import subprocess
 import sys
@@ -21,35 +20,14 @@ from giga_agent.core.process_supervisor import get_process_supervisor
 
 from ._langgraph_config import build_langgraph_runtime_config
 from ..types import LogLevel
+from ..utils.secret_key import ensure_dev_secret_key_env
 
 logger = get_logger(__name__)
 
-_SECRET_KEY_ENV = "GIGA_AGENT_SECRET_KEY"
-_DEV_SECRET_KEY_FILE = ".secret_key"
 _CHILD_SHUTDOWN_WAIT_TIMEOUT_SEC = 2.5
 _CHILD_FORCE_STOP_WAIT_TIMEOUT_SEC = 1.0
 _CHILD_FORCE_STOP_DELAY_SEC = 3.0
 _DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC = 3
-
-
-def _ensure_dev_secret_key_env() -> None:
-    existing_secret = (os.getenv(_SECRET_KEY_ENV) or "").strip()
-    if existing_secret:
-        return
-
-    from giga_agent.core.paths import ensure_giga_agent_dir
-
-    project_root = ensure_giga_agent_dir()
-    secret_key_path = project_root / _DEV_SECRET_KEY_FILE
-    if secret_key_path.exists():
-        file_secret = secret_key_path.read_text(encoding="utf-8").strip()
-        if file_secret:
-            os.environ[_SECRET_KEY_ENV] = file_secret
-            return
-
-    generated_secret = secrets.token_hex(32)
-    secret_key_path.write_text(f"{generated_secret}\n", encoding="utf-8")
-    os.environ[_SECRET_KEY_ENV] = generated_secret
 
 
 def _print_startup_banner(*, host: str, port: int) -> None:
@@ -288,7 +266,7 @@ def dev(
     from giga_agent.core.paths import ensure_giga_agent_dir
 
     ensure_giga_agent_dir()
-    _ensure_dev_secret_key_env()
+    ensure_dev_secret_key_env()
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
     os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")

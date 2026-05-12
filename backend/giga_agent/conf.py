@@ -11,6 +11,9 @@ from urllib.parse import urlunsplit
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+GIGA_AGENT_RUNTIME_ENV = "GIGA_AGENT_RUNTIME"
+GIGA_AGENT_CLI_CWD_ENV = "GIGA_AGENT_CLI_CWD"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -25,8 +28,9 @@ class Settings(BaseSettings):
     giga_agent_ui: bool = Field(True, alias="GIGA_AGENT_UI")
     giga_agent_ui_prefix: Optional[str] = Field(None, alias="GIGA_AGENT_UI_PREFIX")
 
-    giga_agent_runtime: str = Field("local", alias="GIGA_AGENT_RUNTIME")
+    giga_agent_runtime: str = Field("local", alias=GIGA_AGENT_RUNTIME_ENV)
     giga_agent_runtime_local: bool = Field(False, alias="GIGA_AGENT_RUNTIME_LOCAL")
+    giga_agent_cli_cwd: str | None = Field(None, alias=GIGA_AGENT_CLI_CWD_ENV)
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",
@@ -451,7 +455,9 @@ def get_local_docker_max_active_sandboxes_from_env() -> int | None:
 
 GIGA_AGENT_PREFIX_API = get_settings().giga_agent_prefix_api
 GIGA_PREFIX_API = GIGA_AGENT_PREFIX_API
+GIGA_AGENT_RUNTIME = get_settings().giga_agent_runtime
 GIGA_AGENT_RUNTIME_LOCAL = get_settings().giga_agent_runtime_local
+GIGA_AGENT_CLI_CWD = get_settings().giga_agent_cli_cwd
 GIGA_AGENT_STT_RUNTIME = get_settings().giga_agent_stt_runtime
 GIGA_AGENT_BASE_URL = get_settings().giga_agent_base_url
 GIGA_AGENT_FRONTEND_DIR = get_settings().giga_agent_frontend_dir

@@ -14,10 +14,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 
 from giga_agent.conf import get_settings
-from giga_agent.core.db import get_session_factory
-from giga_agent.core.logging import get_logger
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
-from giga_agent.models.llm import LLMRepository
+from giga_agent.core.logging import get_logger
 from giga_agent.utils.messages import filter_tool_calls
 
 logger = get_logger(__name__)
@@ -88,7 +86,6 @@ async def _load_via_jina_reader(
         response = await client.get(reader_url, headers=headers)
         response.raise_for_status()
 
-        content = response.content
         text = response.text.strip()
         if not text:
             raise ValueError("Jina Reader вернул пустой результат.")
@@ -104,12 +101,7 @@ async def _load_via_jina_reader(
 async def _resolve_fast_llm(runtime: ToolRuntime):
     resolver = RuntimeResolver.from_config(runtime.config)
     fast_llm_runtime = await resolver.get_fast_llm_runtime()
-
-    llm_id = resolver.user.fast_llm_id or resolver.user.llm_id
-    factory = await get_session_factory()
-    async with factory() as session:
-        llm_context = await LLMRepository.get_cached_or_db(llm_id, session=session)
-    parallel_calls = max(1, int(llm_context.parallel_calls)) if llm_context else 1
+    parallel_calls = await resolver.get_fast_llm_parallel_calls()
     llm = await fast_llm_runtime.get_llm()
     return (
         llm.bind(top_p=0.3).with_config(tags=["nostream"]),

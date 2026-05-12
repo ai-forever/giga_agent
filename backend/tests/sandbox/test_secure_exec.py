@@ -114,12 +114,63 @@ class SandboxAccessPolicyTests(unittest.TestCase):
         self.assertIn((home / "Library" / "Caches" / "Homebrew").resolve(), roots)
         self.assertIn((home / "Library" / "Caches" / "ms-playwright").resolve(), roots)
         self.assertIn((home / "Library" / "Caches" / "puppeteer").resolve(), roots)
+        self.assertIn((home / ".matplotlib").resolve(), roots)
+        self.assertIn((home / ".config" / "matplotlib").resolve(), roots)
+        self.assertIn((home / ".cache" / "matplotlib").resolve(), roots)
+        self.assertIn((home / "Library" / "Caches" / "matplotlib").resolve(), roots)
         self.assertIn(
             (home / "Library" / "Developer" / "Xcode" / "DerivedData").resolve(),
             roots,
         )
         self.assertIn((home / "Library" / "Caches" / "uv").resolve(), roots)
         self.assertIn((home / "Library" / "Application Support" / "Cypress").resolve(), roots)
+        self.assertIn(
+            (home / "Library" / "Application Support" / "matplotlib").resolve(),
+            roots,
+        )
+
+    def test_default_package_cache_write_roots_include_python_notebook_state(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            home = Path(tmp_dir) / "home"
+
+            with (
+                patch(
+                    "giga_agent.sandbox.secure_exec.policy.platform.system",
+                    return_value="Linux",
+                ),
+                patch(
+                    "giga_agent.sandbox.secure_exec.policy.Path.home",
+                    return_value=home,
+                ),
+            ):
+                roots = default_package_cache_write_roots()
+
+        self.assertIn((home / ".ipython").resolve(), roots)
+        self.assertIn((home / ".jupyter").resolve(), roots)
+        self.assertIn((home / ".matplotlib").resolve(), roots)
+        self.assertIn((home / ".plotly").resolve(), roots)
+        self.assertIn((home / ".bokeh").resolve(), roots)
+        self.assertIn((home / ".imageio").resolve(), roots)
+        self.assertIn((home / ".sympy").resolve(), roots)
+        self.assertIn((home / "nltk_data").resolve(), roots)
+        self.assertIn((home / ".config" / "matplotlib").resolve(), roots)
+        self.assertIn((home / ".config" / "fontconfig").resolve(), roots)
+        self.assertIn((home / ".cache" / "matplotlib").resolve(), roots)
+        self.assertIn((home / ".cache" / "fontconfig").resolve(), roots)
+        self.assertIn((home / ".cache" / "jupyter").resolve(), roots)
+        self.assertIn((home / ".cache" / "plotly").resolve(), roots)
+        self.assertIn((home / ".cache" / "bokeh").resolve(), roots)
+        self.assertIn((home / ".cache" / "imageio").resolve(), roots)
+        self.assertIn((home / ".cache" / "scikit-image").resolve(), roots)
+        self.assertIn((home / ".cache" / "xarray_tutorial_data").resolve(), roots)
+        self.assertIn((home / ".cache" / "librosa").resolve(), roots)
+        self.assertIn((home / ".cache" / "numba").resolve(), roots)
+        self.assertIn((home / ".local" / "share" / "jupyter").resolve(), roots)
+        self.assertIn((home / ".local" / "share" / "nltk_data").resolve(), roots)
+        self.assertIn((home / ".local" / "share" / "spacy").resolve(), roots)
+        self.assertIn((home / ".cache" / "huggingface").resolve(), roots)
+        self.assertIn((home / ".cache" / "torch").resolve(), roots)
+        self.assertIn((home / ".cache" / "keras").resolve(), roots)
 
     def test_default_package_cache_write_roots_include_common_agent_tool_state(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

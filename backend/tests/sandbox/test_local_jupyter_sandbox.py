@@ -96,6 +96,17 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_default_cwd_is_runtime_only_setting(self):
+        with patch(
+            "giga_agent.sandbox.local_jupyter.runtime.ensure_jupyter_dependencies",
+            return_value=None,
+        ):
+            validated = await LocalJupyterSandbox.validate_settings(
+                {"default_cwd": "/tmp/work"}
+            )
+
+        self.assertEqual(validated, {})
+
     async def test_default_exclude_read_dirs_uses_absolute_ssh_path(self):
         runtime = LocalJupyterSandbox(owner_id=uuid.uuid4())
 
@@ -310,7 +321,13 @@ Use this skill.
                 exclude_read_dirs=[tmp_dir],
             )
 
-            with self.assertRaises(SandboxAccessDeniedError):
+            with (
+                patch(
+                    "giga_agent.sandbox.local_jupyter.runtime.default_package_cache_write_roots",
+                    return_value=[],
+                ),
+                self.assertRaises(SandboxAccessDeniedError),
+            ):
                 await runtime.read_file(denied_path)
 
     async def test_write_file_rejects_absolute_path_without_write_grant(self):
@@ -318,7 +335,13 @@ Use this skill.
             outside_path = os.path.join(tmp_dir, "outside.txt")
             runtime = LocalJupyterSandbox(owner_id=uuid.uuid4())
 
-            with self.assertRaises(SandboxAccessDeniedError):
+            with (
+                patch(
+                    "giga_agent.sandbox.local_jupyter.runtime.default_package_cache_write_roots",
+                    return_value=[],
+                ),
+                self.assertRaises(SandboxAccessDeniedError),
+            ):
                 await runtime.write_file_content(outside_path, b"blocked")
 
     async def test_write_file_allows_runtime_write_dirs(self):
@@ -335,6 +358,106 @@ Use this skill.
 
         self.assertIsInstance(result, ContentResult)
         self.assertEqual(result.data, b"allowed")
+
+    async def test_build_access_policy_allows_default_cwd_write(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manager = types.SimpleNamespace(
+                _working_dir=Mock(return_value=Path(tmp_dir) / "manager"),
+                _runtime_dir=Mock(return_value=Path(tmp_dir) / "runtime"),
+                _config_dir=Mock(return_value=Path(tmp_dir) / "config"),
+                _data_dir=Mock(return_value=Path(tmp_dir) / "data"),
+                _shims_dir=Mock(return_value=Path(tmp_dir) / "shims"),
+                _shell_sessions_root=Mock(return_value=Path(tmp_dir) / "shells"),
+                _python_executable=Mock(return_value=Path(os.sys.executable)),
+            )
+            cwd = Path(tmp_dir) / "workspace"
+            cwd.mkdir()
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                default_cwd=str(cwd),
+            )
+
+            with patch(
+                "giga_agent.sandbox.local_jupyter.runtime.get_local_jupyter_server_manager",
+                return_value=manager,
+            ):
+                policy = runtime._build_access_policy()
+
+        self.assertTrue(policy.can_write(cwd))
+        self.assertEqual(policy.assert_valid_cwd(require_writable=True), cwd.resolve())
+
+    async def test_prompt_includes_default_cwd_policy_and_files(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cwd = Path(tmp_dir) / "workspace"
+            cwd.mkdir()
+            (cwd / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+            (cwd / "src").mkdir()
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                default_cwd=str(cwd),
+            )
+
+            with patch(
+                "giga_agent.sandbox.local_jupyter.runtime._git_cwd_entries",
+                return_value=["data.csv", "src/app.py"],
+            ):
+                prompt = runtime.get_prompt()
+
+        self.assertIn(
+            f"Текущая рабочая директория: {cwd.resolve().as_posix()}/", prompt
+        )
+        self.assertIn("доступна на запись", prompt)
+        if os.name != "nt":
+            self.assertIn("/tmp", prompt)
+        self.assertIn("- data.csv", prompt)
+        self.assertIn("- src/", prompt)
+        self.assertIn("Git-aware список файлов", prompt)
+        self.assertIn("- src/app.py", prompt)
+
+    async def test_prompt_omits_git_file_section_when_not_git_repo(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cwd = Path(tmp_dir) / "workspace"
+            cwd.mkdir()
+            (cwd / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                default_cwd=str(cwd),
+            )
+
+            with patch(
+                "giga_agent.sandbox.local_jupyter.runtime._git_cwd_entries",
+                return_value=[],
+            ):
+                prompt = runtime.get_prompt()
+
+        self.assertIn("Верхний уровень текущей рабочей директории", prompt)
+        self.assertIn("- data.csv", prompt)
+        self.assertNotIn("Git-aware список файлов", prompt)
+
+    async def test_run_code_injects_default_cwd_prelude(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cwd = Path(tmp_dir) / "workspace"
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                default_cwd=str(cwd),
+            )
+            captured: dict[str, str] = {}
+
+            async def fake_run_code(self, code, *args, **kwargs):
+                captured["code"] = code
+                if False:
+                    yield {}
+
+            with patch(
+                "giga_agent.sandbox.jupyter.JupyterSandbox.run_code",
+                new=fake_run_code,
+            ):
+                async for _ in runtime.run_code("print('ok')"):
+                    pass
+
+        self.assertIn(f"_giga_agent_cwd = {str(cwd.resolve())!r}", captured["code"])
+        self.assertIn("_giga_agent_os.chdir(_giga_agent_cwd)", captured["code"])
+        self.assertTrue(captured["code"].rstrip().endswith("print('ok')"))
 
     async def test_cleanup_orphans_marks_running_sandboxes_stopped_when_server_missing(
         self,
@@ -568,6 +691,38 @@ class LocalJupyterShellTests(unittest.IsolatedAsyncioTestCase):
                 result = await runtime.run_shell("pwd")
 
             self.assertEqual(result.cwd, work_dir)
+
+    async def test_run_shell_uses_default_cwd(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env({"GIGA_AGENT_PROJECT_ROOT": tmp_dir}, clear=False),
+        ):
+            work_dir = os.path.join(tmp_dir, "cli_workspace")
+            os.makedirs(work_dir)
+            manager = self._mock_manager(tmp_dir)
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                default_cwd=work_dir,
+            )
+            supervisor = Mock(
+                register_process=Mock(),
+                unregister_process=Mock(),
+                list_processes=Mock(return_value=[]),
+            )
+
+            with (
+                patch(
+                    "giga_agent.sandbox.local_jupyter.shell.get_local_jupyter_server_manager",
+                    return_value=manager,
+                ),
+                patch(
+                    "giga_agent.sandbox.local_jupyter.shell.get_process_supervisor",
+                    return_value=supervisor,
+                ),
+            ):
+                result = await runtime.run_shell("pwd")
+
+            self.assertEqual(result.cwd, str(Path(work_dir).resolve()))
 
     async def test_run_shell_env_contains_shims_path(self):
         with (

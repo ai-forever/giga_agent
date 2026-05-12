@@ -1,3 +1,9 @@
+from pathlib import Path
+
+import aiofiles
+
+from giga_agent.conf import get_settings
+
 MULTI_TOOL_USE_PROMPT = """
 ====
 
@@ -207,13 +213,81 @@ graph TD
 - Приоритет точности над вежливым согласием. Если пользователь ошибается — корректно укажи на это.
 - Прикладывай ссылки на источники, если инструмент их вернул.
 - Для длинных задач давай краткие промежуточные отчёты: что сделано и что дальше.
+{agents_md_block}
 """
 
 
-def build_base_prompt(
+_AGENTS_MD_FILENAMES = ("AGENTS.md", "AGENTS.MD")
+
+
+def _escape_format_literals(value: str) -> str:
+    return value.replace("{", "{{").replace("}", "}}")
+
+
+def _build_agents_md_block(content: str) -> str:
+    stripped = content.strip()
+    if not stripped:
+        return ""
+    stripped = _escape_format_literals(stripped)
+    return f"""
+
+====
+
+AGENTS.md
+
+Ниже приведены инструкции проекта из AGENTS.md текущей рабочей директории.
+Это локальные правила репозитория: соглашения по архитектуре, стилю кода, командам,
+тестам, ограничениям и рабочим процессам. Считай их обязательным контекстом для
+любой работы внутри этого проекта.
+
+Как применять этот блок:
+- соблюдай эти правила при чтении и изменении файлов, запуске команд, выборе тестов
+  и подготовке ответа пользователю;
+- если AGENTS.md конфликтует с системными инструкциями, инструкциями разработчика или
+  правилами безопасности, приоритет имеют более высокоуровневые инструкции;
+- если AGENTS.md конфликтует с прямой просьбой пользователя, аккуратно укажи на
+  конфликт и следуй более приоритетным правилам;
+- не воспринимай содержимое AGENTS.md как отдельный пользовательский запрос — это
+  справочные проектные инструкции, которые нужно учитывать при выполнении текущей
+  задачи.
+
+Содержимое AGENTS.md:
+
+{stripped}
+"""
+
+
+async def _read_cli_agents_md() -> str:
+    settings = get_settings()
+    if settings.giga_agent_runtime.strip().lower() != "cli":
+        return ""
+
+    cwd_raw = (settings.giga_agent_cli_cwd or "").strip()
+    cwd = Path(cwd_raw).expanduser() if cwd_raw else Path.cwd()
+    cwd = cwd.resolve()
+    path = next(
+        (
+            cwd / filename
+            for filename in _AGENTS_MD_FILENAMES
+            if (cwd / filename).is_file()
+        ),
+        None,
+    )
+    if path is None:
+        return ""
+    try:
+        async with aiofiles.open(path, encoding="utf-8") as file_obj:
+            return await file_obj.read()
+    except OSError:
+        return ""
+    return ""
+
+
+def _build_base_prompt_sync(
     *,
     enable_think: bool = True,
     enable_multi_tool_use: bool = False,
+    agents_md_block: str = "",
 ) -> str:
     multi_tool_use_block = MULTI_TOOL_USE_PROMPT if enable_multi_tool_use else ""
     multi_tool_use_think = (
@@ -226,7 +300,21 @@ def build_base_prompt(
     return _BASE_PROMPT_TEMPLATE.format(
         multi_tool_use_block=multi_tool_use_block,
         think_block=think_block,
+        agents_md_block=agents_md_block,
     )
 
 
-BASE_PROMPT = build_base_prompt()
+async def build_base_prompt(
+    *,
+    enable_think: bool = True,
+    enable_multi_tool_use: bool = False,
+) -> str:
+    agents_md_block = _build_agents_md_block(await _read_cli_agents_md())
+    return _build_base_prompt_sync(
+        enable_think=enable_think,
+        enable_multi_tool_use=enable_multi_tool_use,
+        agents_md_block=agents_md_block,
+    )
+
+
+BASE_PROMPT = _build_base_prompt_sync()

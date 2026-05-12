@@ -1,3 +1,4 @@
+import asyncio
 import os
 import types
 import unittest
@@ -6,10 +7,12 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from langchain.tools import tool
+from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 from pydantic import PrivateAttr
 
 from giga_agent.core.agent.base import BaseAgent
-from giga_agent.core.agent.tool_node import ToolNode
+from giga_agent.core.agent.tool_node import AgentToolRuntime, ToolNode
 from giga_agent.core.module import BaseModule
 
 
@@ -75,3 +78,56 @@ class AsyncModuleHooksTests(unittest.IsolatedAsyncioTestCase):
 
         agent.get_tools.assert_awaited_once_with(user, config=config)
         self.assertIn("async_contract_tool", node.tools_by_name)
+
+    async def test_tool_node_python_calls_run_sequentially_with_kernel_state(self):
+        agent = types.SimpleNamespace()
+        node = ToolNode(tools=[], agent=agent)
+        python_seen_kernel_ids: list[str | None] = []
+        other_started = asyncio.Event()
+
+        async def fake_arun_one(call, input_type, tool_runtime):
+            _ = input_type
+            if call["name"] == "python":
+                python_seen_kernel_ids.append(tool_runtime.state.get("kernel_id"))
+                if call["id"] == "1":
+                    await asyncio.wait_for(other_started.wait(), timeout=1)
+                return Command(
+                    update={
+                        "messages": [
+                            ToolMessage(
+                                content="ok",
+                                tool_call_id=call["id"],
+                            )
+                        ],
+                        "kernel_id": f"kernel-{call['id']}",
+                    }
+                )
+            other_started.set()
+            return ToolMessage(content="ok", tool_call_id=call["id"])
+
+        node._arun_one = fake_arun_one
+        tool_calls = [
+            {"name": "python", "args": {}, "id": "1", "type": "tool_call"},
+            {"name": "python", "args": {}, "id": "2", "type": "tool_call"},
+            {"name": "other", "args": {}, "id": "3", "type": "tool_call"},
+        ]
+        tool_runtimes = [
+            AgentToolRuntime(
+                state={},
+                tool_call_id=call["id"],
+                config={},
+                context=None,
+                store=None,
+                stream_writer=None,
+                agent=agent,
+            )
+            for call in tool_calls
+        ]
+
+        outputs = await node._arun_tool_calls(tool_calls, "tool_calls", tool_runtimes)
+
+        self.assertEqual(python_seen_kernel_ids, [None, "kernel-1"])
+        self.assertIsInstance(outputs[0], Command)
+        self.assertNotIn("kernel_id", outputs[0].update)
+        self.assertIsInstance(outputs[1], Command)
+        self.assertEqual(outputs[1].update["kernel_id"], "kernel-2")

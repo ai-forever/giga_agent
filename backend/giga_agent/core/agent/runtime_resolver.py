@@ -9,10 +9,12 @@ Down-stream consumers (tools, middlewares, module hooks) retrieve it with
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables.config import RunnableConfig
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserShort, UserRepository
 
@@ -150,6 +152,23 @@ class RuntimeResolver:
             runtime = await LLMManager.resolve_by_id(llm_id, session=session)
         self._cache["fast_llm"] = runtime
         return runtime
+
+    async def get_fast_llm_parallel_calls(self) -> int:
+        """Resolve fast LLM parallelism (``fast_llm_id`` falling back to ``llm_id``)."""
+        from giga_agent.models.llm import LLMRepository
+
+        cached: int | None = self._cache.get("fast_llm_parallel_calls")
+        if cached is not None:
+            return cached
+        llm_id = self._user.fast_llm_id or self._user.llm_id
+        if llm_id is None:
+            raise ValueError("User has no fast_llm_id or llm_id configured")
+        factory = await get_session_factory()
+        async with factory() as session:
+            llm = await LLMRepository.get_cached_or_db(llm_id, session=session)
+        parallel_calls = max(1, int(llm.parallel_calls)) if llm is not None else 1
+        self._cache["fast_llm_parallel_calls"] = parallel_calls
+        return parallel_calls
 
     # ------------------------------------------------------------------
     # Embeddings
@@ -318,6 +337,17 @@ class CliRuntimeResolver(RuntimeResolver):
         self._cache["fast_llm"] = runtime
         return runtime
 
+    async def get_fast_llm_parallel_calls(self) -> int:
+        cached: int | None = self._cache.get("fast_llm_parallel_calls")
+        if cached is not None:
+            return cached
+        conf_llm = self._conf.fast_llm or self._conf.llm
+        if conf_llm is None:
+            raise ValueError("No fast_llm or llm configured in giga_agent.conf.json")
+        parallel_calls = max(3, int(conf_llm.settings.get("parallel_calls", 3)))
+        self._cache["fast_llm_parallel_calls"] = parallel_calls
+        return parallel_calls
+
     @staticmethod
     async def _build_llm_runtime(conf_llm):
         from giga_agent.connectors.registry import ConnectorRegistry
@@ -447,12 +477,20 @@ class CliRuntimeResolver(RuntimeResolver):
         provider_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         sandbox_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
+        provider_settings = {}
+        cli_cwd_raw = (get_settings().giga_agent_cli_cwd or "").strip()
+        if self._conf.sandbox in {"local_jupyter", "local_jupyter_sandbox"}:
+            provider_settings["safe_execution"] = True
+            if cli_cwd_raw:
+                cli_cwd = str(Path(cli_cwd_raw).expanduser().resolve())
+                provider_settings["default_cwd"] = cli_cwd
+                provider_settings["write_dirs"] = [cli_cwd]
         provider = SandboxProviderSnapshot(
             id=provider_id,
             owner_id=_CLI_USER_UUID,
             type=self._conf.sandbox,
             name=f"cli_{self._conf.sandbox}",
-            settings={},
+            settings=provider_settings,
             idle_timeout=3600,
             is_active=True,
         )

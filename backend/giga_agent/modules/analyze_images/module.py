@@ -8,9 +8,7 @@ from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState
-from giga_agent.core.db import get_session_factory
 from giga_agent.core.module import BaseModule
-from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserShort
 from giga_agent.modules.analyze_images.prompts import ANALYZE_IMAGES_MODULE_INSTRUCTIONS
 from giga_agent.modules.analyze_images.tool import analyze_image
@@ -24,29 +22,17 @@ class AnalyzeImagesModule(BaseModule):
     ) -> bool:
         from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
-        if config is not None:
+        if config is None:
+            return False
+
+        try:
             resolver = RuntimeResolver.from_config(config)
             if not resolver.has_llm:
                 return False
-            try:
-                llm_runtime = await resolver.get_llm_runtime()
-            except Exception:
-                return False
+            llm_runtime = await resolver.get_llm_runtime()
             return llm_runtime.can_analyze_image()
-
-        if user is None or user.llm_id is None:
-            return False
-
-        factory = await get_session_factory()
-        try:
-            async with factory() as session:
-                llm_runtime = await LLMManager.resolve_by_id(
-                    user.llm_id, session=session
-                )
         except Exception:
             return False
-
-        return llm_runtime.can_analyze_image()
 
     async def get_tools(
         self,

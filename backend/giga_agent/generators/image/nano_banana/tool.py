@@ -12,20 +12,20 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
 from giga_agent.core.db import get_session_factory
-from giga_agent.generators.image.manager import ImageGeneratorManager
 from giga_agent.generators.image.nano_banana.generator import (
     NanoBananaAspectRatio,
     NanoBananaImageGen,
 )
-from giga_agent.models import UserRepository
 from giga_agent.models.file import FileResponse
 from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
 
 def _resolve_owner_id(runtime: ToolRuntime) -> uuid.UUID:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+    resolver = RuntimeResolver.from_config(runtime.config)
+    return resolver.user.id
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -41,26 +41,20 @@ def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
 async def _resolve_nano_banana_generator(
     runtime: ToolRuntime,
 ) -> tuple[uuid.UUID, NanoBananaImageGen]:
-    owner_id = _resolve_owner_id(runtime)
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-        if user is None:
-            raise ValueError(f"Пользователь {owner_id} не найден")
-        if user.image_generator_id is None:
-            raise ValueError(
-                "У пользователя не выбран генератор изображений. "
-                "Установите image_generator_id в настройках пользователя."
-            )
-        generator = await ImageGeneratorManager.resolve_by_id(
-            user.image_generator_id,
-            session=session,
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+    resolver = RuntimeResolver.from_config(runtime.config)
+    if not resolver.has_image_generator:
+        raise ValueError(
+            "У пользователя не выбран генератор изображений. "
+            "Настройте image_generator в runtime."
         )
+    generator = await resolver.get_image_generator()
 
     if not isinstance(generator, NanoBananaImageGen):
         raise ValueError("Текущий генератор изображений не поддерживает этот tool gen_image.")
 
-    return owner_id, generator
+    return resolver.user.id, generator
 
 
 def _normalize_mime_type(value: str | None) -> str | None:
@@ -175,7 +169,7 @@ async def _upload_generated_image(
     return file.sandbox_path, [FileResponse.model_validate(file).model_dump(mode="json")]
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras={"repl_save": False})
 async def gen_image(
     prompt: str,
     runtime: ToolRuntime,
