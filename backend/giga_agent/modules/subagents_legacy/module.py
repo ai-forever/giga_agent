@@ -18,12 +18,10 @@ def _import_attr(module_path: str, attr_name: str):
     return getattr(module, attr_name)
 
 
-def _get_legacy_capabilities(user: UserShort):
-    get_legacy_capabilities = _import_attr(
-        "giga_agent.modules.subagents_legacy.runtime",
-        "get_legacy_capabilities",
-    )
-    return get_legacy_capabilities(user)
+async def _get_legacy_capabilities(user: UserShort, *, config=None):
+    from giga_agent.modules.subagents_legacy.runtime import get_legacy_capabilities
+
+    return await get_legacy_capabilities(user, config=config)
 
 
 def _legacy_tool(module_path: str, attr_name: str) -> BaseTool:
@@ -84,7 +82,7 @@ class SubAgentLegacyModule(BaseModule):
         if user is None:
             return []
 
-        caps = _get_legacy_capabilities(user)
+        caps = await _get_legacy_capabilities(user, config=config)
         tools: list[BaseTool] = []
 
         if caps.has_llm:
@@ -151,7 +149,7 @@ class SubAgentLegacyModule(BaseModule):
         if user is None:
             return ""
 
-        caps = _get_legacy_capabilities(user)
+        caps = await _get_legacy_capabilities(user, config=config)
         instructions: list[str] = []
 
         if caps.has_llm and caps.has_search:

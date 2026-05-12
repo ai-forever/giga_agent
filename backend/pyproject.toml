@@ -70,6 +70,7 @@ dependencies = [
     "aiohttp-socks~=0.11.0",
     "langchain-deepseek~=1.0.1",
     "langgraph-checkpoint-sqlite>=3.0.3",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]

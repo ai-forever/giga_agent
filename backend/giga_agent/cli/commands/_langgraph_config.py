@@ -38,7 +38,7 @@ def build_langgraph_runtime_config(graph_and_app_path: str) -> dict[str, object]
     # Import lazily to keep tests able to patch `giga_agent.cli.*`.
     cli = importlib.import_module("giga_agent.cli")
 
-    graph, _fast_api_app = cli.load_graph_and_app_from_string(graph_and_app_path)
+    graph, fast_api_app = cli.load_graph_and_app_from_string(graph_and_app_path)
     agent = graph.giga_agent
 
     path_part, graph_var, app_var = _parse_import_string(
@@ -77,6 +77,7 @@ def build_langgraph_runtime_config(graph_and_app_path: str) -> dict[str, object]
 
     return {
         "agent": agent,
+        "app": fast_api_app,
         "graphs": graphs,
         "auth_path": LANGGRAPH_DEFAULT_AUTH_PATH,
         "http_config": http_config,

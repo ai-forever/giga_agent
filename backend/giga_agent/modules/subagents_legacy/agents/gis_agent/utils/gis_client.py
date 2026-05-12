@@ -194,9 +194,11 @@ async def location_to_description(location: Location, city: str, config: dict) -
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        if user.search_engine_id is None:
-            return None
-        engine = await resolve_user_search_engine(user, session=session)
+        engine = await resolve_user_search_engine(
+            user,
+            session=session,
+            config=config,
+        )
     query = f"{location['name']} номер телефона; {city}, {location['address']}"
     result = await engine.search([query])
     if not result:

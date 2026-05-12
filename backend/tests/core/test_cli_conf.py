@@ -3,7 +3,6 @@
 import json
 import os
 import unittest
-import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,11 +13,8 @@ from giga_agent.core.agent.cli_conf import (
     CliConnectorConf,
     CliLLMConf,
     CliEmbeddingConf,
-    CliSearchEngineConf,
-    CliImageGeneratorConf,
     load_cli_conf,
     reset_cli_conf_cache,
-    _find_conf_path,
     CONF_FILENAME,
 )
 
@@ -269,5 +265,36 @@ class TestCliRuntimeResolver(unittest.IsolatedAsyncioTestCase):
                 resolved = await resolver.get_sandbox()
                 self.assertEqual(resolved.provider.type, "local_jupyter")
                 self.assertEqual(resolved.sandbox.status, "pending")
+            finally:
+                os.chdir(orig_cwd)
+
+    async def test_get_sandbox_includes_cli_cwd_runtime_settings(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            cwd_path = tmp_path / "work"
+            cwd_path.mkdir()
+            self._write_conf(tmp_path, SAMPLE_CONF)
+            orig_cwd = os.getcwd()
+            os.chdir(tmp_path)
+            try:
+                from giga_agent.conf import GIGA_AGENT_CLI_CWD_ENV, reset_settings_cache
+                from giga_agent.core.agent.runtime_resolver import CliRuntimeResolver
+
+                with patch.dict(os.environ, {GIGA_AGENT_CLI_CWD_ENV: str(cwd_path)}):
+                    reset_settings_cache()
+                    resolver = await CliRuntimeResolver.create({})
+                    resolved = await resolver.get_sandbox()
+                reset_settings_cache()
+
+                self.assertEqual(
+                    resolved.provider.settings["default_cwd"],
+                    str(cwd_path.resolve()),
+                )
+                self.assertEqual(
+                    resolved.provider.settings["write_dirs"],
+                    [str(cwd_path.resolve())],
+                )
             finally:
                 os.chdir(orig_cwd)

@@ -6,8 +6,9 @@ import os
 import platform
 import secrets
 import shutil
+import subprocess
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -53,6 +54,17 @@ _EXTERNAL_AGENT_SKILL_NAMESPACE = "agent/"
 _LOCAL_FILE_SUFFIX_ALPHABET = (
     "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
+_PROMPT_FILE_LIST_LIMIT = 120
+_PROMPT_EXCLUDED_NAMES = {
+    ".git",
+    ".giga_agent",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+}
 
 
 def _describe_local_os() -> str:
@@ -100,6 +112,71 @@ def _format_directory(path: Path) -> str:
     return f"{path.as_posix().rstrip('/')}/"
 
 
+def _is_prompt_visible_path(path: str) -> bool:
+    return not any(part in _PROMPT_EXCLUDED_NAMES for part in Path(path).parts)
+
+
+def _format_prompt_entries(entries: list[str], *, limit: int = _PROMPT_FILE_LIST_LIMIT) -> str:
+    if not entries:
+        return "- (пусто)\n"
+    visible_entries = [entry for entry in entries if _is_prompt_visible_path(entry)]
+    if not visible_entries:
+        return "- (нет значимых файлов после фильтрации служебных директорий)\n"
+
+    displayed = visible_entries[:limit]
+    lines = [f"- {entry}" for entry in displayed]
+    if len(visible_entries) > limit:
+        lines.append(f"- ... ещё {len(visible_entries) - limit} элементов")
+    return "\n".join(lines) + "\n"
+
+
+def _top_level_cwd_entries(cwd: Path) -> list[str]:
+    try:
+        entries = sorted(cwd.iterdir(), key=lambda path: path.name.lower())
+    except OSError:
+        return []
+    rendered: list[str] = []
+    for entry in entries:
+        suffix = "/" if entry.is_dir() else ""
+        rendered.append(f"{entry.name}{suffix}")
+    return rendered
+
+
+def _git_cwd_entries(cwd: Path) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=str(cwd),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    return sorted(
+        (line.strip() for line in result.stdout.splitlines()),
+        key=str.lower,
+    )
+
+
+def _inject_cwd_prelude(code: str, cwd: Path) -> str:
+    cwd_literal = repr(str(cwd))
+    prelude = "\n".join(
+        [
+            "import os as _giga_agent_os",
+            f"_giga_agent_cwd = {cwd_literal}",
+            "_giga_agent_os.makedirs(_giga_agent_cwd, exist_ok=True)",
+            "_giga_agent_os.chdir(_giga_agent_cwd)",
+            "del _giga_agent_cwd, _giga_agent_os",
+            "",
+        ]
+    )
+    return prelude + code
+
+
 def _default_exclude_read_dirs() -> list[str]:
     return [str((Path.home() / ".ssh").resolve())]
 
@@ -136,6 +213,10 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         default_factory=list,
         description="Additional host directories explicitly granted for writes",
     )
+    default_cwd: str | None = Field(
+        default=None,
+        description="Runtime-only default working directory for CLI execution",
+    )
     exclude_read_dirs: list[str] = Field(
         default_factory=_default_exclude_read_dirs,
         description="Additional host directories explicitly denied for reads",
@@ -145,6 +226,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         "owner_id",
         "jupyter_token",
         "runtime_dir",
+        "default_cwd",
     }
     _sandbox_root_dir: Path = PrivateAttr(default_factory=Path)
 
@@ -180,11 +262,44 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         }
         return {key: value for key, value in settings.items() if value is not None}
 
+    def _default_workdir(self) -> Path:
+        if self.default_cwd:
+            return Path(self.default_cwd).expanduser().resolve()
+        return get_local_jupyter_server_manager()._working_dir().resolve()
+
     def _recommended_workdir(self, config: RunnableConfig | None) -> Path:
+        if self.default_cwd:
+            return Path(self.default_cwd).expanduser().resolve()
         thread_id = _resolve_thread_id(config)
         if thread_id:
             return (self._sandbox_root_dir / thread_id).resolve()
         return self._sandbox_root_dir.resolve()
+
+    def _cwd_prompt(self, cwd: Path) -> str:
+        top_level_files = _format_prompt_entries(_top_level_cwd_entries(cwd))
+        git_entries = _git_cwd_entries(cwd)
+        git_prompt = (
+            "- Git-aware список файлов текущей рабочей директории:\n"
+            f"{_format_prompt_entries(git_entries)}"
+            if git_entries
+            else ""
+        )
+        temp_write_prompt = (
+            " Также доступна на запись папка /tmp."
+            if os.name != "nt"
+            else ""
+        )
+        return (
+            f"- Текущая рабочая директория: {_format_directory(cwd)}\n"
+            "- Это основная директория для чтения, создания и изменения файлов; "
+            "она доступна на запись.\n"
+            "- Write policy sandbox: текущая рабочая директория доступна на запись; "
+            "также доступны служебные runtime/cache директории и кэши пакетных "
+            f"менеджеров.{temp_write_prompt}\n"
+            "- Верхний уровень текущей рабочей директории:\n"
+            f"{top_level_files}"
+            f"{git_prompt}"
+        )
 
     def get_prompt(
         self,
@@ -196,20 +311,14 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     ) -> str:
         _ = user, agent, state, kwargs
         python_version = platform.python_version()
-        # workdir = self._recommended_workdir(config)
-
-        # workdir_prompt = (
-        #     f"- Директория для сохранения файлов: {_format_directory(workdir)}\n"
-        #     "- Старайся сохранять создаваемые файлы именно в эту директорию и по "
-        #     "возможности использовать пути относительно неё.\n"
-        # )
+        workdir = self._recommended_workdir(config)
 
         return (
             "\nОсобенности локального окружения выполнения:\n"
             f"- ОС и платформа: {_describe_local_os()}.\n"
             f"- Python runtime: Python {python_version}.\n"
             f"- Shell и команды должны быть совместимы с {_describe_shell()}.\n"
-            # + workdir_prompt
+            + self._cwd_prompt(workdir)
             + "- Это локальное окружение пользователя, поэтому учитывай OS-specific "
             "синтаксис команд, доступность утилит и различия между macOS/Linux/Windows.\n"
             + "- При выборе зависимостей и бинарников учитывай архитектуру CPU и "
@@ -218,6 +327,35 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
 
     def _get_kernel_request_payload(self) -> dict[str, Any] | None:
         return {"name": LOCAL_JUPYTER_KERNEL_NAME}
+
+    async def run_code(
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        envs: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        code = _inject_cwd_prelude(code, self._default_workdir())
+        code_iter = super().run_code(
+            code,
+            kernel_id=kernel_id,
+            allow_stdin=allow_stdin,
+            envs=envs,
+            **kwargs,
+        )
+        pending_input_reply: str | None = None
+        while True:
+            try:
+                if pending_input_reply is None:
+                    chunk = await anext(code_iter)
+                else:
+                    chunk = await code_iter.asend(pending_input_reply)
+                    pending_input_reply = None
+            except StopAsyncIteration:
+                break
+            pending_input_reply = yield chunk
 
     async def up(self) -> None:
         ensure_jupyter_dependencies()
@@ -467,6 +605,8 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             *settings.giga_agent_local_jupyter_allowed_write_roots,
             *[Path(path) for path in self.write_dirs],
         ]
+        if self.default_cwd:
+            write_roots.append(self._default_workdir())
         deny_roots = [
             *settings.giga_agent_local_jupyter_deny_read_roots,
             *[Path(path) for path in self.exclude_read_dirs],
@@ -477,7 +617,13 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             read_roots=settings.giga_agent_local_jupyter_allowed_read_roots,
             write_roots=write_roots,
             deny_roots=deny_roots,
-            cwd=Path(cwd) if cwd is not None else None,
+            cwd=(
+                Path(cwd)
+                if cwd is not None
+                else self._default_workdir()
+                if self.default_cwd
+                else None
+            ),
             network_mode=network_mode or settings.giga_agent_local_jupyter_network_mode,
         )
 

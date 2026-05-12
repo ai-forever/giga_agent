@@ -31,7 +31,7 @@ async def image_node(state: LandingState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     image_messages = state.get("image_messages", [])
     new_message = HumanMessage(content=state["task"])
     additional_info = (
@@ -101,7 +101,11 @@ async def image_node(state: LandingState, config: RunnableConfig):
         # image["name"] = str(uuid.uuid4()) + ".jpg"
         filtered_images.append(image)
     async with factory() as session:
-        generator = await resolve_user_image_generator(user, session=session)
+        generator = await resolve_user_image_generator(
+            user,
+            session=session,
+            config=config,
+        )
     await generator.init()
     tasks = [
         generator.generate_image(i["description"], i["width"], i["height"])

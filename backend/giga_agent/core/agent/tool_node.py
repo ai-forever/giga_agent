@@ -428,13 +428,132 @@ class ToolNode(RunnableCallable):
             )
             tool_runtimes.append(tool_runtime)
 
+        outputs = await self._arun_tool_calls(tool_calls, input_type, tool_runtimes)
+
+        return self._combine_tool_outputs(outputs, input_type)
+
+    async def _arun_tool_calls(
+        self,
+        tool_calls: list[ToolCall],
+        input_type: Literal["list", "dict", "tool_calls"],
+        tool_runtimes: list[AgentToolRuntime],
+    ) -> list[ToolMessage | Command]:
+        if not self._has_python_tool_call(tool_calls):
+            return await self._arun_parallel_tool_calls(
+                tool_calls,
+                input_type,
+                tool_runtimes,
+            )
+
+        outputs: list[ToolMessage | Command | None] = [None] * len(tool_calls)
+        parallel_indexes: list[int] = []
+        parallel_tool_calls: list[ToolCall] = []
+        parallel_tool_runtimes: list[AgentToolRuntime] = []
+        python_calls: list[tuple[int, ToolCall, AgentToolRuntime]] = []
+
+        for index, (call, tool_runtime) in enumerate(
+            zip(tool_calls, tool_runtimes, strict=False)
+        ):
+            if self._is_python_tool_call(call):
+                python_calls.append((index, call, tool_runtime))
+                continue
+
+            parallel_indexes.append(index)
+            parallel_tool_calls.append(call)
+            parallel_tool_runtimes.append(tool_runtime)
+
+        parallel_outputs, _ = await asyncio.gather(
+            self._arun_parallel_tool_calls(
+                parallel_tool_calls,
+                input_type,
+                parallel_tool_runtimes,
+            ),
+            self._arun_python_tool_calls(python_calls, input_type, outputs),
+        )
+        for index, output in zip(parallel_indexes, parallel_outputs, strict=False):
+            outputs[index] = output
+
+        return cast("list[ToolMessage | Command]", outputs)
+
+    async def _arun_parallel_tool_calls(
+        self,
+        tool_calls: list[ToolCall],
+        input_type: Literal["list", "dict", "tool_calls"],
+        tool_runtimes: list[AgentToolRuntime],
+    ) -> list[ToolMessage | Command]:
         # Pass original tool calls without injection
         coros = []
         for call, tool_runtime in zip(tool_calls, tool_runtimes, strict=False):
             coros.append(self._arun_one(call, input_type, tool_runtime))  # type: ignore[arg-type]
-        outputs = await asyncio.gather(*coros)
+        return await asyncio.gather(*coros)
 
-        return self._combine_tool_outputs(outputs, input_type)
+    async def _arun_python_tool_calls(
+        self,
+        tool_calls: list[tuple[int, ToolCall, AgentToolRuntime]],
+        input_type: Literal["list", "dict", "tool_calls"],
+        outputs: list[ToolMessage | Command | None],
+    ) -> None:
+        kernel_id: str | None = None
+        last_index = len(tool_calls) - 1
+        for position, (index, call, tool_runtime) in enumerate(tool_calls):
+            if kernel_id is not None:
+                self._set_runtime_kernel_id(tool_runtime, kernel_id)
+
+            output = await self._arun_one(call, input_type, tool_runtime)  # type: ignore[arg-type]
+
+            if next_kernel_id := self._extract_command_kernel_id(output):
+                kernel_id = next_kernel_id
+
+            if position != last_index:
+                output = self._without_command_kernel_id(output)
+
+            outputs[index] = output
+
+    @staticmethod
+    def _has_python_tool_call(tool_calls: list[ToolCall]) -> bool:
+        return any(ToolNode._is_python_tool_call(call) for call in tool_calls)
+
+    @staticmethod
+    def _is_python_tool_call(call: ToolCall) -> bool:
+        return call["name"] == "python"
+
+    @staticmethod
+    def _extract_command_kernel_id(output: ToolMessage | Command) -> str | None:
+        if not isinstance(output, Command) or not isinstance(output.update, dict):
+            return None
+
+        kernel_id = output.update.get("kernel_id")
+        return kernel_id if isinstance(kernel_id, str) and kernel_id else None
+
+    @staticmethod
+    def _without_command_kernel_id(output: ToolMessage | Command) -> ToolMessage | Command:
+        if not isinstance(output, Command) or not isinstance(output.update, dict):
+            return output
+
+        if "kernel_id" not in output.update:
+            return output
+
+        update = dict(output.update)
+        update.pop("kernel_id", None)
+        return replace(output, update=update)
+
+    @staticmethod
+    def _set_runtime_kernel_id(
+        tool_runtime: AgentToolRuntime,
+        kernel_id: str,
+    ) -> None:
+        state = tool_runtime.state
+        if isinstance(state, dict):
+            tool_runtime.state = {**state, "kernel_id": kernel_id}
+            return
+
+        if isinstance(state, BaseModel):
+            tool_runtime.state = state.model_copy(update={"kernel_id": kernel_id})
+            return
+
+        state_copy = copy(state)
+        setattr(state_copy, "kernel_id", kernel_id)
+        tool_runtime.state = state_copy
 
     def _combine_tool_outputs(
         self,

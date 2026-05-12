@@ -9,6 +9,7 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.conf import get_settings
 from giga_agent.utils.langgraph_sdk import get_client
 
 warnings.filterwarnings(
@@ -60,7 +61,7 @@ async def _resolve_llm(config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     return llm.with_config(tags=["nostream"])
 
 
@@ -234,19 +235,7 @@ async def podcast_generate(
 
     if not url and not use_messages:
         raise ValueError("You must specify either url or use_messages!")
-    conf = {
-        "configurable": {
-            "thread_id": str(uuid.uuid4()),
-        },
-    }
-    push_ui_message(
-        "agent_execution",
-        {
-            "agent": "podcast_generate",
-            "node": "__start__",
-            "tool_call_id": runtime.tool_call_id,
-        },
-    )
+
     input_ = {}
     if use_messages:
         input_["use_messages"] = use_messages
@@ -255,29 +244,47 @@ async def podcast_generate(
     if url:
         input_["url"] = url
 
-    client = get_client(runtime.config)
-    thread = await client.threads.create()
-    thread_id = thread["thread_id"]
-    state = {}
-    async for chunk in client.runs.stream(
-        thread_id=thread_id,
-        assistant_id="podcast",
-        input=input_,
-        stream_mode=["values", "updates"],
-        on_disconnect="cancel",
-        config=conf,
-    ):
-        if chunk.event == "values":
-            state = chunk.data
-        elif chunk.event == "updates":
-            push_ui_message(
-                "agent_execution",
-                {
-                    "agent": "podcast_generate",
-                    "node": list(chunk.data.keys())[0],
-                    "tool_call_id": runtime.tool_call_id,
-                },
-            )
+    if get_settings().giga_agent_runtime == "cli":
+        from giga_agent.modules.subagents_legacy.runtime import invoke_subgraph_cli
+
+        state = await invoke_subgraph_cli(graph, input_, runtime)
+    else:
+        conf = {
+            "configurable": {
+                "thread_id": str(uuid.uuid4()),
+            },
+        }
+        push_ui_message(
+            "agent_execution",
+            {
+                "agent": "podcast_generate",
+                "node": "__start__",
+                "tool_call_id": runtime.tool_call_id,
+            },
+        )
+        client = get_client(runtime.config)
+        thread = await client.threads.create()
+        thread_id = thread["thread_id"]
+        state = {}
+        async for chunk in client.runs.stream(
+            thread_id=thread_id,
+            assistant_id="podcast",
+            input=input_,
+            stream_mode=["values", "updates"],
+            on_disconnect="cancel",
+            config=conf,
+        ):
+            if chunk.event == "values":
+                state = chunk.data
+            elif chunk.event == "updates":
+                push_ui_message(
+                    "agent_execution",
+                    {
+                        "agent": "podcast_generate",
+                        "node": list(chunk.data.keys())[0],
+                        "tool_call_id": runtime.tool_call_id,
+                    },
+                )
     audio = FileResponse.model_validate(state.get("audio"))
     return build_tool_message(
         runtime,

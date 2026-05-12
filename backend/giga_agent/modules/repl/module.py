@@ -14,12 +14,11 @@ from giga_agent.modules.repl.repl_tools.utils import describe_repl_tool
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
 from giga_agent.core.agent.types import AgentState
-from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserShort
-from giga_agent.sandbox.manager import ProviderNotFoundError, SandboxManager
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 from giga_agent.sandbox.registry import SandboxRegistry
 from giga_agent.modules.repl.tools import (
@@ -29,6 +28,7 @@ from giga_agent.modules.repl.tools import (
     shell,
 )
 from giga_agent.modules.repl.prompts import (
+    CLI_JUPYTER_REPL_INSTRUCTIONS,
     JUPYTER_REPL_INSTRUCTIONS,
     SECRETS_PROMPTS,
     SHELL_INSTRUCTIONS,
@@ -108,16 +108,13 @@ async def get_sandbox_prompt(
     config: RunnableConfig | None = None,
     **kwargs: Any,
 ) -> str:
-    session_factory = await get_session_factory()
-
     try:
-        async with session_factory() as session:
-            resolved = await SandboxManager.get_cached_or_db(
-                user_id=user.id,
-                session=session,
-            )
-    except ProviderNotFoundError:
-        return ""
+        from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+        resolver = RuntimeResolver.from_config(config)
+        if not resolver.has_sandbox:
+            return ""
+        resolved = await resolver.get_sandbox()
     except Exception as e:
         logger.warning(
             "failed_to_resolve_sandbox_prompt user_id=%s reason=%s",
@@ -170,12 +167,12 @@ class ReplModule(BaseModule):
         tools: List[BaseTool] = [python, shell, await_shell]
 
         try:
-            session_factory = await get_session_factory()
-            async with session_factory() as session:
-                resolved = await SandboxManager.get_cached_or_db(
-                    user_id=user.id,
-                    session=session,
-                )
+            from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+            resolver = RuntimeResolver.from_config(config)
+            if not resolver.has_sandbox:
+                return tools
+            resolved = await resolver.get_sandbox()
             runtime_cls = SandboxRegistry.get(resolved.provider.type)
             tools.extend(runtime_cls.get_tools())
         except Exception:
@@ -198,8 +195,13 @@ class ReplModule(BaseModule):
             config=config,
             **kwargs,
         )
+        repl_instructions = (
+            CLI_JUPYTER_REPL_INSTRUCTIONS
+            if get_settings().giga_agent_runtime == "cli"
+            else JUPYTER_REPL_INSTRUCTIONS
+        )
         return (
-            JUPYTER_REPL_INSTRUCTIONS
+            repl_instructions
             + SHELL_INSTRUCTIONS
             + sandbox_prompt
             + get_user_secrets_prompt(user)

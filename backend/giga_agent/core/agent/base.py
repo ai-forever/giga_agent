@@ -256,7 +256,7 @@ class BaseAgent(BaseModel):
         instructions_prompt = ""
         if instructions:
             instructions_prompt = NOTES_PROMPT.format(instructions)
-        base_prompt = build_base_prompt(
+        base_prompt = await build_base_prompt(
             enable_think=enable_think,
             enable_multi_tool_use=enable_multi_tool_use,
         )

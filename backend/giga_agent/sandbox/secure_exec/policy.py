@@ -30,12 +30,15 @@ def default_package_cache_write_roots() -> list[Path]:
     home = Path.home()
     is_darwin = platform.system() == "Darwin"
     posix_xdg_cache = Path(os.environ.get("XDG_CACHE_HOME") or (home / ".cache"))
+    posix_xdg_config = Path(os.environ.get("XDG_CONFIG_HOME") or (home / ".config"))
 
     if is_darwin:
         xdg_cache = home / "Library" / "Caches"
         xdg_data = home / "Library" / "Application Support"
+        xdg_config = xdg_data
     else:
         xdg_cache = posix_xdg_cache
+        xdg_config = posix_xdg_config
         xdg_data = Path(
             os.environ.get("XDG_DATA_HOME") or (home / ".local" / "share")
         )
@@ -72,6 +75,56 @@ def default_package_cache_write_roots() -> list[Path]:
         xdg_data / "pipx",
         home / ".local",
         home / ".venv",
+        # ── Python data-science / notebook libraries ──
+        home / ".ipython",
+        home / ".jupyter",
+        home / ".matplotlib",
+        home / ".plotly",
+        home / ".bokeh",
+        home / ".imageio",
+        home / ".sympy",
+        home / "nltk_data",
+        posix_xdg_config / "matplotlib",
+        posix_xdg_config / "fontconfig",
+        xdg_config / "matplotlib",
+        xdg_config / "bokeh",
+        posix_xdg_cache / "matplotlib",
+        posix_xdg_cache / "fontconfig",
+        posix_xdg_cache / "ipython",
+        posix_xdg_cache / "jupyter",
+        posix_xdg_cache / "plotly",
+        posix_xdg_cache / "bokeh",
+        posix_xdg_cache / "imageio",
+        posix_xdg_cache / "scikit-image",
+        posix_xdg_cache / "xarray_tutorial_data",
+        posix_xdg_cache / "librosa",
+        posix_xdg_cache / "numba",
+        xdg_cache / "matplotlib",
+        xdg_cache / "fontconfig",
+        xdg_cache / "ipython",
+        xdg_cache / "jupyter",
+        xdg_cache / "plotly",
+        xdg_cache / "bokeh",
+        xdg_cache / "imageio",
+        xdg_cache / "scikit-image",
+        xdg_cache / "xarray_tutorial_data",
+        xdg_cache / "librosa",
+        xdg_cache / "numba",
+        xdg_data / "jupyter",
+        xdg_data / "nltk_data",
+        xdg_data / "spacy",
+        # ── Common user-installed Python/ML package caches ──
+        home / ".keras",
+        home / ".torch",
+        home / ".cache" / "huggingface",
+        home / ".cache" / "torch",
+        home / ".cache" / "keras",
+        posix_xdg_cache / "huggingface",
+        posix_xdg_cache / "torch",
+        posix_xdg_cache / "keras",
+        xdg_cache / "huggingface",
+        xdg_cache / "torch",
+        xdg_cache / "keras",
         # ── Rust ──
         home / ".cargo",
         home / ".rustup",

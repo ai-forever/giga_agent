@@ -141,7 +141,7 @@ research_instructions = """Вы — опытный исследователь. �
 """  # noqa: E501
 
 
-async def _resolve_researcher_llm(user, *, session) -> BaseChatModel:
+async def _resolve_researcher_llm(user, *, session, config) -> BaseChatModel:
     researcher_llm_id = get_user_secret(user, "RESEARCHER_LLM")
     if researcher_llm_id is not None:
         try:
@@ -153,7 +153,7 @@ async def _resolve_researcher_llm(user, *, session) -> BaseChatModel:
         except ValueError:
             pass
 
-    return await resolve_user_llm(user, session=session)
+    return await resolve_user_llm(user, session=session, config=config)
 
 
 def _extract_final_report(result_state: dict) -> str:
@@ -175,7 +175,11 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_runtime(runtime, session=session)
-        llm = await _resolve_researcher_llm(user, session=session)
+        llm = await _resolve_researcher_llm(
+            user,
+            session=session,
+            config=runtime.config,
+        )
     llm = llm.bind(timeout=120).with_config(tags=["nostream"])
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
     result_state = {}
@@ -184,6 +188,7 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
         search_engine = await resolve_user_search_engine(
             current_user,
             session=session,
+            config=runtime.config,
         )
 
     @tool

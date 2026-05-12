@@ -10,6 +10,7 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.gis_agent.config import MapState
 from giga_agent.modules.subagents_legacy.agents.gis_agent.nodes.attractions import (
@@ -115,10 +116,11 @@ async def city_explore(city: str, runtime: ToolRuntime):
             tool_name="city_explore",
             payload={"error": "TWOGIS_TOKEN отсутствует в user.secrets"},
         )
+    resolver = RuntimeResolver.from_config(runtime.config)
     conf = {
         "configurable": {
             "thread_id": thread_id,
-            "skip_search": user.search_engine_id is None,
+            "skip_search": not resolver.has_search_engine,
             "langgraph_auth_user": dict(
                 runtime.config["configurable"]["langgraph_auth_user"]
             ),

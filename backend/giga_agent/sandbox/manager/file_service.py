@@ -1,10 +1,13 @@
 import asyncio
 import traceback
 import uuid
-from pathlib import PurePosixPath
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 from giga_agent.models import UserRepository
 from giga_agent.models.file import File, FileRepository, FileType
@@ -26,6 +29,46 @@ from giga_agent.sandbox.manager.types import (
 )
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class TransientFile:
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    provider_id: uuid.UUID
+    sandbox_path: str
+    original_name: str
+    file_type: FileType
+    size: int
+    created_at: datetime
+    updated_at: datetime
+
+
+def _is_cli_runtime() -> bool:
+    return get_settings().giga_agent_runtime == "cli"
+
+
+def _build_transient_file(
+    *,
+    owner_id: uuid.UUID,
+    provider_id: uuid.UUID,
+    sandbox_path: str,
+    original_name: str,
+    file_type: FileType,
+    size: int,
+) -> TransientFile:
+    now = datetime.now(timezone.utc)
+    return TransientFile(
+        id=uuid.uuid4(),
+        owner_id=owner_id,
+        provider_id=provider_id,
+        sandbox_path=sandbox_path,
+        original_name=original_name,
+        file_type=file_type,
+        size=size,
+        created_at=now,
+        updated_at=now,
+    )
 
 
 class SandboxFileService:
@@ -52,10 +95,26 @@ class SandboxFileService:
         self,
         *,
         user_id: uuid.UUID,
-        provider_id: uuid.UUID,
+        provider_id: uuid.UUID | None,
         sandbox_path: str,
         for_op: str,
     ):
+        if _is_cli_runtime():
+            resolved = await self._resolve.get_or_create_for_user(
+                user_id=user_id,
+                provider_id=None,
+                use_cache=True,
+            )
+            return (
+                self._runtime_factory.build(resolved.provider, resolved.sandbox),
+                resolved.provider,
+            )
+
+        if provider_id is None:
+            raise ProviderNotFoundError(
+                f"User {user_id} sandbox provider is not configured"
+            )
+
         provider = await self._provider_repo.get_by_id(provider_id)
         if provider is None:
             cached = await SandboxRepository.cache_get_pair(
@@ -95,6 +154,24 @@ class SandboxFileService:
 
         return runtime, provider_obj
 
+    async def _read_file_from_runtime(
+        self,
+        runtime,
+        *,
+        sandbox_path: str,
+        file_id: uuid.UUID,
+    ) -> FileReadResult:
+        try:
+            return await runtime.read_file(sandbox_path)
+        except FileNotFoundError as e:
+            raise FileNotFoundForUserError(str(e)) from e
+        except PermissionError as e:
+            raise FileAccessError(str(e)) from e
+        except Exception as e:
+            raise StorageOperationError(
+                f"Failed to read file '{sandbox_path}' (id={file_id}): {e}"
+            ) from e
+
     async def upload_file_for_user(
         self,
         user_id: uuid.UUID,
@@ -123,6 +200,16 @@ class SandboxFileService:
         )
 
         original_name = PurePosixPath(file_name).name
+        if _is_cli_runtime():
+            return _build_transient_file(
+                owner_id=user_id,
+                provider_id=provider.id,
+                sandbox_path=sandbox_path,
+                original_name=original_name,
+                file_type=file_type,
+                size=len(content),
+            )
+
         file = await self._file_repo.create(
             owner_id=user_id,
             provider_id=provider.id,
@@ -198,6 +285,19 @@ class SandboxFileService:
 
             sandbox_path = path_or_error
             original_name = PurePosixPath(file_name).name
+            if _is_cli_runtime():
+                created_files.append(
+                    _build_transient_file(
+                        owner_id=user_id,
+                        provider_id=provider.id,
+                        sandbox_path=sandbox_path,
+                        original_name=original_name,
+                        file_type=item["file_type"],
+                        size=len(item["content"]),
+                    )
+                )
+                continue
+
             file = await self._file_repo.create(
                 owner_id=user_id,
                 provider_id=provider.id,
@@ -254,16 +354,11 @@ class SandboxFileService:
             for_op="read",
         )
 
-        try:
-            result = await runtime.read_file(file.sandbox_path)
-        except FileNotFoundError as e:
-            raise FileNotFoundForUserError(str(e)) from e
-        except PermissionError as e:
-            raise FileAccessError(str(e)) from e
-        except Exception as e:
-            raise StorageOperationError(
-                f"Failed to read file '{file.sandbox_path}' (id={file.id}): {e}"
-            ) from e
+        result = await self._read_file_from_runtime(
+            runtime,
+            sandbox_path=file.sandbox_path,
+            file_id=file.id,
+        )
 
         return file, result
 
@@ -277,28 +372,36 @@ class SandboxFileService:
             sandbox_path=sandbox_path,
         )
         if file is None:
-            user = await UserRepository.get_cached_or_db(
-                user_id=user_id, session=self.db
-            )
+            provider_id = None
+            if not _is_cli_runtime():
+                user = await UserRepository.get_cached_or_db(
+                    user_id=user_id, session=self.db
+                )
+                provider_id = user.sandbox_provider_id
             runtime, provider = await self._resolve_runtime_for_file(
                 user_id=user_id,
-                provider_id=user.sandbox_provider_id,
+                provider_id=provider_id,
                 sandbox_path=sandbox_path,
                 for_op="read",
             )
             file_id = uuid.uuid4()
-            try:
-                result = await runtime.read_file(sandbox_path=sandbox_path)
-            except FileNotFoundError as e:
-                raise FileNotFoundForUserError(str(e)) from e
-            except PermissionError as e:
-                raise FileAccessError(str(e)) from e
-            except Exception as e:
-                raise StorageOperationError(
-                    f"Failed to read file '{sandbox_path}' (id={file_id}): {e}"
-                ) from e
+            result = await self._read_file_from_runtime(
+                runtime,
+                sandbox_path=sandbox_path,
+                file_id=file_id,
+            )
 
-            return File(id=file_id, owner_id=user_id, sandbox_path=sandbox_path), result
+            return (
+                _build_transient_file(
+                    owner_id=user_id,
+                    provider_id=provider.id,
+                    sandbox_path=sandbox_path,
+                    original_name=PurePosixPath(sandbox_path).name,
+                    file_type="other",
+                    size=0,
+                ),
+                result,
+            )
 
         return await self.read_file_for_user(
             user_id=user_id,
@@ -360,6 +463,14 @@ class SandboxFileService:
         sandbox_path: str,
         for_op: str,
     ):
+        if _is_cli_runtime():
+            return await self._resolve_runtime_for_file(
+                user_id=user_id,
+                provider_id=None,
+                sandbox_path=sandbox_path,
+                for_op=for_op,
+            )
+
         user = await UserRepository.get_cached_or_db(user_id=user_id, session=self.db)
         return await self._resolve_runtime_for_file(
             user_id=user_id,
