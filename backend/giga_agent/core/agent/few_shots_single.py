@@ -6,7 +6,6 @@ Each AI message contains exactly one tool call.
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-
 # user -> think -> think -> ответ (чистое рассуждение без инструментов)
 PURE_THINKING_EXAMPLE_SINGLE = [
     HumanMessage(
@@ -24,7 +23,7 @@ PURE_THINKING_EXAMPLE_SINGLE = [
                 "id": "ex_pt_think_1",
                 "name": "think",
                 "args": {
-                    "thought": (
+                    "thoughts": (
                         "Классическая логическая задача. Ключевое ограничение: зайти в комнату можно только один раз, "
                         "значит визуально я могу проверить состояние лампочек лишь однажды.\n"
                         "Если бы я мог только включать/выключать — я бы различил максимум 2 состояния (вкл/выкл), "
@@ -48,7 +47,7 @@ PURE_THINKING_EXAMPLE_SINGLE = [
                 "id": "ex_pt_think_2",
                 "name": "think",
                 "args": {
-                    "thought": (
+                    "thoughts": (
                         "Итого три различимых состояния лампочки:\n"
                         "- Горит → была включена в момент проверки\n"
                         "- Не горит, тёплая → была включена, потом выключена\n"
@@ -100,7 +99,7 @@ ITERATIVE_THINKING_EXAMPLE_SINGLE = [
                 "id": "ex_s_think_1",
                 "name": "think",
                 "args": {
-                    "thought": (
+                    "thoughts": (
                         "Задача: круговые перестановки 8 человек с ограничением — "
                         "двое (A и B) не сидят рядом.\n"
                         "План:\n"
@@ -149,7 +148,7 @@ ITERATIVE_THINKING_EXAMPLE_SINGLE = [
                 "id": "ex_s_think_2",
                 "name": "think",
                 "args": {
-                    "thought": (
+                    "thoughts": (
                         "Стоп, результат 30240 выглядит неправильно.\n"
                         "Проверяю: я использовал factorial(8) = 8! = 40320 — это обычные перестановки, "
                         "а для круглого стола нужно (n-1)! = 7! = 5040.\n"

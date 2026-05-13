@@ -1,5 +1,7 @@
 import unittest
 import uuid
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 from pydantic import Field
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -161,6 +163,68 @@ Follow these runtime instructions.
             activation.files[0].sandbox_path,
             "/runtime/skills/runtime-skill/scripts/run.py",
         )
+
+    async def test_get_skill_body_uses_one_supported_manifest_name(self) -> None:
+        owner_id = uuid.uuid4()
+        sandbox = FakeRuntimeSkillSandbox(
+            skills=[
+                RuntimeSkillInfo(
+                    name="runtime-skill",
+                    description="Runtime description",
+                    storage_path="skills/runtime-skill",
+                )
+            ],
+            file_lists={
+                "runtime-skill": ["skills.md", "SKILL.md", "scripts/run.py"],
+            },
+            file_contents={
+                "runtime-skill:SKILL.md": """---
+name: runtime-skill
+description: Runtime description
+---
+
+Uppercase manifest instructions.
+""",
+                "runtime-skill:skills.md": """---
+name: runtime-skill
+description: Runtime description
+---
+
+Lowercase plural manifest instructions.
+""",
+            },
+        )
+
+        service = SkillsService(session=object())
+        activation = await service.get_skill_body(
+            owner_id,
+            "runtime-skill",
+            sandbox,
+        )
+
+        self.assertEqual(activation.body, "Uppercase manifest instructions.")
+        self.assertEqual(
+            [file.relative_path for file in activation.files],
+            ["skills.md", "scripts/run.py"],
+        )
+
+    def test_find_skill_root_ignores_plural_manifest_name(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            skill_dir = Path(tmpdir) / "my-skill"
+            skill_dir.mkdir()
+            (skill_dir / "skills.md").write_text(
+                """---
+name: my-skill
+description: Test
+---
+
+Instructions.
+""",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValueError):
+                SkillsService._find_skill_root(Path(tmpdir))
 
     async def test_remove_skill_deletes_runtime_skill_without_db_record(self) -> None:
         owner_id = uuid.uuid4()

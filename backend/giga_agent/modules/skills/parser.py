@@ -10,7 +10,7 @@ import yaml
 SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9-]*[a-z0-9]$")
 MAX_NAME_LEN = 64
 MAX_DESCRIPTION_LEN = 1024
-MAX_BODY_CHARS = 40_000
+MAX_BODY_CHARS = 100_000
 
 
 class SkillParseError(ValueError):

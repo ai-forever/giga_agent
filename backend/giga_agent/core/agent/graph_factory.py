@@ -17,11 +17,9 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools.tool_node import (
     ToolCallRequest,
-    ToolCallWithContext,
 )
 from langchain_core.messages import (
     AIMessage,
-    HumanMessage,
     AnyMessage,
     SystemMessage,
     ToolMessage,
@@ -32,41 +30,23 @@ from langgraph._internal._runnable import RunnableCallable
 from langgraph.constants import END, START
 from langgraph.graph.state import StateGraph
 from langgraph.runtime import Runtime
-from langgraph.typing import ContextT
 from langgraph.types import Command, Send
 from langgraph.typing import ContextT
 
-from giga_agent.core.logging import get_logger
-from langchain.agents.middleware.types import (
-    ModelRequest,
-    ModelResponse,
-    ResponseT,
-    StateT_co,
-    _InputAgentState,
-    _OutputAgentState,
-)
-from giga_agent.core.agent.middleware import AgentMiddleware
-
-from langchain.tools.tool_node import (
-    ToolCallRequest,
-)
-
-import json
-import uuid
-
-from giga_agent.core.db import get_session_factory
-from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
-from giga_agent.core.agent.multi_tool_use import (
-    collapse_tool_messages,
-    expand_multi_tool_use,
-)
 from giga_agent.conf import (
     GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
     GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
     GIGA_AGENT_ENABLE_THINK_TOOL,
     GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
 )
+from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
+from giga_agent.core.agent.middleware import AgentMiddleware
+from giga_agent.core.agent.multi_tool_use import (
+    collapse_tool_messages,
+    expand_multi_tool_use,
+)
 from giga_agent.core.agent.prompt import BASE_PROMPT
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.think import (
     THINK_VIA_FAST_MODEL,
     collapse_think_hops,
@@ -74,11 +54,10 @@ from giga_agent.core.agent.think import (
     process_think_via_fast_model,
     resolve_bound_tool_choice,
 )
-from giga_agent.core.agent.tool_node import ToolNode
-from giga_agent.core.db import get_session_factory
 from giga_agent.core.agent.tool_node import ToolCallsWithContext, ToolNode
-from giga_agent.core.agent.tools import think, multi_tool_use
-from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tools import multi_tool_use, think
+from giga_agent.core.db import get_session_factory
+from giga_agent.core.logging import get_logger
 from giga_agent.utils.mcp import transform_tool
 
 if TYPE_CHECKING:
@@ -89,9 +68,8 @@ if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
     from langgraph.store.base import BaseStore
     from langgraph.types import Checkpointer
-    from langchain.agents.middleware.types import ToolCallRequest
+
     from giga_agent.core.agent.base import BaseAgent
-from giga_agent.core.agent.utils import merge_state
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.agent.utils import merge_state
 
@@ -556,8 +534,11 @@ def create_graph(
         if multi_tool_use_enabled:
             few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
             collapsed_messages = collapse_tool_messages(state["messages"])
-        else:
+        elif think_enabled:
             few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE)
+            collapsed_messages = list(state["messages"])
+        else:
+            few_shots_collapse = []
             collapsed_messages = list(state["messages"])
         state_messages_collapse = (
             collapse_think_hops(collapsed_messages)

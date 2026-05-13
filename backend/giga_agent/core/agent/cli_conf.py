@@ -2,8 +2,9 @@
 
 When GIGA_AGENT_RUNTIME=cli, the system loads runtime config from a JSON
 file instead of querying the database.  Lookup order:
-  1. CWD / giga_agent.conf.json
-  2. giga_agent_dir() / giga_agent.conf.json
+  1. GIGA_AGENT_CLI_CONFIG env var (JSON string)
+  2. CWD / giga_agent.conf.json
+  3. giga_agent_dir() / giga_agent.conf.json
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from giga_agent.conf import get_settings
 
 CONF_FILENAME = "giga_agent.conf.json"
 
@@ -107,9 +110,13 @@ def _find_conf_path() -> Path:
 @lru_cache(maxsize=1)
 def load_cli_conf() -> CliRuntimeConf:
     """Load and parse the CLI runtime configuration (cached)."""
-    path = _find_conf_path()
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    raw_config = (get_settings().giga_agent_cli_config or "").strip()
+    if raw_config:
+        data = json.loads(raw_config)
+    else:
+        path = _find_conf_path()
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
     return CliRuntimeConf.model_validate(data)
 
 

@@ -23,6 +23,11 @@ from giga_agent.models.skill import (
     SkillSourceType,
     SkillSummary,
 )
+from giga_agent.modules.skills.manifest import (
+    find_skill_manifest_path,
+    is_skill_manifest_filename,
+    select_skill_manifest_file,
+)
 from giga_agent.modules.skills.parser import parse_skill_md
 
 if TYPE_CHECKING:
@@ -97,12 +102,7 @@ class SkillsService:
             self._extract_archive(archive_bytes, filename, tmp_path)
 
             skill_root = self._find_skill_root(tmp_path)
-            skill_md_path = skill_root / "SKILL.md"
-            if not skill_md_path.is_file():
-                raise SkillInstallError(
-                    "Archive does not contain SKILL.md at the expected location"
-                )
-
+            skill_md_path = self._find_skill_manifest_path(skill_root)
             parsed = parse_skill_md(skill_md_path.read_text(encoding="utf-8"))
 
             existing = await self.repo.get_by_owner_and_name(owner_id, parsed.name)
@@ -140,7 +140,7 @@ class SkillsService:
         if builtin_dir is None:
             raise SkillNotFoundError(f"Built-in skill '{skill_name}' not found")
 
-        skill_md = builtin_dir / "SKILL.md"
+        skill_md = self._find_skill_manifest_path(builtin_dir)
         parsed = parse_skill_md(skill_md.read_text(encoding="utf-8"))
 
         existing = await self.repo.get_by_owner_and_name(owner_id, parsed.name)
@@ -194,7 +194,7 @@ class SkillsService:
 
             existing = await self.repo.get_by_owner_and_name(owner_id, name)
             if existing and existing.source_type == SkillSourceType.LOCAL_DIR:
-                md_hash = self._hash_skill_md(Path(source_dir) / "SKILL.md")
+                md_hash = self._hash_skill_md(Path(source_dir))
                 old_hash = (existing.metadata_ or {}).get("md_hash")
                 if md_hash != old_hash:
                     storage_path = await sandbox.install_skill_files(
@@ -212,7 +212,7 @@ class SkillsService:
                 storage_path = await sandbox.install_skill_files(
                     owner_id, name, source_dir
                 )
-                md_hash = self._hash_skill_md(Path(source_dir) / "SKILL.md")
+                md_hash = self._hash_skill_md(Path(source_dir))
                 skill = await self.repo.create(
                     owner_id=owner_id,
                     name=name,
@@ -305,8 +305,9 @@ class SkillsService:
         if not skill.is_enabled:
             raise SkillNotFoundError(f"Skill '{skill_name}' is disabled")
 
-        body = await sandbox.read_skill_file(owner_id, skill.storage_path, "SKILL.md")
         file_list = await sandbox.list_skill_files(owner_id, skill.storage_path)
+        manifest_path = self._select_skill_manifest_file(file_list)
+        body = await sandbox.read_skill_file(owner_id, skill.storage_path, manifest_path)
 
         files = [
             SkillFile(
@@ -316,7 +317,7 @@ class SkillsService:
                 ),
             )
             for rel in file_list
-            if rel != "SKILL.md"
+            if not self._is_skill_manifest_file(rel)
         ]
 
         # The body is the full content; strip frontmatter for the agent prompt
@@ -351,8 +352,9 @@ class SkillsService:
         storage_path = runtime_skill.storage_path or self._runtime_skill_storage_path(
             runtime_skill.name
         )
-        body = await sandbox.read_skill_file(owner_id, storage_path, "SKILL.md")
         file_list = await sandbox.list_skill_files(owner_id, storage_path)
+        manifest_path = self._select_skill_manifest_file(file_list)
+        body = await sandbox.read_skill_file(owner_id, storage_path, manifest_path)
         files = [
             SkillFile(
                 relative_path=rel,
@@ -363,7 +365,7 @@ class SkillsService:
                 ),
             )
             for rel in file_list
-            if rel != "SKILL.md"
+            if not self._is_skill_manifest_file(rel)
         ]
         parsed = parse_skill_md(body)
         return SkillActivation(
@@ -433,8 +435,10 @@ class SkillsService:
 
         skill = await self._get_owned_skill(owner_id, skill_id)
         try:
+            file_list = await sandbox.list_skill_files(owner_id, skill.storage_path)
+            manifest_path = self._select_skill_manifest_file(file_list)
             body = await sandbox.read_skill_file(
-                owner_id, skill.storage_path, "SKILL.md"
+                owner_id, skill.storage_path, manifest_path
             )
         except (FileNotFoundError, NotImplementedError):
             body = ""
@@ -457,10 +461,12 @@ class SkillsService:
                 skill.name
             )
             try:
+                file_list = await sandbox.list_skill_files(owner_id, storage_path)
+                manifest_path = self._select_skill_manifest_file(file_list)
                 body = await sandbox.read_skill_file(
                     owner_id,
                     storage_path,
-                    "SKILL.md",
+                    manifest_path,
                 )
             except (FileNotFoundError, NotImplementedError):
                 body = ""
@@ -520,19 +526,46 @@ class SkillsService:
 
     @staticmethod
     def _find_skill_root(extracted: Path) -> Path:
-        """Find the directory containing SKILL.md in an extracted archive."""
-        if (extracted / "SKILL.md").is_file():
+        """Find the directory containing a skill manifest in an extracted archive."""
+        if find_skill_manifest_path(extracted) is not None:
             return extracted
         # Check one level of nesting (common in archives)
         for child in extracted.iterdir():
-            if child.is_dir() and (child / "SKILL.md").is_file():
+            if child.is_dir() and find_skill_manifest_path(child) is not None:
                 return child
         raise SkillInstallError(
-            "SKILL.md not found in archive (checked root and one level deep)"
+            "Skill manifest not found in archive (checked root and one level deep)"
         )
 
     @staticmethod
-    def _hash_skill_md(path: Path) -> str:
-        if not path.is_file():
+    def _find_skill_manifest_path(directory: Path) -> Path:
+        skill_md_path = find_skill_manifest_path(directory)
+        if skill_md_path is None:
+            raise SkillInstallError(
+                "Skill manifest file not found. Expected SKILL.md or casing variants"
+            )
+        return skill_md_path
+
+    @staticmethod
+    def _select_skill_manifest_file(file_list: list[str]) -> str:
+        manifest_path = select_skill_manifest_file(file_list)
+        if manifest_path is None:
+            raise FileNotFoundError(
+                "Skill manifest file not found. Expected SKILL.md or casing variants"
+            )
+        return manifest_path
+
+    @staticmethod
+    def _is_skill_manifest_file(relative_path: str) -> bool:
+        return (
+            "/" not in relative_path
+            and "\\" not in relative_path
+            and is_skill_manifest_filename(Path(relative_path).name)
+        )
+
+    @staticmethod
+    def _hash_skill_md(directory: Path) -> str:
+        path = find_skill_manifest_path(directory)
+        if path is None:
             return ""
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]

@@ -3,11 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from giga_agent.conf import (
-    GIGA_AGENT_CLI_CWD_ENV,
-    GIGA_AGENT_RUNTIME_ENV,
-    reset_settings_cache,
-)
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.agent.prompt import build_base_prompt
 
 
@@ -19,8 +15,8 @@ async def test_build_base_prompt_includes_cli_agents_md(tmp_path: Path):
     with patch.dict(
         "os.environ",
         {
-            GIGA_AGENT_RUNTIME_ENV: "cli",
-            GIGA_AGENT_CLI_CWD_ENV: str(tmp_path),
+            "GIGA_AGENT_RUNTIME": "cli",
+            "GIGA_AGENT_CLI_CWD": str(tmp_path),
         },
     ):
         reset_settings_cache()
@@ -39,8 +35,8 @@ async def test_build_base_prompt_includes_cli_agents_md_uppercase(tmp_path: Path
     with patch.dict(
         "os.environ",
         {
-            GIGA_AGENT_RUNTIME_ENV: "cli",
-            GIGA_AGENT_CLI_CWD_ENV: str(tmp_path),
+            "GIGA_AGENT_RUNTIME": "cli",
+            "GIGA_AGENT_CLI_CWD": str(tmp_path),
         },
     ):
         reset_settings_cache()
@@ -64,8 +60,8 @@ async def test_build_base_prompt_escapes_cli_agents_md_format_literals(
     with patch.dict(
         "os.environ",
         {
-            GIGA_AGENT_RUNTIME_ENV: "cli",
-            GIGA_AGENT_CLI_CWD_ENV: str(tmp_path),
+            "GIGA_AGENT_RUNTIME": "cli",
+            "GIGA_AGENT_CLI_CWD": str(tmp_path),
         },
     ):
         reset_settings_cache()
@@ -86,8 +82,8 @@ async def test_build_base_prompt_skips_agents_md_outside_cli(tmp_path: Path):
     with patch.dict(
         "os.environ",
         {
-            GIGA_AGENT_RUNTIME_ENV: "local",
-            GIGA_AGENT_CLI_CWD_ENV: str(tmp_path),
+            "GIGA_AGENT_RUNTIME": "local",
+            "GIGA_AGENT_CLI_CWD": str(tmp_path),
         },
     ):
         reset_settings_cache()
