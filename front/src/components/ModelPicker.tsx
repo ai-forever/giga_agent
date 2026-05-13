@@ -14,8 +14,7 @@ import type { LLMResponse } from "@/components/settings-page/forms/types";
 const llmLabel = (llm: LLMResponse): string => llm.name || llm.model_id;
 
 const ModelPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
-  const { user, llms, currentLlm, isLoadingLLMs, refreshUser } =
-    useAuth();
+  const { user, llms, currentLlm, isLoadingLLMs, refreshUser } = useAuth();
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
 
