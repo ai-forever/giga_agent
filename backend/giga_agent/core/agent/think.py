@@ -13,7 +13,6 @@ from langchain_core.tools import BaseTool
 
 from giga_agent.llm.manager import LLMManager
 
-
 THINK_TOOL_NAME = "think"
 MAX_FORCED_THINK_FOLLOWUPS = 2
 THINK_VIA_FAST_MODEL = False
@@ -90,7 +89,7 @@ def _merge_think_group(
         return [pairs[0][0], pairs[0][1]]
 
     thoughts = [_extract_think_thoughts(ai) for ai, _ in pairs]
-    merged_thoughts = "\n---\n".join(t for t in thoughts if t)
+    merged_thoughts = "\n".join(t for t in thoughts if t)
 
     last_ai, last_tool = pairs[-1]
 
@@ -102,8 +101,7 @@ def _merge_think_group(
     merged_ai = last_ai.model_copy(
         update={"tool_calls": [merged_call], "content": ""}
     )
-    merged_tool = last_tool.model_copy(update={"content": ""})
-    return [merged_ai, merged_tool]
+    return [merged_ai, last_tool]
 
 
 def collapse_think_hops(messages: list[AnyMessage]) -> list[AnyMessage]:
@@ -143,8 +141,8 @@ def collapse_think_hops(messages: list[AnyMessage]) -> list[AnyMessage]:
 
 def resolve_bound_tool_choice(messages: list[AnyMessage]) -> str:
     """Force repeated think calls for a limited trailing think/tool chain."""
-    trailing_think_pairs = _count_trailing_think_tool_pairs(messages)
-    if 1 <= trailing_think_pairs <= MAX_FORCED_THINK_FOLLOWUPS:
+    trailing = _count_trailing_think_tool_pairs(messages)
+    if trailing < MAX_FORCED_THINK_FOLLOWUPS:
         return THINK_TOOL_NAME
     return "auto"
 
