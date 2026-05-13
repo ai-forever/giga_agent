@@ -779,9 +779,10 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     ) -> list[dict]:
         """
         Scan the user skills directory (and optionally extra dirs)
-        for folders containing SKILL.md. Returns list of dicts with
+        for folders containing a skill manifest. Returns list of dicts with
         ``name``, ``description``, ``source_dir``, ``storage_path``.
         """
+        from giga_agent.modules.skills.manifest import find_skill_manifest_path
         from giga_agent.modules.skills.parser import parse_skill_md, SkillParseError
 
         dirs_to_scan: list[tuple[Path, str]] = []
@@ -803,8 +804,8 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             for entry in scan_root.iterdir():
                 if not entry.is_dir():
                     continue
-                skill_md = entry / "SKILL.md"
-                if not skill_md.is_file():
+                skill_md = find_skill_manifest_path(entry)
+                if skill_md is None:
                     continue
                 try:
                     content = skill_md.read_text(encoding="utf-8")
@@ -825,6 +826,6 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
                             "storage_path": storage_path,
                         }
                     )
-                except (SkillParseError, OSError):
+                except (SkillParseError, OSError) as exc:
                     continue
         return found

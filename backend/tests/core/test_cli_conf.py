@@ -279,10 +279,10 @@ class TestCliRuntimeResolver(unittest.IsolatedAsyncioTestCase):
             orig_cwd = os.getcwd()
             os.chdir(tmp_path)
             try:
-                from giga_agent.conf import GIGA_AGENT_CLI_CWD_ENV, reset_settings_cache
+                from giga_agent.conf import reset_settings_cache
                 from giga_agent.core.agent.runtime_resolver import CliRuntimeResolver
 
-                with patch.dict(os.environ, {GIGA_AGENT_CLI_CWD_ENV: str(cwd_path)}):
+                with patch.dict(os.environ, {"GIGA_AGENT_CLI_CWD": str(cwd_path)}):
                     reset_settings_cache()
                     resolver = await CliRuntimeResolver.create({})
                     resolved = await resolver.get_sandbox()

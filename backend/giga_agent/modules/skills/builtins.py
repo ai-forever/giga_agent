@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from giga_agent.modules.skills.manifest import find_skill_manifest_path
 from giga_agent.modules.skills.parser import SkillParseError, parse_skill_md
 
 _SKILLS_PACKAGE_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
@@ -15,7 +16,7 @@ def get_builtin_skills_dir() -> Path:
 
 def get_builtin_skill_dir(name: str) -> Path | None:
     candidate = _SKILLS_PACKAGE_DIR / name
-    if candidate.is_dir() and (candidate / "SKILL.md").is_file():
+    if candidate.is_dir() and find_skill_manifest_path(candidate) is not None:
         return candidate
     return None
 
@@ -28,8 +29,8 @@ def list_builtin_skills() -> list[dict]:
     for entry in sorted(_SKILLS_PACKAGE_DIR.iterdir()):
         if not entry.is_dir():
             continue
-        skill_md = entry / "SKILL.md"
-        if not skill_md.is_file():
+        skill_md = find_skill_manifest_path(entry)
+        if skill_md is None:
             continue
         try:
             content = skill_md.read_text(encoding="utf-8")

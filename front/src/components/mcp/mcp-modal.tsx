@@ -27,6 +27,7 @@ import {
 import { detectGigaChatWrongSchema } from "@/components/mcp/utils/detectGigaChatWrongSchema";
 import { MCP_PROXY_URL } from "@/config.ts";
 import { useMcp } from "@/components/mcp/hooks/useMcp.ts";
+import { useAuth } from "@/components/providers/auth.tsx";
 
 interface McpServer {
   id: string;
@@ -133,11 +134,76 @@ const MCPConnectionMemo = React.memo(
   (prev, next) => prev.server.url === next.server.url,
 );
 
-type ToolWithEnabled = Tool & { enabled: boolean; disabled?: boolean };
+type ToolWithEnabled = Tool & {
+  enabled: boolean;
+  disabled?: boolean;
+  disabledByGigaChat?: boolean;
+  enabledBeforeGigaChatDisable?: boolean;
+};
 
 export type MCPTool = Tool & {
   callTool: (args: Record<string, unknown>) => Promise<any>;
 };
+
+const TOOLS_STORAGE_KEY = "mcpServerTools";
+
+const getToolInputSchema = (tool: Tool | ToolWithEnabled | undefined) =>
+  tool && "inputSchema" in tool ? (tool as any).inputSchema : undefined;
+
+const applyGigaChatSchemaGuard = (
+  tool: Tool | ToolWithEnabled,
+  shouldApplyGuard: boolean,
+  schema: unknown = getToolInputSchema(tool),
+  defaultEnabled = true,
+): ToolWithEnabled => {
+  const current = tool as Partial<ToolWithEnabled>;
+  const currentEnabled =
+    typeof current.enabled === "boolean" ? current.enabled : defaultEnabled;
+  const hasUnsupportedSchema =
+    shouldApplyGuard && detectGigaChatWrongSchema(schema);
+
+  if (hasUnsupportedSchema) {
+    const enabledBeforeDisable =
+      current.disabledByGigaChat || current.disabled
+        ? (current.enabledBeforeGigaChatDisable ?? true)
+        : currentEnabled;
+
+    return {
+      ...tool,
+      enabled: false,
+      disabled: true,
+      disabledByGigaChat: true,
+      enabledBeforeGigaChatDisable: enabledBeforeDisable,
+    };
+  }
+
+  const wasDisabledByGuard = Boolean(
+    current.disabledByGigaChat || current.disabled,
+  );
+
+  return {
+    ...tool,
+    enabled: wasDisabledByGuard
+      ? (current.enabledBeforeGigaChatDisable ?? true)
+      : currentEnabled,
+    disabled: false,
+    disabledByGigaChat: false,
+    enabledBeforeGigaChatDisable: undefined,
+  };
+};
+
+const normalizeToolsForCurrentLlm = (
+  toolsByServer: Record<string, ToolWithEnabled[]>,
+  shouldApplyGigaChatGuard: boolean,
+): Record<string, ToolWithEnabled[]> =>
+  Object.fromEntries(
+    Object.entries(toolsByServer).map(([serverId, tools]) => [
+      serverId,
+      tools.map((tool) =>
+        applyGigaChatSchemaGuard(tool, shouldApplyGigaChatGuard),
+      ),
+    ]),
+  );
 
 interface McpServerModalProps {
   isOpen: boolean;
@@ -150,11 +216,35 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
   onClose,
   onToolsUpdate,
 }) => {
+  const { user, currentLlm, isLoadingLLMs, hasLoadedLLMs } = useAuth();
+  const canSyncToolsForCurrentLlm = Boolean(
+    user && hasLoadedLLMs && !isLoadingLLMs,
+  );
+  const shouldApplyGigaChatSchemaGuard = currentLlm?.type === "gigachat";
+  const canSyncToolsForCurrentLlmRef = useRef(canSyncToolsForCurrentLlm);
+  const shouldApplyGigaChatSchemaGuardRef = useRef(
+    shouldApplyGigaChatSchemaGuard,
+  );
+
+  useEffect(() => {
+    canSyncToolsForCurrentLlmRef.current = canSyncToolsForCurrentLlm;
+    shouldApplyGigaChatSchemaGuardRef.current = shouldApplyGigaChatSchemaGuard;
+  }, [canSyncToolsForCurrentLlm, shouldApplyGigaChatSchemaGuard]);
+
   // Локальное состояние тулов по серверу с флагом enabled
   const [serverTools, setServerTools] = useState<
     Record<string, ToolWithEnabled[]>
-  >({});
-  const TOOLS_STORAGE_KEY = "mcpServerTools";
+  >(() => {
+    try {
+      const stored = localStorage.getItem(TOOLS_STORAGE_KEY);
+      if (!stored) return {};
+      const parsed = JSON.parse(stored);
+      if (!parsed || typeof parsed !== "object") return {};
+      return parsed as Record<string, ToolWithEnabled[]>;
+    } catch {
+      return {};
+    }
+  });
 
   // Хелпер: персистентное обновление serverTools (включая запись в localStorage)
   const updateServerTools = (
@@ -173,20 +263,22 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
     });
   };
 
-  // Инициализация serverTools из localStorage (персистентность)
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(TOOLS_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === "object") {
-          setServerTools(parsed);
-        }
+    if (!canSyncToolsForCurrentLlm) return;
+
+    setServerTools((prev) => {
+      const next = normalizeToolsForCurrentLlm(
+        prev,
+        shouldApplyGigaChatSchemaGuard,
+      );
+      try {
+        localStorage.setItem(TOOLS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  }, []);
+      return next;
+    });
+  }, [canSyncToolsForCurrentLlm, shouldApplyGigaChatSchemaGuard]);
 
   const [servers, setServers] = useState<McpServer[]>(() => {
     const stored = localStorage.getItem("mcpServers");
@@ -336,6 +428,11 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
 
   // Aggregate all tools from enabled servers and notify parent
   useEffect(() => {
+    if (!canSyncToolsForCurrentLlm) {
+      onToolsUpdate?.([]);
+      return;
+    }
+
     const allTools: MCPTool[] = [];
 
     servers.forEach((server) => {
@@ -356,7 +453,13 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
     if (onToolsUpdate) {
       onToolsUpdate(allTools);
     }
-  }, [servers, connectionData, serverTools, onToolsUpdate]);
+  }, [
+    canSyncToolsForCurrentLlm,
+    servers,
+    connectionData,
+    serverTools,
+    onToolsUpdate,
+  ]);
 
   // Handle adding a new server
   const handleAddServer = () => {
@@ -464,20 +567,14 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
       const incoming: Tool[] = Array.isArray(data?.tools) ? data.tools : [];
       const isReady = data?.state === "ready";
       if (!isReady || incoming.length === 0) return;
+      if (!canSyncToolsForCurrentLlmRef.current) return;
+      const shouldApplyGuard = shouldApplyGigaChatSchemaGuardRef.current;
       updateServerTools((prev) => {
         const prevList = prev[serverId];
         if (!prevList || prevList.length === 0) {
-          const nextList: ToolWithEnabled[] = incoming.map((t) => {
-            const isWrong =
-              t && "inputSchema" in t
-                ? detectGigaChatWrongSchema((t as any).inputSchema)
-                : false;
-            return {
-              ...t,
-              enabled: isWrong ? false : true,
-              disabled: isWrong,
-            };
-          });
+          const nextList: ToolWithEnabled[] = incoming.map((tool) =>
+            applyGigaChatSchemaGuard(tool, shouldApplyGuard),
+          );
           return { ...prev, [serverId]: nextList };
         }
         const incomingNames = new Set(incoming.map((t) => t.name));
@@ -486,38 +583,22 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
           .filter((t) => incomingNames.has(t.name))
           .map((existing) => {
             const inc = incoming.find((it) => it.name === existing.name);
-            const isWrong =
-              inc && "inputSchema" in inc
-                ? detectGigaChatWrongSchema((inc as any).inputSchema)
-                : false;
-            if (isWrong) {
-              return {
+            return applyGigaChatSchemaGuard(
+              {
                 ...existing,
-                disabled: true,
-                enabled: false,
-              };
-            }
-            return {
-              ...existing,
-              disabled: false,
-            };
+                ...inc,
+              },
+              shouldApplyGuard,
+              getToolInputSchema(inc),
+              existing.enabled,
+            );
           });
         const keptNames = new Set(kept.map((t) => t.name));
         // Добавляем новые из входящих
         const added: ToolWithEnabled[] = incoming
           .filter((t) => !keptNames.has(t.name))
-          .map((t) => {
-            const isWrong =
-              t && "inputSchema" in t
-                ? detectGigaChatWrongSchema((t as any).inputSchema)
-                : false;
-            return {
-              ...t,
-              enabled: !isWrong,
-              disabled: isWrong,
-            };
-          });
-        // Существующие не изменяем (имя/описание/enabled остаются как были)
+          .map((tool) => applyGigaChatSchemaGuard(tool, shouldApplyGuard));
+        // Существующие сохраняют пользовательский enabled, но обновляют метаданные и GigaChat guard.
         const nextList: ToolWithEnabled[] = [...kept, ...added];
         return { ...prev, [serverId]: nextList };
       });

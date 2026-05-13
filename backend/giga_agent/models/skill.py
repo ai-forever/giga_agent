@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -91,7 +91,11 @@ class SkillResponse(BaseModel):
     source_url: str | None = None
     storage_path: str
     is_enabled: bool
-    metadata_: dict = Field(default_factory=dict, alias="metadata")
+    metadata_: dict = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("metadata_", "metadata"),
+        serialization_alias="metadata",
+    )
     created_at: datetime
     updated_at: datetime
 

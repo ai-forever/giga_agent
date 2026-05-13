@@ -12,11 +12,7 @@ from uuid import uuid4
 
 import typer
 
-from giga_agent.conf import (
-    GIGA_AGENT_CLI_CWD_ENV,
-    GIGA_AGENT_RUNTIME_ENV,
-    reset_settings_cache,
-)
+from giga_agent.conf import reset_settings_cache
 from giga_agent.core.logging import setup_cli_logging
 from giga_agent.core.process_supervisor import get_process_supervisor
 
@@ -567,6 +563,13 @@ def cli_chat(
             help="Agent working directory for local CLI sandbox execution.",
         ),
     ] = None,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="CLI runtime configuration as a JSON string (overrides giga_agent.conf.json).",
+        ),
+    ] = None,
 ) -> None:
     """
     Interactive CLI chat: invoke the agent graph directly (no HTTP server).
@@ -582,9 +585,11 @@ def cli_chat(
     ensure_giga_agent_dir()
     ensure_dev_secret_key_env()
 
-    os.environ[GIGA_AGENT_RUNTIME_ENV] = "cli"
+    os.environ["GIGA_AGENT_RUNTIME"] = "cli"
     os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")
-    os.environ[GIGA_AGENT_CLI_CWD_ENV] = str(cli_cwd)
+    os.environ["GIGA_AGENT_CLI_CWD"] = str(cli_cwd)
+    if config is not None:
+        os.environ["GIGA_AGENT_CLI_CONFIG"] = config
     reset_settings_cache()
 
     from giga_agent.core.cache import setup_cache

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
@@ -14,36 +14,14 @@ import type { LLMResponse } from "@/components/settings-page/forms/types";
 const llmLabel = (llm: LLMResponse): string => llm.name || llm.model_id;
 
 const ModelPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
-  const { user, refreshUser } = useAuth();
-  const [llms, setLlms] = useState<LLMResponse[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { user, llms, currentLlm, isLoadingLLMs, refreshUser } =
+    useAuth();
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    apiClient
-      .get<LLMResponse[]>(`${API_AGENT_PREFIX}/llms`)
-      .then((data) => {
-        if (cancelled) return;
-        setLlms(data);
-      })
-      .catch(() => {
-        /* handled globally */
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const currentLlm = llms.find((llm) => llm.id === user?.llm_id) ?? null;
   const currentLabel = currentLlm
     ? llmLabel(currentLlm)
-    : loading
+    : isLoadingLLMs
       ? "Загрузка…"
       : "Модель не выбрана";
 
@@ -66,7 +44,7 @@ const ModelPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
   );
 
   if (!user) return null;
-  if (!loading && llms.length === 0) return null;
+  if (!isLoadingLLMs && llms.length === 0) return null;
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
