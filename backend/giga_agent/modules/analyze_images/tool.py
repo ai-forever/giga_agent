@@ -15,8 +15,33 @@ from plotly import io as plotly_io
 
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.db import get_session_factory
+from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
 from giga_agent.sandbox.manager import SandboxManager
+
+
+async def resolve_image_analyzer_llm(
+    resolver: RuntimeResolver,
+) -> BaseLLMRuntime | None:
+    """Pick an LLM runtime that supports image analysis.
+
+    Priority: primary ``llm`` first, then ``fast_llm``.
+    """
+    if resolver.has_llm:
+        try:
+            llm = await resolver.get_llm_runtime()
+            if llm.can_analyze_image():
+                return llm
+        except Exception:
+            pass
+    if resolver.has_fast_llm:
+        try:
+            fast_llm = await resolver.get_fast_llm_runtime()
+            if fast_llm.can_analyze_image():
+                return fast_llm
+        except Exception:
+            pass
+    return None
 
 
 def _normalize_mime_type(value: str | None) -> str | None:
@@ -166,9 +191,9 @@ async def analyze_image(
             )
         image_bytes = plotly_png_bytes
 
-    llm_runtime = await resolver.get_llm_runtime()
+    llm_runtime = await resolve_image_analyzer_llm(resolver)
 
-    if not llm_runtime.can_analyze_image():
+    if llm_runtime is None:
         raise ValueError("Текущий LLM не поддерживает analyze_image")
 
     jpeg_bytes = await asyncio.to_thread(

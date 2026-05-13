@@ -653,6 +653,89 @@ def _build_shell_tool_command_result(
     )
 
 
+_DANGEROUS_PATH_RE = (
+    r"(?:"
+    r"/|/\*|"
+    r"~|~/\*?|"
+    r"\$\{?HOME\}?/?\*?|"
+    r"/(?:etc|usr|var|bin|sbin|lib|lib32|lib64|boot|root|opt|sys|proc|dev"
+    r"|System|Applications|Users|home)(?:/?\*?)"
+    r")"
+)
+
+_PATH_BOUNDARY_BEFORE = r"(?<![\w./\-])"
+_PATH_BOUNDARY_AFTER = r"(?=[\s'\";|&)]|$)"
+
+_DANGEROUS_COMMAND_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(
+            rf"{_PATH_BOUNDARY_BEFORE}rm\s+"
+            rf"(?:-[a-zA-Z]*[rR][a-zA-Z]*\b|--recursive\b)"
+            rf"[^|;&\n]*?"
+            rf"{_PATH_BOUNDARY_BEFORE}{_DANGEROUS_PATH_RE}{_PATH_BOUNDARY_AFTER}"
+        ),
+        "Запрещено выполнять `rm -r/-R` на корневых или системных директориях "
+        "(`/`, `~`, `$HOME`, `/etc`, `/usr`, `/var`, `/bin`, `/sbin`, `/lib`, `/boot`, "
+        "`/root`, `/opt`, `/sys`, `/proc`, `/dev`, `/System`, `/Applications`, `/Users`, `/home`). "
+        "Сузьте путь до конкретной поддиректории.",
+    ),
+    (
+        re.compile(
+            rf"{_PATH_BOUNDARY_BEFORE}(?:chmod|chown)\s+"
+            rf"(?:-[a-zA-Z]*R[a-zA-Z]*\b|--recursive\b)"
+            rf"[^|;&\n]*?"
+            rf"{_PATH_BOUNDARY_BEFORE}{_DANGEROUS_PATH_RE}{_PATH_BOUNDARY_AFTER}"
+        ),
+        "Запрещено рекурсивно менять права/владельца (`chmod -R`/`chown -R`) "
+        "на корневых или системных директориях.",
+    ),
+    (
+        re.compile(r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;\s*:"),
+        "Похоже на fork-bomb (`:(){ :|:& };:`) — выполнение запрещено.",
+    ),
+    (
+        re.compile(
+            rf"{_PATH_BOUNDARY_BEFORE}dd\b[^\n]*\bof=/dev/"
+            r"(?:sd|hd|nvme|mmcblk|disk|xvd|loop)[a-z0-9]*"
+        ),
+        "Запрещено писать через `dd` напрямую в блочные устройства (`of=/dev/sdX` и аналоги).",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}mkfs(?:\.\w+)?\b"),
+        "Форматирование файловой системы (`mkfs`) запрещено.",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}(?:shutdown|reboot|halt|poweroff)\b"),
+        "Запрещено управлять питанием sandbox (`shutdown`/`reboot`/`halt`/`poweroff`).",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}kill\s+(?:-\w+\s+)*-1(?=\s|$|[;|&])"),
+        "`kill -1` (рассылка сигнала всем процессам) запрещён.",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}find\s+/(?=\s)[^|;&\n]*\s-delete\b"),
+        "Запрещено использовать `find /` с `-delete` — сузьте корневую директорию.",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}crontab\s+-r\b"),
+        "`crontab -r` (удаление всех cron-задач) запрещено.",
+    ),
+    (
+        re.compile(r">\s*/dev/(?:sd|hd|nvme|mmcblk|disk|xvd)[a-z0-9]*"),
+        "Запрещена прямая запись в блочные устройства (`> /dev/sdX`).",
+    ),
+]
+
+
+def _check_shell_command_safety(command: str) -> str | None:
+    if not command or not command.strip():
+        return None
+    for pattern, message in _DANGEROUS_COMMAND_PATTERNS:
+        if pattern.search(command):
+            return message
+    return None
+
+
 @tool(parse_docstring=True, extras={"repl_save": False})
 async def shell(
     command: str,
@@ -669,6 +752,10 @@ async def shell(
         block_until_ms: Сколько миллисекунд ждать завершения перед возвратом
         description: Короткое описание команды
     """
+    safety_error = _check_shell_command_safety(command)
+    if safety_error:
+        raise ValueError(safety_error)
+
     sandbox_runtime, user, _ = await _resolve_repl_runtime_context(runtime)
     secret_envs = get_user_secret_envs(user)
     try:
