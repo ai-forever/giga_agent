@@ -88,17 +88,54 @@ class CliRuntimeConf(BaseModel):
     user_settings: dict[str, Any] = Field(default_factory=dict)
 
 
-def _find_conf_path() -> Path:
-    """Locate giga_agent.conf.json (CWD first, then giga_agent_dir)."""
-    cwd_path = Path.cwd() / CONF_FILENAME
-    if cwd_path.is_file():
-        return cwd_path
+def conf_search_paths(cli_cwd: Path | None = None) -> list[Path]:
+    """Return CLI conf candidate paths in lookup order, deduplicated by resolve.
 
+    Order: ``cli_cwd`` (if given), then ``Path.cwd()``, then ``giga_agent_dir()``.
+    Pure path computation — does not touch the filesystem beyond ``resolve()``.
+    """
     from giga_agent.core.paths import giga_agent_dir
 
-    project_path = giga_agent_dir() / CONF_FILENAME
-    if project_path.is_file():
-        return project_path
+    bases: list[Path] = []
+    if cli_cwd is not None:
+        bases.append(cli_cwd)
+    bases.append(Path.cwd().resolve())
+    bases.append(giga_agent_dir())
+
+    seen: set[Path] = set()
+    candidates: list[Path] = []
+    for base in bases:
+        candidate = (base / CONF_FILENAME).resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(candidate)
+    return candidates
+
+
+def read_and_validate_conf_file(path: Path) -> str:
+    """Read, JSON-parse and schema-validate a CLI runtime config file.
+
+    Returns the raw file text on success. Raises ``FileNotFoundError``,
+    ``OSError``, ``json.JSONDecodeError`` or pydantic ``ValidationError``
+    so callers can render errors in their own style.
+    """
+    expanded = path.expanduser().resolve()
+    if not expanded.is_file():
+        raise FileNotFoundError(expanded)
+    raw = expanded.read_text(encoding="utf-8")
+    data = json.loads(raw)
+    CliRuntimeConf.model_validate(data)
+    return raw
+
+
+def _find_conf_path() -> Path:
+    """Locate giga_agent.conf.json (CWD first, then giga_agent_dir)."""
+    for candidate in conf_search_paths():
+        if candidate.is_file():
+            return candidate
+
+    from giga_agent.core.paths import giga_agent_dir
 
     raise FileNotFoundError(
         f"CLI runtime config not found. Place {CONF_FILENAME} in the "

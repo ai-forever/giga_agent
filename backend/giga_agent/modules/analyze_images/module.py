@@ -11,7 +11,7 @@ from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
 from giga_agent.modules.analyze_images.prompts import ANALYZE_IMAGES_MODULE_INSTRUCTIONS
-from giga_agent.modules.analyze_images.tool import analyze_image
+from giga_agent.modules.analyze_images.tool import analyze_image, resolve_image_analyzer_llm
 
 
 class AnalyzeImagesModule(BaseModule):
@@ -27,10 +27,7 @@ class AnalyzeImagesModule(BaseModule):
 
         try:
             resolver = RuntimeResolver.from_config(config)
-            if not resolver.has_llm:
-                return False
-            llm_runtime = await resolver.get_llm_runtime()
-            return llm_runtime.can_analyze_image()
+            return await resolve_image_analyzer_llm(resolver) is not None
         except Exception:
             return False
 

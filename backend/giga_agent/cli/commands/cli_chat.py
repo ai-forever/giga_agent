@@ -23,6 +23,36 @@ _ATTACHMENT_MARKDOWN_RE = re.compile(r"(!?)\[([^\]]*)\]\(attachment:([^\s)]+)\)"
 _BARE_ATTACHMENT_RE = re.compile(r"attachment:([^\s)]+)")
 _INCOMPLETE_MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*(?:\]\([^)]*)?$")
 _INCOMPLETE_ATTACHMENT_RE = re.compile(r"attachment:[^\s)]*$")
+_AT_FILE_REF_RE = re.compile(r"(^|\s)@(\S+)")
+
+
+def _expand_at_file_refs(text: str, cwd: Path) -> str:
+    """Rewrite `@<path>` tokens in `text` to `@<absolute-path>`.
+
+    Supports an optional trailing `#<suffix>` (e.g. `@foo.py#42` or
+    `@foo.py#10-20`) — the suffix is preserved verbatim in the output.
+    Tokens that don't resolve to an existing file or directory are left
+    untouched.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        prefix, token = match.group(1), match.group(2)
+        path_part, sep, suffix = token.partition("#")
+        if not path_part:
+            return match.group(0)
+        path_obj = Path(path_part).expanduser()
+        if not path_obj.is_absolute():
+            path_obj = cwd / path_obj
+        try:
+            resolved = path_obj.resolve()
+        except OSError:
+            return match.group(0)
+        if not resolved.exists():
+            return match.group(0)
+        tail = f"{sep}{suffix}" if sep else ""
+        return f"{prefix}@{resolved}{tail}"
+
+    return _AT_FILE_REF_RE.sub(replace, text)
 
 
 def _make_console():
@@ -39,14 +69,83 @@ def _make_console():
     )
 
 
-def _make_message_prompt_session():
+def _make_message_prompt_session(cwd: Path):
     from prompt_toolkit import PromptSession
+    from prompt_toolkit.filters import completion_is_selected, has_completions
+    from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.styles import Style
+
+    from ._at_file_completer import make_at_file_completer
+
+    kb = KeyBindings()
+
+    @kb.add("down", filter=has_completions)
+    def _at_file_next(event) -> None:
+        state = event.current_buffer.complete_state
+        if not state or not state.completions:
+            return
+        total = len(state.completions)
+        state.complete_index = (
+            0 if state.complete_index is None
+            else (state.complete_index + 1) % total
+        )
+
+    @kb.add("up", filter=has_completions)
+    def _at_file_prev(event) -> None:
+        state = event.current_buffer.complete_state
+        if not state or not state.completions:
+            return
+        total = len(state.completions)
+        state.complete_index = (
+            total - 1 if state.complete_index is None
+            else (state.complete_index - 1) % total
+        )
+
+    @kb.add("tab", filter=has_completions)
+    def _at_file_tab(event) -> None:
+        state = event.current_buffer.complete_state
+        if not state or not state.completions:
+            return
+        total = len(state.completions)
+        state.complete_index = (
+            0 if state.complete_index is None
+            else (state.complete_index + 1) % total
+        )
+
+    @kb.add("enter", filter=completion_is_selected)
+    def _at_file_accept(event) -> None:
+        buffer = event.current_buffer
+        state = buffer.complete_state
+        if state and state.current_completion is not None:
+            buffer.apply_completion(state.current_completion)
+        buffer.complete_state = None
+
+    @kb.add("escape", filter=has_completions, eager=True)
+    def _at_file_dismiss(event) -> None:
+        event.current_buffer.complete_state = None
+
+    style = Style.from_dict(
+        {
+            "message-prompt": "ansiblue bold",
+            "completion-menu": "bg:default",
+            "completion-menu.completion": "bg:default fg:ansicyan",
+            "completion-menu.completion.current": "bg:default fg:ansibrightcyan bold",
+            "at-file.symbol": "fg:ansibrightmagenta nobold",
+            "at-file.path": "fg:ansicyan",
+            "completion-menu.completion.current at-file.symbol": "fg:ansibrightmagenta nobold",
+            "completion-menu.completion.current at-file.path": "fg:ansibrightcyan bold",
+            "scrollbar.background": "bg:default",
+            "scrollbar.button": "bg:ansibrightblack",
+        }
+    )
 
     return PromptSession(
         message=[("class:message-prompt", "You: ")],
         mouse_support=False,
-        style=Style.from_dict({"message-prompt": "ansiblue bold"}),
+        style=style,
+        completer=make_at_file_completer(cwd),
+        complete_while_typing=True,
+        key_bindings=kb,
     )
 
 
@@ -179,6 +278,83 @@ def _merge_stream_content(collected_text: str, content: str) -> tuple[str, str]:
     return collected_text + content, content
 
 
+def _load_and_validate_config_file(path: Path) -> str:
+    """Read a CLI runtime config JSON file, validate it, and return its raw text."""
+    from pydantic import ValidationError
+
+    from giga_agent.core.agent.cli_conf import read_and_validate_conf_file
+
+    console = _make_console()
+    expanded = path.expanduser().resolve()
+    try:
+        return read_and_validate_conf_file(expanded)
+    except FileNotFoundError:
+        console.print(f"[red]Config file not found:[/red] {expanded}")
+        raise typer.Exit(code=1)
+    except OSError as e:
+        console.print(f"[red]Failed to read config file {expanded}:[/red] {e}")
+        raise typer.Exit(code=1)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Invalid JSON in {expanded}:[/red] {e}")
+        raise typer.Exit(code=1)
+    except ValidationError as e:
+        console.print(f"[red]Config validation failed for {expanded}:[/red]\n{e}")
+        raise typer.Exit(code=1)
+
+
+def _ensure_cli_config_available(cli_cwd: Path) -> None:
+    """Verify CLI runtime configuration is available via env var or conf file.
+
+    When a config file is found on disk, it is validated and its raw contents
+    are loaded into ``GIGA_AGENT_CLI_CONFIG`` so the rest of the runtime reads
+    from a single, pre-validated source.
+    """
+    if os.environ.get("GIGA_AGENT_CLI_CONFIG", "").strip():
+        return
+
+    from giga_agent.core.agent.cli_conf import CONF_FILENAME, conf_search_paths
+    from giga_agent.core.paths import giga_agent_dir
+
+    candidates = conf_search_paths(cli_cwd)
+    for candidate in candidates:
+        if candidate.is_file():
+            os.environ["GIGA_AGENT_CLI_CONFIG"] = _load_and_validate_config_file(
+                candidate
+            )
+            return
+
+    from rich.syntax import Syntax
+
+    example = (
+        "{\n"
+        '  "llm": {\n'
+        '    "connector": { "__type": "openai", "api_key": "sk-..." },\n'
+        '    "__type": "openai",\n'
+        '    "model_id": "gpt-4o"\n'
+        "  },\n"
+        '  "sandbox": "local_jupyter"\n'
+        "}"
+    )
+
+    project_dir = giga_agent_dir()
+    process_cwd = Path.cwd().resolve()
+
+    console = _make_console()
+    console.print("[red]CLI runtime configuration not found.[/red]\n")
+    console.print("Provide configuration in one of the following ways:")
+    console.print(f"  • Create [bold]{CONF_FILENAME}[/bold] in {cli_cwd}")
+    if process_cwd != cli_cwd:
+        console.print(f"  • Or create it in {process_cwd}")
+    console.print(f"  • Or create it in {project_dir}")
+    console.print("  • Or pass JSON via the [bold]--config[/bold] option")
+    console.print(
+        "  • Or set the [bold]GIGA_AGENT_CLI_CONFIG[/bold] env var to a JSON string\n"
+    )
+    console.print(f"Example {CONF_FILENAME}:")
+    console.print(Syntax(example, "json", theme="ansi_dark", background_color="default"))
+    raise typer.Exit(code=1)
+
+
 def _stop_supervised_processes_once(
     *,
     stop_state: dict[str, bool],
@@ -204,6 +380,7 @@ async def _chat_loop(
     approve: bool,
     render_markdown: bool,
     debug: bool,
+    cwd: Path,
     prompt: str | None = None,
 ) -> None:
     from langchain_core.messages import HumanMessage
@@ -230,7 +407,9 @@ async def _chat_loop(
     console.print("[bold green]GigaAgent CLI[/bold green]")
     console.print(f"Thread: {thread_id}")
     if prompt is not None:
-        input_msg = {"messages": [HumanMessage(content=prompt)]}
+        input_msg = {
+            "messages": [HumanMessage(content=_expand_at_file_refs(prompt, cwd))]
+        }
         try:
             await _stream_and_handle_interrupts(
                 graph, input_msg, config, console, approve, render_markdown, debug
@@ -242,7 +421,7 @@ async def _chat_loop(
     console.print("Type your message. Press Ctrl+C or Ctrl+D to exit.\n")
 
     previous_sigint_handler = signal.getsignal(signal.SIGINT)
-    message_prompt_session = _make_message_prompt_session()
+    message_prompt_session = _make_message_prompt_session(cwd)
 
     def _raise_keyboard_interrupt(signum, frame) -> None:
         raise KeyboardInterrupt
@@ -262,7 +441,11 @@ async def _chat_loop(
             if not user_input.strip():
                 continue
 
-            input_msg = {"messages": [HumanMessage(content=user_input)]}
+            input_msg = {
+                "messages": [
+                    HumanMessage(content=_expand_at_file_refs(user_input, cwd))
+                ]
+            }
             try:
                 await _stream_and_handle_interrupts(
                     graph, input_msg, config, console, approve, render_markdown, debug
@@ -570,6 +753,16 @@ def cli_chat(
             help="CLI runtime configuration as a JSON string (overrides giga_agent.conf.json).",
         ),
     ] = None,
+    config_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--config-file",
+            help=(
+                "Path to a CLI runtime config JSON file. The contents are "
+                "validated and then loaded into GIGA_AGENT_CLI_CONFIG."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """
     Interactive CLI chat: invoke the agent graph directly (no HTTP server).
@@ -588,8 +781,17 @@ def cli_chat(
     os.environ["GIGA_AGENT_RUNTIME"] = "cli"
     os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")
     os.environ["GIGA_AGENT_CLI_CWD"] = str(cli_cwd)
+    if config is not None and config_file is not None:
+        _make_console().print(
+            "[red]Pass either --config or --config-file, not both.[/red]"
+        )
+        raise typer.Exit(code=1)
     if config is not None:
         os.environ["GIGA_AGENT_CLI_CONFIG"] = config
+    elif config_file is not None:
+        os.environ["GIGA_AGENT_CLI_CONFIG"] = _load_and_validate_config_file(config_file)
+
+    _ensure_cli_config_available(cli_cwd)
     reset_settings_cache()
 
     from giga_agent.core.cache import setup_cache
@@ -617,8 +819,9 @@ def cli_chat(
     )
 
     async def _run() -> None:
-        from giga_agent.core.paths import giga_agent_dir
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        from giga_agent.core.paths import giga_agent_dir
 
         db_dir = giga_agent_dir() / "langgraph"
         db_dir.mkdir(parents=True, exist_ok=True)
@@ -631,6 +834,7 @@ def cli_chat(
                 approve or prompt is not None,
                 not no_markdown,
                 debug,
+                cli_cwd,
                 prompt,
             )
 
