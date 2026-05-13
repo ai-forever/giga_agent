@@ -158,7 +158,16 @@ def default_package_cache_write_roots() -> list[Path]:
         home / ".orbstack",
         # ── Local model runtimes ──
         home / ".ollama",
+        # ── Agent skills ──
+        home / ".agent" / "skills",
     ]
+
+    try:
+        from giga_agent.core.paths import giga_agent_dir
+
+        roots.append(giga_agent_dir() / "skills")
+    except Exception:
+        pass
 
     if is_darwin:
         roots.extend(

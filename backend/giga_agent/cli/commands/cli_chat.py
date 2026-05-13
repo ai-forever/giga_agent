@@ -471,8 +471,14 @@ async def _stream_raw_tokens(
         else:
             continue
 
-        if debug and isinstance(msg, ToolMessage):
-            _print_tool_response(console, msg)
+        if isinstance(msg, ToolMessage):
+            if _is_think_tool_message(msg):
+                await _print_think_thoughts_for_tool_message(
+                    graph, config, msg, console, render_markdown=False
+                )
+                continue
+            if debug:
+                _print_tool_response(console, msg)
             continue
 
         if isinstance(msg, AIMessageChunk) and msg.content:
@@ -531,8 +537,22 @@ async def _stream_with_live_markdown(
             else:
                 continue
 
-            if debug and isinstance(msg, ToolMessage):
-                _print_tool_response(console, msg)
+            if isinstance(msg, ToolMessage):
+                if _is_think_tool_message(msg):
+                    if live is not None:
+                        _safe_stop_live(live)
+                        live = None
+                    if pending_text.strip():
+                        console.print(
+                            _markdown(_format_text_with_attachments(pending_text))
+                        )
+                        pending_text = ""
+                    await _print_think_thoughts_for_tool_message(
+                        graph, config, msg, console, render_markdown=True
+                    )
+                    continue
+                if debug:
+                    _print_tool_response(console, msg)
                 continue
 
             if isinstance(msg, AIMessageChunk) and msg.content:
@@ -611,11 +631,17 @@ async def _stream_and_handle_interrupts(
 
         if approve:
             for tc in tool_calls:
-                console.print(f"  [dim][Tool: {_format_tool_call(tc)}][/dim]")
+                if _is_think_tool_call(tc):
+                    _print_think_thoughts(console, tc, render_markdown)
+                else:
+                    console.print(f"  [dim][Tool: {_format_tool_call(tc)}][/dim]")
             resume_value = {"type": "approve"}
         else:
             for tc in tool_calls:
-                console.print(f"  [yellow][Tool: {_format_tool_call(tc)}][/yellow]")
+                if _is_think_tool_call(tc):
+                    _print_think_thoughts(console, tc, render_markdown)
+                else:
+                    console.print(f"  [yellow][Tool: {_format_tool_call(tc)}][/yellow]")
 
             try:
                 answer = console.input("[bold]Approve? [Y/n]: [/bold]").strip()
@@ -691,6 +717,26 @@ def _format_tool_call(tool_call: dict) -> str:
     return f"{name}({args_str})" if args_str else str(name)
 
 
+def _is_think_tool_call(tool_call: dict) -> bool:
+    return tool_call.get("name") == "think"
+
+
+def _print_think_thoughts(console, tool_call: dict, render_markdown: bool) -> None:
+    args = tool_call.get("args") or {}
+    thoughts = args.get("thoughts") or args.get("thought") or ""
+    thoughts = str(thoughts).strip()
+    if not thoughts:
+        return
+    console.print("[dim bold]Thoughts:[/dim bold]")
+    if render_markdown:
+        console.print(
+            _markdown(_format_text_with_attachments(thoughts)),
+            style="dim",
+        )
+    else:
+        console.print(thoughts, style="dim", markup=False)
+
+
 def _format_tool_response_content(content) -> str:
     if isinstance(content, str):
         return content
@@ -709,6 +755,32 @@ def _print_tool_response(console, message) -> None:
 
     console.print(Text(f"  [Tool response: {name}]", style="cyan"))
     console.print(Text("\n".join(f"    {line}" for line in content.splitlines()), style="dim"))
+
+
+def _tool_message_name(message) -> str | None:
+    additional_kwargs = getattr(message, "additional_kwargs", None) or {}
+    return additional_kwargs.get("tool_name") or getattr(message, "name", None)
+
+
+def _is_think_tool_message(message) -> bool:
+    return _tool_message_name(message) == "think"
+
+
+async def _print_think_thoughts_for_tool_message(
+    graph, config, message, console, render_markdown: bool
+) -> None:
+    tool_call_id = getattr(message, "tool_call_id", None)
+    if not tool_call_id:
+        return
+    try:
+        state = await graph.aget_state(config)
+    except Exception:
+        return
+    for m in state.values.get("messages", []):
+        for tc in (getattr(m, "tool_calls", None) or []):
+            if tc.get("id") == tool_call_id and tc.get("name") == "think":
+                _print_think_thoughts(console, tc, render_markdown)
+                return
 
 
 def cli_chat(

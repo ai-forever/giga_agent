@@ -37,7 +37,7 @@ def think(thoughts: str, runtime: ToolRuntime) -> str:
         trailing = _count_trailing_think_tool_pairs(preceding)
         if trailing + 1 < MAX_FORCED_THINK_FOLLOWUPS:
             return THINK_HOP_RESULT
-    return "{}"
+    return ""
 
 
 MULTI_TOOL_USE_NAME = "multi_tool_use"
