@@ -9,22 +9,22 @@ import json
 import keyword
 import re
 import traceback
+import types
 import uuid
 from typing import Any
-import types
+
+from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool
+from langgraph.types import Command
+from pydantic import BaseModel, Field, ValidationError
 
 from giga_agent.core.agent.tool_node import AgentToolNode
-from giga_agent.modules.repl.args_monkey_patch import _parse_input
-from langchain.tools import tool, ToolRuntime
-from langchain_core.tools import BaseTool
-from langchain_core.messages import ToolMessage
-from langgraph.types import Command
-from pydantic import ValidationError, BaseModel, Field
-
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models import UserShort
 from giga_agent.models.file import FileResponse
+from giga_agent.modules.repl.args_monkey_patch import _parse_input
 from giga_agent.sandbox.manager import (
     SandboxBusyError,
     SandboxManager,
@@ -451,6 +451,7 @@ async def python(
     outputs: list[str] = []
     uploads: list[UploadFileSpec] = []
     giga_attachments: list[dict[str, Any]] = []
+    had_error = False
     upload_prefix = _resolve_upload_prefix(runtime)
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -517,6 +518,7 @@ async def python(
                 outputs.append(data["text/html"])
 
         elif chunk_type == "error":
+            had_error = True
             ename = chunk.get("ename", "Error")
             evalue = chunk.get("evalue", "")
             traceback_lines = chunk.get("traceback", [])
@@ -556,18 +558,20 @@ async def python(
     if not result:
         result = "Код выполнился без вывода."
     kernel_id = sandbox_runtime._kernel_id
+    tool_message_kwargs: dict[str, Any] = {
+        "tool_call_id": runtime.tool_call_id,
+        "content": result,
+        "name": "python",
+        "additional_kwargs": {
+            "tool_attachments": giga_attachments,
+            "tool_name": "python",
+        },
+    }
+    if had_error:
+        tool_message_kwargs["status"] = "error"
     return Command(
         update={
-            "messages": [
-                ToolMessage(
-                    tool_call_id=runtime.tool_call_id,
-                    content=result,
-                    additional_kwargs={
-                        "tool_attachments": giga_attachments,
-                        "tool_name": "python",
-                    },
-                )
-            ],
+            "messages": [ToolMessage(**tool_message_kwargs)],
             "kernel_id": kernel_id,
         }
     )
@@ -580,8 +584,8 @@ python._parse_input = types.MethodType(_parse_input, python)
 async def _resolve_repl_runtime_context(
     runtime: ToolRuntime,
 ) -> tuple[Any, UserShort, uuid.UUID]:
-    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
     from giga_agent.conf import get_settings
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
     from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
     resolver = RuntimeResolver.from_config(runtime.config)
@@ -639,18 +643,17 @@ def _build_shell_tool_command_result(
     runtime: ToolRuntime,
     tool_name: str,
     content: str,
+    is_error: bool = False,
 ) -> Command:
-    return Command(
-        update={
-            "messages": [
-                ToolMessage(
-                    tool_call_id=runtime.tool_call_id,
-                    content=content,
-                    additional_kwargs={"tool_name": tool_name},
-                )
-            ]
-        }
-    )
+    tool_message_kwargs: dict = {
+        "tool_call_id": runtime.tool_call_id,
+        "content": content,
+        "name": tool_name,
+        "additional_kwargs": {"tool_name": tool_name},
+    }
+    if is_error:
+        tool_message_kwargs["status"] = "error"
+    return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
 
 
 _DANGEROUS_PATH_RE = (
@@ -771,10 +774,14 @@ async def shell(
             "Текущий sandbox не поддерживает shell-инструмент."
         ) from exc
 
+    is_error = result.status == "failed" or (
+        result.exit_code is not None and result.exit_code != 0
+    )
     return _build_shell_tool_command_result(
         runtime=runtime,
         tool_name="shell",
         content=_format_shell_result(result, output_field="output"),
+        is_error=is_error,
     )
 
 
@@ -804,6 +811,9 @@ async def await_shell(
             "Текущий sandbox не поддерживает await_shell-инструмент."
         ) from exc
 
+    is_error = result.status in ("failed", "not_found") or (
+        result.exit_code is not None and result.exit_code != 0
+    )
     return _build_shell_tool_command_result(
         runtime=runtime,
         tool_name="await_shell",
@@ -812,4 +822,5 @@ async def await_shell(
             output_field="output_delta",
             empty_output_text="(нет нового вывода)",
         ),
+        is_error=is_error,
     )

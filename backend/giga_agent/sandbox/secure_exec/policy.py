@@ -57,10 +57,30 @@ def default_package_cache_write_roots() -> list[Path]:
         home / ".bun",
         home / ".node-gyp",
         home / ".local" / "share" / "pnpm",
+        # ── Node version managers (nvm / fnm / volta / n) ──
+        home / ".nvm",
+        home / ".fnm",
+        home / ".volta",
+        home / ".n",
+        xdg_data / "fnm",
+        # ── Deno ──
+        home / ".deno",
+        # ── Universal version managers ──
+        home / ".asdf",
         # ── Browser automation (Playwright / Cypress / Puppeteer) ──
         xdg_cache / "ms-playwright",
         xdg_cache / "Cypress",
         xdg_cache / "puppeteer",
+        # Puppeteer hardcodes ~/.cache/puppeteer cross-platform (ignores XDG
+        # and macOS Library conventions); puppeteer-browsers only honors
+        # PUPPETEER_CACHE_DIR. Cover both the literal default and the
+        # XDG_CACHE_HOME-resolved path.
+        posix_xdg_cache / "puppeteer",
+        home / ".cache" / "puppeteer",
+        # Chrome for Testing (used by Puppeteer) writes Crashpad state and
+        # user data here, regardless of --user-data-dir. Without this, crashpad
+        # fails with "Operation not permitted" on every launch.
+        xdg_data / "Google" / "Chrome for Testing",
         xdg_data / "Cypress",
         home / ".wdm",
         xdg_cache / "yarn",
@@ -75,6 +95,13 @@ def default_package_cache_write_roots() -> list[Path]:
         xdg_data / "pipx",
         home / ".local",
         home / ".venv",
+        # ── Python version managers / conda / mamba ──
+        home / ".pyenv",
+        home / ".conda",
+        home / "miniconda3",
+        home / "anaconda3",
+        home / "miniforge3",
+        home / "mambaforge",
         # ── Python data-science / notebook libraries ──
         home / ".ipython",
         home / ".jupyter",
@@ -142,6 +169,12 @@ def default_package_cache_write_roots() -> list[Path]:
         # ── Ruby ──
         home / ".gem",
         home / ".bundle",
+        home / ".rbenv",
+        home / ".rvm",
+        # ── Mobile (Android SDK / CocoaPods) ──
+        home / ".android",
+        home / ".cocoapods",
+        xdg_cache / "CocoaPods",
         # ── .NET ──
         home / ".nuget",
         home / ".dotnet",
@@ -174,6 +207,7 @@ def default_package_cache_write_roots() -> list[Path]:
             [
                 home / "Library" / "pnpm",
                 home / "Library" / "Developer" / "Xcode" / "DerivedData",
+                home / "Library" / "Android",
             ]
         )
 

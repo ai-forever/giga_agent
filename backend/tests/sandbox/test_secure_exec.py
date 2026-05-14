@@ -114,6 +114,20 @@ class SandboxAccessPolicyTests(unittest.TestCase):
         self.assertIn((home / "Library" / "Caches" / "Homebrew").resolve(), roots)
         self.assertIn((home / "Library" / "Caches" / "ms-playwright").resolve(), roots)
         self.assertIn((home / "Library" / "Caches" / "puppeteer").resolve(), roots)
+        # Puppeteer hardcodes ~/.cache/puppeteer cross-platform — must be writable
+        # on macOS too, even though it violates the Library/Caches convention.
+        self.assertIn((home / ".cache" / "puppeteer").resolve(), roots)
+        # Chrome for Testing (used by Puppeteer) writes Crashpad state here.
+        self.assertIn(
+            (
+                home
+                / "Library"
+                / "Application Support"
+                / "Google"
+                / "Chrome for Testing"
+            ).resolve(),
+            roots,
+        )
         self.assertIn((home / ".matplotlib").resolve(), roots)
         self.assertIn((home / ".config" / "matplotlib").resolve(), roots)
         self.assertIn((home / ".cache" / "matplotlib").resolve(), roots)
@@ -348,3 +362,101 @@ class MacSandboxExecProfileTests(unittest.TestCase):
         self.assertIn('"com.apple.securityd.xpc"', profile)
         self.assertIn('"com.apple.trustd"', profile)
         self.assertIn('"com.apple.trustd.agent"', profile)
+
+    def test_profile_allows_fsevents_for_file_watching(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            profile = build_macos_sandbox_profile(
+                MacSandboxExecConfig(
+                    command=["node", "watcher.js"],
+                    profile_path=Path(tmp_dir) / "profile.sb",
+                )
+            )
+
+        self.assertIn('"com.apple.FSEvents"', profile)
+
+    def test_profile_allows_dev_workflow_mach_services(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            profile = build_macos_sandbox_profile(
+                MacSandboxExecConfig(
+                    command=["sh", "-lc", "echo dev"],
+                    profile_path=Path(tmp_dir) / "profile.sb",
+                )
+            )
+
+        self.assertIn('"com.apple.cfprefsd.agent"', profile)
+        self.assertIn('"com.apple.cfprefsd.daemon"', profile)
+        self.assertIn('"com.apple.amfid"', profile)
+        self.assertIn('"com.apple.metadata.mds"', profile)
+        self.assertIn('"com.apple.metadata.mds.spi"', profile)
+        self.assertIn('"com.apple.system.opendirectoryd.api"', profile)
+        self.assertIn("distributed_notifications", profile)
+
+    def test_profile_allows_unix_domain_sockets(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            profile = build_macos_sandbox_profile(
+                MacSandboxExecConfig(
+                    command=["docker", "ps"],
+                    profile_path=Path(tmp_dir) / "profile.sb",
+                )
+            )
+
+        self.assertIn("(allow network-bind (local unix-socket))", profile)
+        self.assertIn("(allow network-outbound (remote unix-socket))", profile)
+
+    def test_profile_allows_codex_inspired_extras(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            profile = build_macos_sandbox_profile(
+                MacSandboxExecConfig(
+                    command=["true"],
+                    profile_path=Path(tmp_dir) / "profile.sb",
+                )
+            )
+
+        self.assertIn('(local-name "com.apple.cfprefsd.agent")', profile)
+        self.assertIn('"com.apple.SecurityServer"', profile)
+        self.assertIn('"com.apple.networkd"', profile)
+        self.assertIn('"com.apple.ocspd"', profile)
+        self.assertIn('"com.apple.bsd.dirhelper"', profile)
+        self.assertIn('"com.apple.PowerManagement.control"', profile)
+        self.assertIn('"RootDomainUserClient"', profile)
+        self.assertIn('(allow sysctl-write (sysctl-name "kern.grade_cputype"))', profile)
+        self.assertIn("(socket-domain AF_SYSTEM)", profile)
+
+    def test_profile_allows_headless_browser_minimum(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            profile = build_macos_sandbox_profile(
+                MacSandboxExecConfig(
+                    command=["node", "puppeteer.js"],
+                    profile_path=Path(tmp_dir) / "profile.sb",
+                )
+            )
+
+        self.assertIn('"com.apple.windowserver.active"', profile)
+        self.assertIn('"com.apple.tccd"', profile)
+        self.assertIn('"com.apple.fontd"', profile)
+        self.assertIn('"com.apple.lsd"', profile)
+        self.assertIn('"IOSurfaceRootUserClient"', profile)
+        # Chromium IPC via per-pid mach-services (org.chromium.Chromium.*).
+        # Verified empirically: launching playwright-chromium under this profile
+        # fails on bootstrap_check_in (parent) and bootstrap_look_up (children)
+        # without these regex-based rules.
+        self.assertIn(
+            '(allow mach-register (global-name-regex #"^org\\.chromium\\."))',
+            profile,
+        )
+        self.assertIn(
+            '(allow mach-lookup (global-name-regex #"^org\\.chromium\\."))',
+            profile,
+        )
+        # Chrome for Testing (Puppeteer's default browser) uses a different
+        # mach-service prefix. Verified empirically: launching puppeteer with
+        # PUPPETEER_DANGEROUS_NO_SANDBOX=true under this profile fails on
+        # com.google.chrome.for.testing.MachPortRendezvousServer without these.
+        self.assertIn(
+            '(allow mach-register (global-name-regex #"^com\\.google\\.chrome\\.for\\.testing\\."))',
+            profile,
+        )
+        self.assertIn(
+            '(allow mach-lookup (global-name-regex #"^com\\.google\\.chrome\\.for\\.testing\\."))',
+            profile,
+        )

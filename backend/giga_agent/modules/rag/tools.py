@@ -6,7 +6,9 @@ import uuid
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
+from giga_agent.core.agent.tool_results import build_error_tool_message
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.agent.types import Collection
 from giga_agent.embeddings.manager import EmbeddingManager
@@ -38,17 +40,22 @@ async def get_documents(
     query: Annotated[str, "Поисковый запрос для поиска релевантных документов"],
     runtime: ToolRuntime,
     limit: Annotated[int, "Количество документов, которые возвращаются"] = 10,
-) -> dict:
-    def _json(payload: dict) -> str:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-
+) -> dict | ToolMessage:
     hint = (
         "Чтобы изучить документ подробнее, используй инструмент read_file с sandbox_path из результата. "
         "Это позволит прочитать файл целиком и найти нужную информацию."
     )
 
+    def _error(message: str) -> ToolMessage:
+        payload = {"error": message, "documents": [], "hint": hint}
+        return build_error_tool_message(
+            content=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            runtime=runtime,
+            tool_name="get_documents",
+        )
+
     if runtime is None:
-        return {"error": "ToolRuntime is required", "documents": [], "hint": hint}
+        return _error("ToolRuntime is required")
 
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
@@ -56,7 +63,7 @@ async def get_documents(
     try:
         collection_id = uuid.UUID(collection_uuid)
     except ValueError:
-        return {"error": "Invalid collection UUID", "documents": [], "hint": hint}
+        return _error("Invalid collection UUID")
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -65,7 +72,7 @@ async def get_documents(
             collection_id=collection_id,
         )
         if collection is None:
-            return _json({"error": "Collection not found", "documents": [], "hint": hint})
+            return _error("Collection not found")
 
         embedding_runtime = await EmbeddingManager.resolve_by_id(
             collection.embedding_id,
@@ -97,7 +104,7 @@ async def get_documents(
             limit=limit,
         )
     except Exception as e:
-        return {"error": str(e), "documents": [], "hint": hint}
+        return _error(str(e))
 
     documents: list[dict] = []
     for p in points:

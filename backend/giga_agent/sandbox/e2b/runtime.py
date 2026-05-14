@@ -88,6 +88,9 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
             "jupyter_token": self._token,
         }
 
+    def current_workdir(self) -> str | None:
+        return "/root"
+
     @staticmethod
     def get_tools() -> list:
         from giga_agent.sandbox.e2b.tools import open_port

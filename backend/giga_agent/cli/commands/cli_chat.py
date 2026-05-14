@@ -69,10 +69,70 @@ def _make_console():
     )
 
 
-def _make_message_prompt_session(cwd: Path):
+class _ChatState:
+    __slots__ = ("approve", "debug")
+
+    def __init__(self, approve: bool, debug: bool) -> None:
+        self.approve = approve
+        self.debug = debug
+
+
+def _make_toggle_keybindings(state: _ChatState):
+    from prompt_toolkit.key_binding import KeyBindings
+
+    kb = KeyBindings()
+
+    @kb.add("s-tab")
+    def _toggle_approve(event) -> None:
+        state.approve = not state.approve
+
+    @kb.add("c-o")
+    def _toggle_debug(event) -> None:
+        state.debug = not state.debug
+
+    return kb
+
+
+def _make_bottom_toolbar(state: _ChatState):
+    def render():
+        if not state.approve and not state.debug:
+            return None
+        parts: list[tuple[str, str]] = [("class:bottom-toolbar", " ")]
+        if state.approve:
+            parts.extend(
+                [
+                    ("class:bottom-toolbar", "auto-approve: "),
+                    ("class:bottom-toolbar.value", "on"),
+                    ("class:bottom-toolbar", " (shift+tab)"),
+                ]
+            )
+        if state.approve and state.debug:
+            parts.append(("class:bottom-toolbar", "   "))
+        if state.debug:
+            parts.extend(
+                [
+                    ("class:bottom-toolbar", "debug: "),
+                    ("class:bottom-toolbar.value", "on"),
+                    ("class:bottom-toolbar", " (ctrl+o)"),
+                ]
+            )
+        parts.append(("class:bottom-toolbar", " "))
+        return parts
+
+    return render
+
+
+_BOTTOM_TOOLBAR_STYLE = {
+    "bottom-toolbar": "fg:ansibrightblack bg:default noreverse",
+    "bottom-toolbar.text": "fg:ansibrightblack bg:default noreverse",
+    "bottom-toolbar.value": "fg:ansibrightcyan bg:default bold noreverse",
+}
+
+
+def _make_message_prompt_session(cwd: Path, state: _ChatState):
     from prompt_toolkit import PromptSession
     from prompt_toolkit.filters import completion_is_selected, has_completions
-    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
     from prompt_toolkit.styles import Style
 
     from ._at_file_completer import make_at_file_completer
@@ -136,6 +196,7 @@ def _make_message_prompt_session(cwd: Path):
             "completion-menu.completion.current at-file.path": "fg:ansibrightcyan bold",
             "scrollbar.background": "bg:default",
             "scrollbar.button": "bg:ansibrightblack",
+            **_BOTTOM_TOOLBAR_STYLE,
         }
     )
 
@@ -145,7 +206,25 @@ def _make_message_prompt_session(cwd: Path):
         style=style,
         completer=make_at_file_completer(cwd),
         complete_while_typing=True,
-        key_bindings=kb,
+        key_bindings=merge_key_bindings([kb, _make_toggle_keybindings(state)]),
+        bottom_toolbar=_make_bottom_toolbar(state),
+        reserve_space_for_menu=0,
+    )
+
+
+def _make_approve_prompt_session(state: _ChatState):
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.styles import Style
+
+    return PromptSession(
+        message=[("class:approve-prompt", "Approve? [Y/n]: ")],
+        mouse_support=False,
+        style=Style.from_dict(
+            {"approve-prompt": "bold", **_BOTTOM_TOOLBAR_STYLE}
+        ),
+        key_bindings=_make_toggle_keybindings(state),
+        bottom_toolbar=_make_bottom_toolbar(state),
+        reserve_space_for_menu=0,
     )
 
 
@@ -377,9 +456,8 @@ def _stop_supervised_processes_once(
 async def _chat_loop(
     graph,
     checkpointer,
-    approve: bool,
+    state: _ChatState,
     render_markdown: bool,
-    debug: bool,
     cwd: Path,
     prompt: str | None = None,
 ) -> None:
@@ -412,16 +490,19 @@ async def _chat_loop(
         }
         try:
             await _stream_and_handle_interrupts(
-                graph, input_msg, config, console, approve, render_markdown, debug
+                graph, input_msg, config, console, state, render_markdown
             )
         except (KeyboardInterrupt, asyncio.CancelledError):
             console.print("\n[dim]Interrupted.[/dim]")
         return
 
-    console.print("Type your message. Press Ctrl+C or Ctrl+D to exit.\n")
+    console.print("Type your message. Press Ctrl+C or Ctrl+D to exit.")
+    console.print(
+        "[dim]Hotkeys: Shift+Tab toggle auto-approve · Ctrl+O toggle tool debug logs.[/dim]\n"
+    )
 
     previous_sigint_handler = signal.getsignal(signal.SIGINT)
-    message_prompt_session = _make_message_prompt_session(cwd)
+    message_prompt_session = _make_message_prompt_session(cwd, state)
 
     def _raise_keyboard_interrupt(signum, frame) -> None:
         raise KeyboardInterrupt
@@ -448,7 +529,7 @@ async def _chat_loop(
             }
             try:
                 await _stream_and_handle_interrupts(
-                    graph, input_msg, config, console, approve, render_markdown, debug
+                    graph, input_msg, config, console, state, render_markdown
                 )
             except (KeyboardInterrupt, asyncio.CancelledError):
                 console.print("\n[dim]Interrupted.[/dim]")
@@ -458,7 +539,7 @@ async def _chat_loop(
 
 
 async def _stream_raw_tokens(
-    graph, input_msg, config, console, debug: bool = False
+    graph, input_msg, config, console, state: _ChatState
 ) -> str:
     from langchain_core.messages import AIMessageChunk, ToolMessage
 
@@ -477,7 +558,7 @@ async def _stream_raw_tokens(
                     graph, config, msg, console, render_markdown=False
                 )
                 continue
-            if debug:
+            if state.debug:
                 _print_tool_response(console, msg)
             continue
 
@@ -499,7 +580,7 @@ async def _stream_with_live_markdown(
     input_msg,
     config,
     console,
-    debug: bool = False,
+    state: _ChatState,
 ) -> str:
     from langchain_core.messages import AIMessageChunk, ToolMessage
     from rich.live import Live
@@ -551,7 +632,7 @@ async def _stream_with_live_markdown(
                         graph, config, msg, console, render_markdown=True
                     )
                     continue
-                if debug:
+                if state.debug:
                     _print_tool_response(console, msg)
                 continue
 
@@ -593,17 +674,18 @@ async def _stream_and_handle_interrupts(
     input_msg,
     config,
     console,
-    approve: bool,
+    state: _ChatState,
     render_markdown: bool,
-    debug: bool,
 ) -> None:
     from langgraph.types import Command
+
+    approve_prompt_session = None
 
     while True:
         if render_markdown:
             try:
                 await _stream_with_live_markdown(
-                    graph, input_msg, config, console, debug=debug
+                    graph, input_msg, config, console, state
                 )
             except (KeyboardInterrupt, asyncio.CancelledError):
                 pass
@@ -614,22 +696,22 @@ async def _stream_and_handle_interrupts(
                     input_msg,
                     config,
                     console,
-                    debug=debug,
+                    state,
                 )
             except (KeyboardInterrupt, asyncio.CancelledError):
                 pass
 
-        state = await graph.aget_state(config)
-        if not state.next:
+        graph_state = await graph.aget_state(config)
+        if not graph_state.next:
             break
 
-        tool_calls = _extract_tool_calls(state)
+        tool_calls = _extract_tool_calls(graph_state)
         if not tool_calls:
             resume_value = {"type": "approve"}
             input_msg = Command(resume=resume_value)
             continue
 
-        if approve:
+        if state.approve:
             for tc in tool_calls:
                 if _is_think_tool_call(tc):
                     _print_think_thoughts(console, tc, render_markdown)
@@ -643,18 +725,22 @@ async def _stream_and_handle_interrupts(
                 else:
                     console.print(f"  [yellow][Tool: {_format_tool_call(tc)}][/yellow]")
 
+            if approve_prompt_session is None:
+                approve_prompt_session = _make_approve_prompt_session(state)
+
             try:
-                answer = console.input("[bold]Approve? [Y/n]: [/bold]").strip()
+                answer = (await approve_prompt_session.prompt_async()).strip()
             except UnicodeDecodeError as e:
                 _print_input_encoding_error(console, e)
                 resume_value = {"type": "comment", "message": "Tool call rejected."}
                 input_msg = Command(resume=resume_value)
                 continue
-            except (EOFError, KeyboardInterrupt):
-                console.print("\n[dim]Goodbye![/dim]")
-                return
+            except EOFError:
+                raise KeyboardInterrupt
 
-            if answer.lower() in ("", "y", "yes"):
+            if state.approve:
+                resume_value = {"type": "approve"}
+            elif answer.lower() in ("", "y", "yes"):
                 resume_value = {"type": "approve"}
             elif answer.lower() in ("n", "no"):
                 resume_value = {"type": "comment", "message": ""}
@@ -890,6 +976,11 @@ def cli_chat(
         f"[green]Agent loaded[/green] with {len(agent.all_modules)} modules."
     )
 
+    chat_state = _ChatState(
+        approve=approve or prompt is not None,
+        debug=debug,
+    )
+
     async def _run() -> None:
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -903,9 +994,8 @@ def cli_chat(
             await _chat_loop(
                 compiled_graph,
                 checkpointer,
-                approve or prompt is not None,
+                chat_state,
                 not no_markdown,
-                debug,
                 cli_cwd,
                 prompt,
             )

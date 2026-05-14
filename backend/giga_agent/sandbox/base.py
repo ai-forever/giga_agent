@@ -146,6 +146,14 @@ class BaseSandbox(BaseModel, ABC):
         _ = user, agent, state, config, kwargs
         return ""
 
+    def current_workdir(self) -> str | None:
+        """Текущая рабочая директория рантайма в виде абсолютного пути.
+
+        Используется, например, для подсказок в сообщениях об ошибках.
+        Подклассы переопределяют, если умеют возвращать осмысленный cwd.
+        """
+        return None
+
     @staticmethod
     def get_tools() -> list["BaseTool"]:
         """Вернуть sandbox-специфичные инструменты. Подклассы переопределяют."""

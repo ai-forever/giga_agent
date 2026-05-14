@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from functools import lru_cache
 import json
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlsplit
-from urllib.parse import urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -223,7 +223,7 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS",
     )
     giga_agent_enable_multi_tool_use: bool = Field(
-        False, alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE"
+        True, alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE"
     )
     giga_agent_enable_multi_tool_use_providers: list[str] = Field(
         default_factory=lambda: ["gigachat"],

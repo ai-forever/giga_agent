@@ -162,19 +162,47 @@ def _git_cwd_entries(cwd: Path) -> list[str]:
     )
 
 
-def _inject_cwd_prelude(code: str, cwd: Path) -> str:
+def _inject_cwd_prelude(
+    code: str,
+    cwd: Path,
+    *,
+    patch_ipython_pty: bool = False,
+) -> str:
     cwd_literal = repr(str(cwd))
-    prelude = "\n".join(
-        [
-            "import os as _giga_agent_os",
-            f"_giga_agent_cwd = {cwd_literal}",
-            "_giga_agent_os.makedirs(_giga_agent_cwd, exist_ok=True)",
-            "_giga_agent_os.chdir(_giga_agent_cwd)",
-            "del _giga_agent_cwd, _giga_agent_os",
-            "",
-        ]
-    )
-    return prelude + code
+    prelude_lines: list[str] = [
+        "import os as _giga_agent_os",
+        f"_giga_agent_cwd = {cwd_literal}",
+        "_giga_agent_os.makedirs(_giga_agent_cwd, exist_ok=True)",
+        "_giga_agent_os.chdir(_giga_agent_cwd)",
+        "del _giga_agent_cwd, _giga_agent_os",
+    ]
+    if patch_ipython_pty:
+        # Под secure_exec /dev/ptmx и /dev/pts недоступны, поэтому IPython-овый
+        # `!cmd` через pty.fork() падает с "out of pty devices". Подменяем
+        # InteractiveShell.system на subprocess-based реализацию без PTY.
+        prelude_lines.extend(
+            [
+                "if not globals().get('_giga_agent_pty_patched'):",
+                "    try:",
+                "        from IPython import get_ipython as _giga_agent_get_ipython",
+                "    except ImportError:",
+                "        pass",
+                "    else:",
+                "        import os as _giga_agent_os_pty",
+                "        import subprocess as _giga_agent_sp_pty",
+                "        def _giga_agent_no_pty_system(cmd):",
+                "            if _giga_agent_os_pty.name == 'nt':",
+                "                return _giga_agent_sp_pty.call(cmd, shell=True)",
+                "            return _giga_agent_sp_pty.call(cmd, shell=True, executable='/bin/sh')",
+                "        _giga_agent_ip_pty = _giga_agent_get_ipython()",
+                "        if _giga_agent_ip_pty is not None:",
+                "            _giga_agent_ip_pty.system = _giga_agent_no_pty_system",
+                "        del _giga_agent_get_ipython, _giga_agent_os_pty, _giga_agent_sp_pty, _giga_agent_no_pty_system, _giga_agent_ip_pty",
+                "    _giga_agent_pty_patched = True",
+            ]
+        )
+    prelude_lines.append("")
+    return "\n".join(prelude_lines) + code
 
 
 def _default_exclude_read_dirs() -> list[str]:
@@ -267,6 +295,12 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             return Path(self.default_cwd).expanduser().resolve()
         return get_local_jupyter_server_manager()._working_dir().resolve()
 
+    def current_workdir(self) -> str | None:
+        try:
+            return str(self._default_workdir())
+        except Exception:
+            return None
+
     def _recommended_workdir(self, config: RunnableConfig | None) -> Path:
         if self.default_cwd:
             return Path(self.default_cwd).expanduser().resolve()
@@ -337,7 +371,11 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         envs: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Any], str]:
-        code = _inject_cwd_prelude(code, self._default_workdir())
+        code = _inject_cwd_prelude(
+            code,
+            self._default_workdir(),
+            patch_ipython_pty=self.safe_execution,
+        )
         code_iter = super().run_code(
             code,
             kernel_id=kernel_id,
@@ -650,7 +688,10 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     def _resolve_readable_path(self, sandbox_path: str) -> Path:
         if sandbox_path.startswith(BUCKET_PREFIX):
             return self._local_path_from_bucket_path(sandbox_path)
-        return Path(sandbox_path).expanduser().resolve()
+        path = Path(sandbox_path).expanduser()
+        if not path.is_absolute():
+            path = self._default_workdir() / path
+        return path.resolve()
 
     # ---- Skill file operations ----
 
@@ -783,7 +824,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         ``name``, ``description``, ``source_dir``, ``storage_path``.
         """
         from giga_agent.modules.skills.manifest import find_skill_manifest_path
-        from giga_agent.modules.skills.parser import parse_skill_md, SkillParseError
+        from giga_agent.modules.skills.parser import SkillParseError, parse_skill_md
 
         dirs_to_scan: list[tuple[Path, str]] = []
         user_skills = self._user_root_dir(owner_id) / "skills"

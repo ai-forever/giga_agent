@@ -190,3 +190,9 @@ class SandboxManager:
             user_id=user_id,
             sandbox_path=sandbox_path,
         )
+
+    async def get_current_workdir_for_user(
+        self,
+        user_id: uuid.UUID,
+    ) -> str | None:
+        return await self._files.get_current_workdir_for_user(user_id=user_id)

@@ -124,6 +124,9 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
         "",
         "; User preferences and logging",
         "(allow user-preference-read)",
+        '(allow mach-lookup (global-name "com.apple.cfprefsd.agent"))',
+        '(allow mach-lookup (global-name "com.apple.cfprefsd.daemon"))',
+        '(allow mach-lookup (local-name "com.apple.cfprefsd.agent"))',
         '(allow mach-lookup (global-name "com.apple.coreservices.launchservicesd"))',
         '(allow mach-lookup (global-name "com.apple.system.logger"))',
         '(allow mach-lookup (global-name "com.apple.logd"))',
@@ -136,8 +139,52 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
         '(allow mach-lookup (global-name "com.apple.system.notification_center"))',
         '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))',
         '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.membership"))',
+        '(allow mach-lookup (global-name "com.apple.system.opendirectoryd.api"))',
         '(allow mach-lookup (global-name "com.apple.SystemConfiguration.configd"))',
         '(allow mach-lookup (global-name "com.apple.SystemConfiguration.DNSConfiguration"))',
+        "",
+        "; File system event notifications (FSEvents / chokidar / Vite HMR)",
+        '(allow mach-lookup (global-name "com.apple.FSEvents"))',
+        "",
+        "; Code signing validation (freshly built binaries: gcc, node-gyp, cargo, go)",
+        '(allow mach-lookup (global-name "com.apple.amfid"))',
+        "",
+        "; Spotlight metadata (mdfind, mdls, xcrun)",
+        '(allow mach-lookup (global-name "com.apple.metadata.mds"))',
+        '(allow mach-lookup (global-name "com.apple.metadata.mds.spi"))',
+        "",
+        "; Darwin distributed notifications (GUI frameworks, theme/locale listeners)",
+        '(allow mach-lookup (global-name-regex #"^com\\.apple\\.distributed_notifications@.+"))',
+        "",
+        "; Network framework support (TLS handshake, OCSP, network state)",
+        '(allow mach-lookup (global-name "com.apple.SecurityServer"))',
+        '(allow mach-lookup (global-name "com.apple.networkd"))',
+        '(allow mach-lookup (global-name "com.apple.ocspd"))',
+        '(allow mach-lookup (global-name "com.apple.bsd.dirhelper"))',
+        "",
+        "; Power management (Foundation power-state queries on init)",
+        '(allow mach-lookup (global-name "com.apple.PowerManagement.control"))',
+        '(allow iokit-open (iokit-registry-entry-class "RootDomainUserClient"))',
+        "",
+        "; Headless browser support (Puppeteer/Playwright with --no-sandbox).",
+        "; Chromium dereferences these even in headless mode; without them the",
+        "; launch hangs on browser.newPage() or fails with IOSurface errors.",
+        '(allow mach-lookup (global-name "com.apple.windowserver.active"))',
+        '(allow mach-lookup (global-name "com.apple.tccd"))',
+        '(allow mach-lookup (global-name "com.apple.fontd"))',
+        '(allow mach-lookup (global-name "com.apple.lsd"))',
+        '(allow iokit-open (iokit-registry-entry-class "IOSurfaceRootUserClient"))',
+        "; Chromium registers per-pid mach services (MachPortRendezvousServer,",
+        "; GPU/utility helpers) for inter-process IPC. Without mach-register the",
+        "; browser FATALs with bootstrap_check_in Permission denied (1100), and",
+        "; without the symmetric mach-lookup child renderers fail bootstrap_look_up",
+        "; (No rendezvous client, terminating process).",
+        '(allow mach-register (global-name-regex #"^org\\.chromium\\."))',
+        '(allow mach-lookup (global-name-regex #"^org\\.chromium\\."))',
+        "; Chrome for Testing (what Puppeteer downloads by default) uses a",
+        "; different mach-service prefix than Chromium debug builds.",
+        '(allow mach-register (global-name-regex #"^com\\.google\\.chrome\\.for\\.testing\\."))',
+        '(allow mach-lookup (global-name-regex #"^com\\.google\\.chrome\\.for\\.testing\\."))',
         "",
         "; POSIX and System V IPC",
         "(allow ipc-posix-shm*)",
@@ -151,6 +198,9 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
         "",
         "; sysctl reads commonly used by Python and Jupyter",
         "(allow sysctl-read)",
+        "",
+        "; sysctl-write misclassified as write but semantically a read (JVM CPU detect)",
+        '(allow sysctl-write (sysctl-name "kern.grade_cputype"))',
         "",
         "; Read policy",
         '(allow file-read* (literal "/"))',
@@ -184,6 +234,16 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
             )
         else:
             profile.append('(allow network-outbound (remote ip "localhost:*"))')
+
+    profile.extend(["", "; Unix domain sockets (Docker daemon, local DBs, LSP servers)"])
+    profile.append("(allow network-bind (local unix-socket))")
+    profile.append("(allow network-outbound (remote unix-socket))")
+
+    profile.extend(["", "; AF_SYSTEM sockets (kern_control: route table, network config)"])
+    profile.append(
+        "(allow system-socket (require-all "
+        "(socket-domain AF_SYSTEM) (socket-protocol 2)))"
+    )
 
     profile.extend(["", "; External outbound network policy"])
     if config.allow_outbound_network:

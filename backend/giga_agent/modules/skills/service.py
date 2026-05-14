@@ -284,6 +284,35 @@ class SkillsService:
             for s in sorted(skills, key=lambda item: item.name)
         ]
 
+    @staticmethod
+    def _tolerant_name_match(requested: str, available: list[str]) -> str | None:
+        """Find a single skill name match using tolerant rules.
+
+        Order: (1) exact case-insensitive match; (2) single skill whose name
+        ends with `/<requested>`; (3) if requested has a `/`, single skill
+        whose name equals the tail after the last `/`. Returns None if zero
+        or ambiguous (>1) matches.
+        """
+        req = requested.lower()
+
+        for name in available:
+            if name.lower() == req:
+                return name
+
+        suffix_matches = [n for n in available if n.lower().endswith("/" + req)]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0]
+        if len(suffix_matches) > 1:
+            return None
+
+        if "/" in req:
+            tail = req.rsplit("/", 1)[1]
+            tail_matches = [n for n in available if n.lower() == tail]
+            if len(tail_matches) == 1:
+                return tail_matches[0]
+
+        return None
+
     async def get_skill_body(
         self,
         owner_id: uuid.UUID,
@@ -300,6 +329,13 @@ class SkillsService:
                 return runtime_activation
 
         skill = await self.repo.get_by_owner_and_name(owner_id, skill_name)
+        if skill is None:
+            all_skills = await self.repo.get_by_owner(owner_id)
+            matched_name = self._tolerant_name_match(
+                skill_name, [s.name for s in all_skills]
+            )
+            if matched_name is not None:
+                skill = next(s for s in all_skills if s.name == matched_name)
         if skill is None:
             raise SkillNotFoundError(f"Skill '{skill_name}' not found")
         if not skill.is_enabled:
@@ -340,14 +376,13 @@ class SkillsService:
         skill_name: str,
         sandbox: BaseSandbox,
     ) -> SkillActivation | None:
-        lookup_name = skill_name.lower()
-        runtime_skill = None
-        for skill in await sandbox.list_skills(owner_id):
-            if skill.name.lower() == lookup_name:
-                runtime_skill = skill
-                break
-        if runtime_skill is None:
+        all_skills = await sandbox.list_skills(owner_id)
+        matched_name = self._tolerant_name_match(
+            skill_name, [s.name for s in all_skills]
+        )
+        if matched_name is None:
             return None
+        runtime_skill = next(s for s in all_skills if s.name == matched_name)
 
         storage_path = runtime_skill.storage_path or self._runtime_skill_storage_path(
             runtime_skill.name

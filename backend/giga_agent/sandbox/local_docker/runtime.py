@@ -197,6 +197,9 @@ class LocalDockerSandbox(
         }
         return {k: v for k, v in settings.items() if v is not None}
 
+    def current_workdir(self) -> str | None:
+        return "/root"
+
     @staticmethod
     def get_tools() -> list:
         if get_settings().giga_agent_docker_network is not None:

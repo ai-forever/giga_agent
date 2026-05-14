@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 from langchain_core.tools import BaseTool
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule, SecretMetadata
@@ -84,6 +85,7 @@ class SubAgentLegacyModule(BaseModule):
 
         caps = await _get_legacy_capabilities(user, config=config)
         tools: list[BaseTool] = []
+        is_cli = get_settings().giga_agent_runtime == "cli"
 
         if caps.has_llm:
             tools.append(
@@ -93,7 +95,7 @@ class SubAgentLegacyModule(BaseModule):
                 )
             )
 
-        if caps.has_search:
+        if caps.has_search and not is_cli:
             tools.append(
                 _legacy_tool(
                     "giga_agent.modules.subagents_legacy.agents.researcher.graph",
@@ -101,7 +103,7 @@ class SubAgentLegacyModule(BaseModule):
                 )
             )
 
-        if caps.has_twogis_token:
+        if caps.has_twogis_token and not is_cli:
             tools.append(
                 _legacy_tool(
                     "giga_agent.modules.subagents_legacy.agents.gis_agent.graph",
@@ -109,7 +111,7 @@ class SubAgentLegacyModule(BaseModule):
                 )
             )
 
-        if caps.has_llm and caps.has_salute_speech:
+        if caps.has_llm and caps.has_salute_speech and not is_cli:
             tools.append(
                 _legacy_tool(
                     "giga_agent.modules.subagents_legacy.agents.podcast.graph",
@@ -118,22 +120,30 @@ class SubAgentLegacyModule(BaseModule):
             )
 
         if caps.has_llm and caps.has_image_generator:
-            tools.extend(
-                [
-                    _legacy_tool(
-                        "giga_agent.modules.subagents_legacy.agents.landing_agent.graph",
-                        "create_landing",
-                    ),
-                    _legacy_tool(
-                        "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph",
-                        "generate_presentation",
-                    ),
+            if is_cli:
+                tools.append(
                     _legacy_tool(
                         "giga_agent.modules.subagents_legacy.agents.meme_agent.graph",
                         "create_meme",
-                    ),
-                ]
-            )
+                    )
+                )
+            else:
+                tools.extend(
+                    [
+                        _legacy_tool(
+                            "giga_agent.modules.subagents_legacy.agents.landing_agent.graph",
+                            "create_landing",
+                        ),
+                        _legacy_tool(
+                            "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph",
+                            "generate_presentation",
+                        ),
+                        _legacy_tool(
+                            "giga_agent.modules.subagents_legacy.agents.meme_agent.graph",
+                            "create_meme",
+                        ),
+                    ]
+                )
 
         return tools
 
@@ -151,14 +161,15 @@ class SubAgentLegacyModule(BaseModule):
 
         caps = await _get_legacy_capabilities(user, config=config)
         instructions: list[str] = []
+        is_cli = get_settings().giga_agent_runtime == "cli"
 
-        if caps.has_llm and caps.has_search:
+        if caps.has_llm and (caps.has_search or is_cli):
             instructions.append(
                 "- **lean_canvas** — Создает lean canvas. "
                 "Полезен при проработке идей, стартапов."
             )
 
-        if caps.has_search:
+        if caps.has_search and not is_cli:
             instructions.append(
                 """- **researcher_agent** — Агент для проведения исследования. Используй это, если пользователю нужно написать исследовательский отчет на какую-либо тему. Агент сам сделает поиск и исследует тему, тебе нужно лишь передать ему задачу.
 Когда пользователь задает какой-то вопрос на поиск, уточни у него, хочет ли он проводить глубокое исследование или простой поиск.
@@ -167,18 +178,23 @@ class SubAgentLegacyModule(BaseModule):
 - researcher_agent - если пользователь захотел глубокое исследование."""
             )
 
-        if caps.has_llm and caps.has_salute_speech:
+        if caps.has_llm and caps.has_salute_speech and not is_cli:
             instructions.append(
                 "- **podcast_generate** — Генерирует подкаст. "
                 "Используй это, если пользователь нужно сгенерировать подкаст."
             )
 
         if caps.has_llm and caps.has_image_generator:
-            instructions.append(
-                """- **generate_presentation** — Создает презентацию. Всегда используй 'generate_presentation', если пользователь просить создать презентацию!
+            if is_cli:
+                instructions.append(
+                    "- **create_meme** — Создает мем исходя из запроса пользователя."
+                )
+            else:
+                instructions.append(
+                    """- **generate_presentation** — Создает презентацию. Всегда используй 'generate_presentation', если пользователь просить создать презентацию!
 - **podcast_generate** — Генерирует подкаст. Используй это, если пользователь нужно сгенерировать подкаст.
 - **create_meme** — Создает мем исходя из запроса пользователя."""
-            )
+                )
         if not instructions:
             return ""
         instructions_text = '\n'.join(instructions)

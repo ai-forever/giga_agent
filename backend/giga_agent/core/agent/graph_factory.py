@@ -690,7 +690,19 @@ def create_graph(
                         tools=all_tools
                     )
 
-        state_updates = {"messages": [messages_for_llm[-1]] + result_messages}
+        # Persist the enriched HumanMessage back to state (model_copy preserves
+        # its id so add_messages replaces it in place). For any other last
+        # message type (e.g. a synthetic ToolMessage produced by
+        # collapse_tool_messages with a fresh uuid), we must NOT append it —
+        # it would land in state as an orphan ToolMessage with no matching
+        # AIMessage tool_call, which makes GigaChat reject the next request
+        # with 422 "every function result must have an assistant function
+        # call in history".
+        state_messages_update: list[AnyMessage] = list(result_messages)
+        if messages_for_llm and messages_for_llm[-1].type == "human":
+            state_messages_update = [messages_for_llm[-1], *state_messages_update]
+
+        state_updates = {"messages": state_messages_update}
         if response.structured_response is not None:
             state_updates["structured_response"] = response.structured_response
 

@@ -344,6 +344,12 @@ class LocalShellMixin:
     def _build_shell_env(self, envs: dict[str, str] | None = None) -> dict[str, str]:
         manager = get_local_jupyter_server_manager()
         env = manager.get_shell_env()
+        # Puppeteer's internal Chromium-sandbox conflicts with our outer
+        # sandbox-exec (macOS rejects nested sandbox_init_with_parameters).
+        # PUPPETEER_DANGEROUS_NO_SANDBOX=true auto-adds --no-sandbox to launch
+        # args, mirroring Playwright's chromiumSandbox=false default. setdefault
+        # lets user-supplied envs override if explicitly needed.
+        env.setdefault("PUPPETEER_DANGEROUS_NO_SANDBOX", "true")
         if envs:
             env.update({str(k): str(v) for k, v in envs.items()})
         return env

@@ -10,12 +10,17 @@ from giga_agent.core.agent.think import (
     MAX_FORCED_THINK_FOLLOWUPS,
     THINK_HOP_RESULT,
     _count_trailing_think_tool_pairs,
+    _is_shallow_think,
 )
 
 
 class ThinkArgsSchema(BaseModel):
     thoughts: str = Field(
-        description="Твои рассуждения"
+        description=(
+            "Кратко: что нового узнал (1-2 предложения), следующий шаг и зачем. "
+            "Если есть реальный риск или развилка — назови; если нет — пропусти, "
+            "не выдумывай. Не повторяй данные из результатов инструментов."
+        )
     )
 
 
@@ -24,7 +29,7 @@ class ThinkArgsSchema(BaseModel):
     args_schema=ThinkArgsSchema,
 )
 def think(thoughts: str, runtime: ToolRuntime) -> str:
-    """Твой внутренний голос для рассуждений. Вызывай часто: перед началом задачи, после каждого результата инструмента, при ошибках, на переходах между этапами и перед финальным ответом. Используй для планирования, анализа результатов, проверки корректности и выбора следующего действия.
+    """Твой внутренний голос для рассуждений. Вызывай там, где это реально помогает: на сложных задачах с несколькими шагами, при ошибке/неожиданном результате, на развилке между подходами, перед необратимым действием и перед финальным ответом по комплексной задаче. На очевидных и одношаговых запросах — не нужен.
 
     Args:
         thoughts: Твои рассуждения
@@ -35,7 +40,9 @@ def think(thoughts: str, runtime: ToolRuntime) -> str:
         # are counted from everything *before* it, then +1 for this call.
         preceding = messages[:-1]
         trailing = _count_trailing_think_tool_pairs(preceding)
-        if trailing + 1 < MAX_FORCED_THINK_FOLLOWUPS:
+        # Force a second hop only when the first think looks shallow —
+        # a long, structured first think gets to act immediately.
+        if trailing + 1 < MAX_FORCED_THINK_FOLLOWUPS and _is_shallow_think(thoughts):
             return THINK_HOP_RESULT
     return ""
 

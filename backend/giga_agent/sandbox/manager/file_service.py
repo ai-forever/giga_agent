@@ -514,3 +514,21 @@ class SandboxFileService:
             raise StorageOperationError(
                 f"Failed to check file existence '{sandbox_path}': {e}"
             ) from e
+
+    async def get_current_workdir_for_user(
+        self,
+        user_id: uuid.UUID,
+    ) -> str | None:
+        """Cheap lookup of the runtime cwd for user-facing hints."""
+        try:
+            runtime, _ = await self._resolve_runtime_for_user(
+                user_id=user_id,
+                sandbox_path="",
+                for_op="file_exists",
+            )
+        except Exception:
+            return None
+        try:
+            return runtime.current_workdir()
+        except Exception:
+            return None

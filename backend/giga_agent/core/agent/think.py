@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
@@ -17,17 +19,84 @@ THINK_TOOL_NAME = "think"
 MAX_FORCED_THINK_FOLLOWUPS = 2
 THINK_VIA_FAST_MODEL = False
 THINK_HOP_RESULT = (
-    "Подумай еще глубже и подробнее. Проверь, что ты мог упустить, "
-    "покритикуй свой текущий ход мысли, проверь слабые места плана. "
-    "Пересмотри выводы, попробуй найти оставшиеся противоречия, неочевидные "
-    "риски и альтернативные трактовки. Убедись, что твой следующий шаг "
-    "действительно самый лучший."
+    "Раскрой рассуждение детальнее одним проходом: "
+    "(1) распиши план следующими шагами с конкретными инструментами; "
+    "(2) укажи ожидаемый результат каждого шага; "
+    "(3) если есть реальная развилка или неопределённость — назови её и "
+    "критерий выбора. Если развилок и рисков нет — так и напиши, не "
+    "выдумывай их."
 )
 FAST_MODEL_THINK_PROMPT = (
-    "Расширь и углуби предыдущие рассуждения ассистента. "
-    "Найди слабые места, оцени плюсы и минусы подхода, "
-    "предложи альтернативы и укажи, что ещё стоит учесть. "
+    "Углуби предыдущие рассуждения ассистента одним коротким проходом: "
+    "(1) уточни план следующими конкретными шагами с инструментами и "
+    "ожидаемыми результатами; (2) если есть реальная развилка или "
+    "неопределённость в данных — обозначь её и критерий выбора. "
+    "Если развилок и рисков нет — подтверди план кратко, без выдумывания."
 )
+
+SHALLOW_THINK_MIN_CHARS = 280
+# Numbered or bullet markers — counted only at the start of a line so that
+# numbers embedded in text ("v2.0", "5.5%") and Russian em-dash punctuation
+# do not trigger false positives.
+SHALLOW_THINK_BULLET_RE = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s", re.MULTILINE)
+# Verb stems / sequence words for plan-shaped sentences. Stems (not full
+# words) so we catch infinitives, conjugations, and noun forms in one go.
+SHALLOW_THINK_PLAN_MARKERS = (
+    # Russian — sequence words
+    "сначала", "затем", "далее", "потом", "после", "наконец",
+    # Russian — action verb stems
+    "вызов", "вызову", "вызвать",
+    "прочит", "прочесть",
+    "провер",
+    "запущ", "запустить",
+    "обнов",
+    "получ",
+    "выбер", "выбра", "выбрать",
+    "собер", "собра", "собрать", "собир",
+    "подготов",
+    "определ",
+    "найд", "найт", "найдём",
+    "сформир",
+    "составл", "составить",
+    "сохран",
+    "загруж", "загрузить",
+    "записать",
+    "напиш", "написать",
+    # English — sequence words (anchored to reduce false positives)
+    "first, ", "then i ", "then we ", "next, ", "next step",
+    "after that", "finally,",
+    "step 1", "step 2", "step 3",
+    # English — action verb stems (combined with " i " or " i'll " markers
+    # would be ideal; we keep verb stems but prefer ones unlikely to appear
+    # as common nouns in unrelated prose).
+    "i will ", "i'll ", "i need to ",
+    "let me ",
+    "invoke ", "execute ",
+    "fetch ", "retrieve ",
+    "gather ",
+    "prepare ",
+    "determine ", "identify ",
+    "compose ",
+)
+
+
+def _is_shallow_think(thoughts: str) -> bool:
+    """True if the think output looks short or lacks plan markers.
+
+    Used to decide whether to force a second think hop. A long think with
+    explicit plan markers (numbered/bulleted steps or sequence/action verbs
+    in Russian or English) is treated as deep enough; everything else asks
+    for one more pass.
+    """
+    text = (thoughts or "").strip()
+    if len(text) < SHALLOW_THINK_MIN_CHARS:
+        return True
+    if SHALLOW_THINK_BULLET_RE.search(text):
+        return False
+    # lowered = text.lower()
+    # if any(marker in lowered for marker in SHALLOW_THINK_PLAN_MARKERS):
+    #     return False
+    return True
 
 
 def _count_trailing_think_tool_pairs(messages: list[AnyMessage]) -> int:
@@ -139,10 +208,49 @@ def collapse_think_hops(messages: list[AnyMessage]) -> list[AnyMessage]:
     return result
 
 
+def _last_think_requested_hop(messages: list[AnyMessage]) -> bool:
+    """True if the last think pair's tool result asked for another hop."""
+    if len(messages) < 2:
+        return False
+    ai_msg = messages[-2]
+    tool_msg = messages[-1]
+    if not _is_think_pair(ai_msg, tool_msg):
+        return False
+    content = tool_msg.content if isinstance(tool_msg.content, str) else ""
+    return THINK_HOP_RESULT in content
+
+
+def _last_tool_has_error(messages: list[AnyMessage]) -> bool:
+    """True if the last message is a ToolMessage with status='error'."""
+    if not messages:
+        return False
+    last = messages[-1]
+    if not isinstance(last, ToolMessage):
+        return False
+    return getattr(last, "status", None) == "error"
+
+
 def resolve_bound_tool_choice(messages: list[AnyMessage]) -> str:
-    """Force repeated think calls for a limited trailing think/tool chain."""
+    """Decide tool_choice for the next model invocation.
+
+    - trailing == 0 and last tool errored → force think (analyze the failure
+      before retrying).
+    - trailing == 0 otherwise → "auto": the model decides whether to think
+      based on the system prompt. This naturally skips forced think on
+      trivial requests.
+    - trailing == 1 and prior think requested a hop (THINK_HOP_RESULT in the
+      tool message) → force a second think to deepen.
+    - trailing >= MAX_FORCED_THINK_FOLLOWUPS → "auto": cooldown, model must
+      act with a real tool.
+    """
     trailing = _count_trailing_think_tool_pairs(messages)
-    if trailing < MAX_FORCED_THINK_FOLLOWUPS:
+    if trailing == 0:
+        if _last_tool_has_error(messages):
+            return THINK_TOOL_NAME
+        return "auto"
+    if trailing >= MAX_FORCED_THINK_FOLLOWUPS:
+        return "auto"
+    if _last_think_requested_hop(messages):
         return THINK_TOOL_NAME
     return "auto"
 

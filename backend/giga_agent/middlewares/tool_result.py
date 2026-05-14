@@ -464,10 +464,9 @@ class ToolResultMiddleware(AgentMiddleware):
             tools_response = [
                 ToolMessage(
                     tool_call_id=action.get("id", str(uuid.uuid4())),
-                    content=json.dumps({"message": tool_message}, ensure_ascii=False),
+                    content=tool_message,
                     additional_kwargs={"tool_name": action.get("name")},
-                )
-                for action in actions
+                ) for action in actions
             ]
             return {"messages": tools_response}
 

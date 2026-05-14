@@ -5,6 +5,7 @@ import io
 import mimetypes
 import re
 import uuid
+from pathlib import PurePosixPath
 from typing import Annotated
 from urllib.request import urlopen
 
@@ -262,23 +263,106 @@ async def _get_owner_id(runtime: ToolRuntime) -> uuid.UUID:
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
+def _looks_like_missing_file_error(error: Exception) -> bool:
+    if isinstance(error, FileNotFoundError):
+        return True
+    message = str(error).lower()
+    return "not found" in message or "не найден" in message or "no such file" in message
+
+
+async def _find_relative_path_alternative(
+    owner_id: uuid.UUID,
+    absolute_path: str,
+) -> str | None:
+    """Если по абсолютному пути файла нет, проверяем относительные варианты
+    (без ведущего слэша и просто basename). Возвращаем первый существующий
+    относительный путь либо None."""
+    if not absolute_path.startswith("/") or absolute_path.startswith("/bucket/"):
+        return None
+
+    candidates: list[str] = []
+    stripped = absolute_path.lstrip("/")
+    if stripped and "/" in stripped:
+        candidates.append(stripped)
+    basename = PurePosixPath(absolute_path).name
+    if basename and basename not in candidates:
+        candidates.append(basename)
+
+    if not candidates:
+        return None
+
+    from giga_agent.sandbox.manager import SandboxManager
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        for candidate in candidates:
+            try:
+                exists = await manager.file_exists_for_user(
+                    user_id=owner_id,
+                    sandbox_path=candidate,
+                )
+            except Exception:
+                continue
+            if exists:
+                return candidate
+    return None
+
+
+def _format_relative_path_hint(absolute_path: str, relative_path: str) -> str:
+    return (
+        f" Подсказка: по абсолютному пути {absolute_path!r} файла нет, "
+        f"но похожий файл существует по относительному пути \"{relative_path!r}\", "
+        f"возможно ты имел в виду его."
+    )
+
+
+async def _get_current_workdir(owner_id: uuid.UUID) -> str | None:
+    """Дешёво достаёт cwd рантайма пользователя. Возвращает None, если не
+    удалось (например, рантайм не поддерживает cwd или sandbox не настроен)."""
+    from giga_agent.sandbox.manager import SandboxManager
+
+    try:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            return await manager.get_current_workdir_for_user(user_id=owner_id)
+    except Exception:
+        return None
+
+
+async def _build_missing_file_hint(
+    owner_id: uuid.UUID,
+    absolute_path: str,
+) -> str:
+    """Строит подсказку для случая «файл не найден»: текущая рабочая
+    директория и, если есть, относительный путь, по которому файл существует."""
+    cwd = await _get_current_workdir(owner_id)
+    alt = await _find_relative_path_alternative(owner_id, absolute_path)
+    parts: list[str] = []
+    if cwd:
+        parts.append(f" Текущая рабочая директория: {cwd}.")
+    if alt:
+        parts.append(_format_relative_path_hint(absolute_path, alt))
+    return "".join(parts)
+
+
 def _build_io_command(
     *,
     runtime: ToolRuntime,
     tool_name: str,
     content: str,
+    is_error: bool = False,
 ) -> Command:
-    return Command(
-        update={
-            "messages": [
-                ToolMessage(
-                    tool_call_id=runtime.tool_call_id,
-                    content=content,
-                    additional_kwargs={"tool_name": tool_name},
-                )
-            ]
-        }
-    )
+    tool_message_kwargs: dict = {
+        "tool_call_id": runtime.tool_call_id,
+        "content": content,
+        "name": tool_name,
+        "additional_kwargs": {"tool_name": tool_name},
+    }
+    if is_error:
+        tool_message_kwargs["status"] = "error"
+    return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
 
 
 async def _read_file_text(
@@ -342,11 +426,16 @@ async def read_file(
     from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
     from giga_agent.sandbox.manager import SandboxManager
 
-    def _result(text: str) -> Command:
-        return _build_io_command(runtime=runtime, tool_name="read_file", content=text)
+    def _result(text: str, *, is_error: bool = False) -> Command:
+        return _build_io_command(
+            runtime=runtime,
+            tool_name="read_file",
+            content=text,
+            is_error=is_error,
+        )
 
     if runtime is None:
-        return _result("Ошибка: ToolRuntime is required")
+        return _result("Ошибка: ToolRuntime is required", is_error=True)
 
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
@@ -364,7 +453,10 @@ async def read_file(
             )
         except Exception as e:
             logger.warning("read_file failed for %s: %s", sandbox_path, e)
-            return _result(f"Ошибка: {e}")
+            error_text = f"Ошибка: {e}"
+            if _looks_like_missing_file_error(e):
+                error_text += await _build_missing_file_hint(owner_id, sandbox_path)
+            return _result(error_text, is_error=True)
 
     if _is_tabular_file_reference(
         sandbox_path=sandbox_path,
@@ -388,7 +480,7 @@ async def read_file(
             media_type=result.media_type,
         )
         if text is None:
-            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}")
+            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}", is_error=True)
     elif isinstance(result, StreamResult):
         chunks = []
         async for chunk in result.stream:
@@ -408,7 +500,7 @@ async def read_file(
             media_type=result.media_type,
         )
         if text is None:
-            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}")
+            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}", is_error=True)
     elif isinstance(result, RedirectResult):
         try:
             data = await _download_redirect_bytes(result.url)
@@ -416,16 +508,16 @@ async def read_file(
             logger.warning(
                 "read_file redirect download failed for %s: %s", sandbox_path, e
             )
-            return _result(f"Ошибка: {e}")
+            return _result(f"Ошибка: {e}", is_error=True)
         text = _text_from_file_bytes(
             data=data,
             sandbox_path=sandbox_path,
             file_name=file_record.original_name,
         )
         if text is None:
-            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}")
+            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}", is_error=True)
     else:
-        return _result("Ошибка: Файл доступен только по URL, прямое чтение невозможно")
+        return _result("Ошибка: Файл доступен только по URL, прямое чтение невозможно", is_error=True)
 
     if text == "":
         hint = _build_next_read_hint(
@@ -447,7 +539,7 @@ async def read_file(
             limit=limit,
         )
     except ValueError as e:
-        return _result(f"Ошибка: {e}")
+        return _result(f"Ошибка: {e}", is_error=True)
 
     content, returned_lines, truncated_by_chars = _format_numbered_lines(
         lines=selected_lines,
@@ -491,11 +583,16 @@ async def write_file(
     """Создаёт новый файл по указанному пути."""
     from giga_agent.sandbox.manager import SandboxManager
 
-    def _result(text: str) -> Command:
-        return _build_io_command(runtime=runtime, tool_name="write_file", content=text)
+    def _result(text: str, *, is_error: bool = False) -> Command:
+        return _build_io_command(
+            runtime=runtime,
+            tool_name="write_file",
+            content=text,
+            is_error=is_error,
+        )
 
     if runtime is None:
-        return _result("Ошибка: ToolRuntime is required")
+        return _result("Ошибка: ToolRuntime is required", is_error=True)
 
     owner_id = await _get_owner_id(runtime)
 
@@ -511,10 +608,10 @@ async def write_file(
             logger.warning(
                 "write_file file_exists check failed for %s: %s", file_path, e
             )
-            return _result(f"Ошибка: {e}")
+            return _result(f"Ошибка: {e}", is_error=True)
 
         if exists:
-            return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.")
+            return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.", is_error=True)
 
         content_bytes = content.encode("utf-8")
         try:
@@ -525,7 +622,7 @@ async def write_file(
             )
         except Exception as e:
             logger.warning("write_file failed for %s: %s", file_path, e)
-            return _result(f"Ошибка: {e}")
+            return _result(f"Ошибка: {e}", is_error=True)
 
     return _result(f"Файл создан: {file_path}, размер: {len(content_bytes)} байт")
 
@@ -591,11 +688,16 @@ async def edit_file(
     """Выполняет точную замену строк в указанном файле."""
     from giga_agent.sandbox.manager import SandboxManager
 
-    def _result(text: str) -> Command:
-        return _build_io_command(runtime=runtime, tool_name="edit_file", content=text)
+    def _result(text: str, *, is_error: bool = False) -> Command:
+        return _build_io_command(
+            runtime=runtime,
+            tool_name="edit_file",
+            content=text,
+            is_error=is_error,
+        )
 
     if runtime is None:
-        return _result("Ошибка: ToolRuntime is required")
+        return _result("Ошибка: ToolRuntime is required", is_error=True)
 
     owner_id = await _get_owner_id(runtime)
 
@@ -611,19 +713,24 @@ async def edit_file(
             logger.warning(
                 "edit_file file_exists check failed for %s: %s", file_path, e
             )
-            return _result(f"Ошибка: {e}")
+            return _result(f"Ошибка: {e}", is_error=True)
 
         if not exists:
-            return _result(f"Ошибка: Файл не существует ({file_path}). Используй write_file для создания новых файлов.")
+            error_text = (
+                f"Ошибка: Файл не существует ({file_path}). "
+                "Используй write_file для создания новых файлов."
+            )
+            error_text += await _build_missing_file_hint(owner_id, file_path)
+            return _result(error_text, is_error=True)
 
     if find_string == replace_string:
-        return _result(f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}")
+        return _result(f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}", is_error=True)
 
     try:
         raw_text = await _read_file_text(sandbox_path=file_path, owner_id=owner_id)
     except Exception as e:
         logger.warning("edit_file read failed for %s: %s", file_path, e)
-        return _result(f"Ошибка: {e}")
+        return _result(f"Ошибка: {e}", is_error=True)
 
     text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
     find_string = find_string.replace("\r\n", "\n").replace("\r", "\n")
@@ -651,20 +758,23 @@ async def edit_file(
                 "Ты уже читал файл — ОБЯЗАТЕЛЬНО вызови think и внимательно сверь "
                 "find_string с актуальным содержимым файла посимвольно (пробелы, "
                 "отступы, переносы строк), прежде чем повторять попытку."
-                + line_num_hint
+                + line_num_hint,
+                is_error=True,
             )
         return _result(
             f"Ошибка: find_string не найден в файле {file_path}. "
             "Перечитай файл через read_file и вызови think, чтобы внимательно сверить "
             "find_string с актуальным содержимым файла, прежде чем повторять попытку."
-            + line_num_hint
+            + line_num_hint,
+            is_error=True,
         )
 
     if not replace_all and count > 1:
         return _result(
             f"Ошибка: find_string не уникален, найдено {count} вхождений в {file_path}. "
             "Передай более длинную строку с контекстом для уникальной идентификации, "
-            "или используй replace_all=True для замены всех вхождений."
+            "или используй replace_all=True для замены всех вхождений.",
+            is_error=True,
         )
 
     if replace_all:
@@ -685,6 +795,6 @@ async def edit_file(
             )
         except Exception as e:
             logger.warning("edit_file write failed for %s: %s", file_path, e)
-            return _result(f"Ошибка: {e}")
+            return _result(f"Ошибка: {e}", is_error=True)
 
     return _result(f"Файл отредактирован: {file_path}, замен: {replacements}")
