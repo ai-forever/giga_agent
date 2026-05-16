@@ -73,8 +73,8 @@ export async function exportAsDocx(
         bold: base.bold || run.bold || undefined,
         italics: base.italics || run.italic || undefined,
         strike: run.strike || undefined,
-        font: run.code ? "Courier New" : base.font ?? "Roboto",
-        size: run.code ? (base.size ?? 22) - 2 : base.size ?? 22,
+        font: run.code ? "Courier New" : (base.font ?? "Roboto"),
+        size: run.code ? (base.size ?? 22) - 2 : (base.size ?? 22),
         color: run.link ? "1A5FB4" : base.color,
         underline: run.link ? { type: "single" } : undefined,
       });
@@ -167,10 +167,7 @@ export async function exportAsDocx(
       let imgHeight = Math.max(Math.round(imgWidth * result.aspectRatio), 40);
       if (imgHeight > docxContentHeightPx) {
         imgHeight = docxContentHeightPx;
-        imgWidth = Math.max(
-          Math.round(imgHeight / result.aspectRatio),
-          40,
-        );
+        imgWidth = Math.max(Math.round(imgHeight / result.aspectRatio), 40);
       }
       children.push(
         new Paragraph({
@@ -228,9 +225,7 @@ export async function exportAsDocx(
           spacing: { before: 40, after: 40 },
         }),
       ],
-      shading: header
-        ? { type: ShadingType.CLEAR, fill: "EBEBF5" }
-        : undefined,
+      shading: header ? { type: ShadingType.CLEAR, fill: "EBEBF5" } : undefined,
     });
   };
 
@@ -284,10 +279,7 @@ export async function exportAsDocx(
     return DOCX_BULLETS[Math.min(item.level, DOCX_BULLETS.length - 1)];
   };
 
-  const pushListBlock = (
-    block: TextBlock,
-    opts: { inCard?: boolean } = {},
-  ) => {
+  const pushListBlock = (block: TextBlock, opts: { inCard?: boolean } = {}) => {
     if (!block.items?.length) return;
     const counters: number[] = [];
     let prevLevel = -1;
@@ -314,9 +306,7 @@ export async function exportAsDocx(
           children: [prefixRun, ...inlineChildren],
           indent: { left: baseIndent + item.level * stepTwips },
           spacing: { after: 40 },
-          ...(opts.inCard
-            ? { border: cardBorder, shading: cardShading }
-            : {}),
+          ...(opts.inCard ? { border: cardBorder, shading: cardShading } : {}),
         }),
       );
     }
@@ -460,7 +450,8 @@ export async function exportAsDocx(
     },
   ) => {
     try {
-      const aspect = img.aspectRatio && img.aspectRatio > 0 ? img.aspectRatio : 0.55;
+      const aspect =
+        img.aspectRatio && img.aspectRatio > 0 ? img.aspectRatio : 0.55;
       const maxHeight = opts.maxHeight ?? 720;
       let width = opts.width;
       let height = opts.height ?? Math.round(width * aspect);
@@ -513,89 +504,90 @@ export async function exportAsDocx(
   };
 
   const pushInlineMdCard = async (section: InlineMdSection) => {
-      children.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `📄 ${section.filename}`,
-              size: 24,
-              bold: true,
-              font: "Roboto",
-              color: "333333",
-            }),
-          ],
-          spacing: { before: 200, after: 80 },
-          border: cardBorder,
-          shading: cardShading,
-          indent: { left: 200 },
-        }),
-      );
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `📄 ${section.filename}`,
+            size: 24,
+            bold: true,
+            font: "Roboto",
+            color: "333333",
+          }),
+        ],
+        spacing: { before: 200, after: 80 },
+        border: cardBorder,
+        shading: cardShading,
+        indent: { left: 200 },
+      }),
+    );
 
-      const downshifted = downshiftHeadings(section.body);
-      const innerSegments = parseTextSegments(downshifted);
-      for (const seg of innerSegments) {
-        if (seg.type === "mermaid") {
-          await pushMermaidBlock(seg);
-          continue;
-        }
-        if (seg.type === "code") {
-          pushCodeBlock(seg);
-          continue;
-        }
-        const blocks = parseTextBlocks(seg.content);
-        for (const block of blocks) {
-          if (block.type === "heading") {
-            const lvl = Math.min((block.level ?? 1) + 1, 6);
+    const downshifted = downshiftHeadings(section.body);
+    const innerSegments = parseTextSegments(downshifted);
+    for (const seg of innerSegments) {
+      if (seg.type === "mermaid") {
+        await pushMermaidBlock(seg);
+        continue;
+      }
+      if (seg.type === "code") {
+        pushCodeBlock(seg);
+        continue;
+      }
+      const blocks = parseTextBlocks(seg.content);
+      for (const block of blocks) {
+        if (block.type === "heading") {
+          const lvl = Math.min((block.level ?? 1) + 1, 6);
+          children.push(
+            new Paragraph({
+              children: inlineRunsToDocx(parseInlineRuns(block.content ?? ""), {
+                size: 22,
+                bold: true,
+                font: "Roboto",
+              }),
+              heading: DOCX_HEADING_MAP[lvl] ?? HeadingLevel.HEADING_6,
+              spacing: { before: 120, after: 60 },
+              border: cardBorder,
+              shading: cardShading,
+              indent: { left: 200 },
+            }),
+          );
+        } else if (block.type === "table") {
+          pushTableBlock(block);
+        } else if (block.type === "hr") {
+          pushHrBlock();
+        } else if (block.type === "list") {
+          pushListBlock(block, { inCard: true });
+        } else if (block.type === "quote") {
+          pushQuoteBlock(block, { inCard: true });
+        } else {
+          const content = block.content ?? "";
+          for (const para of content.split(/\n{2,}/)) {
+            if (!para.trim()) continue;
             children.push(
               new Paragraph({
-                children: inlineRunsToDocx(
-                  parseInlineRuns(block.content ?? ""),
-                  { size: 22, bold: true, font: "Roboto" },
-                ),
-                heading: DOCX_HEADING_MAP[lvl] ?? HeadingLevel.HEADING_6,
-                spacing: { before: 120, after: 60 },
+                children: inlineRunsToDocx(parseInlineRuns(para.trim()), {
+                  size: 22,
+                  font: "Roboto",
+                }),
+                spacing: { after: 60 },
                 border: cardBorder,
                 shading: cardShading,
                 indent: { left: 200 },
               }),
             );
-          } else if (block.type === "table") {
-            pushTableBlock(block);
-          } else if (block.type === "hr") {
-            pushHrBlock();
-          } else if (block.type === "list") {
-            pushListBlock(block, { inCard: true });
-          } else if (block.type === "quote") {
-            pushQuoteBlock(block, { inCard: true });
-          } else {
-            const content = block.content ?? "";
-            for (const para of content.split(/\n{2,}/)) {
-              if (!para.trim()) continue;
-              children.push(
-                new Paragraph({
-                  children: inlineRunsToDocx(parseInlineRuns(para.trim()), {
-                    size: 22,
-                    font: "Roboto",
-                  }),
-                  spacing: { after: 60 },
-                  border: cardBorder,
-                  shading: cardShading,
-                  indent: { left: 200 },
-                }),
-              );
-            }
           }
         }
       }
+    }
 
-      for (const img of section.images) {
-        await pushImageParagraph(img, {
-          width: 460,
-          spacing: { before: 80, after: 80 },
-          inCard: true,
-        });
-      }
-    };
+    for (const img of section.images) {
+      await pushImageParagraph(img, {
+        width: 460,
+        spacing: { before: 80, after: 80 },
+        inCard: true,
+      });
+    }
+  };
 
   for (let msgIdx = 0; msgIdx < exportable.length; msgIdx++) {
     const msg = exportable[msgIdx];

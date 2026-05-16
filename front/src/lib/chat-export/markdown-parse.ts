@@ -76,7 +76,9 @@ export function parseInlineRuns(text: string): InlineRun[] {
 
     // Link `[text](url)` — recurse on inner text for formatting.
     if (rest[0] === "[") {
-      const linkMatch = rest.match(/^\[([^\]]+)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/);
+      const linkMatch = rest.match(
+        /^\[([^\]]+)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/,
+      );
       if (linkMatch) {
         flush();
         const inner = parseInlineRuns(linkMatch[1]);

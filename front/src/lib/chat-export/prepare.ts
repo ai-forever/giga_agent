@@ -255,11 +255,7 @@ interface BundleEntry {
   blob?: Blob;
 }
 
-function pickPngNameHint(
-  alt: string,
-  path: string,
-  fallback: string,
-): string {
+function pickPngNameHint(alt: string, path: string, fallback: string): string {
   const stripExt = (s: string) =>
     s
       .trim()
@@ -685,4 +681,3 @@ export function extractMessagePair(
 
   return allMessages.slice(startIdx, endIdx + 1);
 }
-

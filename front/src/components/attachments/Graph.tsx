@@ -1,4 +1,10 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useDarkMode } from "@/hooks/use-dark-mode.tsx";
 import styled from "styled-components";
 import { useSelectedAttachments } from "../../hooks/SelectedAttachmentsContext.tsx";
@@ -34,7 +40,11 @@ const PlotOuter = styled.div<{ $height: number }>`
   height: ${({ $height }) => `${$height}px`};
 `;
 
-const PlotScaled = styled.div<{ $scale: number; $width: number; $height: number }>`
+const PlotScaled = styled.div<{
+  $scale: number;
+  $width: number;
+  $height: number;
+}>`
   position: absolute;
   top: 0;
   left: 0;
@@ -224,11 +234,7 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
         {selected ? <Check size={24} /> : null}
       </SelectorButton>
       <PlotOuter ref={outerRef} $height={nativeHeight * scale}>
-        <PlotScaled
-          $scale={scale}
-          $width={nativeWidth}
-          $height={nativeHeight}
-        >
+        <PlotScaled $scale={scale} $width={nativeWidth} $height={nativeHeight}>
           <Plot
             data={fig.data}
             layout={layout}

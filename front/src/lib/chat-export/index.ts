@@ -35,7 +35,9 @@ async function downloadZippedFileWithAttachments(
   zip.file(mainFileName, mainBlob);
   const bundleBlobs = await Promise.all(
     bundle.map((f) =>
-      f.blob ? Promise.resolve(f.blob) : fetchImageAsBlob(buildContentByPathUrl(f.path)),
+      f.blob
+        ? Promise.resolve(f.blob)
+        : fetchImageAsBlob(buildContentByPathUrl(f.path)),
     ),
   );
   for (let i = 0; i < bundle.length; i++) {
