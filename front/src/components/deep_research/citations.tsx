@@ -104,7 +104,8 @@ export function parseSources(markdown: string | null | undefined): SourceMap {
     const parsed = parseCitationLine(rawLine);
     if (!parsed) continue;
     if (!Number.isFinite(parsed.n) || map.has(parsed.n)) continue;
-    const title = parsed.title.replace(/^["'«]+|["'»]+$/g, "") || hostOf(parsed.url);
+    const title =
+      parsed.title.replace(/^["'«]+|["'»]+$/g, "") || hostOf(parsed.url);
     map.set(parsed.n, {
       n: parsed.n,
       title,
@@ -213,9 +214,7 @@ const CitationsDrawer: React.FC<CitationsDrawerProps> = ({
         aria-hidden={!open}
       >
         <header className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="text-base font-semibold">
-            Источники ({list.length})
-          </h3>
+          <h3 className="text-base font-semibold">Источники ({list.length})</h3>
           <button
             type="button"
             onClick={onClose}
@@ -247,8 +246,7 @@ const CitationsDrawer: React.FC<CitationsDrawerProps> = ({
                   loading="lazy"
                   className="h-6 w-6 rounded mt-0.5 flex-shrink-0"
                   onError={(ev) => {
-                    (ev.target as HTMLImageElement).style.visibility =
-                      "hidden";
+                    (ev.target as HTMLImageElement).style.visibility = "hidden";
                   }}
                 />
                 <div className="min-w-0 flex-1">
@@ -287,10 +285,7 @@ export const CitationsProvider: React.FC<CitationsProviderProps> = ({
     setOpen(true);
   }, []);
 
-  const value = useMemo(
-    () => ({ sources, openDrawer }),
-    [sources, openDrawer],
-  );
+  const value = useMemo(() => ({ sources, openDrawer }), [sources, openDrawer]);
 
   return (
     <CitationsContext.Provider value={value}>
@@ -342,9 +337,7 @@ function splitCitationString(text: string): React.ReactNode[] {
       .split(",")
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isFinite(n));
-    parts.push(
-      <CitationChip key={`c-${m.index}-${m[0]}`} nums={nums} />,
-    );
+    parts.push(<CitationChip key={`c-${m.index}-${m[0]}`} nums={nums} />);
     lastIndex = m.index + m[0].length;
   }
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
