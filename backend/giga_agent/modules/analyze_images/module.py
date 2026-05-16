@@ -20,19 +20,23 @@ class AnalyzeImagesModule(BaseModule):
     id: str = "analyze_images"
 
     async def _is_enabled(self, user: UserShort | None) -> bool:
-        if user is None or user.llm_id is None:
+        if user is None:
             return False
 
         factory = await get_session_factory()
-        try:
-            async with factory() as session:
-                llm_runtime = await LLMManager.resolve_by_id(
-                    user.llm_id, session=session
-                )
-        except Exception:
-            return False
-
-        return llm_runtime.can_analyze_image()
+        async with factory() as session:
+            for llm_id in (user.llm_id, user.fast_llm_id):
+                if llm_id is None:
+                    continue
+                try:
+                    llm_runtime = await LLMManager.resolve_by_id(
+                        llm_id, session=session
+                    )
+                except Exception:
+                    continue
+                if llm_runtime.can_analyze_image():
+                    return True
+        return False
 
     async def get_tools(
         self,

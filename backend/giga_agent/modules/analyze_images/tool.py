@@ -172,13 +172,20 @@ async def analyze_image(
         user = await UserRepository.get_cached_or_db(owner_id, session=session)
         if user is None:
             raise ValueError(f"Пользователь {owner_id} не найден")
-        if user.llm_id is None:
+        if user.llm_id is None and user.fast_llm_id is None:
             raise ValueError("У пользователя не выбран llm_id")
 
-        llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
+        llm_runtime = None
+        for llm_id in (user.llm_id, user.fast_llm_id):
+            if llm_id is None:
+                continue
+            candidate = await LLMManager.resolve_by_id(llm_id, session=session)
+            if candidate.can_analyze_image():
+                llm_runtime = candidate
+                break
 
-    if not llm_runtime.can_analyze_image():
-        raise ValueError("Текущий LLM не поддерживает analyze_image")
+    if llm_runtime is None:
+        raise ValueError("Ни один из LLM пользователя не поддерживает analyze_image")
 
     jpeg_bytes = await asyncio.to_thread(
         _image_bytes_to_jpeg_bytes, image_bytes=image_bytes
