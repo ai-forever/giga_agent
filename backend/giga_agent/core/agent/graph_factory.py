@@ -3,26 +3,10 @@
 from __future__ import annotations
 
 import mimetypes
+import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast, Awaitable, Literal, Coroutine, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Coroutine, Literal, cast
 
-from langchain_core.messages import (
-    AIMessage,
-    SystemMessage,
-    ToolMessage,
-    AnyMessage,
-)
-from langchain_core.tools import BaseTool
-from langgraph._internal._runnable import RunnableCallable
-from langgraph.constants import END, START
-from langgraph.graph.state import StateGraph
-from langgraph.runtime import Runtime
-from langgraph.typing import ContextT
-from langgraph.types import Command, Send
-from langchain_core.runnables import RunnableConfig
-
-import giga_agent.channels  # noqa: F401
-from giga_agent.channels.registry import ChannelRegistry
 from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
@@ -31,18 +15,31 @@ from langchain.agents.middleware.types import (
     _InputAgentState,
     _OutputAgentState,
 )
-from giga_agent.core.agent.middleware import AgentMiddleware
-
 from langchain.tools.tool_node import (
     ToolCallRequest,
     ToolCallWithContext,
 )
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
+from langgraph._internal._runnable import RunnableCallable
+from langgraph.constants import END, START
+from langgraph.graph.state import StateGraph
+from langgraph.runtime import Runtime
+from langgraph.types import Command, Send
+from langgraph.typing import ContextT
 
-import uuid
-
-from giga_agent.core.db import get_session_factory
+import giga_agent.channels  # noqa: F401
+from giga_agent.channels.registry import ChannelRegistry
+from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.tool_node import ToolNode
+from giga_agent.core.db import get_session_factory
 from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserRepository
 from giga_agent.utils.mcp import transform_tool
@@ -50,14 +47,15 @@ from giga_agent.utils.mcp import transform_tool
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from langchain.agents.middleware.types import ToolCallRequest
     from langgraph.cache.base import BaseCache
     from langgraph.graph.state import CompiledStateGraph
     from langgraph.store.base import BaseStore
     from langgraph.types import Checkpointer
-    from langchain.agents.middleware.types import ToolCallRequest
+
     from giga_agent.core.agent.base import BaseAgent
-from giga_agent.core.agent.utils import merge_state
 from giga_agent.core.agent.types import AgentState, Context
+from giga_agent.core.agent.utils import merge_state
 
 
 def _generate_user_info(state: AgentState) -> str:
@@ -507,6 +505,9 @@ def create_graph(
             llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
             llm = await llm_runtime.get_llm()
 
+        configurable = (config or {}).get("configurable") or {}
+        deep_research_forced = bool(configurable.get("deep_research_forced"))
+
         messages_for_llm = list(state["messages"])
         if messages_for_llm and messages_for_llm[-1].type == "human":
             last_message = messages_for_llm[-1]
@@ -530,6 +531,15 @@ def create_graph(
                 final_parts.append(selected_prompt)
             if extended_task:
                 final_parts.append(extended_task)
+            if deep_research_forced:
+                final_parts.append(
+                    "<forced_mode>Пользователь явно включил режим глубокого "
+                    "исследования. Обязательно вызови инструмент "
+                    "`run_deep_research` для ответа на этот запрос — даже если "
+                    "тема кажется простой. Перед вызовом напиши короткую "
+                    "строчку-прелюдию о запуске исследования."
+                    "</forced_mode>"
+                )
             final_parts.append(
                 "Активно планируй и следуй своему плану! "
                 "Действуй по простым шагам!"
@@ -551,9 +561,20 @@ def create_graph(
             )
             for tool in state.get("mcp_tools", [])
         ]
-        llm = llm.bind_tools(
-            tools=agent_tools + default_tools + mcp_tools, tool_choice="auto"
-        )
+        all_tools = agent_tools + default_tools + mcp_tools
+        # TODO: Сейчас ломается для deepseek, при мерже v0.2 будем включать только для GigaChat
+        # chosen_tool_choice: Any = "auto"
+        # if deep_research_forced:
+        #     has_dr_tool = any(
+        #         getattr(t, "name", None) == "run_deep_research" for t in all_tools
+        #     )
+        #     if has_dr_tool:
+        #         chosen_tool_choice = "run_deep_research"
+        #     else:
+        #         # Флаг пришёл, но тул не зарегистрирован у юзера (нет llm/search_engine).
+        #         # Оставляем auto — юзер увидит обычный ответ.
+        #         pass
+        llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(

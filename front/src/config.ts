@@ -132,6 +132,7 @@ export const TOOL_MAP = {
   browser_task: "Агент Б.Раузер",
   get_documents: "Поиск по базе знаний",
   researcher_agent: "Исследовательский агент",
+  run_deep_research: "Глубокое исследование",
 };
 
 export const PROGRESS_AGENTS = {
@@ -181,6 +182,16 @@ export const PROGRESS_AGENTS = {
     __start__: "Начинает исследование",
     research_agent: "Проводит глубокое исследование",
     critique_agent: "Анализирует результаты",
+  },
+  run_deep_research: {
+    __start__: "Запускаю глубокое исследование",
+    planner: "Раскладываю запрос на подвопросы",
+    search: "Ищу источники в сети",
+    read: "Читаю страницы и собираю выжимки",
+    reflect: "Оцениваю, достаточно ли данных",
+    compose: "Собираю финальный отчёт с цитатами",
+    critique: "Редактор проверяет отчёт",
+    finalize: "Сохраняю отчёт",
   },
 };
 

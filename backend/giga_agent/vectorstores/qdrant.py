@@ -49,7 +49,11 @@ async def _qdrant_aclose(client: object) -> None:
     if close is None:
         return
     if isinstance(client, QdrantClient):
-        await asyncio.to_thread(close)
+        # Local SQLite-backed QdrantClient requires close() to run in the thread
+        # that opened the connection. On ASGI shutdown we're on a different
+        # thread than asyncio.to_thread would dispatch to, and SQLite raises
+        # ProgrammingError. Local persistence flushes during operations, so
+        # skipping close() on shutdown is safe.
         return
     await _maybe_await(close())
 

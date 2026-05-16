@@ -2,6 +2,7 @@ from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
 from giga_agent.modules.analyze_images import AnalyzeImagesModule
 from giga_agent.modules.auth import AuthModule
+from giga_agent.modules.deep_research import DeepResearchModule
 from giga_agent.modules.github import GitHubModule
 from giga_agent.modules.image import ImageModule
 from giga_agent.modules.mem_zero_memory.module import MemZeroModule
@@ -29,4 +30,5 @@ class GigaAgent(BaseAgent):
             VKModule(),
             WeatherModule(),
             SubAgentLegacyModule(),
+            DeepResearchModule(),
         ]

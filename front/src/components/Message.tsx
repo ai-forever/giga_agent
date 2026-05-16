@@ -380,16 +380,27 @@ const Message: React.FC<MessageProps> = ({
                             `${TOOL_MAP[tool_call.name]} `
                           : tool_call.name}
                       </div>
-                      <SyntaxHighlighter
-                        language={
-                          tool_call.name === "python" ? "python" : "json"
-                        }
-                        style={vscDarkPlus}
-                      >
-                        {tool_call.name === "python"
-                          ? tool_call.args.code
-                          : JSON.stringify(tool_call.args)}
-                      </SyntaxHighlighter>
+                      {tool_call.name === "run_deep_research" ? (
+                        <div className="mt-1 text-sm text-muted-foreground">
+                          Тема:{" "}
+                          <span className="text-foreground">
+                            {tool_call.args?.research_topic ||
+                              tool_call.args?.query ||
+                              ""}
+                          </span>
+                        </div>
+                      ) : (
+                        <SyntaxHighlighter
+                          language={
+                            tool_call.name === "python" ? "python" : "json"
+                          }
+                          style={vscDarkPlus}
+                        >
+                          {tool_call.name === "python"
+                            ? tool_call.args.code
+                            : JSON.stringify(tool_call.args)}
+                        </SyntaxHighlighter>
+                      )}
                     </div>
                   ))
               }
