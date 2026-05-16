@@ -504,23 +504,25 @@ export async function exportAsDocx(
   };
 
   const pushInlineMdCard = async (section: InlineMdSection) => {
-    children.push(
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: `📄 ${section.filename}`,
-            size: 24,
-            bold: true,
-            font: "Roboto",
-            color: "333333",
-          }),
-        ],
-        spacing: { before: 200, after: 80 },
-        border: cardBorder,
-        shading: cardShading,
-        indent: { left: 200 },
-      }),
-    );
+    if (section.filename) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `📄 ${section.filename}`,
+              size: 24,
+              bold: true,
+              font: "Roboto",
+              color: "333333",
+            }),
+          ],
+          spacing: { before: 200, after: 80 },
+          border: cardBorder,
+          shading: cardShading,
+          indent: { left: 200 },
+        }),
+      );
+    }
 
     const downshifted = downshiftHeadings(section.body);
     const innerSegments = parseTextSegments(downshifted);

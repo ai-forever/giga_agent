@@ -263,6 +263,10 @@ export async function exportAsPdf(
         doc.setDrawColor(LINK_COLOR[0], LINK_COLOR[1], LINK_COLOR[2]);
         doc.setLineWidth(0.2);
         doc.line(cursorX, y + 0.6, cursorX + atom.width, y + 0.6);
+        const linkH = (opts.fontSize ?? 10) * 0.3528;
+        doc.link(cursorX, y - linkH * 0.85, atom.width, linkH, {
+          url: atom.run.link,
+        });
       }
       if (atom.run.strike) {
         const c = opts.color ?? [0, 0, 0];
@@ -763,10 +767,10 @@ export async function exportAsPdf(
 
     ensureSpace(10);
     y += 2;
-    doc.setFont("Roboto", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(60, 60, 60);
-    {
+    if (section.filename) {
+      doc.setFont("Roboto", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(60, 60, 60);
       const headerY = y + 4;
       const fsPt = 11;
       const sizeMm = fsPt * 0.3528;
@@ -797,8 +801,8 @@ export async function exportAsPdf(
         doc.text(seg.value, tx, headerY);
         tx += doc.getTextWidth(seg.value);
       }
+      y += 7;
     }
-    y += 7;
     doc.setDrawColor(220, 220, 220);
     doc.line(innerMargin, y, innerMargin + innerWidth, y);
     y += 3;

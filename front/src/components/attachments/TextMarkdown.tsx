@@ -19,6 +19,8 @@ import MermaidDiagram, { MermaidStreamingContext } from "./MermaidDiagram.tsx";
 import {
   CitationsProvider,
   parseSources,
+  remarkSources,
+  SourcesList,
   transformCitationsInChildren,
 } from "@/components/deep_research/citations";
 
@@ -434,6 +436,7 @@ const buildMarkdownComponents = (transformText: boolean) => {
         </a>
       );
     },
+    "sources-list": () => <SourcesList />,
     img({ src, alt, ...props }: any) {
       if (!src) return null;
       if (src.startsWith("attachment:")) {
@@ -509,13 +512,16 @@ const TextMarkdown: React.FC<TextMarkdownProps> = (props) => {
     ? citationMarkdownComponents
     : defaultMarkdownComponents;
 
+  const remarkPlugins: any[] = [
+    remarkGfm,
+    [remarkMath, { singleDollarTextMath: true }],
+  ];
+  if (hasSources) remarkPlugins.push(remarkSources);
+
   const markdown = (
     <MermaidStreamingContext.Provider value={props.isStreaming ?? false}>
       <Markdown
-        remarkPlugins={[
-          remarkGfm,
-          [remarkMath, { singleDollarTextMath: true }],
-        ]}
+        remarkPlugins={remarkPlugins}
         rehypePlugins={[[rehypeKatex, { output: "mathml" }], rehypeRaw]}
         urlTransform={(uri) => uri}
         components={components}

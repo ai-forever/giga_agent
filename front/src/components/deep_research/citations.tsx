@@ -58,7 +58,7 @@ function parseCitationLine(
   m = rawLine.match(CITATION_LINE_PLAIN_RE);
   if (m) return { n: Number(m[1]), title: m[2].trim(), url: m[3] };
   m = rawLine.match(CITATION_LINE_URL_ONLY_RE);
-  if (m) return { n: Number(m[1]), title: hostOf(m[2]), url: m[2] };
+  if (m) return { n: Number(m[1]), title: "", url: m[2] };
   return null;
 }
 
@@ -104,8 +104,8 @@ export function parseSources(markdown: string | null | undefined): SourceMap {
     const parsed = parseCitationLine(rawLine);
     if (!parsed) continue;
     if (!Number.isFinite(parsed.n) || map.has(parsed.n)) continue;
-    const title =
-      parsed.title.replace(/^["'«]+|["'»]+$/g, "") || hostOf(parsed.url);
+    const cleaned = parsed.title.replace(/^["'«]+|["'»]+$/g, "").trim();
+    const title = cleaned === parsed.url ? "" : cleaned;
     map.set(parsed.n, {
       n: parsed.n,
       title,
@@ -144,7 +144,9 @@ export const CitationChip: React.FC<CitationChipProps> = ({ nums }) => {
 
   const visible = resolved.slice(0, 3);
   const extra = resolved.length - visible.length;
-  const title = resolved.map((s) => `[${s.n}] ${s.title}`).join("\n");
+  const title = resolved
+    .map((s) => `[${s.n}] ${s.title || s.host}`)
+    .join("\n");
 
   return (
     <button
@@ -256,7 +258,7 @@ const CitationsDrawer: React.FC<CitationsDrawerProps> = ({
                   </div>
                   <div className="text-sm text-foreground line-clamp-3 break-words">
                     <span className="text-muted-foreground mr-1">[{s.n}]</span>
-                    {s.title}
+                    {s.title || s.host}
                   </div>
                 </div>
               </a>
@@ -343,3 +345,143 @@ function splitCitationString(text: string): React.ReactNode[] {
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts.length ? parts : [text];
 }
+
+// Текстовая версия SOURCES_HEADING_RE — для матчинга по тексту heading-узла в mdast,
+// где сам символ # уже не входит в текст.
+const SOURCES_HEADING_TEXT_RE =
+  /^\s*(?:Список\s+|Использованн(?:ые|ых)\s+)?(?:Источник(?:и|ов)|Sources?|References?|Литература|Библиография)\s*:?\s*$/i;
+
+function mdastNodeText(node: any): string {
+  if (!node) return "";
+  if (node.type === "break") return "\n";
+  if (node.type === "link") {
+    const inner = (node.children || []).map(mdastNodeText).join("");
+    return `[${inner}](${node.url})`;
+  }
+  if (typeof node.value === "string") return node.value;
+  if (Array.isArray(node.children)) {
+    const isBlock = ["root", "list", "listItem", "blockquote"].includes(
+      node.type,
+    );
+    return node.children.map(mdastNodeText).join(isBlock ? "\n" : "");
+  }
+  return "";
+}
+
+function nodeHasOnlyCitationLines(node: any): boolean {
+  const text = mdastNodeText(node);
+  if (!text.trim()) return false;
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    if (!parseCitationLine(line)) return false;
+  }
+  return true;
+}
+
+// Remark-плагин: находит секцию «Источники» в mdast и заменяет её на placeholder
+// <sources-list/>, который рендерится кастомным компонентом в react-markdown.
+// Сами данные источников приходят отдельно через CitationsContext.
+export const remarkSources = () => {
+  return (tree: any) => {
+    const children = tree?.children;
+    if (!Array.isArray(children) || children.length === 0) return;
+
+    let sectionStart = -1;
+    let sectionEnd = -1;
+
+    for (let i = 0; i < children.length; i++) {
+      const node = children[i];
+      if (node.type === "heading") {
+        const text = mdastNodeText(node).trim();
+        if (SOURCES_HEADING_TEXT_RE.test(text)) {
+          sectionStart = i;
+          break;
+        }
+      }
+    }
+
+    if (sectionStart !== -1) {
+      sectionEnd = children.length;
+      for (let i = sectionStart + 1; i < children.length; i++) {
+        if (children[i].type === "heading") {
+          sectionEnd = i;
+          break;
+        }
+      }
+    } else {
+      // Fallback: хвост документа из подряд идущих узлов, в которых только citation-строки.
+      for (let i = children.length - 1; i >= 0; i--) {
+        if (nodeHasOnlyCitationLines(children[i])) {
+          sectionEnd = i + 1;
+          sectionStart = i;
+          for (let j = i - 1; j >= 0; j--) {
+            if (nodeHasOnlyCitationLines(children[j])) sectionStart = j;
+            else break;
+          }
+          break;
+        }
+      }
+    }
+
+    if (sectionStart === -1) return;
+
+    // Подстрахуемся: вырезаем секцию только если внутри реально есть хоть одна citation-строка.
+    let hasCitations = false;
+    for (let i = sectionStart; i < sectionEnd && !hasCitations; i++) {
+      const text = mdastNodeText(children[i]);
+      for (const line of text.split(/\r?\n/)) {
+        if (parseCitationLine(line)) {
+          hasCitations = true;
+          break;
+        }
+      }
+    }
+    if (!hasCitations) return;
+
+    children.splice(sectionStart, sectionEnd - sectionStart, {
+      type: "html",
+      value: "<sources-list></sources-list>",
+    });
+  };
+};
+
+export const SourcesList: React.FC = () => {
+  const ctx = useCitations();
+  const list = useMemo(
+    () =>
+      ctx ? Array.from(ctx.sources.values()).sort((a, b) => a.n - b.n) : [],
+    [ctx],
+  );
+  if (list.length === 0) return null;
+
+  return (
+    <section className="my-6">
+      <h2 className="mt-8 mb-4 scroll-m-20 text-3xl font-semibold tracking-tight">
+        Источники
+      </h2>
+      <ul className="list-none space-y-2 pl-0">
+        {list.map((s) => (
+          <li key={s.n} className="leading-7">
+            <a
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-baseline gap-1.5 text-primary hover:underline break-words"
+            >
+              <img
+                src={faviconUrl(s.host)}
+                alt=""
+                loading="lazy"
+                className="h-4 w-4 self-center rounded-sm bg-background ring-1 ring-border flex-shrink-0"
+                onError={(ev) => {
+                  (ev.target as HTMLImageElement).style.visibility = "hidden";
+                }}
+              />
+              <span>{s.title || s.url}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+};

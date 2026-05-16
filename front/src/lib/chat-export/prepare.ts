@@ -475,13 +475,13 @@ async function chunkifyText(text: string, ctx: InlineCtx): Promise<Chunk[]> {
       }
 
       if (fileType === "text" && isInlineMarkdownAttachmentPath(ref.path)) {
-        const title =
-          ref.alt?.trim() ||
-          ref.path.split("/").filter(Boolean).pop() ||
-          "file";
+        // For text attachments we deliberately drop the alt-text/filename
+        // title: the body is shown inline as part of the conversation, and
+        // a leading "📄 foo.md" header just adds visual noise. Exporters
+        // render only the body + a thin separator when filename is empty.
         const section = await buildInlineMdSection(
           ref.path,
-          title,
+          "",
           ctx.imageCounter,
         );
         return section ? { kind: "section", section } : { kind: "keep" };

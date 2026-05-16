@@ -13,7 +13,6 @@ function renderInlineMdAsBlockquote(
   embedImages: boolean,
   imageRefs: ExportImage[],
 ): string {
-  const headerLine = `📄 **${section.filename}**`;
   const bodyText = section.body.trim();
   const bodyLines = bodyText.length ? bodyText.split("\n") : [""];
 
@@ -27,7 +26,9 @@ function renderInlineMdAsBlockquote(
     imageRefs.push(img);
   }
 
-  const all = [headerLine, "", ...bodyLines];
+  const all: string[] = section.filename
+    ? [`📄 **${section.filename}**`, "", ...bodyLines]
+    : [...bodyLines];
   if (imageBlock.length) {
     all.push("");
     all.push(...imageBlock);
