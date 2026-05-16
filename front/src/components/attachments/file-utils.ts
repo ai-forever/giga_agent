@@ -65,3 +65,30 @@ export const inferAttachmentTypeFromPath = (
   if (textExt.includes(ext)) return "text";
   return "other";
 };
+
+const INLINE_MD_EXT = [".md", ".mmd"] as const;
+
+export function isInlineMarkdownAttachmentPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return INLINE_MD_EXT.some((ext) => lower.endsWith(ext));
+}
+
+/** Image, plotly, or .md / .mermaid-style .mmd file — shown in chat, embedded in export text. */
+export function isRenderableAsChatAttachment(
+  fileType: AttachmentFileType,
+  path: string,
+): boolean {
+  if (fileType === "image" || fileType === "plotly_graph") return true;
+  if (fileType === "text" && isInlineMarkdownAttachmentPath(path)) return true;
+  return false;
+}
+
+/** True if this file should be placed in `attachments/` inside the export zip. */
+export function shouldBundleInExport(
+  fileType: AttachmentFileType,
+  path: string,
+): boolean {
+  if (isRenderableAsChatAttachment(fileType, path)) return false;
+  if (fileType === "plotly_graph" || fileType === "image") return false;
+  return true;
+}
