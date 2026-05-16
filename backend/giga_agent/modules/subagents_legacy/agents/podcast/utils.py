@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 from typing import Any
 
@@ -21,10 +22,14 @@ from giga_agent.modules.subagents_legacy.agents.podcast.schema import (
 async def parse_url(url: str) -> str:
     """Асинхронный парсинг URL и возврат текстового содержимого."""
     full_url = f"{JINA_READER_URL}{url}"
+    headers = {}
+    jina_api_key = os.environ.get("JINA_API_KEY")
+    if jina_api_key:
+        headers["Authorization"] = f"Bearer {jina_api_key}"
     for attempt in range(1, JINA_RETRY_ATTEMPTS + 1):
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(full_url, timeout=60) as response:
+                async with session.get(full_url, headers=headers, timeout=60) as response:
                     response.raise_for_status()
                     return await response.text()
         except (TimeoutError, aiohttp.ClientError) as e:

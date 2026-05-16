@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.metadata
+import os
 import uuid
 from typing import Annotated
 from urllib.parse import urlparse
@@ -80,6 +81,9 @@ async def _load_via_jina_reader(
     headers = {
         "Accept": "text/plain, text/markdown;q=0.9, */*;q=0.1",
     }
+    jina_api_key = os.environ.get("JINA_API_KEY")
+    if jina_api_key:
+        headers["Authorization"] = f"Bearer {jina_api_key}"
     response: httpx.Response | None = None
     try:
         response = await client.get(reader_url, headers=headers)
