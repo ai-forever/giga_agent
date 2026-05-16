@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDarkMode } from "@/hooks/use-dark-mode.tsx";
 import styled from "styled-components";
 import { useSelectedAttachments } from "../../hooks/SelectedAttachmentsContext.tsx";
@@ -25,7 +25,23 @@ const Placeholder = styled.div`
   position: relative;
 `;
 
-const PlotWrapper = styled.div`
+const PlotOuter = styled.div<{ $height: number }>`
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  height: ${({ $height }) => `${$height}px`};
+`;
+
+const PlotScaled = styled.div<{ $scale: number; $width: number; $height: number }>`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: ${({ $width }) => `${$width}px`};
+  height: ${({ $height }) => `${$height}px`};
+  transform: scale(${({ $scale }) => $scale});
+  transform-origin: top left;
   .modebar-container,
   .modebar .modebar-group {
     background: rgba(0, 0, 0, 0) !important;
@@ -107,11 +123,43 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
   const isDark = useDarkMode();
   const { isSelected, toggle } = useSelectedAttachments();
   const selected = isSelected(id);
+
+  const nativeWidth = useMemo(() => {
+    const w = Number(fig?.layout?.width);
+    return w > 0 ? w : 700;
+  }, [fig]);
+  const nativeHeight = useMemo(() => {
+    const h = Number(fig?.layout?.height);
+    if (h > 0) return h;
+    return Math.round(nativeWidth / (16 / 9));
+  }, [fig, nativeWidth]);
+
+  const outerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    if (!outerRef.current) return;
+    const el = outerRef.current;
+    const update = () => {
+      const w = el.clientWidth;
+      if (w > 0) setScale(Math.min(1, w / nativeWidth));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [nativeWidth, fig]);
+
   const layout = useMemo(() => {
     if (!fig) return null;
+    const base = {
+      ...fig.layout,
+      autosize: false,
+      width: nativeWidth,
+      height: nativeHeight,
+    };
     if (isDark) {
       return {
-        ...fig.layout,
+        ...base,
         template: "plotly_dark",
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
@@ -129,7 +177,7 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
       };
     }
     return {
-      ...fig.layout,
+      ...base,
       template: "plotly_white",
       paper_bgcolor: "rgba(255,255,255,0)",
       plot_bgcolor: "rgba(255,255,255,0)",
@@ -145,7 +193,7 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
         zerolinecolor: "rgba(0,0,0,0.15)",
       },
     };
-  }, [fig, isDark]);
+  }, [fig, isDark, nativeWidth, nativeHeight]);
   if (error) {
     return (
       <div>
@@ -175,14 +223,19 @@ const Graph: React.FC<GraphProps> = ({ id, alt, path }) => {
       >
         {selected ? <Check size={24} /> : null}
       </SelectorButton>
-      <PlotWrapper>
-        <Plot
-          data={fig.data}
-          layout={layout}
-          useResizeHandler
-          style={{ width: "100%" }}
-        />
-      </PlotWrapper>
+      <PlotOuter ref={outerRef} $height={nativeHeight * scale}>
+        <PlotScaled
+          $scale={scale}
+          $width={nativeWidth}
+          $height={nativeHeight}
+        >
+          <Plot
+            data={fig.data}
+            layout={layout}
+            style={{ width: nativeWidth, height: nativeHeight }}
+          />
+        </PlotScaled>
+      </PlotOuter>
     </SelectableContainer>
   );
 };

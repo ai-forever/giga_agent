@@ -1,27 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  Brain,
   ChevronRight,
   Download,
-  Plus,
   Files,
-  Settings as SettingsIcon,
-  Brain,
-  User,
+  Loader2,
   LogOut,
-  Shield,
   MoreHorizontal,
   Pencil,
+  Settings as SettingsIcon,
+  Shield,
   Trash2,
-  Loader2,
+  User,
 } from "lucide-react";
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
 import { API_BASE_URL, ragEnabled } from "@/config.ts";
-import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
+import { useTheme } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { Client } from "@langchain/langgraph-sdk";
 import type { Thread } from "@langchain/langgraph-sdk";
+import { Client } from "@langchain/langgraph-sdk";
 import { appEvents, refreshThreads, THREADS_REFRESH_EVENT } from "@/lib/events";
 import {
   DropdownMenu,
@@ -34,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { exportChat, type ExportFormat } from "@/lib/chat-export";
+import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -663,14 +663,19 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
   const handleThreadExport = async (t: Thread, format: ExportFormat) => {
     if (!langGraphClient) return;
+    const toastId = toast.loading("Экспорт чата...");
     try {
       const state = await langGraphClient.threads.getState(t.thread_id);
       const messages = (state.values as any)?.messages;
-      if (!messages?.length) return;
+      if (!messages?.length) {
+        toast.dismiss(toastId);
+        return;
+      }
       const title = getThreadTitle(t);
       await exportChat(messages, format, title);
+      toast.success("Экспорт завершён", { id: toastId });
     } catch {
-      // silently fail for now
+      toast.error("Не удалось выполнить экспорт", { id: toastId });
     }
   };
 

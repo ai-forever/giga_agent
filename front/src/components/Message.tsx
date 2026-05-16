@@ -28,6 +28,7 @@ import {
   stripAssistantReasoningTags,
   type ExportFormat,
 } from "@/lib/chat-export";
+import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
@@ -135,6 +136,7 @@ const Message: React.FC<MessageProps> = ({
   const handleExport = async (format: ExportFormat) => {
     if (!thread || isExporting) return;
     setIsExporting(true);
+    const toastId = toast.loading("Экспорт сообщения...");
     try {
       const pair = extractMessagePair(thread.messages, message);
       const originHuman = pair.find((m) => m.type === "human");
@@ -144,6 +146,9 @@ const Message: React.FC<MessageProps> = ({
           .replace(/\s+/g, " ")
           .trim() || "chat";
       await exportChat(pair, format, title);
+      toast.success("Экспорт завершён", { id: toastId });
+    } catch {
+      toast.error("Не удалось выполнить экспорт", { id: toastId });
     } finally {
       setIsExporting(false);
     }

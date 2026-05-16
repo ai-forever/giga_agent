@@ -10,24 +10,24 @@ import json
 import keyword
 import re
 import traceback
+import types
 import uuid
 from typing import Any
-import types
 
 from cashews import cache
-from giga_agent.core.agent.tool_node import AgentToolNode
-from giga_agent.modules.repl.args_monkey_patch import _parse_input
-from langchain.tools import tool, ToolRuntime
-from langchain_core.tools import BaseTool
+from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool
 from langgraph.types import Command
-from pydantic import ValidationError, BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from giga_agent.core.agent.tool_node import AgentToolNode
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.models import UserShort, UserRepository
+from giga_agent.models import UserRepository, UserShort
 from giga_agent.models.file import FileResponse
-from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec, SandboxBusyError
+from giga_agent.modules.repl.args_monkey_patch import _parse_input
+from giga_agent.sandbox.manager import SandboxBusyError, SandboxManager, UploadFileSpec
 
 logger = get_logger(__name__)
 
@@ -122,33 +122,41 @@ def _extract_upload_specs_from_display_data(
 def _build_attachment_info(file_type: str, path: str) -> str:
     attachment_info = ""
     if file_type == "plotly_graph":
-        attachment_info = "В результате выполнения был сгенерирован график. "
+        attachment_info = "В результате выполнения был сгенерирован Plotly-график. "
     elif file_type == "image":
         attachment_info = "В результате выполнения было сгенерировано изображение. "
     elif file_type == "audio":
         attachment_info = "В результате выполнения был сгенерирован аудиофайл. "
     elif file_type == "video":
         attachment_info = "В результате выполнения был сгенерирован видеофайл. "
+    else:
+        attachment_info = "В результате выполнения был сгенерирован файл. "
 
     if file_type == "image":
         render_hint = (
             f"Ты можешь показать это пользователю с помощью через "
             f'"![alt-текст](attachment:{path})" '
         )
+    elif file_type == "plotly_graph":
+        render_hint = (
+            f"Ты можешь показать его пользователю как attachment: "
+            f'"![Plotly-график](attachment:{path})". '
+            "На стороне пользователя такой .plotly.json отрендерится как график. "
+        )
     elif file_type == "audio":
         render_hint = (
             f"Ты можешь показать это пользователю с помощью через "
-            f'"[аудио](attachment:{path})" '
+            f'"![аудио](attachment:{path})" '
         )
     elif file_type == "video":
         render_hint = (
             f"Ты можешь показать это пользователю с помощью через "
-            f'"[видео](attachment:{path})" '
+            f'"![видео](attachment:{path})" '
         )
     else:
         render_hint = (
-            f"Ты можешь показать это пользователю с помощью через "
-            f'"![alt-текст](attachment:{path})" '
+            f"Ты можешь показать его пользователю как attachment: "
+            f'"![файл](attachment:{path})". '
         )
 
     attachment_info += f"Путь до него '{path}'. {render_hint}"
