@@ -144,9 +144,7 @@ export const CitationChip: React.FC<CitationChipProps> = ({ nums }) => {
 
   const visible = resolved.slice(0, 3);
   const extra = resolved.length - visible.length;
-  const title = resolved
-    .map((s) => `[${s.n}] ${s.title || s.host}`)
-    .join("\n");
+  const title = resolved.map((s) => `[${s.n}] ${s.title || s.host}`).join("\n");
 
   return (
     <button
