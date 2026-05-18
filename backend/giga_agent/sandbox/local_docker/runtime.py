@@ -8,12 +8,13 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import docker
 from cashews import cache
 from docker.errors import DockerException, NotFound
 from docker.types import Ulimit
+from langchain_core.runnables import RunnableConfig
 from pydantic import Field, PrivateAttr
 
 from giga_agent.conf import (
@@ -46,6 +47,11 @@ from giga_agent.sandbox.manager.types import (
     StopExternalRuntimeAction,
 )
 from giga_agent.sandbox.registry import SandboxRegistry
+
+if TYPE_CHECKING:
+    from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.agent.types import AgentState
+    from giga_agent.models.users import UserShort
 
 logger = get_logger(__name__)
 
@@ -273,6 +279,103 @@ class LocalDockerSandbox(
         from giga_agent.sandbox.local_docker.tools import open_port
 
         return [open_port]
+
+    def _image_version(self) -> tuple[int, ...] | None:
+        """Return the image tag as a tuple of ints (e.g. (0, 0, 6))."""
+        _, _, tag = (self.image or "").rpartition(":")
+        if not tag:
+            return None
+        try:
+            return tuple(int(part) for part in tag.split("."))
+        except ValueError:
+            return None
+
+    def get_prompt(
+        self,
+        user: "UserShort | None" = None,
+        agent: "BaseAgent | None" = None,
+        state: "AgentState | None" = None,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> str:
+        _ = user, agent, state, config, kwargs
+        version = self._image_version()
+        if version is None or version < (0, 0, 6):
+            return ""
+
+        settings = get_settings()
+        base_domain = settings.giga_agent_public_base_domain
+        docker_network = self._docker_network()
+
+        lines: list[str] = [
+            "",
+            "=== Sandbox runtime (Docker) ===",
+            "Workdir: /root. "
+            "Эфемерно: /tmp, /run.",
+            "",
+            "=== Что использовать для типичных задач ===",
+            "- Установить Python-пакет → `uv pip install --no-cache <pkg>` "
+            "(в разы быстрее pip, без venv — UV_SYSTEM_PYTHON уже выставлен).",
+            "- Установить npm-пакет → `bun add <pkg>` (быстрее всего) "
+            "или `pnpm add <pkg>`. NPM работает, но медленнее.",
+            "- Запустить TypeScript-файл → `bun run script.ts` "
+            "(без отдельной компиляции).",
+            "- Запустить аналог npx → `bunx <cmd>`.",
+            "- Искать по коду → `rg 'pattern' path/` (НЕ `grep -r`).",
+            "- Искать файлы → `fd -e py -t f` (НЕ `find`).",
+            "- Парсить JSON в shell → `jq`.",
+            "- Скачать страницу → `curl -fsSL URL`. JS-рендеринг → "
+            "`/usr/local/bin/chromium-headless --headless URL > out.html` "
+            "(PUPPETEER_EXECUTABLE_PATH уже указывает на этот бинарь, "
+            "PUPPETEER_SKIP_DOWNLOAD=true — pyppeteer/playwright не качают свой).",
+            "- Видео/аудио → `ffmpeg`.",
+            "- Клонировать репозиторий → `git clone <url>`.",
+            "- Сжатие → `zip`/`unzip`/`xz`",
+            "",
+            "Что НЕ работает: GUI/X-сервер, "
+            "(пакеты только через uv/pnpm/bun)"
+        ]
+
+        lines.extend([
+            "",
+            "=== Запуск долгоиграющего сервера ===",
+            "1. Запустите сервер в фоне на 0.0.0.0:<port>, "
+            "НЕ на 127.0.0.1 (иначе извне не достучитесь)"
+        ])
+
+        if base_domain:
+            lines.extend([
+                "2. Дёрните `open_port(<port>)` — вернётся HTTPS-URL вида "
+                f"`https://<port>-sandbox-<id>.{base_domain}`.",
+                "",
+                "ССЫЛКА ПРИВАТНАЯ: открыть может только текущий "
+                "залогиненный пользователь (через cookie). Делиться "
+                "с посторонними бесполезно — они увидят 401.",
+                "",
+                "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
+                f"фреймворк отдаст 400/403 (приходящий Host = "
+                f"`<port>-sandbox-<hex>.{base_domain}`):",
+                "  • Django: ALLOWED_HOSTS=['*']; USE_X_FORWARDED_HOST=True; "
+                "SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')",
+                "  • FastAPI/Starlette: убрать TrustedHostMiddleware либо "
+                "allowed_hosts=['*']; uvicorn — с --proxy-headers "
+                "--forwarded-allow-ips='*'",
+                "  • Flask: werkzeug.middleware.proxy_fix.ProxyFix(app, "
+                "x_proto=1, x_host=1)",
+                "  • Streamlit: --server.enableCORS=false "
+                "--server.enableXsrfProtection=false --server.headless=true "
+                "--server.address=0.0.0.0",
+                "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
+                "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
+                f"vite.config — server.allowedHosts: ['.{base_domain}']",
+            ])
+        elif docker_network is None:
+            lines.append(
+                "2. `open_port(<port>)` → `http://localhost:<port>` "
+                "(локальный dev)."
+            )
+
+        return "\n".join(lines) + "\n"
 
     # ------------------------------------------------------------------
     # validation
