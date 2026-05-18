@@ -20,7 +20,6 @@ from giga_agent.modules.subagents_legacy.runtime import (
     resolve_user_llm,
 )
 
-
 logger = get_logger(__name__)
 
 
@@ -85,7 +84,7 @@ async def compose_node(state: DeepResearchState, config: RunnableConfig):
         factory = await get_session_factory()
         async with factory() as session:
             user = await get_current_user_from_config(config, session=session)
-            llm = await resolve_user_llm(user, session=session)
+            llm = await resolve_user_llm(user, session=session, config=config)
         llm = llm.with_config(tags=["nostream"])
     except Exception as exc:
         logger.warning(

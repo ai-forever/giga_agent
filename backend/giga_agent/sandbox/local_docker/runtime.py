@@ -320,7 +320,11 @@ class LocalDockerSandbox(
             "или `pnpm add <pkg>`. NPM работает, но медленнее.",
             "- Запустить TypeScript-файл → `bun run script.ts` "
             "(без отдельной компиляции).",
-            "- Запустить аналог npx → `bunx <cmd>`.",
+            "- Запустить пакет одноразово (аналог npx) → `bunx <cmd> [args]` "
+            "(в 5-10× быстрее npx за счёт нативного рантайма и общего кэша "
+            "`~/.bun/install/cache`). Если пакет упал с ошибкой про "
+            "несовместимость с Node — fallback `npx <cmd>`. Принудительно "
+            "запустить через bun-runtime (без node-shim) — `bunx --bun <cmd>`.",
             "- Искать по коду → `rg 'pattern' path/` (НЕ `grep -r`).",
             "- Искать файлы → `fd -e py -t f` (НЕ `find`).",
             "- Парсить JSON в shell → `jq`.",

@@ -16,9 +16,19 @@ from langchain_core.tools import tool
 from giga_agent.conf import get_settings
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.logging import get_logger
+from giga_agent.modules.subagents_legacy.uploads import (
+    LegacyUploadFileSpec,
+    resolve_upload_prefix,
+    upload_files_for_runtime_user,
+)
 from giga_agent.utils.messages import filter_tool_calls
 
 logger = get_logger(__name__)
+
+
+MAX_URLS_PER_CALL = 4
+TOTAL_CONTENT_THRESHOLD_CHARS = 20_000
+PER_RESULT_PREVIEW_CHARS = 5_000
 
 
 PROMPT = ChatPromptTemplate.from_messages(
@@ -184,7 +194,8 @@ async def _process_url(
             client=client,
             url=url,
         )
-        return await _summarize_page(messages, page_data, llm, summarize_sem)
+        return page_data
+        # return await _summarize_page(messages, page_data, llm, summarize_sem)
     except Exception as exc:
         logger.exception(
             "Failed to fetch or summarize URL in scraper",
@@ -194,17 +205,25 @@ async def _process_url(
         return _format_fetch_error(url, exc)
 
 
-@tool
+@tool(extras={"repl_skip": True, "not_compress": True, "not_process": True})
 async def get_urls(
     urls: list[str],
     runtime: ToolRuntime,
     state: Annotated[dict, InjectedState],
 ):
-    """Скачивает список URLs и отдаёт краткую выжимку по каждой ссылке с учётом задачи пользователя.
-
-    Реализация использует Jina Reader для извлечения текста/markdown со страниц.
-    Если в ответе есть изображения, прикладывай их к ответу
+    """Получает markdown-содержимое списка URLs и содержимое по каждой ссылке с учётом задачи пользователя.
+    Если в ответе есть изображения, прикладывай их к ответу.
+    За один вызов можно передать не более 4 ссылок — лишние будут проигнорированы.
+    Если суммарный объём контента слишком большой, в ответе вернётся только превью каждой страницы,
+    а полный markdown будет сохранён в sandbox — продолжать чтение можно через read_file(sandbox_path=...).
     """
+    notices: list[str] = []
+    if len(urls) > MAX_URLS_PER_CALL:
+        notices.append(
+            f"Передано {len(urls)} ссылок, обработаны только первые {MAX_URLS_PER_CALL}."
+        )
+        urls = urls[:MAX_URLS_PER_CALL]
+
     llm, llm_parallel_calls = await _resolve_fast_llm(runtime)
     summarize_sem = asyncio.Semaphore(llm_parallel_calls)
     total_concurrency = get_settings().giga_agent_scraper_total_concurrency
@@ -225,7 +244,60 @@ async def get_urls(
 
         response = await asyncio.gather(*[_bounded(u) for u in urls])
 
-    return {
+    total_chars = sum(len(item.get("markdown") or "") for item in response)
+    if total_chars > TOTAL_CONTENT_THRESHOLD_CHARS:
+        prefix = resolve_upload_prefix(runtime)
+        files_to_upload: list[LegacyUploadFileSpec] = []
+        upload_idx_to_response_idx: list[int] = []
+        for idx, item in enumerate(response):
+            markdown = item.get("markdown")
+            if not markdown or len(markdown) <= PER_RESULT_PREVIEW_CHARS:
+                continue
+            files_to_upload.append(
+                {
+                    "file_name": f"{prefix}/scraper-{uuid.uuid4().hex}.md",
+                    "file_type": "text",
+                    "content": markdown.encode("utf-8"),
+                }
+            )
+            upload_idx_to_response_idx.append(idx)
+
+        if files_to_upload:
+            try:
+                uploaded = await upload_files_for_runtime_user(
+                    runtime, files=files_to_upload
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to persist scraper markdown overflow",
+                    error_type=type(exc).__name__,
+                )
+                uploaded = []
+
+            for upload_pos, file in enumerate(uploaded):
+                if upload_pos >= len(upload_idx_to_response_idx):
+                    break
+                response_idx = upload_idx_to_response_idx[upload_pos]
+                full_markdown = response[response_idx]["markdown"]
+                response[response_idx]["markdown"] = (
+                    full_markdown[:PER_RESULT_PREVIEW_CHARS]
+                    + "\n…[обрезано, продолжение в full_markdown_path]"
+                )
+                response[response_idx]["full_markdown_path"] = file.sandbox_path
+                response[response_idx]["total_markdown_chars"] = len(full_markdown)
+                response[response_idx]["truncated"] = True
+
+        notices.append(
+            f"Суммарный объём контента превысил {TOTAL_CONTENT_THRESHOLD_CHARS} символов: "
+            f"для длинных результатов показаны первые {PER_RESULT_PREVIEW_CHARS} символов, "
+            "полный markdown сохранён в sandbox — путь доступен в поле `full_markdown_path`. "
+            "Продолжай чтение через read_file(sandbox_path=<full_markdown_path>)."
+        )
+
+    payload: dict = {
         "results": response,
         "attention": "\nИспользуй результаты в своем ответе. Если в тексте есть релевантные изображения, добавь их ссылками в формате `![alt-текст](ссылка)`.",
     }
+    if notices:
+        payload["notices"] = notices
+    return payload

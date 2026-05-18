@@ -210,7 +210,7 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_SCRAPER_JINA_BASE_URL",
     )
     giga_agent_scraper_total_concurrency: int = Field(
-        8, alias="GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY"
+        3, alias="GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY"
     )
     giga_agent_scraper_disabled: bool = Field(
         False, alias="GIGA_AGENT_SCRAPER_DISABLED"

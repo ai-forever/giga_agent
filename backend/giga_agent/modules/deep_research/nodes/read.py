@@ -14,10 +14,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from giga_agent.conf import get_settings
-from giga_agent.core.db import get_session_factory
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.logging import get_logger
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.llm import LLMRepository
 from giga_agent.modules.deep_research.config import (
     DEFAULT_MAX_READ_PER_ITERATION,
     DeepResearchState,
@@ -27,8 +25,7 @@ from giga_agent.modules.scraper.tool import (
     _load_via_jina_reader,
     _validate_url,
 )
-from giga_agent.modules.subagents_legacy.runtime import get_current_user_from_config
-
+from giga_agent.modules.subagents_legacy.runtime import _get_or_create_resolver
 
 logger = get_logger(__name__)
 
@@ -83,15 +80,9 @@ SUMMARIZE_SYSTEM = """Ты — исследовательский ассисте
 
 
 async def _resolve_fast_llm_from_config(config: RunnableConfig):
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await get_current_user_from_config(config, session=session)
-        llm_id = user.fast_llm_id or user.llm_id
-        if llm_id is None:
-            raise ValueError("У пользователя не выбран fast_llm_id или llm_id")
-        llm_context = await LLMRepository.get_cached_or_db(llm_id, session=session)
-        llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-    parallel_calls = max(1, int(llm_context.parallel_calls)) if llm_context else 1
+    resolver = (await _get_or_create_resolver(config))
+    llm_runtime = await resolver.get_fast_llm_runtime()
+    parallel_calls = await resolver.get_fast_llm_parallel_calls()
     llm = await llm_runtime.get_llm()
     return llm.bind(top_p=0.3).with_config(tags=["nostream"]), parallel_calls
 

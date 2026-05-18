@@ -95,13 +95,13 @@ class SubAgentLegacyModule(BaseModule):
                 )
             )
 
-        if caps.has_search and not is_cli:
-            tools.append(
-                _legacy_tool(
-                    "giga_agent.modules.subagents_legacy.agents.researcher.graph",
-                    "researcher_agent",
-                )
-            )
+        # if caps.has_search and not is_cli:
+        #     tools.append(
+        #         _legacy_tool(
+        #             "giga_agent.modules.subagents_legacy.agents.researcher.graph",
+        #             "researcher_agent",
+        #         )
+        #     )
 
         if caps.has_twogis_token and not is_cli:
             tools.append(
@@ -130,14 +130,14 @@ class SubAgentLegacyModule(BaseModule):
             else:
                 tools.extend(
                     [
-                        _legacy_tool(
-                            "giga_agent.modules.subagents_legacy.agents.landing_agent.graph",
-                            "create_landing",
-                        ),
-                        _legacy_tool(
-                            "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph",
-                            "generate_presentation",
-                        ),
+                        # _legacy_tool(
+                        #     "giga_agent.modules.subagents_legacy.agents.landing_agent.graph",
+                        #     "create_landing",
+                        # ),
+                        # _legacy_tool(
+                        #     "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph",
+                        #     "generate_presentation",
+                        # ),
                         _legacy_tool(
                             "giga_agent.modules.subagents_legacy.agents.meme_agent.graph",
                             "create_meme",
@@ -169,14 +169,14 @@ class SubAgentLegacyModule(BaseModule):
                 "Полезен при проработке идей, стартапов."
             )
 
-        if caps.has_search and not is_cli:
-            instructions.append(
-                """- **researcher_agent** — Агент для проведения исследования. Используй это, если пользователю нужно написать исследовательский отчет на какую-либо тему. Агент сам сделает поиск и исследует тему, тебе нужно лишь передать ему задачу.
-Когда пользователь задает какой-то вопрос на поиск, уточни у него, хочет ли он проводить глубокое исследование или простой поиск.
-В зависимости от ответа пользователя, выбирай инструмент:
-- search - для простых поисковых запросов
-- researcher_agent - если пользователь захотел глубокое исследование."""
-            )
+#         if caps.has_search and not is_cli:
+#             instructions.append(
+#                 """- **researcher_agent** — Агент для проведения исследования. Используй это, если пользователю нужно написать исследовательский отчет на какую-либо тему. Агент сам сделает поиск и исследует тему, тебе нужно лишь передать ему задачу.
+# Когда пользователь задает какой-то вопрос на поиск, уточни у него, хочет ли он проводить глубокое исследование или простой поиск.
+# В зависимости от ответа пользователя, выбирай инструмент:
+# - search - для простых поисковых запросов
+# - researcher_agent - если пользователь захотел глубокое исследование."""
+#             )
 
         if caps.has_llm and caps.has_salute_speech and not is_cli:
             instructions.append(
@@ -191,8 +191,8 @@ class SubAgentLegacyModule(BaseModule):
                 )
             else:
                 instructions.append(
-                    """- **generate_presentation** — Создает презентацию. Всегда используй 'generate_presentation', если пользователь просить создать презентацию!
-- **podcast_generate** — Генерирует подкаст. Используй это, если пользователь нужно сгенерировать подкаст.
+                    # - **generate_presentation** — Создает презентацию. Всегда используй 'generate_presentation', если пользователь просить создать презентацию!
+                    """
 - **create_meme** — Создает мем исходя из запроса пользователя."""
                 )
         if not instructions:

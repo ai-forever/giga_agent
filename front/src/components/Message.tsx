@@ -1,12 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Checkpoint, Message as Message_ } from "@langchain/langgraph-sdk";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import MessageAttachments from "./MessageAttachments.tsx";
-import { TOOL_MAP } from "../config.ts";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState, GraphTemplate } from "../interfaces.ts";
 import MessageEditor from "./MessageEditor.tsx";
+import ToolCallsList from "./ToolCallsList.tsx";
+import { findScrollRoot } from "@/lib/scroll";
 import {
   Check,
   ChevronLeft,
@@ -24,9 +29,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   exportChat,
-  extractMessagePair,
-  stripAssistantReasoningTags,
   type ExportFormat,
+  extractMessagePair,
 } from "@/lib/chat-export";
 import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
@@ -34,6 +38,7 @@ import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { BROWSER_USE_NAME } from "@/config.ts";
+import { useSettings } from "./Settings.tsx";
 
 function getMessageText(message: Message_): string {
   if (Array.isArray(message.content)) {
@@ -106,7 +111,108 @@ interface MessageProps {
   onWriteEnd?: () => void;
   writeMessage?: boolean;
   thread?: UseStream<GraphState, GraphTemplate>;
+  resultsById?: Record<string, Message_>;
+  isLastAi?: boolean;
+  // Когда true — рендер AI-с-tool_calls без своей рамки/фона/паддингов
+  // (используется внутри AgentRun, чтобы избежать вложенных карточек).
+  noContainer?: boolean;
+  // Скрывает нижний ряд action-кнопок (refresh/download/branch/edit) —
+  // нужно для шагов внутри AgentRun, кнопки остаются только у финального AI.
+  hideActions?: boolean;
+  // Показывает только reasoning/content AI-сообщения, не рендеря tool calls.
+  hideToolCalls?: boolean;
+  // Показывает только tool calls, не дублируя уже вынесенный content/reasoning.
+  hideContent?: boolean;
 }
+
+// ≈ 10 строк text-xs (12px) при leading-snug (line-height 1.375): 12 * 1.375 * 10 ≈ 165
+const REASONING_CLAMP_PX = 165;
+const REASONING_OVERFLOW_TOLERANCE_PX = 4;
+
+const FADE_MASK =
+  "linear-gradient(to bottom, black 0%, black 35%, transparent 100%)";
+
+const ReasoningContent: React.FC<{
+  text: string;
+  contentRef: React.RefObject<HTMLDivElement | null>;
+}> = ({ text, contentRef }) => (
+  <div ref={contentRef} className="leading-snug">
+    {text.split("\n").map((line, index) =>
+      line.trim() ? (
+        <span key={index} className="block">
+          {line}
+        </span>
+      ) : (
+        <span key={index} className="block h-[5px]" aria-hidden />
+      ),
+    )}
+  </div>
+);
+
+const ReasoningBlock: React.FC<{ text: string }> = ({ text }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const lastHeightRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!contentRef.current) return;
+    const h = contentRef.current.offsetHeight;
+    setIsOverflowing(h > REASONING_CLAMP_PX + REASONING_OVERFLOW_TOLERANCE_PX);
+  }, [text]);
+
+  if (!text?.trim()) return null;
+
+  // Содержимое влезает в 3 строки — рендерим без motion/маски/клика.
+  if (!isOverflowing) {
+    return (
+      <div className="text-xs italic text-muted-foreground">
+        <ReasoningContent text={text} contentRef={contentRef} />
+      </div>
+    );
+  }
+
+  const clamped = !expanded;
+
+  const handleUpdate = (latest: { height?: number | string }) => {
+    if (typeof latest.height !== "number") return;
+    const prev = lastHeightRef.current;
+    if (prev != null) {
+      const delta = latest.height - prev;
+      if (Math.abs(delta) > 0.25) {
+        const root = findScrollRoot(containerRef.current);
+        if (root) root.scrollTop += delta;
+      }
+    }
+    lastHeightRef.current = latest.height;
+  };
+
+  return (
+    <motion.div
+      ref={containerRef}
+      onClick={() => setExpanded((v) => !v)}
+      initial={false}
+      animate={{ height: clamped ? REASONING_CLAMP_PX : "auto" }}
+      transition={{ duration: 0.28, ease: "easeOut" }}
+      onUpdate={handleUpdate}
+      onAnimationStart={() => {
+        lastHeightRef.current = containerRef.current?.offsetHeight ?? null;
+      }}
+      onAnimationComplete={() => {
+        lastHeightRef.current = null;
+      }}
+      className="relative mb-2 text-xs italic text-muted-foreground cursor-pointer select-none"
+      style={{
+        overflow: "hidden",
+        WebkitMaskImage: clamped ? FADE_MASK : "none",
+        maskImage: clamped ? FADE_MASK : "none",
+      }}
+    >
+      <ReasoningContent text={text} contentRef={contentRef} />
+    </motion.div>
+  );
+};
 
 const THINK_TOOL_NAME = "think";
 
@@ -132,13 +238,13 @@ const getThinkText = (toolCall: RenderToolCall): string => {
   return "";
 };
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+const normalizeReasoningText = (text: string): string =>
+  text
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
 const Message: React.FC<MessageProps> = ({
   message,
@@ -146,6 +252,12 @@ const Message: React.FC<MessageProps> = ({
   onWriteEnd,
   thread,
   writeMessage = false,
+  resultsById,
+  isLastAi = false,
+  noContainer = false,
+  hideActions = false,
+  hideToolCalls = false,
+  hideContent = false,
 }) => {
   // 2) хук для постепенной «печати» чанков
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -156,6 +268,7 @@ const Message: React.FC<MessageProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
+  const { settings } = useSettings();
 
   const handleExport = async (format: ExportFormat) => {
     if (!thread || isExporting) return;
@@ -237,28 +350,45 @@ const Message: React.FC<MessageProps> = ({
     return () => clearTimeout(timer);
     // @ts-ignore
   }, [message.content, message.additional_kwargs, message.type]);
-  const normalizedContent = useMemo(() => {
+  const rawHasToolCalls =
+    message.type === "ai" &&
+    Array.isArray((message as any).tool_calls) &&
+    (message as any).tool_calls.length > 0;
+  const hasToolCalls = !hideToolCalls && rawHasToolCalls;
+
+  const { normalizedContent, inlineReasoning } = useMemo(() => {
     let md = displayed ?? "";
-    const reasoningContent = message.additional_kwargs?.reasoning_content;
 
     // 1) перед каждым ``` вставляем гарантированно пустую строку
     md = md.replace(/(^|\n)(```[^\n]*)/g, "$1\n$2");
+
+    // 2) Извлекаем все <thinking>...</thinking> блоки из текста сообщения
+    // и склеиваем их в inlineReasoning — он попадёт в ReasoningBlock вместе
+    // с reasoning_content и think-tool вызовами.
+    const reasoningParts: string[] = [];
     md = md.replace(
-      /<thinking>([\s\S]*?)<\/thinking>/g,
-      (_, content) =>
-        `<thinking>${content.replace(/\n/g, "<br>")}</thinking>\n`,
+      /<thinking>([\s\S]*?)<\/thinking>\s*/g,
+      (_, content: string) => {
+        const t = content.trim();
+        if (t) reasoningParts.push(t);
+        return "";
+      },
     );
-    // md = md.replace(/\$\\?([^\$]+)\$/g, "\n$$$$$1$$$$\n");
-    if (reasoningContent) {
-      const thinking = escapeHtml(String(reasoningContent)).replace(
-        /\r?\n/g,
-        "<br>",
-      );
-      md = `<thinking>${thinking}</thinking>\n\n${md}`;
+
+    // Незакрытый <thinking> (стриминг ещё не дошёл до </thinking>):
+    // забираем хвост после открывающего тега как «текущее» рассуждение.
+    const openIdx = md.indexOf("<thinking>");
+    if (openIdx !== -1 && md.indexOf("</thinking>", openIdx) === -1) {
+      const tail = md.slice(openIdx + "<thinking>".length).trim();
+      if (tail) reasoningParts.push(tail);
+      md = md.slice(0, openIdx);
     }
 
-    return md;
-  }, [displayed, message.additional_kwargs?.reasoning_content]);
+    return {
+      normalizedContent: md.trim(),
+      inlineReasoning: reasoningParts.join("\n\n").trim(),
+    };
+  }, [displayed]);
 
   useEffect(() => {
     onWrite();
@@ -341,6 +471,7 @@ const Message: React.FC<MessageProps> = ({
   };
 
   const isCurrentInterruptMessage =
+    !settings.autoApprove &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
     ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
@@ -413,9 +544,33 @@ const Message: React.FC<MessageProps> = ({
     (toolCall) => toolCall.name !== THINK_TOOL_NAME,
   );
 
+  const combinedReasoning = useMemo(() => {
+    const parts: string[] = [];
+    const reasoning = message.additional_kwargs?.reasoning_content;
+    if (reasoning) parts.push(String(reasoning));
+    for (const tc of thinkToolCalls) {
+      const t = getThinkText(tc);
+      if (t) parts.push(t);
+    }
+    if (inlineReasoning) parts.push(inlineReasoning);
+    return normalizeReasoningText(parts.join("\n"));
+  }, [
+    message.additional_kwargs?.reasoning_content,
+    thinkToolCalls,
+    inlineReasoning,
+  ]);
+
+  const streamingThisMessage =
+    !!thread?.isLoading && thread?.messages.at(-1)?.id === message.id;
+  // Шаг с tool_calls считается "в работе", если он последний AI-шаг и поток
+  // активен — даже если за ним уже летят tool-результаты.
+  const stepInFlight = !!thread?.isLoading && isLastAi;
+
   return (
     <div
-      style={{ marginBottom: "20px", padding: "0 20px" }}
+      style={
+        noContainer ? undefined : { marginBottom: "20px", padding: "0 20px" }
+      }
       onMouseEnter={() => setShowEdit(true)}
       onMouseLeave={() => setShowEdit(false)}
     >
@@ -432,7 +587,8 @@ const Message: React.FC<MessageProps> = ({
         <>
           <div
             className={[
-              "flex py-2.5",
+              "flex",
+              noContainer ? "" : "py-2.5",
               message.type === "human" ? "justify-end" : "justify-start",
             ].join(" ")}
           >
@@ -444,57 +600,39 @@ const Message: React.FC<MessageProps> = ({
                 "markdown",
               ].join(" ")}
             >
-              <TextMarkdown
-                isStreaming={
-                  thread?.isLoading && thread.messages.at(-1)?.id === message.id
-                }
-              >
-                {normalizedContent}
-              </TextMarkdown>
-
-              {thinkToolCalls.map((toolCall, index) => {
-                const thinkText = getThinkText(toolCall);
-                if (!thinkText) return null;
-                return (
-                  <div key={`think-${index}`} className="mt-2">
-                    {React.createElement(
-                      "thinking",
-                      { className: "whitespace-pre-wrap" },
-                      thinkText,
-                    )}
-                  </div>
-                );
-              })}
-              {visibleToolCalls.map((tool_call, index) => (
-                <div key={index} className="mt-2">
-                  <div>
-                    Действие:{" "}
-                    {tool_call.name in TOOL_MAP
-                      ? // @ts-ignore
-                        `${TOOL_MAP[tool_call.name]} `
-                      : tool_call.name}
-                  </div>
-                  {tool_call.name === "run_deep_research" ? (
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      Тема:{" "}
-                      <span className="text-foreground">
-                        {tool_call.args?.research_topic ||
-                          tool_call.args?.query ||
-                          ""}
-                      </span>
+              {hasToolCalls ? (
+                <div
+                  className={
+                    noContainer
+                      ? ""
+                      : "rounded-md border border-border/40 bg-muted/20 p-2.5"
+                  }
+                >
+                  {!hideContent && <ReasoningBlock text={combinedReasoning} />}
+                  {!hideContent && normalizedContent?.trim() && (
+                    <div className="mb-2">
+                      <TextMarkdown isStreaming={streamingThisMessage}>
+                        {normalizedContent}
+                      </TextMarkdown>
                     </div>
-                  ) : (
-                    <SyntaxHighlighter
-                      language={tool_call.name === "python" ? "python" : "json"}
-                      style={vscDarkPlus}
-                    >
-                      {tool_call.name === "python"
-                        ? tool_call.args.code
-                        : JSON.stringify(tool_call.args)}
-                    </SyntaxHighlighter>
                   )}
+                  <ToolCallsList
+                    toolCalls={visibleToolCalls as any}
+                    resultsById={resultsById ?? {}}
+                    isStreaming={stepInFlight}
+                    thread={thread as any}
+                  />
                 </div>
-              ))}
+              ) : (
+                <>
+                  {message.type === "ai" && combinedReasoning && (
+                    <ReasoningBlock text={combinedReasoning} />
+                  )}
+                  <TextMarkdown isStreaming={streamingThisMessage}>
+                    {normalizedContent}
+                  </TextMarkdown>
+                </>
+              )}
               {
                 //@ts-ignore
                 message.additional_kwargs &&
@@ -614,7 +752,8 @@ const Message: React.FC<MessageProps> = ({
           <div
             className={[
               "flex flex-grow-0 gap-2 transition-opacity duration-200",
-              showEdit ? "opacity-100" : "opacity-0",
+              showEdit && !hideActions ? "opacity-100" : "opacity-0",
+              hideActions ? "pointer-events-none h-0 overflow-hidden" : "",
               message.type === "ai" ? "justify-start" : "justify-end",
             ].join(" ")}
           >
@@ -640,7 +779,7 @@ const Message: React.FC<MessageProps> = ({
                 <Pencil size={16} />
               </button>
             )}
-            {message.type === "ai" && (
+            {message.type === "ai" && !rawHasToolCalls && (
               <>
                 <button
                   disabled={!thread || thread.isLoading}
@@ -683,5 +822,13 @@ const Message: React.FC<MessageProps> = ({
 
 export default React.memo(
   Message,
-  (prev, next) => prev.message === next.message && prev.thread === next.thread,
+  (prev, next) =>
+    prev.message === next.message &&
+    prev.thread === next.thread &&
+    prev.resultsById === next.resultsById &&
+    prev.isLastAi === next.isLastAi &&
+    prev.noContainer === next.noContainer &&
+    prev.hideActions === next.hideActions &&
+    prev.hideToolCalls === next.hideToolCalls &&
+    prev.hideContent === next.hideContent,
 );
