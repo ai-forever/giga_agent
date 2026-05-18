@@ -1,0 +1,42 @@
+map $http_x_forwarded_proto $effective_scheme {
+    default $scheme;
+    ~. $http_x_forwarded_proto;
+}
+
+server {
+    listen 80;
+    server_name ~^(?<sandbox_port>\d+)-sandbox-(?<sandbox_id_hex>[a-f0-9]{32})\.${PUBLIC_BASE_DOMAIN_ESCAPED}$;
+
+    resolver 127.0.0.11 ipv6=off valid=30s;
+    resolver_timeout 5s;
+
+    client_max_body_size 100m;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $effective_scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_set_header Cookie "";
+    proxy_cookie_domain $host $host;
+
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    location = /__sandbox_auth {
+        internal;
+        proxy_pass http://giga-agent:8000/api/auth/sandbox-access/$sandbox_id_hex;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Original-Host $host;
+    }
+
+    location / {
+        auth_request /__sandbox_auth;
+        proxy_pass http://giga-sandbox-$sandbox_id_hex:$sandbox_port;
+    }
+}

@@ -11,7 +11,7 @@ from giga_agent.modules.repl.tools import _resolve_repl_runtime_context
 
 @tool(parse_docstring=True, extras={"repl_save": False})
 async def open_port(port: int, runtime: ToolRuntime) -> str:
-    """Opens a port in the local Docker sandbox and returns a localhost URL for the user.
+    """Opens a port in the local Docker sandbox and returns a public URL for the user. The URL is private to the currently logged-in user; visitors must be authenticated.
 
     Args:
         port: Port number to open

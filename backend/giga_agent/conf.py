@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         None,
         alias="GIGA_AGENT_DOCKER_NETWORK",
     )
+    giga_agent_public_base_domain: str | None = Field(
+        None,
+        alias="GIGA_AGENT_PUBLIC_BASE_DOMAIN",
+    )
     giga_agent_host: str | None = Field(None, alias="GIGA_AGENT_HOST")
     giga_agent_port: str | None = Field(None, alias="GIGA_AGENT_PORT")
 
@@ -296,6 +300,14 @@ class Settings(BaseSettings):
         if value is None:
             return None
         cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("giga_agent_public_base_domain", mode="after")
+    @classmethod
+    def _normalize_public_base_domain(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower().rstrip(".")
         return cleaned or None
 
     @field_validator(

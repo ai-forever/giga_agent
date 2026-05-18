@@ -1,0 +1,18 @@
+#!/bin/sh
+# Sourced by nginx docker-entrypoint *before* 20-envsubst-on-templates.sh.
+# Either exports PUBLIC_BASE_DOMAIN_ESCAPED for envsubst, or removes the
+# sandbox template so no sandbox server block is generated.
+#
+# This file is sourced (".envsh" extension) — avoid `set -e` / `set -u` and
+# `exit`, since they would affect the parent entrypoint shell.
+
+SANDBOX_TEMPLATE="/etc/nginx/templates/sandbox.conf.template"
+
+if [ -z "${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}" ]; then
+    if [ -f "$SANDBOX_TEMPLATE" ]; then
+        rm -f "$SANDBOX_TEMPLATE"
+    fi
+else
+    PUBLIC_BASE_DOMAIN_ESCAPED=$(printf '%s' "$GIGA_AGENT_PUBLIC_BASE_DOMAIN" | sed 's/\./\\./g')
+    export PUBLIC_BASE_DOMAIN_ESCAPED
+fi

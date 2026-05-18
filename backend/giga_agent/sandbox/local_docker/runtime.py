@@ -149,6 +149,46 @@ class LocalDockerSandbox(
             raise RuntimeError("sandbox_id is required for docker network mode")
         return f"giga-sandbox-{self.sandbox_id}"
 
+    def _container_hex_alias(self) -> str:
+        if self.sandbox_id is None:
+            raise RuntimeError("sandbox_id is required for docker network alias")
+        return f"giga-sandbox-{self.sandbox_id.hex}"
+
+    def _ensure_hex_alias(self, network_name: str) -> None:
+        """Add the hex32 DNS alias to the sandbox container in the given network.
+
+        Idempotent: noop when the alias is already present.
+        """
+        if self._container is None:
+            return
+        if not get_settings().giga_agent_public_base_domain:
+            return
+        alias = self._container_hex_alias()
+        try:
+            self._container.reload()
+        except NotFound:
+            return
+        networks = (
+            (self._container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+        )
+        net_info = networks.get(network_name) or {}
+        existing_aliases = net_info.get("Aliases") or []
+        if alias in existing_aliases:
+            return
+        try:
+            network = self._client.networks.get(network_name)
+        except NotFound:
+            return
+        try:
+            network.connect(self._container, aliases=[alias])
+        except DockerException:
+            logger.warning(
+                "Failed to attach hex alias %s to container %s",
+                alias,
+                getattr(self._container, "id", "")[:12],
+                exc_info=True,
+            )
+
     def _internal_base_url(self) -> str:
         return f"http://{self._container_name()}:{JUPYTER_PORT}"
 
@@ -202,7 +242,11 @@ class LocalDockerSandbox(
 
     @staticmethod
     def get_tools() -> list:
-        if get_settings().giga_agent_docker_network is not None:
+        settings = get_settings()
+        if (
+            settings.giga_agent_docker_network is not None
+            and not settings.giga_agent_public_base_domain
+        ):
             return []
         from giga_agent.sandbox.local_docker.tools import open_port
 
@@ -381,6 +425,9 @@ class LocalDockerSandbox(
 
         self.external_id = self._container.id
         self._container.reload()
+        if docker_network:
+            self._ensure_hex_alias(docker_network)
+            self._container.reload()
         self._apply_container_connection(self._container)
 
     async def stop(self) -> None:
@@ -437,6 +484,10 @@ class LocalDockerSandbox(
         if token:
             self._token = token
             self.jupyter_token = token
+
+        docker_network = self._docker_network()
+        if docker_network:
+            self._ensure_hex_alias(docker_network)
 
         self._ensure_base_url()
 

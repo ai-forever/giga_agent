@@ -5,6 +5,7 @@ from typing import Any
 
 from docker.errors import DockerException, NotFound
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 from giga_agent.sandbox.local_docker.constants import (
     MANAGED_LABEL,
@@ -119,14 +120,26 @@ class PortProxyMixin:
     # ------------------------------------------------------------------
 
     async def expose_port(self, port: int) -> str:
-        """Expose a sandbox port via a socat sidecar container.
+        """Expose a sandbox port.
 
-        Returns ``http://localhost:{host_port}`` URL.
+        In docker-network mode with ``GIGA_AGENT_PUBLIC_BASE_DOMAIN`` set,
+        returns ``https://{port}-sandbox-{sandbox_id_hex}.{domain}`` (proxied
+        by the frontend nginx). Otherwise spawns a socat sidecar and returns
+        ``http://localhost:{host_port}``.
         """
-        if self._docker_network() is not None:
-            raise RuntimeError(
-                "open_port is not available when GIGA_AGENT_DOCKER_NETWORK is set"
-            )
+        if self.sandbox_id is None:
+            raise RuntimeError("sandbox_id is required to expose a port")
+        docker_network = self._docker_network()
+        if docker_network is not None:
+            base_domain = get_settings().giga_agent_public_base_domain
+            if not base_domain:
+                raise RuntimeError(
+                    "open_port is not available when GIGA_AGENT_DOCKER_NETWORK "
+                    "is set without GIGA_AGENT_PUBLIC_BASE_DOMAIN"
+                )
+            await self._ensure_container_connected()
+            self._ensure_hex_alias(docker_network)
+            return f"https://{port}-sandbox-{self.sandbox_id.hex}.{base_domain}"
         await self._ensure_container_connected()
 
         existing = self._find_proxy_for_port(port)

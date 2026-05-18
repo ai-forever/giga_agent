@@ -16,9 +16,12 @@ FROM nginx:1.27-alpine
 
 COPY --from=frontend_builder /app/front/dist /usr/share/nginx/html
 COPY deployments/local/nginx.frontend.conf /etc/nginx/conf.d/default.conf
+COPY deployments/local/nginx.sandbox.conf.template /etc/nginx/templates/sandbox.conf.template
+COPY deployments/local/docker-entrypoint.sandbox-env.envsh /docker-entrypoint.d/10-sandbox-env.envsh
 COPY deployments/local/docker-entrypoint.frontend-nginx.sh /docker-entrypoint.d/30-set-base-url.sh
 
-RUN chmod +x /docker-entrypoint.d/30-set-base-url.sh
+RUN chmod +x /docker-entrypoint.d/10-sandbox-env.envsh \
+    && chmod +x /docker-entrypoint.d/30-set-base-url.sh
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
