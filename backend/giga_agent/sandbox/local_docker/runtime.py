@@ -157,7 +157,10 @@ class LocalDockerSandbox(
     def _ensure_hex_alias(self, network_name: str) -> None:
         """Add the hex32 DNS alias to the sandbox container in the given network.
 
-        Idempotent: noop when the alias is already present.
+        Idempotent: noop when the alias is already present. If the container is
+        already attached to the network without the alias, the endpoint is
+        re-created (disconnect + connect with the desired aliases) — Docker has
+        no API to mutate aliases of an existing endpoint.
         """
         if self._container is None:
             return
@@ -179,7 +182,21 @@ class LocalDockerSandbox(
             network = self._client.networks.get(network_name)
         except NotFound:
             return
+
+        is_attached = network_name in networks
         try:
+            if is_attached:
+                try:
+                    network.disconnect(self._container, force=True)
+                except DockerException:
+                    logger.warning(
+                        "Failed to detach container %s from network %s "
+                        "before attaching hex alias",
+                        getattr(self._container, "id", "")[:12],
+                        network_name,
+                        exc_info=True,
+                    )
+                    return
             network.connect(self._container, aliases=[alias])
         except DockerException:
             logger.warning(
@@ -188,6 +205,11 @@ class LocalDockerSandbox(
                 getattr(self._container, "id", "")[:12],
                 exc_info=True,
             )
+            return
+        try:
+            self._container.reload()
+        except DockerException:
+            pass
 
     def _internal_base_url(self) -> str:
         return f"http://{self._container_name()}:{JUPYTER_PORT}"
