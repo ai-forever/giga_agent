@@ -28,7 +28,7 @@ server {
 
     location = /__sandbox_auth {
         internal;
-        proxy_pass http://giga-agent:8000/api/auth/sandbox-access/$sandbox_id_hex;
+        proxy_pass http://giga-agent:8000/agent/auth/sandbox-access/$sandbox_id_hex;
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
         proxy_set_header Host $host;
