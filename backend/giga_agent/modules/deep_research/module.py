@@ -11,7 +11,6 @@ from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
 from giga_agent.modules.deep_research.graph import run_deep_research
 
-
 DEEP_RESEARCH_INSTRUCTIONS = """- **run_deep_research** — Проводит глубокое исследование: декомпозирует запрос на подвопросы, ищет и читает несколько веб-источников, собирает markdown-отчёт с нумерованными цитатами.
 Используй для сложных вопросов, где нужен сбор и синтез из нескольких источников (обзоры, сравнения, текущее состояние темы/рынка/технологии).
 Для простых поисковых вопросов используй search.
@@ -32,6 +31,9 @@ class DeepResearchModule(BaseModule):
         self,
         user: UserShort | None,
         agent: BaseAgent,
+        *,
+        config=None,
+        **kwargs
     ) -> List[BaseTool]:
         _ = agent
         if user is None:
