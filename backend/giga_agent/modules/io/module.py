@@ -9,7 +9,7 @@ from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
 from giga_agent.modules.io.prompts import IO_MODULE_INSTRUCTIONS
-from giga_agent.modules.io.tools import edit_file, read_file, write_file
+from giga_agent.modules.io.tools import delete_file, edit_file, read_file, write_file
 
 
 class IOModule(BaseModule):
@@ -19,7 +19,7 @@ class IOModule(BaseModule):
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent
-        return [read_file, write_file, edit_file]
+        return [read_file, write_file, edit_file, delete_file]
 
     async def get_instructions(
         self,

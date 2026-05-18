@@ -18,6 +18,7 @@ from giga_agent.channels.telegram.services.media import TelegramMediaService
 from giga_agent.channels.telegram.services.message_tool_runtime import (
     TelegramMessageToolRuntime,
 )
+from giga_agent.channels.telegram.runtime import build_memory_tags
 from giga_agent.channels.telegram.services.threads import TelegramThreadService
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -235,8 +236,12 @@ class TelegramMessageHandlers:
                         assistant_id=self.thread_service.assistant_id,
                         input=run_input,
                         config={
-                            "disable_memory": True
-                        }
+                            "configurable": {
+                                "memory_disabled": False,
+                                "memory_tags": build_memory_tags(message),
+                                "memory_show_global": False,
+                            },
+                        },
                     ),
                     timeout=run_timeout,
                 )

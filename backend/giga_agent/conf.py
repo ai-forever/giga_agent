@@ -200,9 +200,6 @@ class Settings(BaseSettings):
     giga_agent_qdrant_pool_size: int | None = Field(
         None, alias="GIGA_AGENT_QDRANT_POOL_SIZE"
     )
-    giga_agent_mem0_qdrant_ensure_cache: bool = Field(
-        True, alias="GIGA_AGENT_MEM0_QDRANT_ENSURE_CACHE"
-    )
 
     giga_agent_scraper_jina_base_url: str = Field(
         "https://r.jina.ai/",

@@ -1,6 +1,7 @@
 """
-Module for accessing the Qdrant VectorStore. For local Qdrant, we use
-QdrantClient, as it is required for the mem0 module.
+Module for accessing the Qdrant VectorStore. For local Qdrant, we use the
+sync ``QdrantClient`` (wrapped via ``qdrant_call``); for remote setups, the
+async client is used directly.
 """
 
 from __future__ import annotations

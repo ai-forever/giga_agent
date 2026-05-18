@@ -46,6 +46,7 @@ from giga_agent.models.users import (
     AdminUserUpdate,
 )
 from giga_agent.models.file import FileRepository, FileStorageRef
+from giga_agent.modules.skills.service import SkillsService
 from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
 from giga_agent.sandbox.manager import SandboxManager
 
@@ -653,6 +654,7 @@ async def update_user(
             )
         user.sandbox_provider_id = body.sandbox_provider_id
         await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+        await SkillsService.invalidate_list_cache(current_user.id)
 
     await db.commit()
     await db.refresh(user)

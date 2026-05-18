@@ -94,6 +94,10 @@ from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )
+from giga_agent.models.memory import (
+    MemoryFile,
+    MemoryFileRepository,
+)
 from giga_agent.models.group import (
     Group,
     GroupMember,
@@ -218,6 +222,9 @@ __all__ = [
     "RagDocument",
     "RagCollectionsRepository",
     "RagDocumentsRepository",
+    # Memory
+    "MemoryFile",
+    "MemoryFileRepository",
     # Groups
     "Group",
     "GroupMember",

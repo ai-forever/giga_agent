@@ -16,6 +16,13 @@ from langgraph.types import Command
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.modules.io.memory_bridge import (
+    _is_memory_path,
+    _memory_delete,
+    _memory_edit,
+    _memory_read,
+    _memory_write,
+)
 
 logger = get_logger(__name__)
 
@@ -437,6 +444,9 @@ async def read_file(
     if runtime is None:
         return _result("Ошибка: ToolRuntime is required", is_error=True)
 
+    if _is_memory_path(sandbox_path):
+        return await _memory_read(sandbox_path, runtime)
+
     user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
@@ -594,6 +604,9 @@ async def write_file(
     if runtime is None:
         return _result("Ошибка: ToolRuntime is required", is_error=True)
 
+    if _is_memory_path(file_path):
+        return await _memory_write(file_path, content, runtime)
+
     owner_id = await _get_owner_id(runtime)
 
     factory = await get_session_factory()
@@ -699,6 +712,11 @@ async def edit_file(
     if runtime is None:
         return _result("Ошибка: ToolRuntime is required", is_error=True)
 
+    if _is_memory_path(file_path):
+        return await _memory_edit(
+            file_path, find_string, replace_string, replace_all, runtime
+        )
+
     owner_id = await _get_owner_id(runtime)
 
     factory = await get_session_factory()
@@ -798,3 +816,41 @@ async def edit_file(
             return _result(f"Ошибка: {e}", is_error=True)
 
     return _result(f"Файл отредактирован: {file_path}, замен: {replacements}")
+
+
+@tool(
+    description="""Удаляет файл памяти.
+
+Использование:
+- Поддерживается только для путей под /memories/. Для удаления обычных файлов используй shell.
+- Удаляет файл целиком, индекс семантического поиска тоже очищается.""",
+    extras={"repl_skip": True, "not_compress": True, "not_process": True},
+)
+async def delete_file(
+    file_path: Annotated[
+        str,
+        "Абсолютный путь к файлу памяти под /memories/. Должен быть абсолютным.",
+    ],
+    runtime: ToolRuntime,
+) -> Command:
+    """Удаляет файл памяти (или возвращает ошибку для не-memory путей)."""
+
+    def _result(text: str, *, is_error: bool = False) -> Command:
+        return _build_io_command(
+            runtime=runtime,
+            tool_name="delete_file",
+            content=text,
+            is_error=is_error,
+        )
+
+    if runtime is None:
+        return _result("Ошибка: ToolRuntime is required", is_error=True)
+
+    if _is_memory_path(file_path):
+        return await _memory_delete(file_path, runtime)
+
+    return _result(
+        "Ошибка: delete_file поддерживается только для путей под /memories/. "
+        "Для удаления обычных файлов используй shell-команду.",
+        is_error=True,
+    )
