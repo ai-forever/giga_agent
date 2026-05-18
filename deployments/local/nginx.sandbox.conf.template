@@ -5,7 +5,7 @@ map $http_x_forwarded_proto $effective_scheme {
 
 server {
     listen 80;
-    server_name ~^(?<sandbox_port>\d+)-sandbox-(?<sandbox_id_hex>[a-f0-9]{32})\.${PUBLIC_BASE_DOMAIN_ESCAPED}$;
+    server_name "~^(?<sandbox_port>\d+)-sandbox-(?<sandbox_id_hex>[a-f0-9]{32})\.${PUBLIC_BASE_DOMAIN_ESCAPED}$";
 
     resolver 127.0.0.11 ipv6=off valid=30s;
     resolver_timeout 5s;

@@ -18,6 +18,7 @@ services:
         VITE_LOG_LEVEL: debug
     environment:
       GIGA_AGENT_BASE_URL: ${GIGA_AGENT_BASE_URL:-/}
+      GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
     depends_on:
       giga-agent:
         condition: service_started
@@ -112,6 +113,7 @@ services:
       GIGA_AGENT_SECRET_KEY: 123 # <- Only for dev setup
       GIGA_AGENT_PROJECT_ROOT: /.giga_agent
       GIGA_AGENT_HOST_PROJECT_PATH: /Users/mikelarg/PycharmProjects/giga_agent
+      GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
     working_dir: /app/backend
     volumes:
       - ./backend:/app/backend
