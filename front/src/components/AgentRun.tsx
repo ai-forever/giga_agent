@@ -8,8 +8,6 @@ import Message from "./Message.tsx";
 import { GraphState, GraphTemplate } from "../interfaces.ts";
 import { findScrollRoot } from "@/lib/scroll";
 
-const THINK_TOOL_NAME = "think";
-
 interface AgentRunProps {
   aiMessages: Message_[];
   resultsById: Record<string, Message_>;
@@ -116,7 +114,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
     for (const m of aiMessages) {
       const tc = ((m as any).tool_calls ?? []) as any[];
       for (const c of tc) {
-        if (c.name !== THINK_TOOL_NAME) calls.push({ ...c, message: m });
+        calls.push({ ...c, message: m });
       }
     }
     return calls;

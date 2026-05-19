@@ -14,6 +14,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.io.memory_bridge import (
@@ -270,6 +271,38 @@ async def _get_owner_id(runtime: ToolRuntime) -> uuid.UUID:
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
+def _is_cli_runtime() -> bool:
+    return get_settings().giga_agent_runtime == "cli"
+
+
+async def _get_cli_sandbox_runtime(runtime: ToolRuntime):
+    """Resolve the sandbox runtime in CLI mode without hitting the DB.
+
+    Falls back to creating a resolver if the tool node hasn't injected one
+    into the config yet (e.g. very early test harness).
+    """
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+    from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
+
+    try:
+        resolver = RuntimeResolver.from_config(runtime.config)
+    except ValueError:
+        resolver = await RuntimeResolver.create(runtime.config)
+    resolved = await resolver.get_sandbox()
+    return SandboxRuntimeFactory.build(resolved.provider, resolved.sandbox)
+
+
+class _CliFileStub:
+    """Tiny shim mimicking the bits of `File` that read_file uses for hints."""
+
+    __slots__ = ("sandbox_path", "original_name", "size")
+
+    def __init__(self, sandbox_path: str) -> None:
+        self.sandbox_path = sandbox_path
+        self.original_name = PurePosixPath(sandbox_path).name or sandbox_path
+        self.size = 0
+
+
 def _looks_like_missing_file_error(error: Exception) -> bool:
     if isinstance(error, FileNotFoundError):
         return True
@@ -280,6 +313,7 @@ def _looks_like_missing_file_error(error: Exception) -> bool:
 async def _find_relative_path_alternative(
     owner_id: uuid.UUID,
     absolute_path: str,
+    runtime: ToolRuntime | None = None,
 ) -> str | None:
     """Если по абсолютному пути файла нет, проверяем относительные варианты
     (без ведущего слэша и просто basename). Возвращаем первый существующий
@@ -296,6 +330,20 @@ async def _find_relative_path_alternative(
         candidates.append(basename)
 
     if not candidates:
+        return None
+
+    if _is_cli_runtime() and runtime is not None:
+        try:
+            sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
+        except Exception:
+            return None
+        for candidate in candidates:
+            try:
+                exists = await sandbox_runtime.file_exists(candidate)
+            except Exception:
+                continue
+            if exists:
+                return candidate
         return None
 
     from giga_agent.sandbox.manager import SandboxManager
@@ -324,9 +372,22 @@ def _format_relative_path_hint(absolute_path: str, relative_path: str) -> str:
     )
 
 
-async def _get_current_workdir(owner_id: uuid.UUID) -> str | None:
+async def _get_current_workdir(
+    owner_id: uuid.UUID,
+    runtime: ToolRuntime | None = None,
+) -> str | None:
     """Дешёво достаёт cwd рантайма пользователя. Возвращает None, если не
     удалось (например, рантайм не поддерживает cwd или sandbox не настроен)."""
+    if _is_cli_runtime() and runtime is not None:
+        try:
+            sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
+        except Exception:
+            return None
+        try:
+            return sandbox_runtime.current_workdir()
+        except Exception:
+            return None
+
     from giga_agent.sandbox.manager import SandboxManager
 
     try:
@@ -341,11 +402,12 @@ async def _get_current_workdir(owner_id: uuid.UUID) -> str | None:
 async def _build_missing_file_hint(
     owner_id: uuid.UUID,
     absolute_path: str,
+    runtime: ToolRuntime | None = None,
 ) -> str:
     """Строит подсказку для случая «файл не найден»: текущая рабочая
     директория и, если есть, относительный путь, по которому файл существует."""
-    cwd = await _get_current_workdir(owner_id)
-    alt = await _find_relative_path_alternative(owner_id, absolute_path)
+    cwd = await _get_current_workdir(owner_id, runtime)
+    alt = await _find_relative_path_alternative(owner_id, absolute_path, runtime)
     parts: list[str] = []
     if cwd:
         parts.append(f" Текущая рабочая директория: {cwd}.")
@@ -375,18 +437,24 @@ def _build_io_command(
 async def _read_file_text(
     sandbox_path: str,
     owner_id: uuid.UUID,
+    runtime: ToolRuntime | None = None,
 ) -> str:
     """Прочитать файл целиком как текст. Поднимает исключение при ошибке."""
     from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
-    from giga_agent.sandbox.manager import SandboxManager
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        manager = SandboxManager(session)
-        _, result = await manager.read_file_by_path_for_user(
-            user_id=owner_id,
-            sandbox_path=sandbox_path,
-        )
+    if _is_cli_runtime() and runtime is not None:
+        sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
+        result = await sandbox_runtime.read_file(sandbox_path)
+    else:
+        from giga_agent.sandbox.manager import SandboxManager
+
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            _, result = await manager.read_file_by_path_for_user(
+                user_id=owner_id,
+                sandbox_path=sandbox_path,
+            )
 
     if isinstance(result, ContentResult):
         data = result.data
@@ -453,20 +521,34 @@ async def read_file(
     if _is_tabular_file_reference(sandbox_path=sandbox_path):
         return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        manager = SandboxManager(session)
+    if _is_cli_runtime():
         try:
-            file_record, result = await manager.read_file_by_path_for_user(
-                user_id=owner_id,
-                sandbox_path=sandbox_path,
-            )
+            sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
+            result = await sandbox_runtime.read_file(sandbox_path)
         except Exception as e:
             logger.warning("read_file failed for %s: %s", sandbox_path, e)
             error_text = f"Ошибка: {e}"
             if _looks_like_missing_file_error(e):
-                error_text += await _build_missing_file_hint(owner_id, sandbox_path)
+                error_text += await _build_missing_file_hint(
+                    owner_id, sandbox_path, runtime
+                )
             return _result(error_text, is_error=True)
+        file_record = _CliFileStub(sandbox_path)
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            try:
+                file_record, result = await manager.read_file_by_path_for_user(
+                    user_id=owner_id,
+                    sandbox_path=sandbox_path,
+                )
+            except Exception as e:
+                logger.warning("read_file failed for %s: %s", sandbox_path, e)
+                error_text = f"Ошибка: {e}"
+                if _looks_like_missing_file_error(e):
+                    error_text += await _build_missing_file_hint(owner_id, sandbox_path)
+                return _result(error_text, is_error=True)
 
     if _is_tabular_file_reference(
         sandbox_path=sandbox_path,
@@ -608,6 +690,28 @@ async def write_file(
         return await _memory_write(file_path, content, runtime)
 
     owner_id = await _get_owner_id(runtime)
+    content_bytes = content.encode("utf-8")
+
+    if _is_cli_runtime():
+        try:
+            sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
+            exists = await sandbox_runtime.file_exists(file_path)
+        except Exception as e:
+            logger.warning(
+                "write_file file_exists check failed for %s: %s", file_path, e
+            )
+            return _result(f"Ошибка: {e}", is_error=True)
+
+        if exists:
+            return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.", is_error=True)
+
+        try:
+            await sandbox_runtime.write_file_content(file_path, content_bytes)
+        except Exception as e:
+            logger.warning("write_file failed for %s: %s", file_path, e)
+            return _result(f"Ошибка: {e}", is_error=True)
+
+        return _result(f"Файл создан: {file_path}, размер: {len(content_bytes)} байт")
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -626,7 +730,6 @@ async def write_file(
         if exists:
             return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.", is_error=True)
 
-        content_bytes = content.encode("utf-8")
         try:
             await manager.write_file_content_for_user(
                 user_id=owner_id,
@@ -718,15 +821,13 @@ async def edit_file(
         )
 
     owner_id = await _get_owner_id(runtime)
+    cli_mode = _is_cli_runtime()
+    cli_sandbox_runtime = None
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        manager = SandboxManager(session)
+    if cli_mode:
         try:
-            exists = await manager.file_exists_for_user(
-                user_id=owner_id,
-                sandbox_path=file_path,
-            )
+            cli_sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
+            exists = await cli_sandbox_runtime.file_exists(file_path)
         except Exception as e:
             logger.warning(
                 "edit_file file_exists check failed for %s: %s", file_path, e
@@ -738,14 +839,38 @@ async def edit_file(
                 f"Ошибка: Файл не существует ({file_path}). "
                 "Используй write_file для создания новых файлов."
             )
-            error_text += await _build_missing_file_hint(owner_id, file_path)
+            error_text += await _build_missing_file_hint(owner_id, file_path, runtime)
             return _result(error_text, is_error=True)
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            try:
+                exists = await manager.file_exists_for_user(
+                    user_id=owner_id,
+                    sandbox_path=file_path,
+                )
+            except Exception as e:
+                logger.warning(
+                    "edit_file file_exists check failed for %s: %s", file_path, e
+                )
+                return _result(f"Ошибка: {e}", is_error=True)
+
+            if not exists:
+                error_text = (
+                    f"Ошибка: Файл не существует ({file_path}). "
+                    "Используй write_file для создания новых файлов."
+                )
+                error_text += await _build_missing_file_hint(owner_id, file_path)
+                return _result(error_text, is_error=True)
 
     if find_string == replace_string:
         return _result(f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}", is_error=True)
 
     try:
-        raw_text = await _read_file_text(sandbox_path=file_path, owner_id=owner_id)
+        raw_text = await _read_file_text(
+            sandbox_path=file_path, owner_id=owner_id, runtime=runtime
+        )
     except Exception as e:
         logger.warning("edit_file read failed for %s: %s", file_path, e)
         return _result(f"Ошибка: {e}", is_error=True)
@@ -802,18 +927,28 @@ async def edit_file(
         new_text = text.replace(find_string, replace_string, 1)
         replacements = 1
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        manager = SandboxManager(session)
+    new_bytes = new_text.encode("utf-8")
+
+    if cli_mode:
         try:
-            await manager.write_file_content_for_user(
-                user_id=owner_id,
-                sandbox_path=file_path,
-                content=new_text.encode("utf-8"),
-            )
+            assert cli_sandbox_runtime is not None
+            await cli_sandbox_runtime.write_file_content(file_path, new_bytes)
         except Exception as e:
             logger.warning("edit_file write failed for %s: %s", file_path, e)
             return _result(f"Ошибка: {e}", is_error=True)
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            try:
+                await manager.write_file_content_for_user(
+                    user_id=owner_id,
+                    sandbox_path=file_path,
+                    content=new_bytes,
+                )
+            except Exception as e:
+                logger.warning("edit_file write failed for %s: %s", file_path, e)
+                return _result(f"Ошибка: {e}", is_error=True)
 
     return _result(f"Файл отредактирован: {file_path}, замен: {replacements}")
 

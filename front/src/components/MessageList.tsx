@@ -24,6 +24,11 @@ const hasVisibleToolCalls = (m: Message_): boolean => {
   return tc.some((c) => c.name !== THINK_TOOL_NAME);
 };
 
+const hasToolCalls = (m: Message_): boolean => {
+  if (m.type !== "ai") return false;
+  return ((m as any).tool_calls ?? []).length > 0;
+};
+
 const getMessageText = (message: Message_): string => {
   if (Array.isArray(message.content)) {
     return message.content
@@ -78,18 +83,26 @@ const MessageList: React.FC<MessageListProps> = ({
   const items: RenderItem[] = useMemo(() => {
     const out: RenderItem[] = [];
     let buffer: Message_[] = [];
+    let bufferHasVisibleToolCalls = false;
     const flush = () => {
       if (buffer.length) {
-        out.push({
-          kind: "run",
-          aiMessages: buffer,
-          key: `run-${buffer[0].id ?? out.length}`,
-        });
+        if (bufferHasVisibleToolCalls) {
+          out.push({
+            kind: "run",
+            aiMessages: buffer,
+            key: `run-${buffer[0].id ?? out.length}`,
+          });
+        } else {
+          for (const message of buffer) {
+            out.push({ kind: "single", message });
+          }
+        }
         buffer = [];
+        bufferHasVisibleToolCalls = false;
       }
     };
     for (const m of renderable) {
-      if (hasVisibleToolCalls(m)) {
+      if (hasToolCalls(m)) {
         if (buffer.length && hasContentOutsideThinking(m)) {
           flush();
           out.push({
@@ -99,6 +112,8 @@ const MessageList: React.FC<MessageListProps> = ({
           });
         }
         buffer.push(m);
+        bufferHasVisibleToolCalls =
+          bufferHasVisibleToolCalls || hasVisibleToolCalls(m);
       } else {
         flush();
         out.push({ kind: "single", message: m });

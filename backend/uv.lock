@@ -1684,7 +1684,7 @@ requires-dist = [
     { name = "langchain-text-splitters", specifier = ">=1.1.1,<2.0.0" },
     { name = "langgraph", specifier = "==1.0.8" },
     { name = "langgraph-api", specifier = "==0.7.28" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.3" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.3,<4.0.0" },
     { name = "langgraph-cli", specifier = "~=0.4.11" },
     { name = "langgraph-prebuilt", specifier = "==1.0.7" },
     { name = "librosa", marker = "extra == 'jupyter-full'", specifier = "~=0.11.0" },

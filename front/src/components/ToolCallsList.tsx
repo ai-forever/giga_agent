@@ -699,7 +699,7 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const notifiedDeepResearchIdsRef = useRef<Set<string>>(new Set());
 
-  const visible = toolCalls.filter((tc) => tc.name !== THINK_TOOL_NAME);
+  const visible = toolCalls;
 
   useEffect(() => {
     for (const tc of visible) {
