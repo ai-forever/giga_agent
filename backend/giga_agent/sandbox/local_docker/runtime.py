@@ -114,6 +114,14 @@ class LocalDockerSandbox(
         default_factory=lambda: get_settings().giga_agent_local_docker_readonly_rootfs,
         description="Run container with readonly root filesystem",
     )
+    not_remove: bool = Field(
+        default=False,
+        description=(
+            "Do not auto-remove the container after stop; reuse the same "
+            "container on next up(). If Jupyter cannot be brought up in the "
+            "reused container, it is removed and a new one is created."
+        ),
+    )
 
     external_id: Optional[str] = Field(
         default=None,
@@ -264,6 +272,9 @@ class LocalDockerSandbox(
             "host_port": self.host_port,
         }
         return {k: v for k, v in settings.items() if v is not None}
+
+    def preserve_runtime_state_on_stop(self) -> bool:
+        return self.not_remove
 
     def current_workdir(self) -> str | None:
         return "/root"
@@ -451,33 +462,20 @@ class LocalDockerSandbox(
             raise RuntimeError("owner_id is required for local_docker runtime")
 
         docker_network = self._docker_network()
-
         if docker_network:
             self.base_url = self._internal_base_url()
-            container_name = self._container_name()
+
+        existing = self._find_reusable_container(docker_network)
+        if existing is not None:
+            if await self._try_reuse_container(existing):
+                return
             try:
-                existing = self._client.containers.get(container_name)
-            except NotFound:
-                existing = None
-
-            if existing is not None:
-                try:
-                    existing.reload()
-                except NotFound:
-                    existing = None
-
-            if existing is not None:
-                self._apply_container_connection(existing)
-                if self._token and self._container_is_running(existing):
-                    return
-
-                try:
-                    existing.remove(force=True)
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Existing sandbox container '{container_name}' is unhealthy "
-                        f"and could not be removed: {e}"
-                    ) from e
+                existing.remove(force=True)
+            except Exception as e:
+                raise RuntimeError(
+                    "Existing sandbox container is unhealthy "
+                    f"and could not be removed: {e}"
+                ) from e
 
         user_root = self._user_root_dir(self.owner_id)
         user_root.mkdir(parents=True, exist_ok=True)
@@ -515,7 +513,7 @@ class LocalDockerSandbox(
         run_kwargs: dict[str, Any] = {
             "command": "sleep infinity",
             "detach": True,
-            "remove": True,
+            "remove": not self.not_remove,
             "environment": envs,
             "labels": self._container_labels(),
             "volumes": {
@@ -558,6 +556,64 @@ class LocalDockerSandbox(
             self._ensure_hex_alias(docker_network)
             self._container.reload()
         self._apply_container_connection(self._container)
+
+    def _find_reusable_container(self, docker_network: str | None) -> Any:
+        if docker_network:
+            try:
+                existing = self._client.containers.get(self._container_name())
+            except NotFound:
+                return None
+        elif self.not_remove and self.external_id:
+            try:
+                existing = self._client.containers.get(self.external_id)
+            except NotFound:
+                return None
+        else:
+            return None
+
+        try:
+            existing.reload()
+        except NotFound:
+            return None
+        return existing
+
+    async def _try_reuse_container(self, container: Any) -> bool:
+        self._apply_container_connection(container)
+
+        if not self._container_is_running(container):
+            if not self.not_remove:
+                return False
+            try:
+                container.start()
+                container.reload()
+            except DockerException:
+                logger.warning(
+                    "Failed to start existing sandbox container %s",
+                    getattr(container, "id", "")[:12],
+                    exc_info=True,
+                )
+                return False
+            self._apply_container_connection(container)
+            if not self._container_is_running(container):
+                return False
+            self._kernel_id = None
+
+        if not self._token:
+            return False
+
+        if not self.not_remove:
+            return True
+
+        try:
+            await self._ensure_jupyter_ready()
+        except Exception:
+            logger.warning(
+                "Jupyter failed to start in reused sandbox container %s; recreating",
+                getattr(container, "id", "")[:12],
+                exc_info=True,
+            )
+            return False
+        return True
 
     async def stop(self) -> None:
         self._stop_proxy_containers()

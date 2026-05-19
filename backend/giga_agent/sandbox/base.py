@@ -134,6 +134,12 @@ class BaseSandbox(BaseModel, ABC):
         """
         return {}
 
+    def preserve_runtime_state_on_stop(self) -> bool:
+        """Если True, менеджер НЕ затирает external_id и connection settings
+        в БД при stop(). Используется рантаймами, которые держат тот же
+        внешний ресурс между stop/up (например, LocalDocker с not_remove)."""
+        return False
+
     def get_prompt(
         self,
         user: "UserShort | None" = None,

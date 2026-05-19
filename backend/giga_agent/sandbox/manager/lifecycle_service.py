@@ -206,6 +206,8 @@ class SandboxLifecycleService:
     def _clear_runtime_connection_state(
         *, sandbox: Sandbox, runtime: BaseSandbox
     ) -> None:
+        if runtime.preserve_runtime_state_on_stop():
+            return
         connection_keys = set(runtime.get_connection_settings().keys())
         sandbox.settings = {
             k: v

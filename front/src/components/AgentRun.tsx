@@ -26,7 +26,7 @@ interface AgentRunProps {
 }
 
 const formatDuration = (ms: number): string | null => {
-  if (!isFinite(ms) || ms <= 0) return null;
+  if (!isFinite(ms) || ms < 0) return null;
   const totalSec = Math.round(ms / 1000);
   if (totalSec < 60) return `${totalSec}с`;
   const min = Math.floor(totalSec / 60);
@@ -51,6 +51,23 @@ const getCreatedAt = (
   } catch {
     return null;
   }
+};
+
+const getLcRunTimestamp = (message: Message_ | undefined): string | null => {
+  const id = message?.id;
+  if (!id?.startsWith("lc_run--")) return null;
+  const uuid = id.slice("lc_run--".length);
+  const timestampHex = uuid.replace(/-/g, "").slice(0, 12);
+  const timestampMs = Number.parseInt(timestampHex, 16);
+  if (!Number.isFinite(timestampMs)) return null;
+  return new Date(timestampMs).toISOString();
+};
+
+const getLcRunCreatedAt = (message: Message_ | undefined): number | null => {
+  const timestamp = getLcRunTimestamp(message);
+  if (!timestamp) return null;
+  const t = Date.parse(timestamp);
+  return Number.isFinite(t) ? t : null;
 };
 
 const AgentRun: React.FC<AgentRunProps> = ({
@@ -105,13 +122,56 @@ const AgentRun: React.FC<AgentRunProps> = ({
     return calls;
   }, [aiMessages]);
 
+  const lastResultMessage = useMemo(() => {
+    for (let i = allToolCalls.length - 1; i >= 0; i--) {
+      const id = allToolCalls[i].id;
+      if (id && resultsById[id]) return resultsById[id];
+    }
+    return undefined;
+  }, [allToolCalls, resultsById]);
+
   const duration: string | null = useMemo(() => {
     if (inFlight) return null;
-    const startMs = getCreatedAt(thread, durationStartMessage);
-    const endMs = getCreatedAt(thread, durationEndMessage);
-    if (startMs == null || endMs == null) return null;
-    return formatDuration(Math.abs(endMs - startMs));
-  }, [durationEndMessage, durationStartMessage, inFlight, thread]);
+    const firstToolCall = allToolCalls[0];
+    const lastToolCall = allToolCalls.at(-1);
+    const formatPair = (
+      startMs: number | null,
+      endMs: number | null,
+      { allowZero = false }: { allowZero?: boolean } = {},
+    ) => {
+      if (startMs == null || endMs == null) return null;
+      const diff = Math.abs(endMs - startMs);
+      if (!allowZero && diff === 0) return null;
+      return formatDuration(diff);
+    };
+
+    return (
+      formatPair(
+        getCreatedAt(thread, durationStartMessage),
+        getCreatedAt(thread, durationEndMessage),
+      ) ??
+      formatPair(
+        getLcRunCreatedAt(firstToolCall?.message),
+        getLcRunCreatedAt(durationEndMessage),
+      ) ??
+      formatPair(
+        getCreatedAt(thread, firstToolCall?.message),
+        getCreatedAt(thread, lastResultMessage),
+      ) ??
+      formatPair(
+        getCreatedAt(thread, firstToolCall?.message),
+        getCreatedAt(thread, lastToolCall?.message),
+        { allowZero: true },
+      )
+    );
+  }, [
+    allToolCalls,
+    durationEndMessage,
+    durationStartMessage,
+    inFlight,
+    lastResultMessage,
+    thread,
+  ]);
 
   const actionsWord =
     allToolCalls.length === 1
@@ -124,7 +184,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
     ? "Агент работает"
     : duration
       ? `Агент работал · ${duration}`
-      : `Агент работал · ${allToolCalls.length} ${actionsWord}`;
+      : `Агент сделал · ${allToolCalls.length} ${actionsWord}`;
 
   // В развёрнутом теле показываем все шаги текущего agent run.
   const visibleAiMessages = aiMessages;
