@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { ChevronRight, Loader } from "lucide-react";
@@ -28,10 +28,10 @@ interface AgentRunProps {
 const formatDuration = (ms: number): string | null => {
   if (!isFinite(ms) || ms < 0) return null;
   const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return `${totalSec}с`;
+  if (totalSec < 60) return `${totalSec} сек`;
   const min = Math.floor(totalSec / 60);
   const sec = totalSec % 60;
-  if (min < 60) return sec ? `${min} мин ${sec}с` : `${min} мин`;
+  if (min < 60) return sec ? `${min} мин ${sec} сек` : `${min} мин`;
   const h = Math.floor(min / 60);
   const restMin = min % 60;
   return restMin ? `${h} ч ${restMin} мин` : `${h} ч`;
@@ -130,8 +130,29 @@ const AgentRun: React.FC<AgentRunProps> = ({
     return undefined;
   }, [allToolCalls, resultsById]);
 
+  const durationStartMs = useMemo(() => {
+    const firstToolCall = allToolCalls[0];
+    return (
+      getCreatedAt(thread, durationStartMessage) ??
+      getLcRunCreatedAt(firstToolCall?.message) ??
+      getCreatedAt(thread, firstToolCall?.message)
+    );
+  }, [allToolCalls, durationStartMessage, thread]);
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!inFlight) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [inFlight]);
+
   const duration: string | null = useMemo(() => {
-    if (inFlight) return null;
+    if (inFlight) {
+      if (durationStartMs == null) return null;
+      return formatDuration(nowMs - durationStartMs);
+    }
     const firstToolCall = allToolCalls[0];
     const lastToolCall = allToolCalls.at(-1);
     const formatPair = (
@@ -147,7 +168,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
 
     return (
       formatPair(
-        getCreatedAt(thread, durationStartMessage),
+        durationStartMs,
         getCreatedAt(thread, durationEndMessage),
       ) ??
       formatPair(
@@ -167,9 +188,10 @@ const AgentRun: React.FC<AgentRunProps> = ({
   }, [
     allToolCalls,
     durationEndMessage,
-    durationStartMessage,
+    durationStartMs,
     inFlight,
     lastResultMessage,
+    nowMs,
     thread,
   ]);
 
@@ -181,7 +203,9 @@ const AgentRun: React.FC<AgentRunProps> = ({
         : "действий";
 
   const headerLabel = inFlight
-    ? "Агент работает"
+    ? duration
+      ? `Агент работает · ${duration}`
+      : "Агент работает"
     : duration
       ? `Агент работал · ${duration}`
       : `Агент сделал · ${allToolCalls.length} ${actionsWord}`;

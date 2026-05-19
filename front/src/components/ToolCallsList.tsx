@@ -124,7 +124,7 @@ const DeepResearchToolCall: React.FC<{
   ]);
 
   return (
-    <div className="ml-7 my-1 rounded-lg border border-border/50 bg-muted/15 px-3 py-2">
+    <div className="my-1 rounded-lg border border-border/50 bg-muted/15 px-3 py-2">
       <div className="flex min-w-0 items-center gap-2 text-sm">
         {inFlight ? (
           <Loader
