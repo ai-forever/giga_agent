@@ -12,8 +12,8 @@
       "context_window": 1000000,
       "prices": {
         "cache_hit": 0.003625,
-        "cache_miss": 0.10875,
-        "output": 0.2175
+        "cache_miss": 0.435,
+        "output": 0.87
       }
     },
     "gpt-5.5": {
