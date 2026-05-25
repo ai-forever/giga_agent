@@ -14,8 +14,11 @@ from giga_agent.modules.io.tools import delete_file, edit_file, read_file, write
 
 class IOModule(BaseModule):
     id: str = "io"
+    label: str = "Файловые операции"
+    description: str = "Чтение, запись и редактирование файлов"
+    icon: str = "FolderOpen"
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent

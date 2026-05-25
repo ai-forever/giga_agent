@@ -59,7 +59,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     return collections.filter((collection) => active.includes(collection.uuid));
   }, [activeCollections, collections]);
 
-  const { mcpTools } = useUserInfo();
+  const { mcpTools, enabledModules } = useUserInfo();
 
   const mcpToolsPayload = useMemo(
     () =>
@@ -69,6 +69,14 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
         inputSchema: tool.inputSchema,
       })),
     [mcpTools],
+  );
+
+  const disabledModules = useMemo(
+    () =>
+      Object.entries(enabledModules)
+        .filter(([, v]) => v === false)
+        .map(([k]) => k),
+    [enabledModules],
   );
 
   const getFilePath = useCallback((file: FileData): string => {
@@ -205,6 +213,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
         collections: enabledCollections,
         secrets: contextSecrets,
         instructions: contextInstructions,
+        disabled_modules: disabledModules,
       },
       {
         optimisticValues(prev: GraphState) {
@@ -249,6 +258,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     user,
     enabledCollections,
     mcpToolsPayload,
+    disabledModules,
   ]);
 
   return (

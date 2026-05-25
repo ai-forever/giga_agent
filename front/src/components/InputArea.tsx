@@ -1,29 +1,32 @@
 import React, {
-  useState,
-  useRef,
-  useEffect,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
+  useState,
 } from "react";
 import { HumanMessage } from "@langchain/langgraph-sdk";
+import * as LucideIcons from "lucide-react";
 import {
-  Paperclip,
-  Send,
-  Settings2,
-  Brain,
-  Files,
-  Cog,
-  Printer,
-  ScanSearch,
-  Mic,
-  Loader2,
   Check,
+  Cog,
+  Files,
+  Loader2,
+  Mic,
+  Paperclip,
+  Plus,
+  Send,
+  Wrench,
   X,
 } from "lucide-react";
 import { useSettings } from "./Settings.tsx";
-import { useFileUpload, UploadedFile } from "../hooks/useFileUploads";
+import { UploadedFile, useFileUpload } from "../hooks/useFileUploads";
 import { apiClient, ApiError } from "../lib/api-client.ts";
-import { API_AGENT_PREFIX, BACKEND_STT_ENABLED } from "../config.ts";
+import {
+  API_AGENT_PREFIX,
+  BACKEND_STT_ENABLED,
+  BROWSER_USE_NAME,
+} from "../config.ts";
 import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import {
@@ -38,25 +41,45 @@ import {
   RemoveButton,
 } from "./Attachments.tsx";
 import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
-import { BROWSER_USE_NAME } from "../config.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
+import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useSkills } from "@/components/providers/skills.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ensureNotificationPermission } from "@/lib/notifications";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import ModelPicker from "./ModelPicker";
+import TokenUsageIndicator from "./TokenUsageIndicator";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
+
+const ModuleIcon: React.FC<{ name: string; className?: string }> = ({
+  name,
+  className,
+}) => {
+  const Icon = (LucideIcons as unknown as Record<string, React.ElementType>)[
+    name
+  ];
+  const Fallback = LucideIcons.Box;
+  const Comp = Icon ?? Fallback;
+  return <Comp className={className ?? "size-4"} />;
+};
 
 const getInitialIsMobileDevice = () => {
   if (typeof window === "undefined" || !window.matchMedia) return false;
@@ -140,11 +163,28 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     getCollections,
     initialSearchExecuted,
     initialFetch,
+    collectionsLoading,
+    activateCollection,
+    deactivateCollection,
   } = useRagContext();
   const { settings, setSettings } = useSettings();
   const { user } = useAuth();
-  const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
-    useUserInfo();
+  const {
+    mcpTools,
+    openMcpModal,
+    enabledModules,
+    toggleModule,
+    availableModules,
+  } = useUserInfo();
+  const {
+    skills,
+    selectedSkills,
+    selectedSkillNames,
+    toggleSkill,
+    clearSelectedSkills,
+    fetchSkills,
+    skillsLoading,
+  } = useSkills();
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -202,11 +242,20 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           },
           streamMode: ["messages"],
           onDisconnect: "continue",
-          config: deepResearchForced
-            ? { configurable: { deep_research_forced: true } }
-            : undefined,
+          config: {
+            configurable: {
+              ...(deepResearchForced ? { deep_research_forced: true } : {}),
+              ...(selectedSkillNames.length > 0
+                ? { selected_skills: selectedSkillNames }
+                : {}),
+            },
+          },
         },
       );
+      // Скиллы — одноразовый выбор: сбрасываем чекмарки после отправки.
+      if (selectedSkillNames.length > 0) {
+        clearSelectedSkills();
+      }
     },
     [
       thread,
@@ -216,6 +265,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
       enabledCollections,
       user,
       deepResearchForced,
+      selectedSkillNames,
+      clearSelectedSkills,
     ],
   );
   const handleContinueThread = useCallback(
@@ -691,32 +742,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     };
   }, [uploadFiles, isBusy]);
 
-  const handleOpenDocuments = useCallback(async () => {
-    if (collections.length > 0) {
-      openCollectionsModal();
-      return;
-    }
-
-    if (!initialSearchExecuted) {
-      await initialFetch();
-    }
-
-    const latestCollections = await getCollections().catch(() => []);
-    if (latestCollections.length > 0) {
-      openCollectionsModal();
-      return;
-    }
-
-    navigate("/rag");
-  }, [
-    collections.length,
-    getCollections,
-    initialFetch,
-    initialSearchExecuted,
-    navigate,
-    openCollectionsModal,
-  ]);
-
   const showMicButton =
     sttSource !== null &&
     !isRecording &&
@@ -792,21 +817,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     </div>
   );
 
-  const renderAttachmentButton = (className?: string) => (
-    <button
-      data-onboarding="attachments-btn"
-      type="button"
-      onClick={() => fileInputRef.current?.click()}
-      disabled={thread?.isLoading || isMCPLoading}
-      title="Добавить вложения"
-      className={
-        className ??
-        "w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-      }
-    >
-      <Paperclip />
-    </button>
-  );
+  const enabledCollectionCount = enabledCollections.length;
 
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
@@ -823,8 +834,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </div>
         </div>
       )}
-      <div className="relative p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden">
-        <div className="flex items-end gap-2 relative">
+      <div className="relative p-4 pb-3 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[880px] mx-auto overflow-hidden">
+        <div className="relative">
           <input
             className="hidden"
             type="file"
@@ -833,74 +844,309 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             multiple
             disabled={thread?.isLoading || isMCPLoading}
           />
-          <div className="flex flex-col items-center gap-1 self-start">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  data-onboarding="gear-menu-btn"
-                  type="button"
-                  disabled={thread?.isLoading || isMCPLoading}
-                  title="Открыть настройки"
-                  className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-                >
-                  <Settings2 />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="input-dropdown"
-                align="start"
-                sideOffset={3}
-              >
-                <DropdownMenuCheckboxItem
-                  checked={deepResearchForced}
-                  onCheckedChange={() => void toggleDeepResearchForced()}
-                  onSelect={(e) => e.preventDefault()}
-                >
-                  <ScanSearch className={"size-5"} />
-                  <span>Глубокое исследование</span>
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={openContextModal}>
-                  <Brain className={"size-5"} />
-                  <span>Персонализация</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={openMcpModal}>
-                  <Cog className={"size-5"} />
-                  <span>Инструменты</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
-                  <Files className={"size-5"} />
-                  <span>Документы</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => window.print()}>
-                  <Printer className={"size-5"} />
-                  <span>Печать</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <div className="max-[900px]:hidden">{renderAttachmentButton()}</div>
-          </div>
+          <div className={"flex flex-col"}>
+            <textarea
+              data-onboarding="chat-input"
+              placeholder={
+                thread?.interrupt
+                  ? "Принять / Отменить с комментарием…"
+                  : "Введите вашу задачу…"
+              }
+              ref={textRef}
+              rows={1}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              disabled={thread?.isLoading || isMCPLoading}
+              className="w-full min-h-[60px] max-h-[200px] resize-none font-sans p-2 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
+            />
+            <div className={"flex"}>
+              <div className="flex items-center gap-1 flex-1">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      data-onboarding="gear-menu-btn"
+                      type="button"
+                      disabled={thread?.isLoading || isMCPLoading}
+                      title="Добавить"
+                      className="w-7 h-7 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+                    >
+                      <Plus />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    className="input-dropdown"
+                    align="start"
+                    sideOffset={3}
+                  >
+                    <DropdownMenuItem
+                      onSelect={() => fileInputRef.current?.click()}
+                    >
+                      <Paperclip className={"size-5"} />
+                      <span>Прикрепить файл</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub
+                      onOpenChange={(open) => {
+                        if (open) {
+                          if (!initialSearchExecuted) void initialFetch();
+                          if (collections.length === 0) void getCollections();
+                        }
+                      }}
+                    >
+                      <DropdownMenuSubTrigger className="gap-2">
+                        <Files className="size-5" />
+                        <span>Документы</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
+                        {collectionsLoading && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Загрузка…
+                          </div>
+                        )}
+                        {!collectionsLoading && collections.length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Папки не найдены
+                          </div>
+                        )}
+                        {!collectionsLoading &&
+                          collections.map((c) => {
+                            const isOn = Boolean(activeCollections[c.uuid]);
+                            return (
+                              <button
+                                key={c.uuid}
+                                type="button"
+                                onClick={() => {
+                                  if (isOn) deactivateCollection(c.uuid);
+                                  else activateCollection(c.uuid);
+                                }}
+                                className="w-full flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left hover:bg-accent cursor-pointer"
+                              >
+                                <span className="text-sm truncate">
+                                  {getCollectionName(c.name)}
+                                </span>
+                                <div className="size-4 shrink-0 flex items-center justify-center">
+                                  {isOn && (
+                                    <Check className="size-4 text-primary" />
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub
+                      onOpenChange={(open) => {
+                        if (open && skills.length === 0) void fetchSkills();
+                      }}
+                    >
+                      <DropdownMenuSubTrigger className="gap-2">
+                        <LucideIcons.Sparkles className="size-5" />
+                        <span>Скиллы</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
+                        {skillsLoading && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Загрузка…
+                          </div>
+                        )}
+                        {!skillsLoading && skills.length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Нет доступных скиллов
+                          </div>
+                        )}
+                        {!skillsLoading &&
+                          skills.map((s) => {
+                            const isOn = selectedSkills[s.name] === true;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => toggleSkill(s.name, !isOn)}
+                                className="w-full flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left hover:bg-accent cursor-pointer"
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium truncate">
+                                    {s.name}
+                                  </div>
+                                  {s.description && (
+                                    <div className="text-xs text-muted-foreground truncate">
+                                      {s.description.length > 50
+                                        ? `${s.description.slice(0, 50)}...`
+                                        : s.description}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="size-4 shrink-0 flex items-center justify-center">
+                                  {isOn && (
+                                    <Check className="size-4 text-primary" />
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void toggleDeepResearchForced();
+                      }}
+                      className="gap-2"
+                    >
+                      <LucideIcons.ScanSearch className="size-5" />
+                      <span className="flex-1">Исследование</span>
+                      <div className="size-4 shrink-0 flex items-center justify-center">
+                        {deepResearchForced && (
+                          <Check className="size-4 text-primary" />
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openMcpModal}>
+                      <Cog className={"size-5"} />
+                      <span>MCP</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="gap-2">
+                        <Wrench className="size-5" />
+                        <span>Инструменты</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
+                        {availableModules.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                            Нет доступных инструментов
+                          </div>
+                        )}
+                        {availableModules.map((mod) => (
+                          <div
+                            key={mod.id}
+                            className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <ModuleIcon
+                                name={mod.icon}
+                                className="size-5 shrink-0 text-muted-foreground"
+                              />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium truncate">
+                                  {mod.label}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {mod.description}
+                                </div>
+                              </div>
+                            </div>
+                            <Switch
+                              checked={enabledModules[mod.id] !== false}
+                              onCheckedChange={(checked) =>
+                                toggleModule(mod.id, Boolean(checked))
+                              }
+                            />
+                          </div>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {enabledCollectionCount > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center mr-1">
+                        <Files className="size-5" />
+                        <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[15px] h-[15px] flex items-center justify-center px-1">
+                          {enabledCollectionCount}
+                        </span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" align="start">
+                      <div className="text-xs space-y-0.5">
+                        {enabledCollections.map((c) => (
+                          <div key={c.uuid}>{c.name}</div>
+                        ))}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {selectedSkillNames.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {selectedSkillNames.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => toggleSkill(name, false)}
+                        title={`Убрать скилл ${name}`}
+                        aria-label={`Убрать скилл ${name}`}
+                        className="group inline-flex items-center gap-1 rounded-full border border-primary/20 bg-muted/10 px-2 py-1 text-xs font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors duration-150 cursor-pointer hover:bg-muted/20 hover:border-primary/30 dark:bg-primary/20 dark:border-primary/30 dark:hover:bg-primary/30 dark:hover:border-primary/40"
+                      >
+                        <Wrench className="size-3 group-hover:hidden" />
+                        <X className="size-3 hidden group-hover:block" />
+                        <span className="truncate max-w-40">{name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {deepResearchForced && (
+                  <button
+                    type="button"
+                    onClick={() => setDeepResearchForced(false)}
+                    title="Убрать исследование"
+                    aria-label="Убрать исследование"
+                    className="group inline-flex items-center gap-1 rounded-full border border-primary/20 bg-muted/10 px-2 py-1 text-xs font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors duration-150 cursor-pointer hover:bg-muted/20 hover:border-primary/30 dark:bg-primary/20 dark:border-primary/30 dark:hover:bg-primary/30 dark:hover:border-primary/40"
+                  >
+                    <LucideIcons.ScanSearch className="size-3 group-hover:hidden" />
+                    <X className="size-3 hidden group-hover:block" />
+                    <span className="truncate max-w-40">
+                      Глубокое исследование
+                    </span>
+                  </button>
+                )}
+              </div>
+              <div className="self-end mb-1 shrink-0 flex items-center gap-1">
+                <TokenUsageIndicator messages={thread?.messages ?? []} />
+                <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+              </div>
+              <div>{renderInputActions()}</div>
+            </div>
+            <div>
+              <div className={"flex align-middle"}>
+                {uploads.length > 0 && (
+                  <AttachmentsContainer>
+                    {uploads.map((u: UploadedFile, idx) => (
+                      <AttachmentBubble
+                        key={idx}
+                        onClick={() =>
+                          u.previewUrl && setEnlargedImage(u.previewUrl!)
+                        }
+                      >
+                        {u.previewUrl ? (
+                          <ImagePreview src={u.previewUrl} />
+                        ) : (
+                          <span>{u.file.name}</span>
+                        )}
 
-          <textarea
-            data-onboarding="chat-input"
-            placeholder={
-              thread?.interrupt
-                ? "Принять / Отменить с комментарием…"
-                : "Введите вашу задачу…"
-            }
-            ref={textRef}
-            rows={isMobileDevice ? 1 : 2}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            disabled={thread?.isLoading || isMCPLoading}
-            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
-          />
-          <div className="self-end mb-1 shrink-0 max-[900px]:hidden">
-            <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+                        {u.progress < 100 && (
+                          <ProgressOverlay>
+                            <CircularProgress progress={u.progress}>
+                              {u.progress}%
+                            </CircularProgress>
+                          </ProgressOverlay>
+                        )}
+
+                        <RemoveButton
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeUpload(idx);
+                          }}
+                        >
+                          ×
+                        </RemoveButton>
+                      </AttachmentBubble>
+                    ))}
+                  </AttachmentsContainer>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="max-[900px]:hidden">{renderInputActions()}</div>
           <label
             data-onboarding="autonomy-switch"
             className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
@@ -914,47 +1160,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             />
           </label>
         </div>
-        <div className="hidden max-[900px]:flex items-center justify-between gap-2">
-          {renderAttachmentButton()}
-          <div className="flex items-center gap-2 shrink-0">
-            <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
-            {renderInputActions("flex items-center gap-2")}
-          </div>
-        </div>
-
-        {uploads.length > 0 && (
-          <AttachmentsContainer>
-            {uploads.map((u: UploadedFile, idx) => (
-              <AttachmentBubble
-                key={idx}
-                onClick={() => u.previewUrl && setEnlargedImage(u.previewUrl!)}
-              >
-                {u.previewUrl ? (
-                  <ImagePreview src={u.previewUrl} />
-                ) : (
-                  <span>{u.file.name}</span>
-                )}
-
-                {u.progress < 100 && (
-                  <ProgressOverlay>
-                    <CircularProgress progress={u.progress}>
-                      {u.progress}%
-                    </CircularProgress>
-                  </ProgressOverlay>
-                )}
-
-                <RemoveButton
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeUpload(idx);
-                  }}
-                >
-                  ×
-                </RemoveButton>
-              </AttachmentBubble>
-            ))}
-          </AttachmentsContainer>
-        )}
 
         <div
           className={[

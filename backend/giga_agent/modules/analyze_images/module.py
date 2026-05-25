@@ -16,6 +16,9 @@ from giga_agent.modules.analyze_images.tool import analyze_image, resolve_image_
 
 class AnalyzeImagesModule(BaseModule):
     id: str = "analyze_images"
+    label: str = "Анализ изображений"
+    description: str = "Распознавание и описание содержимого изображений"
+    icon: str = "ScanSearch"
 
     async def _is_enabled(
         self, user: UserShort | None, *, config=None
@@ -31,7 +34,7 @@ class AnalyzeImagesModule(BaseModule):
         except Exception:
             return False
 
-    async def get_tools(
+    async def _get_tools(
         self,
         user: UserShort | None,
         agent: BaseAgent,

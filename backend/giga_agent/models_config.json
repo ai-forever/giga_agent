@@ -1,0 +1,56 @@
+{
+  "models": {
+    "deepseek-v4-flash": {
+      "context_window": 1000000,
+      "prices": {
+        "cache_hit": 0.0028,
+        "cache_miss": 0.14,
+        "output": 0.28
+      }
+    },
+    "deepseek-v4-pro": {
+      "context_window": 1000000,
+      "prices": {
+        "cache_hit": 0.003625,
+        "cache_miss": 0.435,
+        "output": 0.87
+      }
+    },
+    "gpt-5.5": {
+      "context_window": 1000000,
+      "prices": {
+        "cache_hit": 0.5,
+        "cache_miss": 5,
+        "output": 30
+      }
+    },
+    "gpt-5.4": {
+      "context_window": 1000000,
+      "prices": {
+        "cache_hit": 0.25,
+        "cache_miss": 2.5,
+        "output": 15
+      }
+    },
+    "gpt-5.4-mini": {
+      "context_window": 400000,
+      "prices": {
+        "cache_hit": 0.07,
+        "cache_miss": 0.75,
+        "output": 4.5
+      }
+    },
+    "GigaChat-3-Ultra": {
+      "context_window": 131000
+    },
+    "GigaChat-2-Max": {
+      "context_window": 128000
+    },
+    "GigaChat-2-Pro": {
+      "context_window": 128000
+    },
+    "GigaChat-2": {
+      "context_window": 128000
+    }
+  }
+}

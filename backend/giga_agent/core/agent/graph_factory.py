@@ -591,6 +591,14 @@ def create_graph(
             messages_for_llm[-1] = enriched_message
 
         agent_tools = await agent.get_tools(user, config=config)
+        from giga_agent.core.agent.base import _disabled_module_ids
+        disabled_set = _disabled_module_ids(config, user)
+        if disabled_set:
+            agent_tools = [
+                t for t in agent_tools
+                if (t.extras or {}).get("module_id")
+                not in disabled_set
+            ]
         mcp_tools = [
             transform_tool(
                 {

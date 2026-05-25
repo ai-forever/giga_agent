@@ -17,6 +17,7 @@ import { RagProvider } from "@/components/rag/providers/RAG.tsx";
 import RAGInterface from "@/components/rag";
 import { OAuthCallback } from "@/components/mcp/oauth-callback.tsx";
 import { UserInfoProvider } from "@/components/providers/user-info.tsx";
+import { SkillsProvider } from "@/components/providers/skills.tsx";
 import { AuthProvider } from "@/components/providers/auth.tsx";
 import { ApiProvider } from "@/components/providers/api.tsx";
 import { ThemeProvider } from "@/components/providers/theme.tsx";
@@ -185,19 +186,21 @@ const App: React.FC = () => {
                 <SettingsProvider>
                   <RagProvider>
                     <UserInfoProvider>
-                      <Routes>
-                        <Route path="/login" element={<LoginPage />} />
-                        <Route
-                          path="/*"
-                          element={
-                            <ProtectedRoute>
-                              <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
-                                <InnerApp />
-                              </div>
-                            </ProtectedRoute>
-                          }
-                        />
-                      </Routes>
+                      <SkillsProvider>
+                        <Routes>
+                          <Route path="/login" element={<LoginPage />} />
+                          <Route
+                            path="/*"
+                            element={
+                              <ProtectedRoute>
+                                <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
+                                  <InnerApp />
+                                </div>
+                              </ProtectedRoute>
+                            }
+                          />
+                        </Routes>
+                      </SkillsProvider>
                     </UserInfoProvider>
                   </RagProvider>
                 </SettingsProvider>

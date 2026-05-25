@@ -62,6 +62,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useUserInfo } from "@/components/providers/user-info.tsx";
 import TelegramIcon from "../assets/telegram-colored.svg";
 import DarkLogoSvg from "../assets/dark_theme_GigaAgent.svg?react";
 import LightLogoSvg from "../assets/light_theme_GigaAgent.svg?react";
@@ -108,6 +109,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const { settings, setSettings } = useSettings();
   const { isDark } = useTheme();
   const { user, logout, token } = useAuth();
+  const { openContextModal } = useUserInfo();
   const SIDEBAR_WIDTH = 270;
 
   const activeThreadId = useMemo(() => {
@@ -1006,6 +1008,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 <DropdownMenuItem onSelect={handleMemories}>
                   <Brain className="mr-2 h-4 w-4" />
                   Факты о вас
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => openContextModal()}>
+                  <Brain className="mr-2 h-4 w-4" />
+                  Персонализация
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleSettings}>
                   <SettingsIcon className="mr-2 h-4 w-4" />

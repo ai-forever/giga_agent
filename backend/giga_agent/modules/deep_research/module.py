@@ -20,6 +20,17 @@ DEEP_RESEARCH_INSTRUCTIONS = """- **run_deep_research** — Проводит г�
 
 class DeepResearchModule(BaseModule):
     id: str = "deep_research"
+    label: str = "Deep Research"
+    description: str = "Глубокое исследование: план → поиск → чтение → синтез отчёта"
+    icon: str = "BookOpen"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        if user is None:
+            return False
+        return user.llm_id is not None and user.search_engine_id is not None
 
     def get_subgraphs(self, **kwargs: Any) -> dict[str, str]:
         _ = kwargs
@@ -27,7 +38,7 @@ class DeepResearchModule(BaseModule):
             "deep_research": "giga_agent.modules.deep_research.graph:graph",
         }
 
-    async def get_tools(
+    async def _get_tools(
         self,
         user: UserShort | None,
         agent: BaseAgent,

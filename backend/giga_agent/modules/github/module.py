@@ -25,6 +25,15 @@ def _has_secret(user: UserShort | None, key: str) -> bool:
 
 class GitHubModule(BaseModule):
     id: str = "github"
+    label: str = "GitHub"
+    description: str = "Работа с репозиториями, issues и pull requests"
+    icon: str = "Github"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        return _has_secret(user, GITHUB_SECRET_KEY)
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
         _ = kwargs
@@ -36,7 +45,7 @@ class GitHubModule(BaseModule):
             }
         ]
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent

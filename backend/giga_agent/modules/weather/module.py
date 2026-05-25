@@ -25,6 +25,15 @@ def _has_secret(user: UserShort | None, key: str) -> bool:
 
 class WeatherModule(BaseModule):
     id: str = "weather"
+    label: str = "Погода"
+    description: str = "Получение прогноза погоды через OpenWeatherMap"
+    icon: str = "CloudSun"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        return _has_secret(user, WEATHER_SECRET_KEY)
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
         _ = kwargs
@@ -36,7 +45,7 @@ class WeatherModule(BaseModule):
             }
         ]
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
