@@ -921,6 +921,13 @@ def cli_chat(
             ),
         ),
     ] = None,
+    no_sandbox: Annotated[
+        bool,
+        typer.Option(
+            "--no-sandbox",
+            help="Disable local_jupyter sandbox safe-execution and write-dir policy.",
+        ),
+    ] = False,
 ) -> None:
     """
     Interactive CLI chat: invoke the agent graph directly (no HTTP server).
@@ -939,6 +946,8 @@ def cli_chat(
     os.environ["GIGA_AGENT_RUNTIME"] = "cli"
     os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")
     os.environ["GIGA_AGENT_CLI_CWD"] = str(cli_cwd)
+    if no_sandbox:
+        os.environ["GIGA_AGENT_CLI_NO_SANDBOX"] = "true"
     if config is not None and config_file is not None:
         _make_console().print(
             "[red]Pass either --config or --config-file, not both.[/red]"

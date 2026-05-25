@@ -16,7 +16,7 @@ from langchain_core.runnables.config import RunnableConfig
 
 from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
-from giga_agent.models.users import UserShort, UserRepository
+from giga_agent.models.users import UserRepository, UserShort
 
 CONFIG_KEY = "runtime_resolver"
 
@@ -121,8 +121,8 @@ class RuntimeResolver:
 
     async def get_llm_runtime(self):
         """Resolve the user's primary LLM runtime (``user.llm_id``), cached."""
-        from giga_agent.llm.manager import LLMManager
         from giga_agent.llm.base import BaseLLMRuntime
+        from giga_agent.llm.manager import LLMManager
 
         cached: BaseLLMRuntime | None = self._cache.get("llm")
         if cached is not None:
@@ -138,8 +138,8 @@ class RuntimeResolver:
 
     async def get_fast_llm_runtime(self):
         """Resolve fast LLM (``fast_llm_id`` falling back to ``llm_id``), cached."""
-        from giga_agent.llm.manager import LLMManager
         from giga_agent.llm.base import BaseLLMRuntime
+        from giga_agent.llm.manager import LLMManager
 
         cached: BaseLLMRuntime | None = self._cache.get("fast_llm")
         if cached is not None:
@@ -176,8 +176,8 @@ class RuntimeResolver:
 
     async def get_embedding_runtime(self):
         """Resolve the user's embedding runtime (``user.embedding_id``), cached."""
-        from giga_agent.embeddings.manager import EmbeddingManager
         from giga_agent.embeddings.base import BaseEmbeddingRuntime
+        from giga_agent.embeddings.manager import EmbeddingManager
 
         cached: BaseEmbeddingRuntime | None = self._cache.get("embedding")
         if cached is not None:
@@ -197,8 +197,8 @@ class RuntimeResolver:
 
     async def get_image_generator(self):
         """Resolve the user's image generator (``user.image_generator_id``), cached."""
-        from giga_agent.generators.image.manager import ImageGeneratorManager
         from giga_agent.generators.image.base import BaseImageGenerator
+        from giga_agent.generators.image.manager import ImageGeneratorManager
 
         cached: BaseImageGenerator | None = self._cache.get("image_generator")
         if cached is not None:
@@ -218,8 +218,8 @@ class RuntimeResolver:
 
     async def get_search_engine(self):
         """Resolve the user's search engine (``user.search_engine_id``), cached."""
-        from giga_agent.search_engines.manager import SearchEngineManager
         from giga_agent.search_engines.base import BaseSearchEngine
+        from giga_agent.search_engines.manager import SearchEngineManager
 
         cached: BaseSearchEngine | None = self._cache.get("search_engine")
         if cached is not None:
@@ -266,7 +266,7 @@ class CliRuntimeResolver(RuntimeResolver):
 
     @classmethod
     async def create(cls, config: RunnableConfig) -> CliRuntimeResolver:
-        from giga_agent.core.agent.cli_conf import load_cli_conf, CliRuntimeConf
+        from giga_agent.core.agent.cli_conf import CliRuntimeConf, load_cli_conf
 
         conf: CliRuntimeConf = load_cli_conf()
         user = UserShort(
@@ -350,10 +350,10 @@ class CliRuntimeResolver(RuntimeResolver):
 
     @staticmethod
     async def _build_llm_runtime(conf_llm):
-        from giga_agent.connectors.registry import ConnectorRegistry
-        from giga_agent.llm.registry import LLMRegistry
         import giga_agent.connectors  # noqa: F401
         import giga_agent.llm  # noqa: F401
+        from giga_agent.connectors.registry import ConnectorRegistry
+        from giga_agent.llm.registry import LLMRegistry
 
         connector_runtime = await ConnectorRegistry.get_runtime(
             conf_llm.connector.type,
@@ -381,10 +381,10 @@ class CliRuntimeResolver(RuntimeResolver):
         if conf_emb is None:
             raise ValueError("No embedding configured in giga_agent.conf.json")
 
-        from giga_agent.connectors.registry import ConnectorRegistry
-        from giga_agent.embeddings.registry import EmbeddingRegistry
         import giga_agent.connectors  # noqa: F401
         import giga_agent.embeddings  # noqa: F401
+        from giga_agent.connectors.registry import ConnectorRegistry
+        from giga_agent.embeddings.registry import EmbeddingRegistry
 
         connector_runtime = await ConnectorRegistry.get_runtime(
             conf_emb.connector.type,
@@ -415,10 +415,10 @@ class CliRuntimeResolver(RuntimeResolver):
         if conf_gen is None:
             raise ValueError("No image_generator configured in giga_agent.conf.json")
 
-        from giga_agent.connectors.registry import ConnectorRegistry
-        from giga_agent.generators.image.registry import ImageGeneratorRegistry
         import giga_agent.connectors  # noqa: F401
         import giga_agent.generators.image  # noqa: F401
+        from giga_agent.connectors.registry import ConnectorRegistry
+        from giga_agent.generators.image.registry import ImageGeneratorRegistry
 
         connector_runtime = await ConnectorRegistry.get_runtime(
             conf_gen.connector.type,
@@ -447,10 +447,10 @@ class CliRuntimeResolver(RuntimeResolver):
         if conf_se is None:
             raise ValueError("No search_engine configured in giga_agent.conf.json")
 
-        from giga_agent.connectors.registry import ConnectorRegistry
-        from giga_agent.search_engines.registry import SearchEngineRegistry
         import giga_agent.connectors  # noqa: F401
         import giga_agent.search_engines  # noqa: F401
+        from giga_agent.connectors.registry import ConnectorRegistry
+        from giga_agent.search_engines.registry import SearchEngineRegistry
 
         connector_runtime = await ConnectorRegistry.get_runtime(
             conf_se.connector.type,
@@ -467,8 +467,8 @@ class CliRuntimeResolver(RuntimeResolver):
     # ------------------------------------------------------------------
 
     async def get_sandbox(self):
-        from giga_agent.sandbox.manager.types import SandboxResolved
         from giga_agent.models.sandbox import SandboxProviderSnapshot, SandboxSnapshot
+        from giga_agent.sandbox.manager.types import SandboxResolved
 
         cached: SandboxResolved | None = self._cache.get("sandbox")
         if cached is not None:
@@ -477,14 +477,23 @@ class CliRuntimeResolver(RuntimeResolver):
         provider_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
         sandbox_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
+        settings = get_settings()
         provider_settings = {}
-        cli_cwd_raw = (get_settings().giga_agent_cli_cwd or "").strip()
+        cli_cwd_raw = (settings.giga_agent_cli_cwd or "").strip()
         if self._conf.sandbox in {"local_jupyter", "local_jupyter_sandbox"}:
-            provider_settings["safe_execution"] = True
-            if cli_cwd_raw:
-                cli_cwd = str(Path(cli_cwd_raw).expanduser().resolve())
-                provider_settings["default_cwd"] = cli_cwd
-                provider_settings["write_dirs"] = [cli_cwd]
+            if not settings.giga_agent_cli_no_sandbox:
+                provider_settings["safe_execution"] = True
+                if cli_cwd_raw:
+                    cli_cwd = str(Path(cli_cwd_raw).expanduser().resolve())
+                    provider_settings["default_cwd"] = cli_cwd
+                    provider_settings["write_dirs"] = [cli_cwd]
+            elif cli_cwd_raw:
+                provider_settings["safe_execution"] = False
+                provider_settings["default_cwd"] = str(
+                    Path(cli_cwd_raw).expanduser().resolve()
+                )
+            else:
+                provider_settings["safe_execution"] = False
         provider = SandboxProviderSnapshot(
             id=provider_id,
             owner_id=_CLI_USER_UUID,
