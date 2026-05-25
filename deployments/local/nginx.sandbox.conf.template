@@ -38,5 +38,15 @@ server {
     location / {
         auth_request /__sandbox_auth;
         proxy_pass http://giga-sandbox-$sandbox_id_hex:$sandbox_port;
+
+        # Sandbox — итеративная dev-зона: любой HTTP-кэш мешает агенту,
+        # поэтому стираем условные заголовки от апстрима и принудительно
+        # ставим no-store (заодно отключает bfcache в браузере).
+        proxy_hide_header Cache-Control;
+        proxy_hide_header Expires;
+        proxy_hide_header Pragma;
+        proxy_hide_header ETag;
+        proxy_hide_header Last-Modified;
+        add_header Cache-Control "no-store" always;
     }
 }
