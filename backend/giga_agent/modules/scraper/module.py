@@ -17,6 +17,9 @@ from giga_agent.modules.scraper.tool import get_urls
 
 class ScraperModule(BaseModule):
     id: str = "scraper"
+    label: str = "Веб-скрапер"
+    description: str = "Извлечение данных с веб-страниц по URL"
+    icon: str = "Globe2"
 
     @staticmethod
     def _is_enabled(user: UserShort | None, *, config=None) -> bool:
@@ -31,7 +34,7 @@ class ScraperModule(BaseModule):
             return False
         return (user.fast_llm_id or user.llm_id) is not None
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
     ) -> List[BaseTool]:
         _ = agent

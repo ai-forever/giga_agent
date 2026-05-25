@@ -154,9 +154,12 @@ class ReplModule(BaseModule):
     """
 
     id: str = "repl"
+    label: str = "Песочница (REPL)"
+    description: str = "Выполнение Python и shell-команд в изолированной среде"
+    icon: str = "Terminal"
     _repl_tools: List[Coroutine] = [predict_sentiments, summarize, get_embeddings]
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         if python.extras is None:
@@ -200,12 +203,22 @@ class ReplModule(BaseModule):
             if get_settings().giga_agent_runtime == "cli"
             else JUPYTER_REPL_INSTRUCTIONS
         )
+        # Описываем в repl-контексте только тулы доступных пользователю модулей —
+        # выключенные через disabled_modules не должны просачиваться в промпт.
+        from giga_agent.core.agent.base import _disabled_module_ids
+
+        disabled_modules = _disabled_module_ids(config, user)
+        all_tools = await agent.get_tools(user, config=config)
+        if disabled_modules:
+            all_tools = [
+                t for t in all_tools
+                if (getattr(t, "extras", None) or {}).get("module_id")
+                not in disabled_modules
+            ]
         return (
             repl_instructions
             + SHELL_INSTRUCTIONS
             + sandbox_prompt
             + get_user_secrets_prompt(user)
-            + generate_repl_tools_description(
-                self._repl_tools, await agent.get_tools(user, config=config)
-            )
+            + generate_repl_tools_description(self._repl_tools, all_tools)
         )

@@ -31,6 +31,9 @@ def _legacy_tool(module_path: str, attr_name: str) -> BaseTool:
 
 class SubAgentLegacyModule(BaseModule):
     id: str = "subagents_legacy"
+    label: str = "Креатив-агенты"
+    description: str = "Lean Canvas, генерация мемов, подкастов, исследование городов"
+    icon: str = "Sparkles"
 
     def get_subgraphs(self, **kwargs: Any) -> dict[str, str]:
         _ = kwargs
@@ -76,7 +79,7 @@ class SubAgentLegacyModule(BaseModule):
             },
         ]
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent

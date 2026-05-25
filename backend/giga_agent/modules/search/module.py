@@ -16,6 +16,15 @@ from giga_agent.search_engines.base import BaseSearchEngine
 
 class SearchModule(BaseModule):
     id: str = "search"
+    label: str = "Поиск"
+    description: str = "Поиск информации в интернете"
+    icon: str = "Globe"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        return user is not None and user.search_engine_id is not None
 
     async def _resolve_runtime_cls(
         self,
@@ -38,7 +47,7 @@ class SearchModule(BaseModule):
         except (ValueError, RuntimeError):
             return None
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
     ) -> List[BaseTool]:
         _ = agent

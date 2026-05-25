@@ -23,12 +23,21 @@ def _is_cli() -> bool:
 
 class RagModule(BaseModule):
     id: str = "rag"
+    label: str = "Документы (RAG)"
+    description: str = "Поиск и извлечение информации из загруженных документов"
+    icon: str = "Files"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        return user is not None and user.embedding_id is not None
 
     def get_api_router(self, **kwargs: Any) -> APIRouter | None:
         _ = kwargs
         return rag_api_router
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
     ) -> List[BaseTool]:
         _ = agent

@@ -16,6 +16,15 @@ from giga_agent.modules.image.prompts import IMAGE_MODULE_INSTRUCTIONS
 
 class ImageModule(BaseModule):
     id: str = "image"
+    label: str = "Генерация изображений"
+    description: str = "Создание изображений по текстовому описанию"
+    icon: str = "Image"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        return user is not None and user.image_generator_id is not None
 
     async def _resolve_runtime_cls(
         self,
@@ -38,7 +47,7 @@ class ImageModule(BaseModule):
         except (ValueError, RuntimeError):
             return None
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
     ) -> List[BaseTool]:
         _ = agent

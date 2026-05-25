@@ -52,6 +52,29 @@ NOTES_PROMPT = """
 logger = get_logger(__name__)
 
 
+def _disabled_module_ids(
+    config: RunnableConfig | None,
+    user: UserShort | None = None,
+) -> set[str]:
+    """Возвращает id модулей, выключенных пользователем.
+
+    Приоритеты:
+    1. Явный override из `config.configurable.disabled_modules` (CLI / API /
+       ad-hoc вызов). Пустой список = намеренный override «включить всё».
+    2. Персистентная настройка `user.settings.disabledModules`.
+    """
+    if isinstance(config, dict):
+        configurable = config.get("configurable") or {}
+        raw = configurable.get("disabled_modules")
+        if raw is not None:
+            return {str(x) for x in raw if x}
+    if user is not None:
+        settings = user.settings or {}
+        raw = settings.get("disabledModules") or []
+        return {str(x) for x in raw if x}
+    return set()
+
+
 class BaseAgent(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
@@ -243,8 +266,11 @@ class BaseAgent(BaseModel):
         enable_think: bool = True,
         enable_multi_tool_use: bool = False,
     ) -> str:
+        disabled = _disabled_module_ids(config, user)
         modules_prompts = []
         for module in self._agent_modules:
+            if module.label and module.id in disabled:
+                continue
             instructions = await module.get_instructions(
                 user=user, agent=self, state=state, config=config
             )
@@ -260,6 +286,11 @@ class BaseAgent(BaseModel):
             enable_think=enable_think,
             enable_multi_tool_use=enable_multi_tool_use,
         )
+        pr = (
+            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
+            + instructions_prompt
+        )
+        print(pr)
         return (
             base_prompt.format(modules="\n===\n\n".join(modules_prompts))
             + instructions_prompt
@@ -335,8 +366,11 @@ class BaseAgent(BaseModel):
         state: AgentState,
         config: RunnableConfig | None = None,
     ) -> str:
+        disabled = _disabled_module_ids(config, user)
         extended_parts = []
         for module in self._agent_modules:
+            if module.label and module.id in disabled:
+                continue
             extended_task = await module.extend_task(
                 user=user,
                 task=task,

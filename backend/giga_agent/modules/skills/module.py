@@ -32,7 +32,7 @@ _SKILL_MENTION_RE = re.compile(r"(?:^|[\s])[@/]([\w-]+(?:/[\w-]+)*)", re.MULTILI
 class SkillsModule(BaseModule):
     id: str = "skills"
 
-    async def get_tools(
+    async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent
@@ -83,6 +83,21 @@ class SkillsModule(BaseModule):
 
         return "\n".join(lines)
 
+    async def _load_enabled_skill_names(
+        self,
+        user: UserShort,
+        config: RunnableConfig | None,
+    ) -> set[str]:
+        try:
+            sandbox = await self._resolve_sandbox(config)
+            factory = await get_session_factory()
+            async with factory() as session:
+                svc = SkillsService(session)
+                all_skills = await svc.list_skills(user.id, sandbox)
+        except Exception:
+            return set()
+        return {s.name for s in all_skills if s.is_enabled}
+
     async def extend_task(
         self,
         user: UserShort | None,
@@ -92,32 +107,31 @@ class SkillsModule(BaseModule):
         config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> str | None:
-        _ = state, agent, config, kwargs
-        if not task:
-            return None
-
-        mentions = _SKILL_MENTION_RE.findall(task)
-        if not mentions:
-            return None
-
+        _ = state, agent, kwargs
         if user is None:
             return None
 
-        try:
-            sandbox = await self._resolve_sandbox(config)
-            factory = await get_session_factory()
-            async with factory() as session:
-                svc = SkillsService(session)
-                all_skills = await svc.list_skills(user.id, sandbox)
-        except Exception:
+        configurable = (config or {}).get("configurable") or {}
+        selected_skills_raw = configurable.get("selected_skills") or []
+        selected_skills: list[str] = [
+            str(s).strip().lower() for s in selected_skills_raw if str(s).strip()
+        ]
+        mentions = (
+            [m.lower() for m in _SKILL_MENTION_RE.findall(task)] if task else []
+        )
+
+        if not selected_skills and not mentions:
             return None
 
-        skill_names = {s.name for s in all_skills if s.is_enabled}
+        skill_names = await self._load_enabled_skill_names(user, config)
+        if not skill_names:
+            return None
 
+        seen: set[str] = set()
         hints: list[str] = []
-        for mention in mentions:
-            name = mention.lower()
-            if name in skill_names:
+        for name in [*selected_skills, *mentions]:
+            if name in skill_names and name not in seen:
+                seen.add(name)
                 hints.append(SKILLS_EXPLICIT_ACTIVATION_HINT.format(name=name))
 
         return "\n".join(hints) if hints else None
