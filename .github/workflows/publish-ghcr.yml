@@ -2,7 +2,7 @@ name: Build and push Docker image to GHCR
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/add-ci-image]
     tags: ["v*.*.*"]
     paths:
       - "deployments/local/Dockerfile"
