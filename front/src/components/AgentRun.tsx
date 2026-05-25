@@ -165,10 +165,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
     };
 
     return (
-      formatPair(
-        durationStartMs,
-        getCreatedAt(thread, durationEndMessage),
-      ) ??
+      formatPair(durationStartMs, getCreatedAt(thread, durationEndMessage)) ??
       formatPair(
         getLcRunCreatedAt(firstToolCall?.message),
         getLcRunCreatedAt(durationEndMessage),

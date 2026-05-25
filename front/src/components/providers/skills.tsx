@@ -32,9 +32,9 @@ const SkillsContext = createContext<UseSkillsReturn | null>(null);
 export const SkillsProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const { token } = useAuth();
   const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [selectedSkills, setSelectedSkills] = useState<
-    Record<string, boolean>
-  >({});
+  const [selectedSkills, setSelectedSkills] = useState<Record<string, boolean>>(
+    {},
+  );
   const [skillsLoading, setSkillsLoading] = useState(false);
 
   const fetchSkills = useCallback(async () => {

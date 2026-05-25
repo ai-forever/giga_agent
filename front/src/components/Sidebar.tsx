@@ -12,7 +12,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   Trash2,
-  User
+  User,
 } from "lucide-react";
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
@@ -30,7 +30,7 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { exportChat, type ExportFormat } from "@/lib/chat-export";
 import { toast } from "sonner";
@@ -43,7 +43,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle
+  DialogTitle,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -53,14 +53,14 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
 } from "@/components/ui/select";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import TelegramIcon from "../assets/telegram-colored.svg";
