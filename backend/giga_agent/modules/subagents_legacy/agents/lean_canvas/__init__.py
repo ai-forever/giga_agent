@@ -11,10 +11,11 @@ from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
+from giga_agent.conf import get_settings
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
-    get_current_user_from_runtime,
     normalize_search_result,
     resolve_user_llm,
     resolve_user_search_engine,
@@ -66,7 +67,7 @@ async def _resolve_llm(config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     return llm.with_config(tags=["nostream"])
 
 
@@ -241,7 +242,11 @@ async def check_unique(
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        search_engine = await resolve_user_search_engine(user, session=session)
+        search_engine = await resolve_user_search_engine(
+            user,
+            session=session,
+            config=config,
+        )
     search_results = await search_engine.search([state["unique_value_proposition"]])
     search_results_text = "\n\n".join(
         normalize_search_result(item) for item in search_results
@@ -527,46 +532,57 @@ async def lean_canvas(
     runtime: ToolRuntime = None,
 ):
     """Создает Lean Canvas под задачу пользователя. Полезно для проработки стартапов."""
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await get_current_user_from_runtime(runtime, session=session)
-    client = get_client(runtime.config)
-    thread = await client.threads.create()
-    thread_id = thread["thread_id"]
-    push_ui_message(
-        "agent_execution",
-        {
-            "agent": "lean_canvas",
-            "node": "__start__",
-            "tool_call_id": runtime.tool_call_id,
-        },
-    )
-    state = {}
-    async for chunk in client.runs.stream(
-        thread_id=thread_id,
-        assistant_id="lean_canvas",
-        input={"main_task": theme},
-        stream_mode=["values", "updates"],
-        on_disconnect="cancel",
-        config={
-            "configurable": {
-                "thread_id": thread_id,
+    resolver = RuntimeResolver.from_config(runtime.config)
+    if get_settings().giga_agent_runtime == "cli":
+        from giga_agent.modules.subagents_legacy.runtime import invoke_subgraph_cli
+
+        state = await invoke_subgraph_cli(
+            app,
+            {"main_task": theme},
+            runtime,
+            extra_configurable={
                 "need_interrupt": False,
-                "skip_search": user.search_engine_id is None,
+                "skip_search": not resolver.has_search_engine,
             },
-        },
-    ):
-        if chunk.event == "values":
-            state = chunk.data
-        elif chunk.event == "updates":
-            push_ui_message(
-                "agent_execution",
-                {
-                    "agent": "lean_canvas",
-                    "node": list(chunk.data.keys())[0],
-                    "tool_call_id": runtime.tool_call_id,
+        )
+    else:
+        client = get_client(runtime.config)
+        thread = await client.threads.create()
+        thread_id = thread["thread_id"]
+        push_ui_message(
+            "agent_execution",
+            {
+                "agent": "lean_canvas",
+                "node": "__start__",
+                "tool_call_id": runtime.tool_call_id,
+            },
+        )
+        state = {}
+        async for chunk in client.runs.stream(
+            thread_id=thread_id,
+            assistant_id="lean_canvas",
+            input={"main_task": theme},
+            stream_mode=["values", "updates"],
+            on_disconnect="cancel",
+            config={
+                "configurable": {
+                    "thread_id": thread_id,
+                    "need_interrupt": False,
+                    "skip_search": not resolver.has_search_engine,
                 },
-            )
+            },
+        ):
+            if chunk.event == "values":
+                state = chunk.data
+            elif chunk.event == "updates":
+                push_ui_message(
+                    "agent_execution",
+                    {
+                        "agent": "lean_canvas",
+                        "node": list(chunk.data.keys())[0],
+                        "tool_call_id": runtime.tool_call_id,
+                    },
+                )
     html = lean_canvas_to_html(state)
     text = lean_canvas_to_text(state)
     prefix = resolve_upload_prefix(runtime)

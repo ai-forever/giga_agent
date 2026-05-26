@@ -24,6 +24,7 @@ from giga_agent.channels.telegram.services.media import (
     TelegramMediaService,
     _convert_plotly_attachment,
 )
+from giga_agent.channels.telegram.runtime import build_memory_tags
 from giga_agent.channels.telegram.utils import (
     _build_message_tool_result_parts,
     _describe_uploaded_files,
@@ -179,6 +180,8 @@ class TelegramMessageToolRuntime:
                 await message.answer_photo(input_file, caption=caption, **reply_kwargs)
             elif kind == "audio":
                 await message.answer_audio(input_file, caption=caption, **reply_kwargs)
+            elif kind == "voice":
+                await message.answer_voice(input_file, caption=caption, **reply_kwargs)
             elif kind == "video":
                 await message.answer_video(input_file, caption=caption, **reply_kwargs)
             else:
@@ -271,7 +274,13 @@ class TelegramMessageToolRuntime:
                         assistant_id=ASSISTANT_ID,
                         input=None,
                         command={"resume": {"type": "approve"}},
-                        config={"disable_memory": True},
+                        config={
+                            "configurable": {
+                                "memory_disabled": False,
+                                "memory_tags": build_memory_tags(message),
+                                "memory_show_global": False,
+                            },
+                        },
                     ),
                     timeout=run_timeout,
                 )
@@ -370,7 +379,13 @@ class TelegramMessageToolRuntime:
                         "results": results,
                     },
                 },
-                config={"disable_memory": True},
+                config={
+                    "configurable": {
+                        "memory_disabled": False,
+                        "memory_tags": build_memory_tags(message),
+                        "memory_show_global": False,
+                    },
+                },
             ),
             timeout=run_timeout,
         )

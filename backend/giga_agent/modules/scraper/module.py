@@ -17,18 +17,28 @@ from giga_agent.modules.scraper.tool import get_urls
 
 class ScraperModule(BaseModule):
     id: str = "scraper"
+    label: str = "Веб-скрапер"
+    description: str = "Извлечение данных с веб-страниц по URL"
+    icon: str = "Globe2"
 
     @staticmethod
-    def _is_enabled(user: UserShort | None) -> bool:
+    def _is_enabled(user: UserShort | None, *, config=None) -> bool:
         if get_settings().giga_agent_scraper_disabled:
             return False
+        if config is not None:
+            from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+            resolver = RuntimeResolver.from_config(config)
+            return resolver.has_fast_llm
         if user is None:
             return False
         return (user.fast_llm_id or user.llm_id) is not None
 
-    async def get_tools(self, user: UserShort | None, agent: BaseAgent) -> List[BaseTool]:
+    async def _get_tools(
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs: Any
+    ) -> List[BaseTool]:
         _ = agent
-        if not self._is_enabled(user):
+        if not self._is_enabled(user, config=config):
             return []
         return [get_urls]
 
@@ -37,9 +47,10 @@ class ScraperModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
         _ = agent, state, kwargs
-        if not self._is_enabled(user):
+        if not self._is_enabled(user, config=config):
             return None
         return SCRAPER_MODULE_INSTRUCTIONS

@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.modules.deep_research.config import (
-    DEFAULT_QUERIES_PER_SUBQ,
     DEFAULT_MAX_SUBQUESTIONS,
+    DEFAULT_QUERIES_PER_SUBQ,
     DeepResearchState,
     default_budget,
 )
@@ -79,7 +79,7 @@ async def planner_node(state: DeepResearchState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", PLANNER_SYSTEM), MessagesPlaceholder("messages")]

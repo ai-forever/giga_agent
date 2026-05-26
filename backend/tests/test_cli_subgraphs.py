@@ -1,8 +1,8 @@
+import asyncio
+import os
 import sys
 import types
 import unittest
-import asyncio
-from urllib.parse import quote
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -109,6 +109,27 @@ class CLISubgraphsTests(unittest.TestCase):
 
         load_graph_and_app.assert_called_once_with("giga_agent.agents.run:graph:app")
         apply_migrations.assert_not_called()
+
+    def test_dev_enables_runtime_local_when_unset(self):
+        graph = self._make_agent_graph(modules=[])
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("GIGA_AGENT_RUNTIME_LOCAL", None)
+            with patch.dict(
+                sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
+            ), patch(
+                "giga_agent.cli.load_graph_and_app_from_string",
+                return_value=(graph, FastAPI()),
+            ), patch(
+                "giga_agent.cli.apply_migrations"
+            ), patch(
+                "giga_agent.cli.asyncio.run"
+            ), patch(
+                "giga_agent.core.cache.setup_cache"
+            ):
+                dev(no_reload=True)
+
+            self.assertEqual(os.environ["GIGA_AGENT_RUNTIME_LOCAL"], "true")
 
     def test_dev_fails_on_duplicate_subgraph_key(self):
         def _run_server(*args, **kwargs):

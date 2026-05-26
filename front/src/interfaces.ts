@@ -16,6 +16,7 @@ export interface GraphState extends Record<string, unknown> {
   mcp_tools: Tool[];
   instructions: string;
   secrets: Secret[];
+  disabled_modules: string[];
 }
 
 type BagTemplate = {

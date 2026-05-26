@@ -1,15 +1,18 @@
 import asyncio
 import os
-from typing import Any, Dict, List, Set
 from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Set
+from uuid import UUID
 
 from cashews import cache
 from fastapi import FastAPI
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
+from langgraph.graph.state import CompiledStateGraph
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
 from giga_agent.conf import (
     GIGA_AGENT_PREFIX_API,
-    GIGA_AGENT_UI,
-    GIGA_AGENT_UI_PREFIX,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_IDLE_SWEEPER_LOCK_KEY,
@@ -19,25 +22,20 @@ from giga_agent.conf import (
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY,
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC,
+    GIGA_AGENT_UI,
+    GIGA_AGENT_UI_PREFIX,
     get_settings,
 )
-from giga_agent.channels.manager import get_channel_manager
+from giga_agent.core.agent.graph_factory import create_graph
+from giga_agent.core.agent.prompt import build_base_prompt
+from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.migrations import apply_migrations
-from pydantic import Field, PrivateAttr, ConfigDict, BaseModel
-from uuid import UUID
-
-from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.module import BaseModule
-from langchain_core.tools import BaseTool
-
-from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.middlewares.thread_title import ThreadTitleMiddleware
+from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.models.users import UserShort
-from giga_agent.core.agent.graph_factory import create_graph
-from langgraph.graph.state import CompiledStateGraph
-from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.routes import router as api_router
 from giga_agent.runtime_config import mount_runtime_config_route
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
@@ -46,17 +44,35 @@ from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
 NOTES_PROMPT = """
 ====
 
-ИНСТРУКЦИИ ПОЛЬЗОВАТЕЛЯ
-
-Ниже описаны инструкции пользователя. Ты ОБЯЗАН выполнять их при выполнении каждой задачи.
-```
 {0}
-```
 
 ====
 """  # noqa: E501
 
 logger = get_logger(__name__)
+
+
+def _disabled_module_ids(
+    config: RunnableConfig | None,
+    user: UserShort | None = None,
+) -> set[str]:
+    """Возвращает id модулей, выключенных пользователем.
+
+    Приоритеты:
+    1. Явный override из `config.configurable.disabled_modules` (CLI / API /
+       ad-hoc вызов). Пустой список = намеренный override «включить всё».
+    2. Персистентная настройка `user.settings.disabledModules`.
+    """
+    if isinstance(config, dict):
+        configurable = config.get("configurable") or {}
+        raw = configurable.get("disabled_modules")
+        if raw is not None:
+            return {str(x) for x in raw if x}
+    if user is not None:
+        settings = user.settings or {}
+        raw = settings.get("disabledModules") or []
+        return {str(x) for x in raw if x}
+    return set()
 
 
 class BaseAgent(BaseModel):
@@ -117,9 +133,6 @@ class BaseAgent(BaseModel):
 
         setup_cache()
 
-        # Ensure cached resources are closed on shutdown (dev server reload included).
-        from giga_agent.vectorstores.qdrant import shutdown_qdrant_client
-
         @asynccontextmanager
         async def _lifespan(_app: FastAPI):
             from giga_agent.sandbox.local_jupyter.manager import (
@@ -133,6 +146,8 @@ class BaseAgent(BaseModel):
             settings = get_settings()
             setup_cli_logging(settings.giga_agent_log_level)
             await self.run_startup_migrations()
+            from giga_agent.channels.manager import get_channel_manager
+
             await get_channel_manager().start_all()
             await self.run_startup_hooks()
             if self._idle_sandbox_sweeper is not None:
@@ -150,7 +165,12 @@ class BaseAgent(BaseModel):
                 stack = getattr(_app.state, "_ui_resources_stack", None)
                 if stack is not None:
                     stack.close()
+                from giga_agent.channels.manager import get_channel_manager
+
                 await get_channel_manager().stop_all()
+                # Ensure cached resources are closed on shutdown (dev server reload included).
+                from giga_agent.vectorstores.qdrant import shutdown_qdrant_client
+
                 await shutdown_qdrant_client()
 
         self._app = FastAPI(lifespan=_lifespan)
@@ -199,6 +219,7 @@ class BaseAgent(BaseModel):
         ]
 
         self._graph = create_graph(self, middleware=all_middleware)
+
         setattr(self.graph, "giga_agent", self)
         self.__check_for_unique_ids()
         self._idle_sandbox_sweeper = IdleSandboxSweeper(
@@ -241,9 +262,15 @@ class BaseAgent(BaseModel):
         state: AgentState | None = None,
         config: RunnableConfig | None = None,
         channel_prompt: str = "",
+        *,
+        enable_think: bool = True,
+        enable_multi_tool_use: bool = False,
     ) -> str:
+        disabled = _disabled_module_ids(config, user)
         modules_prompts = []
         for module in self._agent_modules:
+            if module.label and module.id in disabled:
+                continue
             instructions = await module.get_instructions(
                 user=user, agent=self, state=state, config=config
             )
@@ -255,12 +282,23 @@ class BaseAgent(BaseModel):
         instructions_prompt = ""
         if instructions:
             instructions_prompt = NOTES_PROMPT.format(instructions)
+        base_prompt = await build_base_prompt(
+            enable_think=enable_think,
+            enable_multi_tool_use=enable_multi_tool_use,
+        )
+        pr = (
+            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
+            + instructions_prompt
+        )
+        print(pr)
         return (
-            BASE_PROMPT.format(modules="\n===\n\n".join(modules_prompts))
+            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
             + instructions_prompt
         )
 
-    async def get_tools(self, user: UserShort) -> List[BaseTool]:
+    async def get_tools(
+        self, user: UserShort, *, config: RunnableConfig | None = None
+    ) -> List[BaseTool]:
         user_id = getattr(user, "id", None)
         try:
             user_fingerprint = hash(user)
@@ -272,9 +310,11 @@ class BaseAgent(BaseModel):
         if cached is not None:
             return cached
 
-        all_tools = list(self.tools)
+        all_tools: list[BaseTool] = list(self.tools)
         for module in self._agent_modules:
-            all_tools.extend(await module.get_tools(user=user, agent=self))
+            all_tools.extend(
+                await module.get_tools(user=user, agent=self, config=config)
+            )
 
         self._tools_cache[cache_key] = all_tools
         return all_tools
@@ -302,7 +342,7 @@ class BaseAgent(BaseModel):
 
         lock_key = settings.giga_agent_startup_migrations_lock_key
         lock_ttl_sec = settings.giga_agent_startup_migrations_lock_ttl_sec
-        if settings.giga_agent_runtime == "local":
+        if settings.giga_agent_runtime in ("local", "cli"):
             logger.warning(
                 "Startup migration lock uses in-memory cache in local runtime; "
                 "it does not coordinate across multiple processes."
@@ -326,8 +366,11 @@ class BaseAgent(BaseModel):
         state: AgentState,
         config: RunnableConfig | None = None,
     ) -> str:
+        disabled = _disabled_module_ids(config, user)
         extended_parts = []
         for module in self._agent_modules:
+            if module.label and module.id in disabled:
+                continue
             extended_task = await module.extend_task(
                 user=user,
                 task=task,

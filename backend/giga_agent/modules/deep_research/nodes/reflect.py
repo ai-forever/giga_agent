@@ -27,7 +27,6 @@ from giga_agent.modules.subagents_legacy.runtime import (
     resolve_user_llm,
 )
 
-
 logger = get_logger(__name__)
 
 
@@ -112,7 +111,7 @@ async def reflect_node(state: DeepResearchState, config: RunnableConfig):
     try:
         async with factory() as session:
             user = await get_current_user_from_config(config, session=session)
-            llm = await resolve_user_llm(user, session=session)
+            llm = await resolve_user_llm(user, session=session, config=config)
     except Exception as exc:
         logger.warning(
             "deep_research.reflect: LLM resolution failed, stopping",

@@ -14,14 +14,21 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 
 from giga_agent.conf import get_settings
-from giga_agent.core.db import get_session_factory
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.logging import get_logger
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.llm import LLMRepository
-from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.modules.subagents_legacy.uploads import (
+    LegacyUploadFileSpec,
+    resolve_upload_prefix,
+    upload_files_for_runtime_user,
+)
 from giga_agent.utils.messages import filter_tool_calls
 
 logger = get_logger(__name__)
+
+
+MAX_URLS_PER_CALL = 4
+TOTAL_CONTENT_THRESHOLD_CHARS = 20_000
+PER_RESULT_PREVIEW_CHARS = 5_000
 
 
 PROMPT = ChatPromptTemplate.from_messages(
@@ -89,7 +96,6 @@ async def _load_via_jina_reader(
         response = await client.get(reader_url, headers=headers)
         response.raise_for_status()
 
-        content = response.content
         text = response.text.strip()
         if not text:
             raise ValueError("Jina Reader вернул пустой результат.")
@@ -102,29 +108,11 @@ async def _load_via_jina_reader(
                 pass
 
 
-async def _resolve_current_user(runtime: ToolRuntime) -> UserShort:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-    if user is None:
-        raise ValueError(f"Пользователь {owner_id} не найден")
-    return user
-
-
 async def _resolve_fast_llm(runtime: ToolRuntime):
-    user = await _resolve_current_user(runtime)
-    llm_id = user.fast_llm_id or user.llm_id
-    if llm_id is None:
-        raise ValueError("У пользователя не выбран fast_llm_id или llm_id")
-
-    factory = await get_session_factory()
-    async with factory() as session:
-        llm_context = await LLMRepository.get_cached_or_db(llm_id, session=session)
-        llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-    parallel_calls = max(1, int(llm_context.parallel_calls)) if llm_context else 1
-    llm = await llm_runtime.get_llm()
+    resolver = RuntimeResolver.from_config(runtime.config)
+    fast_llm_runtime = await resolver.get_fast_llm_runtime()
+    parallel_calls = await resolver.get_fast_llm_parallel_calls()
+    llm = await fast_llm_runtime.get_llm()
     return (
         llm.bind(top_p=0.3).with_config(tags=["nostream"]),
         parallel_calls,
@@ -206,7 +194,8 @@ async def _process_url(
             client=client,
             url=url,
         )
-        return await _summarize_page(messages, page_data, llm, summarize_sem)
+        return page_data
+        # return await _summarize_page(messages, page_data, llm, summarize_sem)
     except Exception as exc:
         logger.exception(
             "Failed to fetch or summarize URL in scraper",
@@ -216,17 +205,25 @@ async def _process_url(
         return _format_fetch_error(url, exc)
 
 
-@tool
+@tool(extras={"repl_skip": True, "not_compress": True, "not_process": True})
 async def get_urls(
     urls: list[str],
     runtime: ToolRuntime,
     state: Annotated[dict, InjectedState],
 ):
-    """Скачивает список URLs и отдаёт краткую выжимку по каждой ссылке с учётом задачи пользователя.
-
-    Реализация использует Jina Reader для извлечения текста/markdown со страниц.
-    Если в ответе есть изображения, прикладывай их к ответу
+    """Получает markdown-содержимое списка URLs и содержимое по каждой ссылке с учётом задачи пользователя.
+    Если в ответе есть изображения, прикладывай их к ответу.
+    За один вызов можно передать не более 4 ссылок — лишние будут проигнорированы.
+    Если суммарный объём контента слишком большой, в ответе вернётся только превью каждой страницы,
+    а полный markdown будет сохранён в sandbox — продолжать чтение можно через read_file(sandbox_path=...).
     """
+    notices: list[str] = []
+    if len(urls) > MAX_URLS_PER_CALL:
+        notices.append(
+            f"Передано {len(urls)} ссылок, обработаны только первые {MAX_URLS_PER_CALL}."
+        )
+        urls = urls[:MAX_URLS_PER_CALL]
+
     llm, llm_parallel_calls = await _resolve_fast_llm(runtime)
     summarize_sem = asyncio.Semaphore(llm_parallel_calls)
     total_concurrency = get_settings().giga_agent_scraper_total_concurrency
@@ -247,7 +244,60 @@ async def get_urls(
 
         response = await asyncio.gather(*[_bounded(u) for u in urls])
 
-    return {
+    total_chars = sum(len(item.get("markdown") or "") for item in response)
+    if total_chars > TOTAL_CONTENT_THRESHOLD_CHARS:
+        prefix = resolve_upload_prefix(runtime)
+        files_to_upload: list[LegacyUploadFileSpec] = []
+        upload_idx_to_response_idx: list[int] = []
+        for idx, item in enumerate(response):
+            markdown = item.get("markdown")
+            if not markdown or len(markdown) <= PER_RESULT_PREVIEW_CHARS:
+                continue
+            files_to_upload.append(
+                {
+                    "file_name": f"{prefix}/scraper-{uuid.uuid4().hex}.md",
+                    "file_type": "text",
+                    "content": markdown.encode("utf-8"),
+                }
+            )
+            upload_idx_to_response_idx.append(idx)
+
+        if files_to_upload:
+            try:
+                uploaded = await upload_files_for_runtime_user(
+                    runtime, files=files_to_upload
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to persist scraper markdown overflow",
+                    error_type=type(exc).__name__,
+                )
+                uploaded = []
+
+            for upload_pos, file in enumerate(uploaded):
+                if upload_pos >= len(upload_idx_to_response_idx):
+                    break
+                response_idx = upload_idx_to_response_idx[upload_pos]
+                full_markdown = response[response_idx]["markdown"]
+                response[response_idx]["markdown"] = (
+                    full_markdown[:PER_RESULT_PREVIEW_CHARS]
+                    + "\n…[обрезано, продолжение в full_markdown_path]"
+                )
+                response[response_idx]["full_markdown_path"] = file.sandbox_path
+                response[response_idx]["total_markdown_chars"] = len(full_markdown)
+                response[response_idx]["truncated"] = True
+
+        notices.append(
+            f"Суммарный объём контента превысил {TOTAL_CONTENT_THRESHOLD_CHARS} символов: "
+            f"для длинных результатов показаны первые {PER_RESULT_PREVIEW_CHARS} символов, "
+            "полный markdown сохранён в sandbox — путь доступен в поле `full_markdown_path`. "
+            "Продолжай чтение через read_file(sandbox_path=<full_markdown_path>)."
+        )
+
+    payload: dict = {
         "results": response,
         "attention": "\nИспользуй результаты в своем ответе. Если в тексте есть релевантные изображения, добавь их ссылками в формате `![alt-текст](ссылка)`.",
     }
+    if notices:
+        payload["notices"] = notices
+    return payload

@@ -14,15 +14,25 @@ from giga_agent.modules.repl.repl_tools.utils import describe_repl_tool
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
 from giga_agent.core.agent.types import AgentState
-from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserShort
-from giga_agent.sandbox.manager import ProviderNotFoundError, SandboxManager
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
-from giga_agent.modules.repl.tools import python, shell
-from giga_agent.modules.repl.prompts import JUPYTER_REPL_INSTRUCTIONS, SECRETS_PROMPTS
+from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.modules.repl.tools import (
+    await_shell,
+    normalize_secret_env_name,
+    python,
+    shell,
+)
+from giga_agent.modules.repl.prompts import (
+    CLI_JUPYTER_REPL_INSTRUCTIONS,
+    JUPYTER_REPL_INSTRUCTIONS,
+    SECRETS_PROMPTS,
+    SHELL_INSTRUCTIONS,
+)
 from giga_agent.core.logging import get_logger
 from pydantic import BaseModel, Field
 
@@ -47,11 +57,10 @@ def get_user_secrets_prompt(user: UserShort):
         name = user_secret.get("name")
         value = user_secret.get("value")
         description = user_secret.get("description")
-        if not name or not value:
+        if not name or value is None:
             continue
-        secret_part = (
-            f"Название: {user_secret['name']}\nЗначение: {user_secret['value'][:4]}..."
-        )
+        env_name = normalize_secret_env_name(name)
+        secret_part = f"Название: {name}\nENV: {env_name}"
         if description:
             secret_part += f"\nОписание: {description}"
         secret_parts.append(secret_part)
@@ -99,16 +108,13 @@ async def get_sandbox_prompt(
     config: RunnableConfig | None = None,
     **kwargs: Any,
 ) -> str:
-    session_factory = await get_session_factory()
-
     try:
-        async with session_factory() as session:
-            resolved = await SandboxManager.get_cached_or_db(
-                user_id=user.id,
-                session=session,
-            )
-    except ProviderNotFoundError:
-        return ""
+        from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+        resolver = RuntimeResolver.from_config(config)
+        if not resolver.has_sandbox:
+            return ""
+        resolved = await resolver.get_sandbox()
     except Exception as e:
         logger.warning(
             "failed_to_resolve_sandbox_prompt user_id=%s reason=%s",
@@ -148,14 +154,34 @@ class ReplModule(BaseModule):
     """
 
     id: str = "repl"
+    label: str = "Песочница (REPL)"
+    description: str = "Выполнение Python и shell-команд в изолированной среде"
+    icon: str = "Terminal"
     _repl_tools: List[Coroutine] = [predict_sentiments, summarize, get_embeddings]
 
-    async def get_tools(self, user: UserShort, agent: BaseAgent) -> List[BaseTool]:
+    async def _get_tools(
+        self, user: UserShort, agent: BaseAgent, *, config=None, **kwargs
+    ) -> List[BaseTool]:
         if python.extras is None:
             python.extras = {"repl_tools": self._repl_tools}
         else:
             python.extras["repl_tools"] = self._repl_tools
-        return [python, shell]
+
+        tools: List[BaseTool] = [python, shell, await_shell]
+
+        try:
+            from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+            resolver = RuntimeResolver.from_config(config)
+            if not resolver.has_sandbox:
+                return tools
+            resolved = await resolver.get_sandbox()
+            runtime_cls = SandboxRegistry.get(resolved.provider.type)
+            tools.extend(runtime_cls.get_tools())
+        except Exception:
+            pass
+
+        return tools
 
     async def get_instructions(
         self,
@@ -172,11 +198,27 @@ class ReplModule(BaseModule):
             config=config,
             **kwargs,
         )
+        repl_instructions = (
+            CLI_JUPYTER_REPL_INSTRUCTIONS
+            if get_settings().giga_agent_runtime == "cli"
+            else JUPYTER_REPL_INSTRUCTIONS
+        )
+        # Описываем в repl-контексте только тулы доступных пользователю модулей —
+        # выключенные через disabled_modules не должны просачиваться в промпт.
+        from giga_agent.core.agent.base import _disabled_module_ids
+
+        disabled_modules = _disabled_module_ids(config, user)
+        all_tools = await agent.get_tools(user, config=config)
+        if disabled_modules:
+            all_tools = [
+                t for t in all_tools
+                if (getattr(t, "extras", None) or {}).get("module_id")
+                not in disabled_modules
+            ]
         return (
-            JUPYTER_REPL_INSTRUCTIONS
+            repl_instructions
+            + SHELL_INSTRUCTIONS
             + sandbox_prompt
             + get_user_secrets_prompt(user)
-            + generate_repl_tools_description(
-                self._repl_tools, await agent.get_tools(user)
-            )
+            + generate_repl_tools_description(self._repl_tools, all_tools)
         )

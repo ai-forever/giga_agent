@@ -160,6 +160,7 @@ class UserShort(UserBase):
     """Короткая версия пользователя без дат"""
 
     id: uuid.UUID
+    is_synthetic: bool = False
 
     def __hash__(self):
         def _freeze(value):
@@ -275,6 +276,9 @@ class UserRepository:
     @staticmethod
     async def invalidate_cache(user_id: uuid.UUID) -> None:
         await cache.delete(UserRepository.cache_key(user_id))
+        # Кэш доступных модулей зависит от user-настроек (secrets, embedding_id и т.п.) —
+        # инвалидируем вместе с user-кэшем.
+        await cache.delete(f"modules:user:{user_id}")
 
     @staticmethod
     def _to_short(user: User) -> UserShort:

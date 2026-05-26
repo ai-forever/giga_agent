@@ -8,6 +8,7 @@ interface RuntimeConfig {
   basePath?: string;
   apiBasePath?: string;
   apiAgentBasePath?: string;
+  runtimeLocal?: boolean;
   skipOnboarding?: boolean;
   stt?: RuntimeSttConfig;
 }
@@ -104,6 +105,7 @@ export const API_BASE_URL =
   configuredApiBaseUrl ?? `${window.location.origin}/api`;
 export const API_PREFIX = API_BASE_URL;
 export const API_AGENT_PREFIX = `${API_BASE_URL}/agent`;
+export const RUNTIME_LOCAL = runtimeConfig.runtimeLocal === true;
 export const SKIP_ONBOARDING = runtimeConfig.skipOnboarding === true;
 export const BACKEND_STT_ENABLED = runtimeConfig.stt?.enabled === true;
 

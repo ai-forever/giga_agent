@@ -59,7 +59,7 @@ class SandboxLifecycleService:
 
     @staticmethod
     def _get_lock_timeout() -> float:
-        raw = os.getenv("SANDBOX_LIFECYCLE_LOCK_TIMEOUT_SEC", "30")
+        raw = os.getenv("SANDBOX_LIFECYCLE_LOCK_TIMEOUT_SEC", "60")
         try:
             value = float(raw)
         except (TypeError, ValueError):
@@ -206,6 +206,8 @@ class SandboxLifecycleService:
     def _clear_runtime_connection_state(
         *, sandbox: Sandbox, runtime: BaseSandbox
     ) -> None:
+        if runtime.preserve_runtime_state_on_stop():
+            return
         connection_keys = set(runtime.get_connection_settings().keys())
         sandbox.settings = {
             k: v
@@ -367,6 +369,13 @@ class SandboxLifecycleService:
             return None
 
         if isinstance(action, RemoveExternalRuntimeAction):
+            logger.info(
+                "orphan_action removing external runtime provider_type=%s sandbox_id=%s external_id=%s reason=%s",
+                action.provider_type,
+                action.sandbox_id,
+                action.external_id,
+                action.reason,
+            )
             runtime_cls = SandboxRegistry.get(action.provider_type)
             await runtime_cls.remove_external_runtime(action.external_id)
             return action.external_id
@@ -390,6 +399,13 @@ class SandboxLifecycleService:
         if isinstance(action, SetSandboxStatusAction):
             if sandbox is None:
                 return None
+            logger.info(
+                "orphan_action setting sandbox status sandbox_id=%s new_status=%s clear_connection=%s reason=%s",
+                action.sandbox_id,
+                action.status,
+                action.clear_runtime_connection,
+                action.reason,
+            )
             await self._set_sandbox_status_unlocked(
                 sandbox=sandbox,
                 status=action.status,

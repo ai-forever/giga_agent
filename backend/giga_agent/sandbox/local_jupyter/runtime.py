@@ -5,8 +5,10 @@ import mimetypes
 import os
 import platform
 import secrets
+import shutil
+import subprocess
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +24,7 @@ from giga_agent.sandbox.base import (
     LARGE_FILE_THRESHOLD,
     ContentResult,
     FileReadResult,
+    RuntimeSkillInfo,
     StreamResult,
 )
 from giga_agent.sandbox.jupyter import JupyterSandbox
@@ -30,8 +33,15 @@ from giga_agent.sandbox.local_jupyter.manager import (
     LOCAL_JUPYTER_KERNEL_NAME,
     get_local_jupyter_server_manager,
 )
+from giga_agent.sandbox.local_jupyter.shell import LocalShellMixin
 from giga_agent.sandbox.manager.types import SetSandboxStatusAction
 from giga_agent.sandbox.registry import SandboxRegistry
+from giga_agent.sandbox.secure_exec.policy import (
+    NetworkMode,
+    SandboxAccessPolicy,
+    default_package_cache_write_roots,
+    python_virtual_env_write_roots,
+)
 
 if TYPE_CHECKING:
     from giga_agent.core.agent.base import BaseAgent
@@ -39,7 +49,22 @@ if TYPE_CHECKING:
     from giga_agent.models.users import UserShort
 
 BUCKET_PREFIX = "/bucket/"
-_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_EXTERNAL_AGENT_SKILL_PREFIX = "external/agent/"
+_EXTERNAL_AGENT_SKILL_NAMESPACE = "agent/"
+_LOCAL_FILE_SUFFIX_ALPHABET = (
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
+_PROMPT_FILE_LIST_LIMIT = 120
+_PROMPT_EXCLUDED_NAMES = {
+    ".git",
+    ".giga_agent",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+}
 
 
 def _describe_local_os() -> str:
@@ -87,8 +112,105 @@ def _format_directory(path: Path) -> str:
     return f"{path.as_posix().rstrip('/')}/"
 
 
+def _is_prompt_visible_path(path: str) -> bool:
+    return not any(part in _PROMPT_EXCLUDED_NAMES for part in Path(path).parts)
+
+
+def _format_prompt_entries(entries: list[str], *, limit: int = _PROMPT_FILE_LIST_LIMIT) -> str:
+    if not entries:
+        return "- (пусто)\n"
+    visible_entries = [entry for entry in entries if _is_prompt_visible_path(entry)]
+    if not visible_entries:
+        return "- (нет значимых файлов после фильтрации служебных директорий)\n"
+
+    displayed = visible_entries[:limit]
+    lines = [f"- {entry}" for entry in displayed]
+    if len(visible_entries) > limit:
+        lines.append(f"- ... ещё {len(visible_entries) - limit} элементов")
+    return "\n".join(lines) + "\n"
+
+
+def _top_level_cwd_entries(cwd: Path) -> list[str]:
+    try:
+        entries = sorted(cwd.iterdir(), key=lambda path: path.name.lower())
+    except OSError:
+        return []
+    rendered: list[str] = []
+    for entry in entries:
+        suffix = "/" if entry.is_dir() else ""
+        rendered.append(f"{entry.name}{suffix}")
+    return rendered
+
+
+def _git_cwd_entries(cwd: Path) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=str(cwd),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    return sorted(
+        (line.strip() for line in result.stdout.splitlines()),
+        key=str.lower,
+    )
+
+
+def _inject_cwd_prelude(
+    code: str,
+    cwd: Path,
+    *,
+    patch_ipython_pty: bool = False,
+) -> str:
+    cwd_literal = repr(str(cwd))
+    prelude_lines: list[str] = [
+        "import os as _giga_agent_os",
+        f"_giga_agent_cwd = {cwd_literal}",
+        "_giga_agent_os.makedirs(_giga_agent_cwd, exist_ok=True)",
+        "_giga_agent_os.chdir(_giga_agent_cwd)",
+        "del _giga_agent_cwd, _giga_agent_os",
+    ]
+    if patch_ipython_pty:
+        # Под secure_exec /dev/ptmx и /dev/pts недоступны, поэтому IPython-овый
+        # `!cmd` через pty.fork() падает с "out of pty devices". Подменяем
+        # InteractiveShell.system на subprocess-based реализацию без PTY.
+        prelude_lines.extend(
+            [
+                "if not globals().get('_giga_agent_pty_patched'):",
+                "    try:",
+                "        from IPython import get_ipython as _giga_agent_get_ipython",
+                "    except ImportError:",
+                "        pass",
+                "    else:",
+                "        import os as _giga_agent_os_pty",
+                "        import subprocess as _giga_agent_sp_pty",
+                "        def _giga_agent_no_pty_system(cmd):",
+                "            if _giga_agent_os_pty.name == 'nt':",
+                "                return _giga_agent_sp_pty.call(cmd, shell=True)",
+                "            return _giga_agent_sp_pty.call(cmd, shell=True, executable='/bin/sh')",
+                "        _giga_agent_ip_pty = _giga_agent_get_ipython()",
+                "        if _giga_agent_ip_pty is not None:",
+                "            _giga_agent_ip_pty.system = _giga_agent_no_pty_system",
+                "        del _giga_agent_get_ipython, _giga_agent_os_pty, _giga_agent_sp_pty, _giga_agent_no_pty_system, _giga_agent_ip_pty",
+                "    _giga_agent_pty_patched = True",
+            ]
+        )
+    prelude_lines.append("")
+    return "\n".join(prelude_lines) + code
+
+
+def _default_exclude_read_dirs() -> list[str]:
+    return [str((Path.home() / ".ssh").resolve())]
+
+
 @SandboxRegistry.register("local_jupyter")
-class LocalJupyterSandbox(JupyterSandbox):
+class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     owner_id: uuid.UUID | None = Field(
         default=None,
         description="Sandbox owner id injected by runtime factory",
@@ -109,11 +231,30 @@ class LocalJupyterSandbox(JupyterSandbox):
         default="",
         description="Base URL of the managed local Jupyter server",
     )
+    safe_execution: bool = Field(
+        default_factory=lambda: (
+            get_settings().giga_agent_local_jupyter_secure_exec_default
+        ),
+        description="Run local Jupyter processes under OS-level filesystem sandboxing",
+    )
+    write_dirs: list[str] = Field(
+        default_factory=list,
+        description="Additional host directories explicitly granted for writes",
+    )
+    default_cwd: str | None = Field(
+        default=None,
+        description="Runtime-only default working directory for CLI execution",
+    )
+    exclude_read_dirs: list[str] = Field(
+        default_factory=_default_exclude_read_dirs,
+        description="Additional host directories explicitly denied for reads",
+    )
 
     _runtime_fields = JupyterSandbox._runtime_fields | {
         "owner_id",
         "jupyter_token",
         "runtime_dir",
+        "default_cwd",
     }
     _sandbox_root_dir: Path = PrivateAttr(default_factory=Path)
 
@@ -131,7 +272,11 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     @classmethod
     async def validate_settings(cls, settings: dict) -> dict:
-        validated = await super().validate_settings(settings)
+        schema = cls.settings_schema()
+        validated = schema(**settings).model_dump(
+            exclude_none=True,
+            exclude_defaults=True,
+        )
         ensure_jupyter_dependencies()
 
         return validated
@@ -145,11 +290,50 @@ class LocalJupyterSandbox(JupyterSandbox):
         }
         return {key: value for key, value in settings.items() if value is not None}
 
+    def _default_workdir(self) -> Path:
+        if self.default_cwd:
+            return Path(self.default_cwd).expanduser().resolve()
+        return get_local_jupyter_server_manager()._working_dir().resolve()
+
+    def current_workdir(self) -> str | None:
+        try:
+            return str(self._default_workdir())
+        except Exception:
+            return None
+
     def _recommended_workdir(self, config: RunnableConfig | None) -> Path:
+        if self.default_cwd:
+            return Path(self.default_cwd).expanduser().resolve()
         thread_id = _resolve_thread_id(config)
         if thread_id:
             return (self._sandbox_root_dir / thread_id).resolve()
         return self._sandbox_root_dir.resolve()
+
+    def _cwd_prompt(self, cwd: Path) -> str:
+        top_level_files = _format_prompt_entries(_top_level_cwd_entries(cwd))
+        git_entries = _git_cwd_entries(cwd)
+        git_prompt = (
+            "- Git-aware список файлов текущей рабочей директории:\n"
+            f"{_format_prompt_entries(git_entries)}"
+            if git_entries
+            else ""
+        )
+        temp_write_prompt = (
+            " Также доступна на запись папка /tmp."
+            if os.name != "nt"
+            else ""
+        )
+        return (
+            f"- Текущая рабочая директория: {_format_directory(cwd)}\n"
+            "- Это основная директория для чтения, создания и изменения файлов; "
+            "она доступна на запись.\n"
+            "- Write policy sandbox: текущая рабочая директория доступна на запись; "
+            "также доступны служебные runtime/cache директории и кэши пакетных "
+            f"менеджеров.{temp_write_prompt}\n"
+            "- Верхний уровень текущей рабочей директории:\n"
+            f"{top_level_files}"
+            f"{git_prompt}"
+        )
 
     def get_prompt(
         self,
@@ -161,20 +345,14 @@ class LocalJupyterSandbox(JupyterSandbox):
     ) -> str:
         _ = user, agent, state, kwargs
         python_version = platform.python_version()
-        # workdir = self._recommended_workdir(config)
-
-        # workdir_prompt = (
-        #     f"- Директория для сохранения файлов: {_format_directory(workdir)}\n"
-        #     "- Старайся сохранять создаваемые файлы именно в эту директорию и по "
-        #     "возможности использовать пути относительно неё.\n"
-        # )
+        workdir = self._recommended_workdir(config)
 
         return (
             "\nОсобенности локального окружения выполнения:\n"
             f"- ОС и платформа: {_describe_local_os()}.\n"
             f"- Python runtime: Python {python_version}.\n"
             f"- Shell и команды должны быть совместимы с {_describe_shell()}.\n"
-            # + workdir_prompt
+            + self._cwd_prompt(workdir)
             + "- Это локальное окружение пользователя, поэтому учитывай OS-specific "
             "синтаксис команд, доступность утилит и различия между macOS/Linux/Windows.\n"
             + "- При выборе зависимостей и бинарников учитывай архитектуру CPU и "
@@ -184,9 +362,51 @@ class LocalJupyterSandbox(JupyterSandbox):
     def _get_kernel_request_payload(self) -> dict[str, Any] | None:
         return {"name": LOCAL_JUPYTER_KERNEL_NAME}
 
+    async def run_code(
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        envs: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        code = _inject_cwd_prelude(
+            code,
+            self._default_workdir(),
+            patch_ipython_pty=self.safe_execution,
+        )
+        code_iter = super().run_code(
+            code,
+            kernel_id=kernel_id,
+            allow_stdin=allow_stdin,
+            envs=envs,
+            **kwargs,
+        )
+        pending_input_reply: str | None = None
+        while True:
+            try:
+                if pending_input_reply is None:
+                    chunk = await anext(code_iter)
+                else:
+                    chunk = await code_iter.asend(pending_input_reply)
+                    pending_input_reply = None
+            except StopAsyncIteration:
+                break
+            pending_input_reply = yield chunk
+
     async def up(self) -> None:
         ensure_jupyter_dependencies()
-        handle = await get_local_jupyter_server_manager().ensure_started()
+        policy = (
+            self._build_access_policy(network_mode="host")
+            if self.safe_execution
+            else None
+        )
+        handle = await get_local_jupyter_server_manager().ensure_started(
+            safe_execution=self.safe_execution,
+            policy=policy,
+            secure_exec_backend=get_settings().giga_agent_local_jupyter_secure_exec_backend,
+        )
         self.base_url = handle.base_url
         self.runtime_dir = handle.runtime_dir
         self._token = handle.token
@@ -255,7 +475,9 @@ class LocalJupyterSandbox(JupyterSandbox):
         file_name: str,
         content: bytes,
     ) -> str:
-        rel_path = self._uniquify_bucket_rel_path(owner_id=owner_id, file_name=file_name)
+        rel_path = self._uniquify_bucket_rel_path(
+            owner_id=owner_id, file_name=file_name
+        )
         target = self._user_root_dir(owner_id) / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(target, "wb") as file_obj:
@@ -267,6 +489,7 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     async def read_file(self, sandbox_path: str) -> FileReadResult:
         local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_read(local_path)
         if not local_path.exists() or not local_path.is_file():
             raise FileNotFoundError(f"File not found: {sandbox_path}")
 
@@ -294,12 +517,31 @@ class LocalJupyterSandbox(JupyterSandbox):
 
     async def delete_file(self, sandbox_path: str) -> None:
         local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_delete(local_path)
         try:
             await aiofiles.os.remove(local_path)
         except FileNotFoundError:
             pass
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
+        return False
+
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_write(local_path)
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(local_path, "wb") as file_obj:
+            await file_obj.write(content)
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        local_path = self._resolve_readable_path(sandbox_path)
+        self._build_access_policy().assert_can_read(local_path)
+        return local_path.exists() and local_path.is_file()
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        return False
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
         return False
 
     async def _stream_local_file(
@@ -378,6 +620,51 @@ class LocalJupyterSandbox(JupyterSandbox):
         user_root.mkdir(parents=True, exist_ok=True)
         return user_root
 
+    def _build_access_policy(
+        self,
+        *,
+        cwd: Path | str | None = None,
+        network_mode: NetworkMode | None = None,
+    ) -> SandboxAccessPolicy:
+        settings = get_settings()
+        manager = get_local_jupyter_server_manager()
+        workspace_root = manager._working_dir()
+        runtime_roots = [
+            manager._runtime_dir(),
+            manager._config_dir(),
+            manager._data_dir(),
+            manager._shims_dir(),
+            manager._shell_sessions_root(),
+            self._sandbox_root_dir,
+        ]
+        write_roots = [
+            *default_package_cache_write_roots(),
+            *python_virtual_env_write_roots(manager._python_executable()),
+            *settings.giga_agent_local_jupyter_allowed_write_roots,
+            *[Path(path) for path in self.write_dirs],
+        ]
+        if self.default_cwd:
+            write_roots.append(self._default_workdir())
+        deny_roots = [
+            *settings.giga_agent_local_jupyter_deny_read_roots,
+            *[Path(path) for path in self.exclude_read_dirs],
+        ]
+        return SandboxAccessPolicy(
+            workspace_root=workspace_root,
+            runtime_roots=runtime_roots,
+            read_roots=settings.giga_agent_local_jupyter_allowed_read_roots,
+            write_roots=write_roots,
+            deny_roots=deny_roots,
+            cwd=(
+                Path(cwd)
+                if cwd is not None
+                else self._default_workdir()
+                if self.default_cwd
+                else None
+            ),
+            network_mode=network_mode or settings.giga_agent_local_jupyter_network_mode,
+        )
+
     def _local_path_from_bucket_path(self, sandbox_path: str) -> Path:
         if self.owner_id is None:
             raise RuntimeError("owner_id is required to resolve sandbox path")
@@ -401,4 +688,185 @@ class LocalJupyterSandbox(JupyterSandbox):
     def _resolve_readable_path(self, sandbox_path: str) -> Path:
         if sandbox_path.startswith(BUCKET_PREFIX):
             return self._local_path_from_bucket_path(sandbox_path)
-        return Path(sandbox_path).expanduser().resolve()
+        path = Path(sandbox_path).expanduser()
+        if not path.is_absolute():
+            path = self._default_workdir() / path
+        return path.resolve()
+
+    # ---- Skill file operations ----
+
+    def _skill_dir(self, owner_id: uuid.UUID, skill_name: str) -> Path:
+        return self._user_root_dir(owner_id) / "skills" / skill_name
+
+    @staticmethod
+    def _external_agent_skills_dir() -> Path:
+        return (Path.home() / ".agents" / "skills").expanduser().resolve()
+
+    @classmethod
+    def _external_agent_skill_dirs(cls) -> list[Path]:
+        roots = [
+            cls._external_agent_skills_dir(),
+            (Path.home() / ".agent" / "skills").expanduser().resolve(),
+        ]
+        result: list[Path] = []
+        for root in roots:
+            if root not in result:
+                result.append(root)
+        return result
+
+    @staticmethod
+    def _external_agent_skill_name(skill_name: str) -> str:
+        return f"{_EXTERNAL_AGENT_SKILL_NAMESPACE}{skill_name}"
+
+    def _external_agent_skill_dir(self, storage_path: str) -> Path:
+        rel = PurePosixPath(storage_path)
+        if (
+            len(rel.parts) != 3
+            or rel.parts[0] != "external"
+            or rel.parts[1] != "agent"
+            or rel.parts[2] in {"", ".", ".."}
+        ):
+            raise ValueError(f"Invalid external skill storage path: {storage_path}")
+
+        fallback: Path | None = None
+        for root in self._external_agent_skill_dirs():
+            skill_dir = (root / rel.parts[2]).resolve()
+            if root != skill_dir and root not in skill_dir.parents:
+                raise ValueError(
+                    f"External skill path escapes skills root: {storage_path}"
+                )
+            if fallback is None:
+                fallback = skill_dir
+            if skill_dir.exists():
+                return skill_dir
+        if fallback is None:
+            raise ValueError(f"No external skill roots configured: {storage_path}")
+        return fallback
+
+    def _resolve_skill_dir(self, owner_id: uuid.UUID, storage_path: str) -> Path:
+        if storage_path.startswith(_EXTERNAL_AGENT_SKILL_PREFIX):
+            return self._external_agent_skill_dir(storage_path)
+
+        skill_name = storage_path.split("/")[-1]
+        return self._skill_dir(owner_id, skill_name)
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir: str | Path,
+    ) -> str:
+        source = Path(source_dir)
+        if not source.is_dir():
+            raise FileNotFoundError(f"Source directory not found: {source}")
+        dest = self._skill_dir(owner_id, skill_name)
+        if dest.exists():
+            shutil.rmtree(dest)
+        await asyncio.to_thread(shutil.copytree, source, dest)
+        return f"skills/{skill_name}"
+
+    async def read_skill_file(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        file_path = self._resolve_skill_dir(owner_id, storage_path) / relative_path
+        if not file_path.is_file():
+            raise FileNotFoundError(f"Skill file not found: {relative_path}")
+        async with aiofiles.open(file_path, "r", encoding="utf-8") as f:
+            return await f.read()
+
+    async def list_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> list[str]:
+        skill_dir = self._resolve_skill_dir(owner_id, storage_path)
+        if not skill_dir.is_dir():
+            return []
+        result: list[str] = []
+        for root, _dirs, files in os.walk(skill_dir):
+            for fname in files:
+                full = Path(root) / fname
+                result.append(str(full.relative_to(skill_dir)))
+        return sorted(result)
+
+    async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
+        skill_dir = self._resolve_skill_dir(owner_id, storage_path)
+        if skill_dir.is_dir():
+            await asyncio.to_thread(shutil.rmtree, skill_dir)
+
+    def get_skill_sandbox_path(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        return str(self._resolve_skill_dir(owner_id, storage_path) / relative_path)
+
+    def supports_runtime_skill_listing(self) -> bool:
+        return True
+
+    async def list_skills(self, owner_id: uuid.UUID) -> list[RuntimeSkillInfo]:
+        found = await self.scan_skill_dirs(owner_id)
+        return [
+            RuntimeSkillInfo(
+                name=info["name"],
+                description=info["description"],
+                storage_path=info["storage_path"],
+                source_url=info["source_dir"],
+            )
+            for info in found
+        ]
+
+    async def scan_skill_dirs(
+        self,
+        owner_id: uuid.UUID,
+        extra_dirs: list[str] | None = None,
+        include_agent_skills: bool = True,
+    ) -> list[dict]:
+        """
+        Scan the user skills directory (and optionally extra dirs)
+        for folders containing a skill manifest. Returns list of dicts with
+        ``name``, ``description``, ``source_dir``, ``storage_path``.
+        """
+        from giga_agent.modules.skills.manifest import find_skill_manifest_path
+        from giga_agent.modules.skills.parser import SkillParseError, parse_skill_md
+
+        dirs_to_scan: list[tuple[Path, str]] = []
+        user_skills = self._user_root_dir(owner_id) / "skills"
+        if user_skills.is_dir():
+            dirs_to_scan.append((user_skills, "sandbox"))
+        if include_agent_skills:
+            for agent_skills in self._external_agent_skill_dirs():
+                if agent_skills.is_dir():
+                    dirs_to_scan.append((agent_skills, "agent"))
+        for d in extra_dirs or []:
+            p = Path(d).expanduser().resolve()
+            if p.is_dir():
+                dirs_to_scan.append((p, "sandbox"))
+
+        found: list[dict] = []
+        found_names: set[str] = set()
+        for scan_root, source in dirs_to_scan:
+            for entry in scan_root.iterdir():
+                if not entry.is_dir():
+                    continue
+                skill_md = find_skill_manifest_path(entry)
+                if skill_md is None:
+                    continue
+                try:
+                    content = skill_md.read_text(encoding="utf-8")
+                    parsed = parse_skill_md(content)
+                    name = parsed.name
+                    storage_path = f"skills/{name}"
+                    if source == "agent":
+                        name = self._external_agent_skill_name(parsed.name)
+                        storage_path = f"{_EXTERNAL_AGENT_SKILL_PREFIX}{entry.name}"
+                    if name in found_names:
+                        continue
+                    found_names.add(name)
+                    found.append(
+                        {
+                            "name": name,
+                            "description": parsed.description,
+                            "source_dir": str(entry),
+                            "storage_path": storage_path,
+                        }
+                    )
+                except (SkillParseError, OSError) as exc:
+                    continue
+        return found

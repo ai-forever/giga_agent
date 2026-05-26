@@ -2,40 +2,38 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any, List, Optional
 
 from langchain_core.tools import BaseTool
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule, SecretMetadata
 from giga_agent.models.users import UserShort
-from giga_agent.modules.subagents_legacy.runtime import get_legacy_capabilities
-from giga_agent.modules.subagents_legacy.agents.lean_canvas import (
-    lean_canvas,
-)
-from giga_agent.modules.subagents_legacy.agents.podcast.graph import (
-    podcast_generate,
-)
-from giga_agent.modules.subagents_legacy.agents.landing_agent.graph import (
-    create_landing,
-)
-from giga_agent.modules.subagents_legacy.agents.presentation_agent.graph import (
-    generate_presentation,
-)
-from giga_agent.modules.subagents_legacy.agents.meme_agent.graph import (
-    create_meme,
-)
-from giga_agent.modules.subagents_legacy.agents.gis_agent.graph import (
-    city_explore,
-)
-from giga_agent.modules.subagents_legacy.agents.researcher.graph import (
-    researcher_agent,
-)
+
+
+def _import_attr(module_path: str, attr_name: str):
+    module = importlib.import_module(module_path)
+    return getattr(module, attr_name)
+
+
+async def _get_legacy_capabilities(user: UserShort, *, config=None):
+    from giga_agent.modules.subagents_legacy.runtime import get_legacy_capabilities
+
+    return await get_legacy_capabilities(user, config=config)
+
+
+def _legacy_tool(module_path: str, attr_name: str) -> BaseTool:
+    return _import_attr(module_path, attr_name)
 
 
 class SubAgentLegacyModule(BaseModule):
     id: str = "subagents_legacy"
+    label: str = "Креатив-агенты"
+    description: str = "Lean Canvas, генерация мемов, подкастов, исследование городов"
+    icon: str = "Sparkles"
 
     def get_subgraphs(self, **kwargs: Any) -> dict[str, str]:
         _ = kwargs
@@ -81,30 +79,74 @@ class SubAgentLegacyModule(BaseModule):
             },
         ]
 
-    async def get_tools(
-        self, user: UserShort | None, agent: BaseAgent
+    async def _get_tools(
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
         if user is None:
             return []
 
-        caps = get_legacy_capabilities(user)
+        caps = await _get_legacy_capabilities(user, config=config)
         tools: list[BaseTool] = []
+        is_cli = get_settings().giga_agent_runtime == "cli"
 
         if caps.has_llm:
-            tools.extend([lean_canvas])
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.lean_canvas",
+                    "lean_canvas",
+                )
+            )
 
-        if caps.has_search:
-            tools.append(researcher_agent)
+        # if caps.has_search and not is_cli:
+        #     tools.append(
+        #         _legacy_tool(
+        #             "giga_agent.modules.subagents_legacy.agents.researcher.graph",
+        #             "researcher_agent",
+        #         )
+        #     )
 
-        if caps.has_twogis_token:
-            tools.append(city_explore)
+        if caps.has_twogis_token and not is_cli:
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.gis_agent.graph",
+                    "city_explore",
+                )
+            )
 
-        if caps.has_llm and caps.has_salute_speech:
-            tools.append(podcast_generate)
+        if caps.has_llm and caps.has_salute_speech and not is_cli:
+            tools.append(
+                _legacy_tool(
+                    "giga_agent.modules.subagents_legacy.agents.podcast.graph",
+                    "podcast_generate",
+                )
+            )
 
         if caps.has_llm and caps.has_image_generator:
-            tools.extend([create_landing, generate_presentation, create_meme])
+            if is_cli:
+                tools.append(
+                    _legacy_tool(
+                        "giga_agent.modules.subagents_legacy.agents.meme_agent.graph",
+                        "create_meme",
+                    )
+                )
+            else:
+                tools.extend(
+                    [
+                        # _legacy_tool(
+                        #     "giga_agent.modules.subagents_legacy.agents.landing_agent.graph",
+                        #     "create_landing",
+                        # ),
+                        # _legacy_tool(
+                        #     "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph",
+                        #     "generate_presentation",
+                        # ),
+                        _legacy_tool(
+                            "giga_agent.modules.subagents_legacy.agents.meme_agent.graph",
+                            "create_meme",
+                        ),
+                    ]
+                )
 
         return tools
 
@@ -113,42 +155,49 @@ class SubAgentLegacyModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
-        _ = agent, state, kwargs
+        _ = agent, state, config, kwargs
         if user is None:
             return ""
 
-        caps = get_legacy_capabilities(user)
+        caps = await _get_legacy_capabilities(user, config=config)
         instructions: list[str] = []
+        is_cli = get_settings().giga_agent_runtime == "cli"
 
-        if caps.has_llm and caps.has_search:
+        if caps.has_llm and (caps.has_search or is_cli):
             instructions.append(
                 "- **lean_canvas** — Создает lean canvas. "
                 "Полезен при проработке идей, стартапов."
             )
 
-        if caps.has_search:
-            instructions.append(
-                """- **researcher_agent** — Агент для проведения исследования. Используй это, если пользователю нужно написать исследовательский отчет на какую-либо тему. Агент сам сделает поиск и исследует тему, тебе нужно лишь передать ему задачу.
-Когда пользователь задает какой-то вопрос на поиск, уточни у него, хочет ли он проводить глубокое исследование или простой поиск.
-В зависимости от ответа пользователя, выбирай инструмент:
-- search - для простых поисковых запросов
-- researcher_agent - если пользователь захотел глубокое исследование."""
-            )
+#         if caps.has_search and not is_cli:
+#             instructions.append(
+#                 """- **researcher_agent** — Агент для проведения исследования. Используй это, если пользователю нужно написать исследовательский отчет на какую-либо тему. Агент сам сделает поиск и исследует тему, тебе нужно лишь передать ему задачу.
+# Когда пользователь задает какой-то вопрос на поиск, уточни у него, хочет ли он проводить глубокое исследование или простой поиск.
+# В зависимости от ответа пользователя, выбирай инструмент:
+# - search - для простых поисковых запросов
+# - researcher_agent - если пользователь захотел глубокое исследование."""
+#             )
 
-        if caps.has_llm and caps.has_salute_speech:
+        if caps.has_llm and caps.has_salute_speech and not is_cli:
             instructions.append(
                 "- **podcast_generate** — Генерирует подкаст. "
                 "Используй это, если пользователь нужно сгенерировать подкаст."
             )
 
         if caps.has_llm and caps.has_image_generator:
-            instructions.append(
-                """- **generate_presentation** — Создает презентацию. Всегда используй 'generate_presentation', если пользователь просить создать презентацию!
-- **podcast_generate** — Генерирует подкаст. Используй это, если пользователь нужно сгенерировать подкаст.
+            if is_cli:
+                instructions.append(
+                    "- **create_meme** — Создает мем исходя из запроса пользователя."
+                )
+            else:
+                instructions.append(
+                    # - **generate_presentation** — Создает презентацию. Всегда используй 'generate_presentation', если пользователь просить создать презентацию!
+                    """
 - **create_meme** — Создает мем исходя из запроса пользователя."""
-            )
+                )
         if not instructions:
             return ""
         instructions_text = '\n'.join(instructions)

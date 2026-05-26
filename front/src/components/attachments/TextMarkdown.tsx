@@ -480,6 +480,7 @@ const buildMarkdownComponents = (transformText: boolean) => {
             borderRadius: "8px",
             padding: "4px 0",
             display: "block",
+            margin: "auto",
           }}
           src={src}
           alt={alt}

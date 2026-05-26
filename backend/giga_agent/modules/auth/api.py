@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session
 from giga_agent.core.module import collect_module_secrets
 from giga_agent.models.connector import ConnectorRepository
@@ -46,6 +47,7 @@ from giga_agent.models.users import (
     AdminUserUpdate,
 )
 from giga_agent.models.file import FileRepository, FileStorageRef
+from giga_agent.modules.skills.service import SkillsService
 from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
 from giga_agent.sandbox.manager import SandboxManager
 
@@ -536,6 +538,7 @@ async def login_for_access_token(
         data={"sub": user.email, "user_id": str(user.id)},
         expires_delta=access_token_expires,
     )
+    cookie_domain = get_settings().giga_agent_public_base_domain
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=access_token,
@@ -543,13 +546,60 @@ async def login_for_access_token(
         samesite="lax",
         secure=request.url.scheme == "https",
         path="/",
+        domain=cookie_domain,
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response):
-    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/")
+    cookie_domain = get_settings().giga_agent_public_base_domain
+    response.delete_cookie(
+        key=AUTH_COOKIE_NAME, path="/", domain=cookie_domain,
+    )
+
+
+@router.get("/sandbox-access/{sandbox_id_hex}", status_code=status.HTTP_204_NO_CONTENT)
+async def verify_sandbox_access(
+    sandbox_id_hex: str,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """Auth_request endpoint for the sandbox wildcard subdomain.
+
+    Returns 204 if the cookie-authenticated user owns the sandbox referenced
+    by ``sandbox_id_hex`` (uuid.hex form, 32 hex chars). Otherwise 401 (no/bad
+    cookie), 403 (not owner), or 404 (invalid id / sandbox missing).
+    """
+    if len(sandbox_id_hex) != 32:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    try:
+        sandbox_id = uuid.UUID(hex=sandbox_id_hex)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    raw_token = request.cookies.get(AUTH_COOKIE_NAME)
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    if raw_token.lower().startswith("bearer "):
+        raw_token = raw_token[7:].strip()
+    try:
+        user_id = security.get_user_id_from_token(raw_token)
+    except (ExpiredSignatureError, PyJWTError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    owner_id = await SandboxRepository(db).get_owner_id_by_sandbox_cached(sandbox_id)
+    if owner_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if owner_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/users/me", response_model=UserSelfResponse)
@@ -653,6 +703,7 @@ async def update_user(
             )
         user.sandbox_provider_id = body.sandbox_provider_id
         await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
+        await SkillsService.invalidate_list_cache(current_user.id)
 
     await db.commit()
     await db.refresh(user)

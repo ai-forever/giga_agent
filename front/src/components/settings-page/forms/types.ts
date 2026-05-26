@@ -92,6 +92,7 @@ export interface JsonSchemaProperty {
   title?: string;
   description?: string;
   default?: unknown;
+  items?: JsonSchemaProperty;
   enum?: Array<string | number | boolean | null>;
   oneOf?: { const?: unknown; title?: string; type?: string }[];
   anyOf?: {
@@ -99,6 +100,7 @@ export interface JsonSchemaProperty {
     const?: unknown;
     title?: string;
     enum?: unknown[];
+    items?: JsonSchemaProperty;
   }[];
 }
 

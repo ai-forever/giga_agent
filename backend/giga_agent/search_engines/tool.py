@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any, Annotated
 
 from langchain.tools import ToolRuntime, tool
 from pydantic import Field
-
-from giga_agent.core.db import get_session_factory
-from giga_agent.models.users import UserRepository
-from giga_agent.search_engines.manager import SearchEngineManager
 
 # Убедимся, что провайдеры зарегистрированы
 import giga_agent.search_engines  # noqa: F401
@@ -25,22 +20,13 @@ async def search(
     if runtime is None:
         raise ValueError("Tool runtime is required.")
 
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-        if user is None:
-            raise ValueError(f"Пользователь {owner_id} не найден")
-        if user.search_engine_id is None:
-            raise ValueError(
-                "У пользователя не выбран поисковый движок. "
-                "Установите search_engine_id в настройках пользователя."
-            )
-
-        engine = await SearchEngineManager.resolve_by_id(
-            user.search_engine_id,
-            session=session,
+    resolver = RuntimeResolver.from_config(runtime.config)
+    if not resolver.has_search_engine:
+        raise ValueError(
+            "У пользователя не выбран поисковый движок. "
+            "Настройте search_engine в runtime."
         )
+    engine = await resolver.get_search_engine()
     return await engine.search(queries)

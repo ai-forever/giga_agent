@@ -21,7 +21,7 @@ dependencies = [
     "structlog>=24.0.0,<25.0.0",
     "pydantic[email]>=2.0.0,<3.0.0",
     "pydantic-settings>=2.0.0,<3.0.0",
-    "aiosqlite~=0.19.0",
+    "aiosqlite~=0.21.0",
     "asyncpg~=0.30.0",
     "langgraph==1.0.8",
     "langchain>=1.2.0,<2.0.0",
@@ -56,7 +56,6 @@ dependencies = [
     "langchain-text-splitters>=1.1.1,<2.0.0",
     "langchain-postgres==0.0.17",
     "langchain-qdrant>=1.1.0,<2.0.0",
-    "mem0ai==0.1.115",
     "scikit-learn==1.6.1",
     "aiofiles>=25.1.0,<26.0.0",
     "redis==7.2.1",
@@ -69,6 +68,8 @@ dependencies = [
     "socksio~=1.0.0",
     "aiohttp-socks~=0.11.0",
     "langchain-deepseek~=1.0.1",
+    "langgraph-checkpoint-sqlite>=3.0.3,<4.0.0",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]
@@ -78,6 +79,7 @@ giga_agent = "giga_agent.cli:app"
 jupyter = [
     "jupyter-server>=2.0.0",
     "ipykernel>=6.0.0",
+    "pip>=25.0.0",
     "numpy>=2.0.0",
     "pandas>=2.2.0",
     "matplotlib>=3.9.0",
@@ -89,6 +91,7 @@ jupyter = [
 jupyter-full = [
     "jupyter-server>=2.0.0,<3.0.0",
     "ipykernel>=6.0.0,<7.0.0",
+    "pip>=25.0.0",
     "numpy>=2.0.0,<3.0.0",
     "pandas>=2.2.0,<3.0.0",
     "matplotlib>=3.9.0,<4.0.0",

@@ -11,7 +11,6 @@ import { GraphState } from "../interfaces.ts";
 import MessageAttachment from "./attachments/MessageAttachment.tsx";
 import { ToolCall } from "@langchain/core/messages/tool";
 import { AIMessage } from "@langchain/langgraph-sdk";
-import { notifyIfHidden } from "../lib/notifications.ts";
 
 interface ToolMessageProps {
   message: Message;
@@ -80,6 +79,8 @@ const DeepResearchPlan: React.FC<{ plan: DeepResearchSubQ[] }> = ({ plan }) => (
     })}
   </div>
 );
+
+const THINK_TOOL_NAME = "think";
 
 export const ToolExecuting = ({ toolCall, thread }: ToolExecProps) => {
   const name = toolCall.name;
@@ -202,7 +203,13 @@ export const ToolsExecuting = ({ message, thread }: ToolsExecProps) => {
   ) {
     return null;
   }
-  return message.tool_calls.map((el, index) => (
+  const visibleToolCalls = message.tool_calls.filter(
+    (toolCall) => toolCall.name !== THINK_TOOL_NAME,
+  );
+  if (!visibleToolCalls.length) {
+    return null;
+  }
+  return visibleToolCalls.map((el, index) => (
     <ToolExecuting toolCall={el} thread={thread} key={index} />
   ));
 };
@@ -220,16 +227,6 @@ const ATTACHMENT_TEXTS = {
 const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
   const [expanded, setExpanded] = useState(false);
   const [file, setFile] = useState<any | null>(null);
-
-  useEffect(() => {
-    if (name === "run_deep_research") {
-      notifyIfHidden(
-        "Глубокое исследование завершено",
-        "Отчёт готов — вернитесь во вкладку, чтобы посмотреть.",
-      );
-    }
-    // namespaced по id сообщения — один mount per завершённый tool-call
-  }, [name, (message as any)?.id]);
 
   if (message.type !== "tool") {
     return null;

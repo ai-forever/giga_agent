@@ -22,6 +22,11 @@ from giga_agent.core.process_supervisor import (
     get_process_supervisor,
 )
 from giga_agent.sandbox.local_jupyter.dependencies import ensure_jupyter_dependencies
+from giga_agent.sandbox.secure_exec import (
+    SandboxAccessPolicy,
+    SecureProcessConfig,
+    launch_secure_process,
+)
 
 logger = get_logger(__name__)
 _MANAGER: LocalJupyterServerManager | None = None
@@ -38,6 +43,9 @@ class LocalJupyterHandle:
     runtime_dir: str
     working_dir: str
     started_at: float
+    secure_execution: bool = False
+    secure_exec_backend: str | None = None
+    policy_fingerprint: str | None = None
 
 
 class LocalJupyterServerManager:
@@ -47,15 +55,31 @@ class LocalJupyterServerManager:
         self._handle: LocalJupyterHandle | None = None
         self._log_handle: IO[bytes] | None = None
 
-    async def ensure_started(self) -> LocalJupyterHandle:
+    async def ensure_started(
+        self,
+        *,
+        safe_execution: bool = False,
+        policy: SandboxAccessPolicy | None = None,
+        secure_exec_backend: str = "auto",
+    ) -> LocalJupyterHandle:
         async with self._lock:
             active = await self._get_active_handle()
             if active is not None:
-                self._handle = active
-                return active
+                if self._handle_matches_request(
+                    active,
+                    safe_execution=safe_execution,
+                    policy=policy,
+                ):
+                    self._handle = active
+                    return active
+                await self._stop_handle_unlocked(active)
 
             await self._cleanup_stale_state_unlocked()
-            return await self._start_new_server()
+            return await self._start_new_server(
+                safe_execution=safe_execution,
+                policy=policy,
+                secure_exec_backend=secure_exec_backend,
+            )
 
     async def get_active_handle(self) -> LocalJupyterHandle | None:
         async with self._lock:
@@ -86,20 +110,16 @@ class LocalJupyterServerManager:
 
             if not self._is_pid_alive(pid):
                 self._unregister_supervised_process(pid)
-                if (
-                    (self._handle is not None and self._handle.pid == pid)
-                    or (
-                        metadata_handle is not None and metadata_handle.pid == pid
-                    )
+                if (self._handle is not None and self._handle.pid == pid) or (
+                    metadata_handle is not None and metadata_handle.pid == pid
                 ):
                     await self._clear_state_unlocked(pid=pid)
                 return
 
             await self._terminate_pid_unlocked(pid)
 
-            if (
-                (self._handle is not None and self._handle.pid == pid)
-                or (metadata_handle is not None and metadata_handle.pid == pid)
+            if (self._handle is not None and self._handle.pid == pid) or (
+                metadata_handle is not None and metadata_handle.pid == pid
             ):
                 await self._clear_state_unlocked(pid=pid)
             else:
@@ -139,7 +159,13 @@ class LocalJupyterServerManager:
         await self._terminate_pid_unlocked(metadata_handle.pid)
         await self._clear_state_unlocked(pid=metadata_handle.pid)
 
-    async def _start_new_server(self) -> LocalJupyterHandle:
+    async def _start_new_server(
+        self,
+        *,
+        safe_execution: bool = False,
+        policy: SandboxAccessPolicy | None = None,
+        secure_exec_backend: str = "auto",
+    ) -> LocalJupyterHandle:
         ensure_jupyter_dependencies()
 
         python_executable = self._python_executable()
@@ -189,13 +215,38 @@ class LocalJupyterServerManager:
         log_path = self._log_path()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_handle = log_path.open("ab")
-        self._proc = subprocess.Popen(
-            command,
-            stdout=self._log_handle,
-            stderr=subprocess.STDOUT,
-            env=env,
-            start_new_session=True,
-        )
+        resolved_secure_exec_backend: str | None = None
+        policy_fingerprint: str | None = None
+        if safe_execution:
+            if policy is None:
+                raise RuntimeError("policy is required when safe_execution=True")
+            server_policy = policy.model_copy(
+                update={"cwd": working_dir, "network_mode": "host"}
+            )
+            policy_fingerprint = server_policy.fingerprint()
+            launch = launch_secure_process(
+                SecureProcessConfig(
+                    command=command,
+                    policy=server_policy,
+                    backend=secure_exec_backend,  # type: ignore[arg-type]
+                    cwd=working_dir,
+                    env=env,
+                    stdout=self._log_handle,
+                    stderr=subprocess.STDOUT,
+                    local_network_port=port,
+                    profile_path=self._profile_path(),
+                )
+            )
+            self._proc = launch.process
+            resolved_secure_exec_backend = launch.backend
+        else:
+            self._proc = subprocess.Popen(
+                command,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
+                env=env,
+                start_new_session=True,
+            )
         handle = LocalJupyterHandle(
             pid=self._proc.pid,
             port=port,
@@ -204,10 +255,15 @@ class LocalJupyterServerManager:
             runtime_dir=str(runtime_dir),
             working_dir=str(working_dir),
             started_at=time.time(),
+            secure_execution=safe_execution,
+            secure_exec_backend=resolved_secure_exec_backend,
+            policy_fingerprint=policy_fingerprint,
         )
 
         try:
-            await self._wait_until_ready(handle, timeout_sec=self._startup_timeout_sec())
+            await self._wait_until_ready(
+                handle, timeout_sec=self._startup_timeout_sec()
+            )
         except Exception:
             await self.stop_pid(handle.pid)
             raise
@@ -295,6 +351,9 @@ class LocalJupyterServerManager:
     def _log_path(self) -> Path:
         return ensure_giga_agent_dir() / "local_jupyter" / "server.log"
 
+    def _profile_path(self) -> Path:
+        return ensure_giga_agent_dir() / "local_jupyter" / "profiles" / "server.sb"
+
     def _register_supervised_process(self, handle: LocalJupyterHandle) -> None:
         pgid = self._process_group_id(handle.pid)
         get_process_supervisor().register_process(
@@ -307,12 +366,51 @@ class LocalJupyterServerManager:
                     "base_url": handle.base_url,
                     "runtime_dir": handle.runtime_dir,
                     "working_dir": handle.working_dir,
+                    "secure_execution": str(handle.secure_execution),
+                    "secure_exec_backend": handle.secure_exec_backend or "",
                 },
             )
         )
 
     def _unregister_supervised_process(self, pid: int) -> None:
         get_process_supervisor().unregister_process(kind="local_jupyter", pid=pid)
+
+    def get_shell_env(
+        self,
+        *,
+        extra_envs: dict[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Environment dict for local shell sessions with correct pip/python."""
+        python_executable = self._python_executable()
+        shims_dir = self._shims_dir()
+        self._ensure_command_shims(
+            shims_dir=shims_dir,
+            python_executable=python_executable,
+        )
+        env = self._runtime_command_env(
+            shims_dir=shims_dir,
+            python_executable=python_executable,
+        )
+        if extra_envs:
+            env.update({str(k): str(v) for k, v in extra_envs.items()})
+        return env
+
+    def _ensure_command_shims(
+        self,
+        *,
+        shims_dir: Path,
+        python_executable: str,
+    ) -> None:
+        if os.name == "nt":
+            marker = shims_dir / "pip.cmd"
+        else:
+            marker = shims_dir / "pip"
+        if marker.is_file():
+            return
+        self._write_command_shims(
+            shims_dir=shims_dir,
+            python_executable=python_executable,
+        )
 
     def _working_dir(self) -> Path:
         settings = get_settings()
@@ -336,6 +434,9 @@ class LocalJupyterServerManager:
 
     def _shims_dir(self) -> Path:
         return (ensure_giga_agent_dir() / "local_jupyter" / "shims").resolve()
+
+    def _shell_sessions_root(self) -> Path:
+        return (ensure_giga_agent_dir() / "local_jupyter" / "shell_sessions").resolve()
 
     def _kernel_spec_dir(self, *, data_dir: Path) -> Path:
         return (data_dir / "kernels" / LOCAL_JUPYTER_KERNEL_NAME).resolve()
@@ -462,7 +563,9 @@ class LocalJupyterServerManager:
         )
 
     def _python_executable(self) -> str:
-        configured = (get_settings().giga_agent_local_jupyter_python_executable or "").strip()
+        configured = (
+            get_settings().giga_agent_local_jupyter_python_executable or ""
+        ).strip()
         return configured or sys.executable
 
     def _startup_timeout_sec(self) -> int:
@@ -501,10 +604,31 @@ class LocalJupyterServerManager:
                 runtime_dir=str(raw_data["runtime_dir"]),
                 working_dir=str(raw_data["working_dir"]),
                 started_at=float(raw_data["started_at"]),
+                secure_execution=bool(raw_data.get("secure_execution", False)),
+                secure_exec_backend=raw_data.get("secure_exec_backend"),
+                policy_fingerprint=raw_data.get("policy_fingerprint"),
             )
         except (KeyError, TypeError, ValueError):
             self._remove_metadata_file()
             return None
+
+    def _handle_matches_request(
+        self,
+        handle: LocalJupyterHandle,
+        *,
+        safe_execution: bool,
+        policy: SandboxAccessPolicy | None,
+    ) -> bool:
+        if handle.secure_execution != safe_execution:
+            return False
+        if not safe_execution:
+            return True
+        if policy is None:
+            return False
+        requested_policy = policy.model_copy(
+            update={"cwd": Path(handle.working_dir), "network_mode": "host"}
+        )
+        return handle.policy_fingerprint == requested_policy.fingerprint()
 
     def _remove_metadata_file(self) -> None:
         try:

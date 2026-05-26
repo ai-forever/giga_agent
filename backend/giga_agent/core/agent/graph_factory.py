@@ -17,7 +17,6 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools.tool_node import (
     ToolCallRequest,
-    ToolCallWithContext,
 )
 from langchain_core.messages import (
     AIMessage,
@@ -34,14 +33,31 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command, Send
 from langgraph.typing import ContextT
 
-import giga_agent.channels  # noqa: F401
-from giga_agent.channels.registry import ChannelRegistry
+from giga_agent.conf import (
+    GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
+    GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
+    GIGA_AGENT_ENABLE_THINK_TOOL,
+    GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+)
+from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
 from giga_agent.core.agent.middleware import AgentMiddleware
+from giga_agent.core.agent.multi_tool_use import (
+    collapse_tool_messages,
+    expand_multi_tool_use,
+)
 from giga_agent.core.agent.prompt import BASE_PROMPT
-from giga_agent.core.agent.tool_node import ToolNode
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.think import (
+    THINK_VIA_FAST_MODEL,
+    collapse_think_hops,
+    is_single_think_call,
+    process_think_via_fast_model,
+    resolve_bound_tool_choice,
+)
+from giga_agent.core.agent.tool_node import ToolCallsWithContext, ToolNode
+from giga_agent.core.agent.tools import multi_tool_use, think
 from giga_agent.core.db import get_session_factory
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.users import UserRepository
+from giga_agent.core.logging import get_logger
 from giga_agent.utils.mcp import transform_tool
 
 if TYPE_CHECKING:
@@ -57,6 +73,18 @@ if TYPE_CHECKING:
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.agent.utils import merge_state
 
+logger = get_logger(__name__)
+
+
+def _is_feature_enabled_for_provider(
+    enabled: bool,
+    allowed_providers: list[str],
+    llm_type: str,
+) -> bool:
+    if not enabled:
+        return False
+    return llm_type.lower() in {p.lower() for p in allowed_providers}
+
 
 def _generate_user_info(state: AgentState) -> str:
     # TODO: Вынести язык пользователя в явные пользовательские настройки
@@ -64,11 +92,10 @@ def _generate_user_info(state: AgentState) -> str:
     language_prompt = ""
     if not language.startswith("ru"):
         language_prompt = f"\nВыбранный язык пользователя: {language}\n"
-    instructions = state.get("instructions", "")
     return (
         f"<user_info>\n"
         f"Текущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}"
-        f"{language_prompt}{instructions}</user_info>"
+        f"{language_prompt}</user_info>"
     )
 
 
@@ -118,6 +145,9 @@ def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
     channel_type = metadata.get("channel")
     if not isinstance(channel_type, str) or not channel_type.strip():
         return ""
+
+    import giga_agent.channels  # noqa: F401
+    from giga_agent.channels.registry import ChannelRegistry
 
     normalized_channel_type = channel_type.strip().lower()
     if not ChannelRegistry.is_registered(normalized_channel_type):
@@ -260,13 +290,12 @@ def _make_model_to_tools_edge(
             return [
                 Send(
                     "tools",
-                    ToolCallWithContext(
-                        __type="tool_call_with_context",
-                        tool_call=tool_call,
+                    ToolCallsWithContext(
+                        __type="tool_calls_with_context",
+                        tool_calls=pending_tool_calls,
                         state=state,
                     ),
                 )
-                for tool_call in pending_tool_calls
             ]
 
         # 4. If there is a structured response, exit the loop
@@ -386,7 +415,6 @@ def create_graph(
     For more details on using `create_agent`,
     visit the [Agents](https://docs.langchain.com/oss/python/langchain/agents) docs.
     """
-
     # Handle tools being None or empty
     if tools is None:
         tools = []
@@ -412,8 +440,13 @@ def create_graph(
     built_in_tools = [t for t in tools if isinstance(t, dict)]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
 
-    # Tools that require client-side execution (must be in ToolNode)
-    available_tools = middleware_tools + regular_tools
+    builtin_tools: list[BaseTool] = []
+    if GIGA_AGENT_ENABLE_THINK_TOOL:
+        builtin_tools.append(think)
+    if GIGA_AGENT_ENABLE_MULTI_TOOL_USE:
+        builtin_tools.append(multi_tool_use)
+
+    available_tools = builtin_tools + middleware_tools + regular_tools
 
     # Only create ToolNode if we have client-side tools
     tool_node = ToolNode(
@@ -421,15 +454,6 @@ def create_graph(
         wrap_tool_call=wrap_tool_call_wrapper,
         agent=agent,
     )
-
-    # Default tools for ModelRequest initialization
-    # Use converted BaseTool instances from ToolNode (not raw callables)
-    # Include built-ins and converted tools (can be changed dynamically by middleware)
-    # Structured tools are NOT included - they're added dynamically based on response_format
-    if tool_node:
-        default_tools = list(tool_node.tools_by_name.values()) + built_in_tools
-    else:
-        default_tools = list(built_in_tools)
 
     # validate middleware
     if len({m.name for m in middleware}) != len(middleware):
@@ -466,7 +490,6 @@ def create_graph(
 
         Raises any exceptions that occur during model invocation.
         """
-        # Get the bound model (with auto-detection if needed)
         model_ = request.model.bind(**request.model_settings)
         messages = request.messages
         if request.system_message:
@@ -478,7 +501,6 @@ def create_graph(
         output.additional_kwargs.pop("function_call", None)
         output.additional_kwargs["rendered"] = True
         for call in output.tool_calls:
-            # Проставляем ID вызовов тулов, если их нет, как в гиге
             call.setdefault("id", str(uuid.uuid4()))
 
         return ModelResponse(
@@ -489,26 +511,44 @@ def create_graph(
         state: AgentState, runtime: Runtime[ContextT], config
     ) -> dict[str, Any]:
         """Async model request handler with sequential middleware processing."""
-        # Получаем user_id из конфигурации langgraph auth
-        user_id = config["configurable"]["langgraph_auth_user"]["identity"]
-        user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+        resolver = await RuntimeResolver.create(config)
+        resolver.inject(config)
 
-        factory = await get_session_factory()
-        async with factory() as session:
-            user = await UserRepository.get_cached_or_db(user_uuid, session=session)
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
+        user = resolver.user
 
-            if not user.llm_id:
-                raise ValueError("User has no default LLM configured")
+        llm_runtime = await resolver.get_llm_runtime()
+        llm = await llm_runtime.get_llm()
 
-            llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
-            llm = await llm_runtime.get_llm()
+        llm_type = llm_runtime.get_llm_type()
+        think_enabled = _is_feature_enabled_for_provider(
+            GIGA_AGENT_ENABLE_THINK_TOOL,
+            GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+            llm_type,
+        )
+        multi_tool_use_enabled = _is_feature_enabled_for_provider(
+            GIGA_AGENT_ENABLE_MULTI_TOOL_USE,
+            GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
+            llm_type,
+        )
 
+        if multi_tool_use_enabled:
+            few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
+            collapsed_messages = collapse_tool_messages(state["messages"])
+        elif think_enabled:
+            few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE)
+            collapsed_messages = list(state["messages"])
+        else:
+            few_shots_collapse = []
+            collapsed_messages = list(state["messages"])
+        state_messages_collapse = (
+            collapse_think_hops(collapsed_messages)
+            if think_enabled
+            else collapsed_messages
+        )
         configurable = (config or {}).get("configurable") or {}
         deep_research_forced = bool(configurable.get("deep_research_forced"))
 
-        messages_for_llm = list(state["messages"])
+        messages_for_llm = few_shots_collapse + state_messages_collapse
         if messages_for_llm and messages_for_llm[-1].type == "human":
             last_message = messages_for_llm[-1]
             user_input = last_message.content
@@ -522,7 +562,6 @@ def create_graph(
             )
 
             final_parts = [
-                f"<task>{user_input}</task>",
                 _generate_user_info(state),
             ]
             if file_prompt:
@@ -531,6 +570,12 @@ def create_graph(
                 final_parts.append(selected_prompt)
             if extended_task:
                 final_parts.append(extended_task)
+            # final_parts.append(
+            #     "Активно планируй и следуй своему плану! "
+            #     "Действуй по простым шагам!"
+            #     "Следующий шаг: "
+            # )
+            final_parts.append(f"<user_query>{user_input}<user_query>")
             if deep_research_forced:
                 final_parts.append(
                     "<forced_mode>Пользователь явно включил режим глубокого "
@@ -540,17 +585,20 @@ def create_graph(
                     "строчку-прелюдию о запуске исследования."
                     "</forced_mode>"
                 )
-            final_parts.append(
-                "Активно планируй и следуй своему плану! "
-                "Действуй по простым шагам!"
-                "Следующий шаг: "
-            )
             enriched_message = last_message.model_copy(
                 update={"content": "\n".join(final_parts)}
             )
             messages_for_llm[-1] = enriched_message
 
-        agent_tools = await agent.get_tools(user)
+        agent_tools = await agent.get_tools(user, config=config)
+        from giga_agent.core.agent.base import _disabled_module_ids
+        disabled_set = _disabled_module_ids(config, user)
+        if disabled_set:
+            agent_tools = [
+                t for t in agent_tools
+                if (t.extras or {}).get("module_id")
+                not in disabled_set
+            ]
         mcp_tools = [
             transform_tool(
                 {
@@ -561,7 +609,12 @@ def create_graph(
             )
             for tool in state.get("mcp_tools", [])
         ]
-        all_tools = agent_tools + default_tools + mcp_tools
+
+        tool_choice = (
+            resolve_bound_tool_choice(state["messages"])
+            if think_enabled
+            else "auto"
+        )
         # TODO: Сейчас ломается для deepseek, при мерже v0.2 будем включать только для GigaChat
         # chosen_tool_choice: Any = "auto"
         # if deep_research_forced:
@@ -574,7 +627,21 @@ def create_graph(
         #         # Флаг пришёл, но тул не зарегистрирован у юзера (нет llm/search_engine).
         #         # Оставляем auto — юзер увидит обычный ответ.
         #         pass
-        llm = llm.bind_tools(tools=all_tools)
+        optional_tools: list[BaseTool] = []
+        if think_enabled:
+            optional_tools.append(think)
+        if multi_tool_use_enabled:
+            optional_tools.append(multi_tool_use)
+
+        all_tools = (
+            optional_tools
+            + built_in_tools
+            + regular_tools
+            + middleware_tools
+            + agent_tools
+            + mcp_tools
+        )
+        llm = llm.bind_tools(tools=all_tools, tool_choice=tool_choice)
         channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
@@ -582,28 +649,68 @@ def create_graph(
                 state=state,
                 config=config,
                 channel_prompt=channel_prompt,
+                enable_think=think_enabled,
+                enable_multi_tool_use=multi_tool_use_enabled,
             )
         )
 
         request = ModelRequest(
             model=llm,
-            tools=default_tools,
+            tools=all_tools,
             system_message=system_message,
             messages=messages_for_llm,
-            tool_choice=None,
+            tool_choice=tool_choice,
             state=state,
             runtime=runtime,
         )
 
-        if wrap_model_call_handler is None:
-            # No async handlers - execute directly
-            response = await _execute_model_async(request)
-        else:
-            # Call composed async handler with base handler
-            response = await wrap_model_call_handler(request, _execute_model_async)
+        async def _execute_with_expand(req: ModelRequest) -> ModelResponse:
+            response = await _execute_model_async(req)
+            if not multi_tool_use_enabled:
+                return response
+            expanded = [
+                expand_multi_tool_use(m) if isinstance(m, AIMessage) else m
+                for m in response.result
+            ]
+            return ModelResponse(
+                result=expanded,
+                structured_response=response.structured_response,
+            )
 
-        # Extract state updates from ModelResponse
-        state_updates = {"messages": response.result}
+        if wrap_model_call_handler is None:
+            response = await _execute_with_expand(request)
+        else:
+            response = await wrap_model_call_handler(request, _execute_with_expand)
+
+        result_messages = list(response.result)
+
+        if think_enabled and THINK_VIA_FAST_MODEL and len(result_messages) == 1:
+            ai_msg = result_messages[0]
+            if isinstance(ai_msg, AIMessage) and is_single_think_call(ai_msg):
+                factory = await get_session_factory()
+                async with factory() as session:
+                    result_messages = await process_think_via_fast_model(
+                        ai_msg,
+                        user=user,
+                        session=session,
+                        messages_for_llm=state_messages_collapse,
+                        system_message=system_message,
+                        tools=all_tools
+                    )
+
+        # Persist the enriched HumanMessage back to state (model_copy preserves
+        # its id so add_messages replaces it in place). For any other last
+        # message type (e.g. a synthetic ToolMessage produced by
+        # collapse_tool_messages with a fresh uuid), we must NOT append it —
+        # it would land in state as an orphan ToolMessage with no matching
+        # AIMessage tool_call, which makes GigaChat reject the next request
+        # with 422 "every function result must have an assistant function
+        # call in history".
+        state_messages_update: list[AnyMessage] = list(result_messages)
+        if messages_for_llm and messages_for_llm[-1].type == "human":
+            state_messages_update = [messages_for_llm[-1], *state_messages_update]
+
+        state_updates = {"messages": state_messages_update}
         if response.structured_response is not None:
             state_updates["structured_response"] = response.structured_response
 
@@ -629,6 +736,9 @@ def create_graph(
             runtime: Runtime[ContextT],
             config: RunnableConfig,
         ) -> dict[str, Any]:
+            resolver = await RuntimeResolver.create(config)
+            resolver.inject(config)
+
             for m in middleware:
                 if getattr(m.__class__, callback_type) is not getattr(
                     AgentMiddleware, callback_type
@@ -686,10 +796,11 @@ def create_graph(
         graph.add_edge("model", "after_model")
         graph.add_edge("after_model", "after_agent")
 
-    return graph.compile(
+    compiled = graph.compile(
         checkpointer=checkpointer,
         store=store,
         debug=debug,
         name=name,
         cache=cache,
     ).with_config({"recursion_limit": 10_000})
+    return compiled

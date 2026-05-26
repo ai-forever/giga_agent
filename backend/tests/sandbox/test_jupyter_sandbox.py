@@ -40,7 +40,7 @@ class JupyterSandboxProxySettingsTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.sandbox.local_docker.get_settings",
+            "giga_agent.sandbox.local_docker.runtime.get_settings",
             return_value=types.SimpleNamespace(giga_agent_docker_network="sandbox-net"),
         ):
             self.assertTrue(runtime.is_base_url_internal())
@@ -53,7 +53,7 @@ class JupyterSandboxProxySettingsTests(unittest.TestCase):
         )
 
         with patch(
-            "giga_agent.sandbox.local_docker.get_settings",
+            "giga_agent.sandbox.local_docker.runtime.get_settings",
             return_value=types.SimpleNamespace(giga_agent_docker_network=None),
         ):
             self.assertFalse(runtime.is_base_url_internal())

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import inspect
 from typing import TYPE_CHECKING, Any, Optional, List, TypedDict, Literal
@@ -7,7 +9,6 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import ConfigDict, PrivateAttr
 from langchain_core.load.serializable import Serializable
 from langchain_core.tools import BaseTool
-from giga_agent.models.users import UserShort
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from giga_agent.core.agent.middleware import AgentMiddleware
     from giga_agent.core.agent.base import BaseAgent
     from giga_agent.core.agent.types import AgentState
+    from giga_agent.models.users import UserShort
 
 
 class SecretMetadata(TypedDict):
@@ -27,6 +29,10 @@ class BaseModule(Serializable):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str  # Unique identifier for the module
+    # Метаданные для UI. Пустой label = модуль сервисный, не показывается в списке.
+    label: str = ""
+    description: str = ""
+    icon: str = ""  # Имя компонента lucide-react, например "FileText".
     _module_path: str = PrivateAttr()
 
     @classmethod
@@ -67,16 +73,44 @@ class BaseModule(Serializable):
         """
         return []
 
-    async def get_tools(
+    async def _get_tools(
         self,
         user: UserShort | None,
         agent: "BaseAgent",
+        *,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
     ) -> List[BaseTool]:
         """
         Возвращает список инструментов (tools), предоставляемых модулем.
         Переопределите в подклассе, чтобы добавить tools в агент.
         """
         return []
+
+    async def get_tools(
+        self,
+        user: UserShort | None,
+        agent: "BaseAgent",
+        *,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> List[BaseTool]:
+        """Финальная обёртка над `_get_tools`.
+
+        Для каждого тула пользовательских модулей (с непустым `label`)
+        проставляет `extras["module_id"] = self.id`, чтобы `graph_factory`
+        мог фильтровать тулы по `disabled_modules` из `config.configurable`.
+        Сервисные модули (`label == ""`) не помечаются — их тулы не подлежат
+        пользовательскому отключению.
+        """
+        tools = await self._get_tools(user, agent, config=config, **kwargs)
+        if not self.label:
+            return tools
+        for tool in tools:
+            if tool.extras is None:
+                tool.extras = {}
+            tool.extras.setdefault("module_id", self.id)
+        return tools
 
     async def get_instructions(
         self,
@@ -128,6 +162,22 @@ class BaseModule(Serializable):
         Формат значения: "python.import.path:variable_name".
         """
         return {}
+
+    async def is_enabled(
+        self,
+        user: "UserShort | None",
+        *,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> bool:
+        """True если у пользователя есть пререквизиты для использования модуля.
+
+        Используется API `/agent/modules` для отдачи фронту списка доступных
+        модулей. По умолчанию True (модуль доступен всем). Подклассы могут
+        переопределить, например, для проверки наличия секрета или connector-а.
+        """
+        _ = user, config, kwargs
+        return True
 
     async def on_startup(self, session: "AsyncSession", **kwargs: Any):
         """

@@ -109,7 +109,7 @@ def get_db_url() -> str:
     settings = get_settings()
     runtime = settings.giga_agent_runtime
 
-    if runtime == "local":
+    if runtime in ("local", "cli"):
         explicit = (settings.giga_agent_database_url or "").strip()
         if explicit:
             return explicit

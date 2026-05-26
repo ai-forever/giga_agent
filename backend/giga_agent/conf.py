@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from functools import lru_cache
+import json
 import os
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlsplit
-from urllib.parse import urlunsplit
+from typing import Any, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     giga_agent_ui_prefix: Optional[str] = Field(None, alias="GIGA_AGENT_UI_PREFIX")
 
     giga_agent_runtime: str = Field("local", alias="GIGA_AGENT_RUNTIME")
+    giga_agent_runtime_local: bool = Field(False, alias="GIGA_AGENT_RUNTIME_LOCAL")
+    giga_agent_cli_cwd: str | None = Field(None, alias="GIGA_AGENT_CLI_CWD")
+    giga_agent_cli_config: str | None = Field(None, alias="GIGA_AGENT_CLI_CONFIG")
+    giga_agent_cli_no_sandbox: bool = Field(
+        False, alias="GIGA_AGENT_CLI_NO_SANDBOX"
+    )
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",
@@ -41,6 +47,10 @@ class Settings(BaseSettings):
     giga_agent_docker_network: str | None = Field(
         None,
         alias="GIGA_AGENT_DOCKER_NETWORK",
+    )
+    giga_agent_public_base_domain: str | None = Field(
+        None,
+        alias="GIGA_AGENT_PUBLIC_BASE_DOMAIN",
     )
     giga_agent_host: str | None = Field(None, alias="GIGA_AGENT_HOST")
     giga_agent_port: str | None = Field(None, alias="GIGA_AGENT_PORT")
@@ -117,18 +127,18 @@ class Settings(BaseSettings):
         True, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
     )
     giga_agent_local_docker_image: str = Field(
-        "mikelarg/code-interpreter:0.0.5",
+        "mikelarg/code-interpreter:0.0.6",
         alias="GIGA_AGENT_LOCAL_DOCKER_IMAGE",
     )
     giga_agent_local_docker_memory_limit_mb: int = Field(
-        512, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
+        2048, alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB"
     )
     giga_agent_local_docker_memory_reservation_mb: int = Field(
         512,
         alias="GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB",
     )
     giga_agent_local_docker_vcpu: float = Field(
-        0.3, alias="GIGA_AGENT_LOCAL_DOCKER_VCPU"
+        1.0, alias="GIGA_AGENT_LOCAL_DOCKER_VCPU"
     )
     giga_agent_local_docker_pids_limit: int = Field(
         256, alias="GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT"
@@ -172,12 +182,30 @@ class Settings(BaseSettings):
     giga_agent_local_jupyter_python_executable: str | None = Field(
         None, alias="GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE"
     )
+    giga_agent_local_jupyter_secure_exec_default: bool = Field(
+        False, alias="GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_DEFAULT"
+    )
+    giga_agent_local_jupyter_secure_exec_backend: str = Field(
+        "auto", alias="GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND"
+    )
+    giga_agent_local_jupyter_allowed_read_roots: list[Path] = Field(
+        default_factory=lambda: [Path("/")],
+        alias="GIGA_AGENT_LOCAL_JUPYTER_ALLOWED_READ_ROOTS",
+    )
+    giga_agent_local_jupyter_allowed_write_roots: list[Path] = Field(
+        default_factory=list,
+        alias="GIGA_AGENT_LOCAL_JUPYTER_ALLOWED_WRITE_ROOTS",
+    )
+    giga_agent_local_jupyter_deny_read_roots: list[Path] = Field(
+        default_factory=list,
+        alias="GIGA_AGENT_LOCAL_JUPYTER_DENY_READ_ROOTS",
+    )
+    giga_agent_local_jupyter_network_mode: str = Field(
+        "host", alias="GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE"
+    )
 
     giga_agent_qdrant_pool_size: int | None = Field(
         None, alias="GIGA_AGENT_QDRANT_POOL_SIZE"
-    )
-    giga_agent_mem0_qdrant_ensure_cache: bool = Field(
-        True, alias="GIGA_AGENT_MEM0_QDRANT_ENSURE_CACHE"
     )
 
     giga_agent_scraper_jina_base_url: str = Field(
@@ -185,10 +213,25 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_SCRAPER_JINA_BASE_URL",
     )
     giga_agent_scraper_total_concurrency: int = Field(
-        8, alias="GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY"
+        3, alias="GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY"
     )
     giga_agent_scraper_disabled: bool = Field(
         False, alias="GIGA_AGENT_SCRAPER_DISABLED"
+    )
+
+    giga_agent_enable_think_tool: bool = Field(
+        True, alias="GIGA_AGENT_ENABLE_THINK_TOOL"
+    )
+    giga_agent_enable_think_tool_providers: list[str] = Field(
+        default_factory=lambda: ["gigachat"],
+        alias="GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS",
+    )
+    giga_agent_enable_multi_tool_use: bool = Field(
+        True, alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE"
+    )
+    giga_agent_enable_multi_tool_use_providers: list[str] = Field(
+        default_factory=lambda: ["gigachat"],
+        alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS",
     )
 
     giga_agent_tool_max_size: int = Field(25000, alias="GIGA_AGENT_TOOL_MAX_SIZE")
@@ -262,6 +305,14 @@ class Settings(BaseSettings):
         cleaned = value.strip()
         return cleaned or None
 
+    @field_validator("giga_agent_public_base_domain", mode="after")
+    @classmethod
+    def _normalize_public_base_domain(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip().lower().rstrip(".")
+        return cleaned or None
+
     @field_validator(
         "giga_agent_project_root",
         "giga_agent_host_project_path",
@@ -276,6 +327,50 @@ class Settings(BaseSettings):
         if value is None:
             return None
         return value.expanduser()
+
+    @field_validator(
+        "giga_agent_local_jupyter_allowed_read_roots",
+        "giga_agent_local_jupyter_allowed_write_roots",
+        "giga_agent_local_jupyter_deny_read_roots",
+        mode="before",
+    )
+    @classmethod
+    def _parse_path_list(cls, value: Any) -> list[Path]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned:
+                return []
+            if cleaned.startswith("["):
+                parsed = json.loads(cleaned)
+                return [Path(item).expanduser() for item in parsed]
+            separator = "," if "," in cleaned else os.pathsep
+            return [
+                Path(item.strip()).expanduser()
+                for item in cleaned.split(separator)
+                if item.strip()
+            ]
+        return [Path(item).expanduser() for item in value]
+
+    @field_validator("giga_agent_local_jupyter_network_mode", mode="after")
+    @classmethod
+    def _normalize_local_jupyter_network_mode(cls, value: str) -> str:
+        cleaned = (value or "host").strip().lower()
+        if cleaned not in {"host", "none"}:
+            raise ValueError("GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE must be host or none")
+        return cleaned
+
+    @field_validator("giga_agent_local_jupyter_secure_exec_backend", mode="after")
+    @classmethod
+    def _normalize_local_jupyter_secure_exec_backend(cls, value: str) -> str:
+        cleaned = (value or "auto").strip().lower()
+        if cleaned not in {"auto", "macos_sandbox_exec", "linux_bwrap"}:
+            raise ValueError(
+                "GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND must be "
+                "auto, macos_sandbox_exec, or linux_bwrap"
+            )
+        return cleaned
 
     @field_validator("giga_agent_scraper_jina_base_url", mode="after")
     @classmethod
@@ -369,6 +464,9 @@ def get_local_docker_max_active_sandboxes_from_env() -> int | None:
 
 GIGA_AGENT_PREFIX_API = get_settings().giga_agent_prefix_api
 GIGA_PREFIX_API = GIGA_AGENT_PREFIX_API
+GIGA_AGENT_RUNTIME = get_settings().giga_agent_runtime
+GIGA_AGENT_RUNTIME_LOCAL = get_settings().giga_agent_runtime_local
+GIGA_AGENT_CLI_CWD = get_settings().giga_agent_cli_cwd
 GIGA_AGENT_STT_RUNTIME = get_settings().giga_agent_stt_runtime
 GIGA_AGENT_BASE_URL = get_settings().giga_agent_base_url
 GIGA_AGENT_FRONTEND_DIR = get_settings().giga_agent_frontend_dir
@@ -406,6 +504,14 @@ GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC = (
 )
 GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY = (
     get_settings().giga_agent_sandbox_orphan_sweeper_concurrency
+)
+GIGA_AGENT_ENABLE_THINK_TOOL = get_settings().giga_agent_enable_think_tool
+GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS = (
+    get_settings().giga_agent_enable_think_tool_providers
+)
+GIGA_AGENT_ENABLE_MULTI_TOOL_USE = get_settings().giga_agent_enable_multi_tool_use
+GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS = (
+    get_settings().giga_agent_enable_multi_tool_use_providers
 )
 GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
 GIGA_AGENT_SKIP_ONBOARDING = get_settings().giga_agent_skip_onboarding

@@ -7,12 +7,8 @@ from langchain_core.tools import BaseTool
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule, SecretMetadata
 from giga_agent.models.users import UserShort
-from giga_agent.modules.vk.tools import (
-    vk_get_comments,
-    vk_get_last_comments,
-    vk_get_posts,
-    VK_SECRET_KEY,
-)
+
+VK_SECRET_KEY = "VK_TOKEN"
 
 
 def _has_secret(user: UserShort | None, key: str) -> bool:
@@ -29,6 +25,15 @@ def _has_secret(user: UserShort | None, key: str) -> bool:
 
 class VKModule(BaseModule):
     id: str = "vk"
+    label: str = "VK"
+    description: str = "Работа с API ВКонтакте"
+    icon: str = "MessageCircle"
+
+    async def is_enabled(
+        self, user: UserShort | None, *, config=None, **kwargs: Any
+    ) -> bool:
+        _ = config, kwargs
+        return _has_secret(user, VK_SECRET_KEY)
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
         _ = kwargs
@@ -40,10 +45,16 @@ class VKModule(BaseModule):
             }
         ]
 
-    async def get_tools(
-        self, user: UserShort | None, agent: BaseAgent
+    async def _get_tools(
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
         if not _has_secret(user, VK_SECRET_KEY):
             return []
+        from giga_agent.modules.vk.tools import (
+            vk_get_comments,
+            vk_get_last_comments,
+            vk_get_posts,
+        )
+
         return [vk_get_posts, vk_get_comments, vk_get_last_comments]

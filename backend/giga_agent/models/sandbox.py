@@ -465,6 +465,10 @@ class SandboxRepository:
         return f"sandboxpair:owner:{owner_id}:default"
 
     @staticmethod
+    def cache_key_owner_by_sandbox(sandbox_id: uuid.UUID) -> str:
+        return f"sandbox:owner-by-id:{sandbox_id}"
+
+    @staticmethod
     def to_pair_snapshot(
         provider: SandboxProvider,
         sandbox: Sandbox,
@@ -543,6 +547,27 @@ class SandboxRepository:
             select(Sandbox).where(Sandbox.id == sandbox_id)
         )
         return result.scalar_one_or_none()
+
+    async def get_owner_id_by_sandbox_cached(
+        self, sandbox_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        """Вернуть owner_id песочницы по её ID с кэшем (TTL SANDBOXPAIR_CACHE_TTL).
+
+        Используется для проверки доступа на каждом sub-request от nginx
+        auth_request — горячий путь, поэтому без обращения в БД при попадании.
+        """
+        key = SandboxRepository.cache_key_owner_by_sandbox(sandbox_id)
+        cached = await cache.get(key)
+        if cached is not None:
+            try:
+                return uuid.UUID(cached)
+            except (ValueError, TypeError):
+                pass
+        sandbox = await self.get_by_id(sandbox_id)
+        if sandbox is None:
+            return None
+        await cache.set(key, str(sandbox.owner_id), expire=SANDBOXPAIR_CACHE_TTL)
+        return sandbox.owner_id
 
     async def get_by_id_with_provider(
         self, sandbox_id: uuid.UUID
@@ -747,8 +772,10 @@ class SandboxRepository:
 
     async def delete(self, sandbox: Sandbox) -> None:
         """Удалить sandbox."""
+        sandbox_id = sandbox.id
         await self.db.delete(sandbox)
         await self.db.commit()
+        await cache.delete(SandboxRepository.cache_key_owner_by_sandbox(sandbox_id))
 
     @staticmethod
     def to_response(sandbox: Sandbox) -> SandboxResponse:

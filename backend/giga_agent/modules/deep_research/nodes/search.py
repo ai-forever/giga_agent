@@ -89,7 +89,7 @@ async def search_node(state: DeepResearchState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        engine = await resolve_user_search_engine(user, session=session)
+        engine = await resolve_user_search_engine(user, session=session, config=config)
     try:
         batch = await engine.search(ordered_queries)
     except Exception:

@@ -28,6 +28,7 @@ from giga_agent.models.users import User, UserRepository
 from giga_agent.models.file import FileRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.rag import RagDocumentsRepository
+from giga_agent.modules.skills.service import SkillsService
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxProviderCreate,
@@ -227,6 +228,7 @@ async def create_sandbox_provider(
         user.sandbox_provider_id = provider.id
         await provider_repo.db.commit()
         await UserRepository.invalidate_cache(current_user.id)
+        await SkillsService.invalidate_list_cache(current_user.id)
 
     await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
 
@@ -502,6 +504,7 @@ async def delete_sandbox_provider(
         user.sandbox_provider_id = None
         await provider_repo.db.commit()
         await UserRepository.invalidate_cache(provider.owner_id)
+        await SkillsService.invalidate_list_cache(provider.owner_id)
 
     provider_snapshot = SandboxProviderSnapshot(
         id=provider.id,

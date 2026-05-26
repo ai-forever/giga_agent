@@ -94,6 +94,10 @@ from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )
+from giga_agent.models.memory import (
+    MemoryFile,
+    MemoryFileRepository,
+)
 from giga_agent.models.group import (
     Group,
     GroupMember,
@@ -110,6 +114,19 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionsPayload,
     ResourcePermissionRepository,
 )
+from giga_agent.models.skill import (
+    Skill,
+    SkillSourceType,
+    SkillSummary,
+    SkillResponse,
+    SkillFile,
+    SkillActivation,
+    BuiltinSkillInfo,
+    SkillCreate,
+    SkillUpdate,
+    SkillRepository,
+)
+
 from giga_agent.models.channel import (
     ChannelBot,
     ChannelThread,
@@ -205,6 +222,9 @@ __all__ = [
     "RagDocument",
     "RagCollectionsRepository",
     "RagDocumentsRepository",
+    # Memory
+    "MemoryFile",
+    "MemoryFileRepository",
     # Groups
     "Group",
     "GroupMember",
@@ -219,6 +239,17 @@ __all__ = [
     "ResourcePermission",
     "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
+    # Skills
+    "Skill",
+    "SkillSourceType",
+    "SkillSummary",
+    "SkillResponse",
+    "SkillFile",
+    "SkillActivation",
+    "BuiltinSkillInfo",
+    "SkillCreate",
+    "SkillUpdate",
+    "SkillRepository",
     # Channels
     "ChannelBot",
     "ChannelThread",
