@@ -58,6 +58,50 @@ def _qdrant_create_helpers():
     return get_qdrant_client, resolve_qdrant_collection
 
 
+async def create_collection_for_user(
+    *,
+    user: UserShort,
+    db: AsyncSession,
+    name: str,
+    metadata: dict | None = None,
+):
+    """Create a RAG collection on behalf of a user.
+
+    Raises HTTPException(400) if the user has no embedding configured, or
+    HTTPException(409) on a duplicate name. Ensures the underlying Qdrant
+    tech collection exists for the user's embedding model.
+    """
+    if user.embedding_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User embedding model is not configured",
+        )
+
+    runtime = await EmbeddingManager.resolve_by_id(user.embedding_id, session=db)
+    vector_size = int(runtime.vector_size)
+
+    client = get_qdrant_client()
+    await resolve_qdrant_collection(
+        client=client,
+        collection_name=rag_qdrant_collection_name_for_embedding(user.embedding_id),
+        vector_size=vector_size,
+    )
+
+    repo = RagCollectionsRepository(db)
+    try:
+        return await repo.create(
+            owner_id=user.id,
+            name=name,
+            embedding_id=user.embedding_id,
+            metadata=metadata,
+        )
+    except IntegrityError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Collection with this name already exists",
+        )
+
+
 def _qdrant_delete_helpers():
     return build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection
 
@@ -73,41 +117,12 @@ async def collections_create(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Creates a new collection with optional metadata."""
-    if current_user.embedding_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User embedding model is not configured",
-        )
-
-    # Ensure Qdrant tech collection exists for this embedding model.
-    runtime = await EmbeddingManager.resolve_by_id(
-        current_user.embedding_id,
-        session=db,
+    created = await create_collection_for_user(
+        user=current_user,
+        db=db,
+        name=collection_data.name,
+        metadata=collection_data.metadata,
     )
-    vector_size = int(runtime.vector_size)
-
-    get_qdrant_client, resolve_qdrant_collection = _qdrant_create_helpers()
-    client = get_qdrant_client()
-    await resolve_qdrant_collection(
-        client=client,
-        collection_name=rag_qdrant_collection_name_for_embedding(current_user.embedding_id),
-        vector_size=vector_size,
-    )
-
-    repo = RagCollectionsRepository(db)
-    try:
-        created = await repo.create(
-            owner_id=current_user.id,
-            name=collection_data.name,
-            embedding_id=current_user.embedding_id,
-            metadata=collection_data.metadata,
-        )
-    except IntegrityError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Collection with this name already exists",
-        )
-
     return CollectionResponse(
         uuid=str(created.id),
         name=created.name,
@@ -121,7 +136,11 @@ async def collections_list(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
-    """Lists all available collections (name and UUID)."""
+    """Lists all available collections (name and UUID).
+
+    Collections owned by a Project are hidden — they're managed on the
+    project's own page, not in the global RAG list.
+    """
     repo = RagCollectionsRepository(db)
     rows = await repo.list_readable_with_edit_for_user(user_id=current_user.id)
     return [
@@ -132,6 +151,7 @@ async def collections_list(
             metadata=collection.metadata_ or {},
         )
         for collection, can_edit in rows
+        if not (collection.metadata_ or {}).get("project_id")
     ]
 
 

@@ -9,16 +9,54 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
+from giga_agent.core.logging import get_logger
 from giga_agent.models.project import (
     ProjectCreate,
     ProjectRepository,
     ProjectResponse,
     ProjectUpdate,
 )
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user
 
+logger = get_logger(__name__)
+
 router = APIRouter(tags=["projects"])
+
+
+def _project_collection_name(project_id: uuid.UUID) -> str:
+    return f"__project_{project_id}__"
+
+
+async def _try_create_project_collection(
+    *,
+    user: UserShort,
+    db: AsyncSession,
+    project_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Best-effort creation of a backing RAG collection for a project.
+
+    Returns the collection id on success, or None if the user has no
+    embedding configured (the project is still saved without a knowledge
+    base — collection can be created later).
+    """
+    if getattr(user, "embedding_id", None) is None:
+        return None
+    # Imported here to avoid a cycle (rag.api → projects → rag.api).
+    from giga_agent.modules.rag.api.collections import create_collection_for_user
+
+    try:
+        collection = await create_collection_for_user(
+            user=user,
+            db=db,
+            name=_project_collection_name(project_id),
+            metadata={"project_id": str(project_id)},
+        )
+    except Exception:
+        logger.exception("Failed to create project-backed RAG collection")
+        return None
+    return collection.id
 
 
 @router.get("/", response_model=list[ProjectResponse])
@@ -48,6 +86,13 @@ async def create_project(
         raise HTTPException(
             status_code=409, detail="Project with this name already exists"
         )
+
+    collection_id = await _try_create_project_collection(
+        user=current_user, db=db, project_id=project.id
+    )
+    if collection_id is not None:
+        project = await repo.update(project, collection_id=collection_id)
+
     return ProjectResponse.model_validate(project)
 
 
@@ -94,5 +139,18 @@ async def delete_project(
     project = await repo.get_for_owner(project_id, current_user.id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    collection_id = project.collection_id
     await repo.delete(project)
+    if collection_id is not None:
+        try:
+            collections = RagCollectionsRepository(db)
+            collection = await collections.get_by_id(
+                owner_id=current_user.id, collection_id=collection_id
+            )
+            if collection is not None:
+                await db.delete(collection)
+                await db.commit()
+        except Exception:
+            logger.exception("Failed to delete project-backed RAG collection")
     return None

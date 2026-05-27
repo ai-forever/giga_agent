@@ -31,6 +31,7 @@ import {
   Project,
   updateProject,
 } from "./api";
+import KnowledgeSection from "./KnowledgeSection";
 
 const errorDetail = (e: unknown, fallback: string): string => {
   if (e instanceof ApiError) return e.message || fallback;
@@ -285,6 +286,8 @@ const ProjectPage: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+
+        <KnowledgeSection collectionId={project.collection_id} />
 
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
