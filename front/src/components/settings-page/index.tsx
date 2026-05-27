@@ -1,7 +1,5 @@
 import React from "react";
-import { ArrowLeft } from "lucide-react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GeneralSettings } from "./general";
 import { LLMSettings } from "./llms";
