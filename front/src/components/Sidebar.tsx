@@ -5,6 +5,8 @@ import {
   ChevronRight,
   Download,
   Files,
+  FolderOpen,
+  FolderPlus,
   Loader2,
   LogOut,
   MoreHorizontal,
@@ -22,6 +24,11 @@ import { useAuth } from "@/components/providers/auth.tsx";
 import type { Thread } from "@langchain/langgraph-sdk";
 import { useLangGraphClient } from "@/hooks/useLangGraphClient";
 import { appEvents, refreshThreads, THREADS_REFRESH_EVENT } from "@/lib/events";
+import {
+  createProject,
+  listProjects,
+  Project,
+} from "@/components/projects/api";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -127,6 +134,19 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const [threadsTotal, setThreadsTotal] = useState<number | null>(null);
   const [threadsHasMore, setThreadsHasMore] = useState(false);
   const [threadsRefreshTick, setThreadsRefreshTick] = useState(0);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState("");
+  const [createProjectSaving, setCreateProjectSaving] = useState(false);
+  const [createProjectError, setCreateProjectError] = useState<string | null>(
+    null,
+  );
+
+  const activeProjectId = useMemo(() => {
+    const match = location.pathname.match(/^\/projects\/([^/?#]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }, [location.pathname]);
   const [typedTitles, setTypedTitles] = useState<Record<string, string>>({});
   const [lastSeen, setLastSeen] = useState<Record<string, string>>(() =>
     readLastSeenFromStorage(),
@@ -548,6 +568,54 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     onNewChat();
   };
 
+  const reloadProjects = React.useCallback(async (signal?: AbortSignal) => {
+    setProjectsLoading(true);
+    try {
+      const list = await listProjects({ signal });
+      setProjects(list);
+    } catch (e) {
+      if (signal?.aborted) return;
+      console.error("Failed to load projects", e);
+    } finally {
+      if (!signal?.aborted) setProjectsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const ctrl = new AbortController();
+    void reloadProjects(ctrl.signal);
+    return () => ctrl.abort();
+  }, [user, reloadProjects]);
+
+  const handleOpenProject = (projectId: string) => {
+    closeSidebarOnMobile();
+    navigate(`/projects/${projectId}`);
+  };
+
+  const submitCreateProject = async () => {
+    const name = createProjectName.trim();
+    if (!name) {
+      setCreateProjectError("Введите название");
+      return;
+    }
+    setCreateProjectSaving(true);
+    setCreateProjectError(null);
+    try {
+      const created = await createProject({ name });
+      setProjects((prev) => [created, ...prev]);
+      setCreateProjectOpen(false);
+      setCreateProjectName("");
+      navigate(`/projects/${created.id}`);
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error ? e.message : "Не удалось создать проект";
+      setCreateProjectError(message);
+    } finally {
+      setCreateProjectSaving(false);
+    }
+  };
+
   const handleOpenThread = (threadId: string) => {
     closeSidebarOnMobile();
     const opened = threads.find((t) => t.thread_id === threadId);
@@ -764,6 +832,57 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
           >
             <Files size={20} className="mr-2" />
             Документы
+          </div>
+        )}
+
+        <hr className="my-3 border-border/60" />
+
+        {user && (
+          <div className="flex flex-col">
+            <div className="flex items-center justify-between gap-2 px-2 py-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Проекты
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground"
+                onClick={() => {
+                  setCreateProjectName("");
+                  setCreateProjectError(null);
+                  setCreateProjectOpen(true);
+                }}
+                aria-label="Создать проект"
+              >
+                <FolderPlus className="h-4 w-4" />
+              </Button>
+            </div>
+            {projectsLoading && projects.length === 0 ? (
+              <div className="px-2 py-1 text-sm text-muted-foreground">
+                Загрузка…
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="px-2 py-1 text-xs text-muted-foreground">
+                Нет проектов
+              </div>
+            ) : (
+              projects.map((p) => {
+                const isActive = activeProjectId === p.id;
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => handleOpenProject(p.id)}
+                    className={[
+                      "flex items-center gap-2 px-2 py-1 h-8 text-sm rounded-lg cursor-pointer hover:bg-muted/50",
+                      isActive ? "bg-accent text-accent-foreground" : "",
+                    ].join(" ")}
+                  >
+                    <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 min-w-0 truncate">{p.name}</span>
+                  </div>
+                );
+              })
+            )}
           </div>
         )}
 
@@ -1064,6 +1183,62 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       </Dialog>
 
       {/* Rename dialog */}
+      <Dialog
+        open={createProjectOpen}
+        onOpenChange={(open) => {
+          if (createProjectSaving) return;
+          setCreateProjectOpen(open);
+          if (!open) {
+            setCreateProjectName("");
+            setCreateProjectError(null);
+          }
+        }}
+      >
+        <DialogContent
+          onClick={(e) => e.stopPropagation()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>Новый проект</DialogTitle>
+            <DialogDescription>
+              Проекты группируют чаты и задают общие инструкции для агента.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={createProjectName}
+              onChange={(e) => setCreateProjectName(e.target.value)}
+              placeholder="Название проекта"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void submitCreateProject();
+              }}
+              aria-invalid={Boolean(createProjectError) || undefined}
+            />
+            {createProjectError && (
+              <div className="text-sm text-destructive">
+                {createProjectError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateProjectOpen(false)}
+              disabled={createProjectSaving}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => void submitCreateProject()}
+              disabled={createProjectSaving}
+            >
+              {createProjectSaving ? "Создание…" : "Создать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={renameOpen}
         onOpenChange={(open) => {
