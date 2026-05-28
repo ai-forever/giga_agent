@@ -2,11 +2,12 @@ name: Build and push Docker image to GHCR
 
 on:
   push:
-    branches: [feat/add-ci-image]
+    branches: [main, feat/add-ci-image]
     tags: ["v*.*.*"]
     paths:
-      - "deployments/local/Dockerfile"
+      - "deployments/quickstart/Dockerfile"
       - "backend/**"
+      - "front/**"
       - "README.md"
       - ".github/workflows/publish-ghcr.yml"
   workflow_dispatch:
@@ -74,7 +75,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./deployments/local/Dockerfile
+          file: ./deployments/quickstart/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
