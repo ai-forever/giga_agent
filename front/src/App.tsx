@@ -70,8 +70,10 @@ const InnerApp: React.FC = () => {
 
   // эта функция будет прокидываться в Sidebar
   const handleNavigateAndReload = useCallback(() => {
-    // переключаем флаг, чтобы сделать новый key у соседнего компонента
-    setReloadKey((prev) => prev + 1);
+    // Только останавливаем текущий стрим. Remount (новый reloadKey) выполняет
+    // эффект выше — он меняет key лишь когда маршрут уже стал "/". Если бампать
+    // key здесь, <Chat> успевает перемонтироваться, пока маршрут ещё
+    // /threads/:id, и новый useStream грузит state предыдущего треда.
     if (currentThreadRef.current) {
       currentThreadRef.current.stop();
     }

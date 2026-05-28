@@ -42,11 +42,11 @@ import {
 } from "./Attachments.tsx";
 import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
+import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
-import { useAuth } from "@/components/providers/auth.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 import {
@@ -68,6 +68,26 @@ import ModelPicker from "./ModelPicker";
 import TokenUsageIndicator from "./TokenUsageIndicator";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
+
+// #region debug
+const DEBUG_SESSION_ID = "branch-switcher-send-from-branch-6cc880";
+const DEBUG_LOG_URL = "http://localhost:8787/log";
+const debugLog = (
+  msg: string,
+  data: Record<string, unknown> = {},
+  hypothesisId?: string,
+) => {
+  const payload = JSON.stringify({
+    sessionId: DEBUG_SESSION_ID,
+    msg,
+    data,
+    hypothesisId,
+    loc: new Error().stack?.split("\n")[2]?.trim(),
+  });
+  if (navigator.sendBeacon?.(DEBUG_LOG_URL, payload)) return;
+  fetch(DEBUG_LOG_URL, { method: "POST", body: payload }).catch(() => {});
+};
+// #endregion
 
 const ModuleIcon: React.FC<{ name: string; className?: string }> = ({
   name,
@@ -168,7 +188,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     deactivateCollection,
   } = useRagContext();
   const { settings, setSettings } = useSettings();
-  const { user } = useAuth();
   const {
     mcpTools,
     openMcpModal,
@@ -204,6 +223,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   );
 
   const selectedCount = Object.keys(selected).length;
+  const branches = useBranches();
 
   const isUploading = uploads.some((u) => u.progress < 100 && !u.error);
   const handleSendMessage = useCallback(
@@ -217,29 +237,43 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           selected: selected,
         },
       } as HumanMessage;
-      const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
-      const contextInstructions =
-        typeof userSettings.contextInstructions === "string"
-          ? userSettings.contextInstructions
-          : "";
-      const contextSecrets = Array.isArray(userSettings.contextSecrets)
-        ? userSettings.contextSecrets
-        : [];
       clear();
+      // Continue from the branch currently being viewed (head by default),
+      // then stream the new run into the head view.
+      const baseMessages = branches.isViewingNonHead
+        ? branches.activeMessages
+        : (thread?.messages ?? []);
+      const forkCheckpoint = branches.isViewingNonHead
+        ? branches.activeCheckpoint
+        : undefined;
+      debugLog(
+        "Send from input",
+        {
+          content,
+          isViewingNonHead: branches.isViewingNonHead,
+          activeBranch: branches.activeBranch,
+          forkCheckpointId: forkCheckpoint?.checkpoint_id ?? null,
+          viewedMessageIds: branches.viewedMessages.map((m) => m.id ?? null),
+          activeMessageIds: branches.activeMessages.map((m) => m.id ?? null),
+        },
+        "H6",
+      );
       thread?.submit(
         {
           messages: [newMessage],
           collections: enabledCollections,
           mcp_tools: mcpToolsPayload,
-          secrets: contextSecrets,
-          instructions: contextInstructions,
         },
         {
           optimisticValues(prev) {
             const prevMessages = prev.messages ?? [];
-            const newMessages = [...prevMessages, newMessage];
+            const sourceMessages = branches.isViewingNonHead
+              ? baseMessages
+              : prevMessages;
+            const newMessages = [...sourceMessages, newMessage];
             return { ...prev, messages: newMessages };
           },
+          checkpoint: forkCheckpoint,
           streamMode: ["messages"],
           onDisconnect: "continue",
           config: {
@@ -259,11 +293,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     },
     [
       thread,
+      branches,
       selected,
       clear,
       mcpToolsPayload,
       enabledCollections,
-      user,
       deepResearchForced,
       selectedSkillNames,
       clearSelectedSkills,
