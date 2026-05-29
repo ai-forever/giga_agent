@@ -31,7 +31,7 @@ COPY backend/hatch_metadata.py ./backend/hatch_metadata.py
 COPY backend/giga_agent/ ./backend/giga_agent/
 COPY --from=frontend /front/dist ./front/dist
 
-RUN pip install ./backend
+RUN pip install "./backend[jupyter]"
 
 EXPOSE 9090
 VOLUME ["/data/.giga_agent"]
