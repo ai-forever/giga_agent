@@ -2,7 +2,7 @@ name: Build and push Docker image to Docker Hub
 
 on:
   push:
-    branches: [main, feat/add-ci-image]
+    branches: [main]
     tags: ["v*.*.*"]
     paths:
       - "deployments/quickstart/Dockerfile"
