@@ -106,6 +106,16 @@ async def get_project(
     project = await repo.get_for_owner(project_id, current_user.id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Lazy-create a backing collection for legacy projects that were
+    # created before the user configured an embedding model.
+    if project.collection_id is None:
+        collection_id = await _try_create_project_collection(
+            user=current_user, db=db, project_id=project.id
+        )
+        if collection_id is not None:
+            project = await repo.update(project, collection_id=collection_id)
+
     return ProjectResponse.model_validate(project)
 
 

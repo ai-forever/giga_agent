@@ -206,3 +206,23 @@ class ProjectsAPIWithCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertIsNone(resp.json()["collection_id"])
         self.assertEqual(await self._count_collections(), 0)
+
+    async def test_get_lazily_creates_collection_for_legacy_project(self):
+        # Project created when embedding was missing → no backing collection.
+        self.user.embedding_id = None
+        created = self.client.post("/projects/", json={"name": "legacy"}).json()
+        self.assertIsNone(created["collection_id"])
+        self.assertEqual(await self._count_collections(), 0)
+
+        # User configures embedding later; opening the project should now
+        # bring a collection into existence.
+        self.user.embedding_id = self.embedding_id
+        resp = self.client.get(f"/projects/{created['id']}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIsNotNone(data["collection_id"])
+        self.assertEqual(await self._count_collections(), 1)
+
+        # Idempotent — second GET doesn't create a duplicate.
+        self.client.get(f"/projects/{created['id']}")
+        self.assertEqual(await self._count_collections(), 1)
