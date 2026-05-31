@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { FileUp, Trash2 } from "lucide-react";
+import { FileUp, Settings as SettingsIcon, Trash2 } from "lucide-react";
 
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient, ApiError } from "@/lib/api-client";
@@ -38,7 +39,24 @@ const KnowledgeSection: React.FC<Props> = ({ collectionId }) => {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [sandboxReady, setSandboxReady] = useState<boolean | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const providers = await apiClient.get<unknown[]>(
+          `${API_AGENT_PREFIX}/sandboxes/providers`,
+          { signal: ctrl.signal, showError: false },
+        );
+        if (!ctrl.signal.aborted) setSandboxReady(providers.length > 0);
+      } catch {
+        if (!ctrl.signal.aborted) setSandboxReady(false);
+      }
+    })();
+    return () => ctrl.abort();
+  }, []);
 
   const baseUrl = collectionId
     ? `${API_AGENT_PREFIX}/rag/collections/${encodeURIComponent(collectionId)}/documents`
@@ -143,17 +161,39 @@ const KnowledgeSection: React.FC<Props> = ({ collectionId }) => {
             className="hidden"
             onChange={(e) => void handleFiles(e.target.files)}
           />
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <FileUp className="w-4 h-4 mr-1" />
-            {uploading ? "Загрузка…" : "Загрузить"}
-          </Button>
+          {sandboxReady === false ? (
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/settings/sandbox">
+                <SettingsIcon className="w-4 h-4 mr-1" />
+                Настроить sandbox
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={uploading || sandboxReady === null}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FileUp className="w-4 h-4 mr-1" />
+              {uploading ? "Загрузка…" : "Загрузить"}
+            </Button>
+          )}
         </div>
       </div>
+
+      {sandboxReady === false && (
+        <div className="text-xs text-muted-foreground rounded-md bg-muted/50 px-3 py-2">
+          Файлы знаний сохраняются в твой sandbox, а оттуда индексируются.{" "}
+          <Link
+            to="/settings/sandbox"
+            className="underline hover:text-foreground"
+          >
+            Настройте sandbox provider
+          </Link>
+          , чтобы включить загрузку.
+        </div>
+      )}
 
       {loading && documents.length === 0 ? (
         <div className="text-sm text-muted-foreground">Загрузка…</div>
