@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Brain,
+  ChevronDown,
   ChevronRight,
   Download,
   Files,
@@ -9,6 +10,7 @@ import {
   FolderPlus,
   Loader2,
   LogOut,
+  MessageSquarePlus,
   MoreHorizontal,
   Pencil,
   Settings as SettingsIcon,
@@ -142,6 +144,20 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const [createProjectError, setCreateProjectError] = useState<string | null>(
     null,
   );
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("sidebar_expanded_projects_v1");
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [projectThreads, setProjectThreads] = useState<
+    Record<string, Thread[]>
+  >({});
+  const [projectThreadsLoading, setProjectThreadsLoading] = useState<
+    Record<string, boolean>
+  >({});
 
   const activeProjectId = useMemo(() => {
     const match = location.pathname.match(/^\/projects\/([^/?#]+)/);
@@ -593,6 +609,103 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     navigate(`/projects/${projectId}`);
   };
 
+  const loadProjectThreads = React.useCallback(
+    async (projectId: string) => {
+      if (!langGraphClient) return;
+      setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: true }));
+      try {
+        const list = await langGraphClient.threads.search({
+          metadata: { project_id: projectId },
+          limit: 50,
+          sortBy: "updated_at",
+          sortOrder: "desc",
+        });
+        setProjectThreads((prev) => ({ ...prev, [projectId]: list }));
+      } catch (e) {
+        console.error("Failed to load threads for project", projectId, e);
+      } finally {
+        setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: false }));
+      }
+    },
+    [langGraphClient],
+  );
+
+  const toggleProjectExpanded = (projectId: string) => {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev);
+      const wasOpen = next.has(projectId);
+      if (wasOpen) next.delete(projectId);
+      else next.add(projectId);
+      try {
+        localStorage.setItem(
+          "sidebar_expanded_projects_v1",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {
+        /* ignore */
+      }
+      if (!wasOpen && projectThreads[projectId] === undefined) {
+        void loadProjectThreads(projectId);
+      }
+      return next;
+    });
+  };
+
+  // Auto-load threads for any project that's already expanded but has no
+  // data yet (e.g., on first paint when expansion came from localStorage).
+  useEffect(() => {
+    if (!langGraphClient) return;
+    for (const projectId of expandedProjects) {
+      if (projectThreads[projectId] === undefined) {
+        void loadProjectThreads(projectId);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedProjects, langGraphClient, loadProjectThreads]);
+
+  // Refresh open project threads when something elsewhere (e.g., new chat
+  // from a project page, project deletion) signals a refresh.
+  useEffect(() => {
+    const handler = () => {
+      for (const projectId of expandedProjects) {
+        void loadProjectThreads(projectId);
+      }
+    };
+    appEvents.addEventListener(THREADS_REFRESH_EVENT, handler);
+    return () => appEvents.removeEventListener(THREADS_REFRESH_EVENT, handler);
+  }, [expandedProjects, loadProjectThreads]);
+
+  const handleNewChatInProject = async (projectId: string) => {
+    if (!langGraphClient) return;
+    closeSidebarOnMobile();
+    try {
+      const t = await langGraphClient.threads.create({
+        metadata: { project_id: projectId, graph_id: "giga_agent" },
+      });
+      // Optimistically prepend so the chat appears under the project right away.
+      setProjectThreads((prev) => {
+        const existing = prev[projectId] ?? [];
+        return { ...prev, [projectId]: [t as Thread, ...existing] };
+      });
+      setExpandedProjects((prev) => {
+        if (prev.has(projectId)) return prev;
+        const next = new Set(prev).add(projectId);
+        try {
+          localStorage.setItem(
+            "sidebar_expanded_projects_v1",
+            JSON.stringify(Array.from(next)),
+          );
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+      navigate(`/threads/${t.thread_id}`);
+    } catch (e) {
+      console.error("Failed to create chat in project", e);
+    }
+  };
+
   const submitCreateProject = async () => {
     const name = createProjectName.trim();
     if (!name) {
@@ -875,17 +988,87 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
             ) : (
               projects.map((p) => {
                 const isActive = activeProjectId === p.id;
+                const isExpanded = expandedProjects.has(p.id);
+                const childThreads = projectThreads[p.id] ?? [];
+                const childLoading = projectThreadsLoading[p.id] ?? false;
                 return (
-                  <div
-                    key={p.id}
-                    onClick={() => handleOpenProject(p.id)}
-                    className={[
-                      "flex items-center gap-2 px-2 py-1 h-8 text-sm rounded-lg cursor-pointer hover:bg-muted/50",
-                      isActive ? "bg-accent text-accent-foreground" : "",
-                    ].join(" ")}
-                  >
-                    <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 min-w-0 truncate">{p.name}</span>
+                  <div key={p.id}>
+                    <div
+                      className={[
+                        "group flex items-center gap-1 pl-1 pr-1 py-1 h-8 text-sm rounded-lg hover:bg-muted/50",
+                        isActive ? "bg-accent text-accent-foreground" : "",
+                      ].join(" ")}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleProjectExpanded(p.id);
+                        }}
+                        className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0"
+                        aria-label={isExpanded ? "Свернуть" : "Развернуть"}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <div
+                        onClick={() => handleOpenProject(p.id)}
+                        className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                      >
+                        <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 min-w-0 truncate">
+                          {p.name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleNewChatInProject(p.id);
+                        }}
+                        className="h-6 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        aria-label="Новый чат в проекте"
+                        title="Новый чат"
+                      >
+                        <MessageSquarePlus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="ml-5 pl-2 border-l border-border/40 flex flex-col">
+                        {childLoading && childThreads.length === 0 ? (
+                          <div className="px-2 py-1 text-xs text-muted-foreground">
+                            Загрузка…
+                          </div>
+                        ) : childThreads.length === 0 ? (
+                          <div className="px-2 py-1 text-xs text-muted-foreground">
+                            Пока пусто
+                          </div>
+                        ) : (
+                          childThreads.map((t) => {
+                            const title = getThreadTitle(t);
+                            const isActiveThread =
+                              activeThreadId === t.thread_id;
+                            return (
+                              <div
+                                key={t.thread_id}
+                                onClick={() => handleOpenThread(t.thread_id)}
+                                className={[
+                                  "px-2 py-1 h-7 text-xs rounded-lg cursor-pointer truncate hover:bg-muted/50",
+                                  isActiveThread
+                                    ? "bg-accent text-accent-foreground"
+                                    : "",
+                                ].join(" ")}
+                              >
+                                {title}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })
