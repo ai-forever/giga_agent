@@ -11,6 +11,7 @@ import {
   Check,
   Cog,
   Files,
+  FolderOpen,
   Loader2,
   Mic,
   Paperclip,
@@ -50,6 +51,7 @@ import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate, useParams } from "react-router-dom";
 import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
+import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -134,6 +136,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
+  const { project: threadProject } = useThreadProject(threadId);
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(
     getInitialIsMobileDevice,
@@ -842,6 +845,17 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         </div>
       )}
       <div className="relative p-4 pb-3 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[880px] mx-auto overflow-hidden">
+        {threadProject && (
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${threadProject.id}`)}
+            className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="Открыть проект"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span className="truncate max-w-[200px]">{threadProject.name}</span>
+          </button>
+        )}
         <div className="relative">
           <input
             className="hidden"
