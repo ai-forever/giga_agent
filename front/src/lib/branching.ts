@@ -1,308 +1,204 @@
-// Branch-tree reconstruction ported from
-// @langchain/langgraph-sdk/dist/ui/branching.js.
+// Message-level branch tree.
 //
 // The app opens threads with `fetchStateHistory: false`, so the SDK's built-in
-// branch helpers (getMessagesMetadata / branch / setBranch) are unavailable.
-// We instead fetch a compact, deduplicated history from the backend (see
-// `branches-api.ts`) and run the same algorithm on it here. The algorithm needs
-// only `checkpoint.checkpoint_id`, `parent_checkpoint.checkpoint_id` and the
-// message ids inside `values` — all present in the rehydrated compact tree.
+// branch helpers (getMessagesMetadata / branch / setBranch) are unavailable. We
+// fetch a compact, deduplicated history from the backend (see `branches-api.ts`)
+// and reconstruct branches here.
+//
+// Unlike the SDK's algorithm — which threads through every internal checkpoint
+// (`__start__`, `before_model`, `model`, …) and so has to work around node-step
+// noise — we collapse straight to the *messages*. Each state's message list is a
+// linear path of message ids; chaining those paths yields a tree keyed by
+// message id. A message position has alternatives ("branches") exactly when one
+// message has more than one distinct following message across the history (an
+// edit or a regeneration). This maps directly onto the switcher the UI renders
+// under a message, and lets us pick the live head by recency instead of by
+// checkpoint-id ordering.
 
 import type { Message, ThreadState } from "@langchain/langgraph-sdk";
 
 export type AnyThreadState = ThreadState<any>;
-
-function findLast<T>(
-  arr: T[],
-  predicate: (value: T) => boolean,
-): T | undefined {
-  for (let i = arr.length - 1; i >= 0; i--) {
-    if (predicate(arr[i])) return arr[i];
-  }
-  return undefined;
-}
-
-type SequenceNode = { type: "node"; value: AnyThreadState; path: string[] };
-type Fork = { type: "fork"; items: Sequence[] };
-export type Sequence = { type: "sequence"; items: Array<SequenceNode | Fork> };
+export type GetMessages = (values: any) => Message[];
 
 export interface MessageMetadata {
   messageId: string;
+  /** Oldest state whose message list contains this id (created_at / parent). */
   firstSeenState: AnyThreadState | undefined;
+  /** Sibling currently on the active path at this message's fork, if forked. */
   branch: string | undefined;
+  /** All sibling message ids at this fork, ordered oldest → newest. */
   branchOptions: string[] | undefined;
 }
 
-export type GetMessages = (values: any) => Message[];
+/** Empty branch selection — render/continue from the live (newest) head. */
+export const HEAD_BRANCH = "";
 
-const PATH_SEP = ">";
 const ROOT_ID = "$";
 
-// #region debug
-const DEBUG_SESSION_ID = "branch-switcher-send-from-branch-6cc880";
-const DEBUG_LOG_URL = "http://localhost:8787/log";
-const debugSeen = new Set<string>();
-const debugLog = (
-  msg: string,
-  data: Record<string, unknown> = {},
-  hypothesisId?: string,
-) => {
-  if (typeof navigator === "undefined") return;
-  const payload = JSON.stringify({
-    sessionId: DEBUG_SESSION_ID,
-    msg,
-    data,
-    hypothesisId,
-    loc: new Error().stack?.split("\n")[2]?.trim(),
-  });
-  if (navigator.sendBeacon?.(DEBUG_LOG_URL, payload)) return;
-  fetch(DEBUG_LOG_URL, { method: "POST", body: payload }).catch(() => {});
-};
-const debugOnce = (
-  key: string,
-  msg: string,
-  data: Record<string, unknown> = {},
-  hypothesisId?: string,
-) => {
-  if (debugSeen.has(key)) return;
-  debugSeen.add(key);
-  debugLog(msg, data, hypothesisId);
-};
-// #endregion
+export interface MessageTree {
+  /** parent message id (or ROOT_ID) → ordered child message ids. */
+  childrenOf: Map<string, string[]>;
+  /** child message id → its parent message id (or ROOT_ID). Each id has one. */
+  parentOf: Map<string, string>;
+  /** message id → oldest state that contains it. */
+  firstStateOf: Map<string, AnyThreadState>;
+  /** message id → latest created_at among states containing it (recency). */
+  recencyOf: Map<string, string>;
+  /** message id → message object (last writer wins; identical by id). */
+  messageById: Map<string, Message>;
+  hasForks: boolean;
+}
 
-function getBranchSequence(history: AnyThreadState[]): {
-  rootSequence: Sequence;
-  paths: string[][];
-} {
-  const nodeIds = new Set<string>();
-  const childrenMap: Record<string, AnyThreadState[]> = {};
-  if (history.length <= 1) {
-    return {
-      rootSequence: {
-        type: "sequence",
-        items: history.map((value) => ({ type: "node", value, path: [] })),
-      },
-      paths: [],
-    };
-  }
-  history.forEach((state) => {
-    const checkpointId = state.parent_checkpoint?.checkpoint_id ?? "$";
-    childrenMap[checkpointId] ??= [];
-    childrenMap[checkpointId].push(state);
-    if (state.checkpoint?.checkpoint_id != null)
-      nodeIds.add(state.checkpoint.checkpoint_id);
-  });
-  const maxId = (...ids: Array<string | undefined>) =>
-    ids
-      .filter((i): i is string => i != null)
-      .sort((a, b) => a.localeCompare(b))
-      .at(-1);
-  const lastOrphanedNode =
-    childrenMap.$ == null
-      ? Object.keys(childrenMap)
-          .filter((parentId) => !nodeIds.has(parentId))
-          .map((parentId) => {
-            const queue = [parentId];
-            const seen = new Set<string>();
-            let lastId = parentId;
-            while (queue.length > 0) {
-              const current = queue.shift() as string;
-              if (seen.has(current)) continue;
-              seen.add(current);
-              const children = (childrenMap[current] ?? []).flatMap(
-                (i) => i.checkpoint?.checkpoint_id ?? [],
-              );
-              lastId = maxId(lastId, ...children) as string;
-              queue.push(...children);
-            }
-            return { parentId, lastId };
-          })
-          .sort((a, b) => a.lastId.localeCompare(b.lastId))
-          .at(-1)?.parentId
-      : undefined;
-  if (lastOrphanedNode != null) childrenMap.$ = childrenMap[lastOrphanedNode];
-  const rootSequence: Sequence = { type: "sequence", items: [] };
-  const queue: Array<{ id: string; sequence: Sequence; path: string[] }> = [
-    { id: "$", sequence: rootSequence, path: [] },
-  ];
-  const paths: string[][] = [];
-  const visited = new Set<string>();
-  while (queue.length > 0) {
-    const task = queue.shift()!;
-    if (visited.has(task.id)) continue;
-    visited.add(task.id);
-    const children = childrenMap[task.id];
-    if (children == null || children.length === 0) continue;
-    let fork: Fork | undefined;
-    if (children.length > 1) {
-      fork = { type: "fork", items: [] };
-      task.sequence.items.push(fork);
-    }
-    for (const value of children) {
-      const id = value.checkpoint?.checkpoint_id;
+/**
+ * Build the message tree from compact states. States arrive newest → oldest, so
+ * unconditionally overwriting `firstStateOf`/`messageById` leaves the oldest
+ * occurrence; `recencyOf` keeps the newest `created_at`.
+ */
+export function buildMessageTree(
+  states: AnyThreadState[],
+  getMessages: GetMessages,
+): MessageTree {
+  // parent → child → earliest created_at the edge was seen (for option order).
+  const edges = new Map<string, Map<string, string>>();
+  const parentOf = new Map<string, string>();
+  const firstStateOf = new Map<string, AnyThreadState>();
+  const recencyOf = new Map<string, string>();
+  const messageById = new Map<string, Message>();
+
+  for (const state of states) {
+    const ts = state.created_at ?? "";
+    let prev = ROOT_ID;
+    for (const message of getMessages(state.values)) {
+      const id = message?.id != null ? String(message.id) : null;
       if (id == null) continue;
-      let sequence = task.sequence;
-      let path = task.path;
-      if (fork != null) {
-        sequence = { type: "sequence", items: [] };
-        fork.items.unshift(sequence);
-        path = path.slice();
-        path.push(id);
-        paths.push(path);
+      let children = edges.get(prev);
+      if (!children) {
+        children = new Map();
+        edges.set(prev, children);
       }
-      sequence.items.push({ type: "node", value, path });
-      queue.push({ id, sequence, path });
+      const seenTs = children.get(id);
+      if (seenTs == null || (ts && ts < seenTs)) children.set(id, ts);
+      if (!parentOf.has(id)) parentOf.set(id, prev);
+      firstStateOf.set(id, state);
+      messageById.set(id, message);
+      const recency = recencyOf.get(id);
+      if (recency == null || (ts && ts > recency)) recencyOf.set(id, ts);
+      prev = id;
     }
   }
-  return { rootSequence, paths };
+
+  const childrenOf = new Map<string, string[]>();
+  let hasForks = false;
+  for (const [parent, children] of edges) {
+    const ordered = [...children.entries()]
+      .sort(
+        (a, b) => (a[1] || "").localeCompare(b[1] || "") || a[0].localeCompare(b[0]),
+      )
+      .map(([id]) => id);
+    childrenOf.set(parent, ordered);
+    if (ordered.length > 1) hasForks = true;
+  }
+
+  return { childrenOf, parentOf, firstStateOf, recencyOf, messageById, hasForks };
 }
 
-function getBranchView(sequence: Sequence, paths: string[][], branch: string) {
-  const path = branch.split(PATH_SEP);
-  const pathMap: Record<string, string[][]> = {};
-  for (const p of paths) {
-    const parent = p.at(-2) ?? ROOT_ID;
-    pathMap[parent] ??= [];
-    pathMap[parent].unshift(p);
-  }
-  const history: AnyThreadState[] = [];
-  const branchByCheckpoint: Record<
-    string,
-    { branch: string; branchOptions: string[] }
-  > = {};
-  const forkStack = path.slice();
-  const queue: Array<SequenceNode | Fork> = [...sequence.items];
-  while (queue.length > 0) {
-    const item = queue.shift()!;
-    if (item.type === "node") {
-      history.push(item.value);
-      const checkpointId = item.value.checkpoint?.checkpoint_id;
-      if (checkpointId == null) continue;
-      branchByCheckpoint[checkpointId] = {
-        branch: item.path.join(PATH_SEP),
-        branchOptions: (item.path.length > 0
-          ? (pathMap[item.path.at(-2) ?? ROOT_ID] ?? [])
-          : []
-        ).map((p) => p.join(PATH_SEP)),
-      };
-    }
-    if (item.type === "fork") {
-      const forkId = forkStack.shift();
-      const index =
-        forkId != null
-          ? item.items.findIndex((value) => {
-              const firstItem = value.items.at(0);
-              if (!firstItem || firstItem.type !== "node") return false;
-              return firstItem.value.checkpoint?.checkpoint_id === forkId;
-            })
-          : -1;
-      const nextItems = item.items.at(index)?.items ?? [];
-      queue.push(...nextItems);
+/** Default child at a fork: the one with the most recent activity in its path. */
+export function defaultChildOf(
+  tree: MessageTree,
+  parent: string,
+): string | undefined {
+  const children = tree.childrenOf.get(parent);
+  if (!children?.length) return undefined;
+  let best = children[0];
+  let bestTs = tree.recencyOf.get(best) ?? "";
+  for (const child of children) {
+    const ts = tree.recencyOf.get(child) ?? "";
+    if (ts > bestTs) {
+      best = child;
+      bestTs = ts;
     }
   }
-  return { history, branchByCheckpoint };
+  return best;
 }
 
-export interface BranchContext {
-  branchTree: Sequence;
-  flatHistory: AnyThreadState[];
-  branchByCheckpoint: Record<
-    string,
-    { branch: string; branchOptions: string[] }
-  >;
-  threadHead: AnyThreadState | undefined;
+/**
+ * Walk from the root following `selection` overrides, defaulting to the newest
+ * child at each unselected fork. Returns the ordered message ids of the branch.
+ */
+export function getActivePath(
+  tree: MessageTree,
+  selection: Map<string, string>,
+): string[] {
+  const path: string[] = [];
+  const visited = new Set<string>();
+  let current = ROOT_ID;
+  while (true) {
+    const children = tree.childrenOf.get(current);
+    if (!children?.length) break;
+    let next = selection.get(current);
+    if (next == null || !children.includes(next)) next = defaultChildOf(tree, current);
+    if (next == null || visited.has(next)) break;
+    visited.add(next);
+    path.push(next);
+    current = next;
+  }
+  return path;
 }
 
-export function getBranchContext(
-  branch: string,
-  history: AnyThreadState[],
-): BranchContext {
-  const { rootSequence: branchTree, paths } = getBranchSequence(history ?? []);
-  const { history: flatHistory, branchByCheckpoint } = getBranchView(
-    branchTree,
-    paths,
-    branch,
-  );
+/** Branch info for a single message position (undefined when not forked). */
+export function getBranchInfo(
+  tree: MessageTree,
+  selection: Map<string, string>,
+  messageId: string,
+): { branch: string | undefined; branchOptions: string[] | undefined } {
+  const parent = tree.parentOf.get(messageId);
+  if (parent == null) return { branch: undefined, branchOptions: undefined };
+  const options = tree.childrenOf.get(parent);
+  if (!options || options.length <= 1)
+    return { branch: undefined, branchOptions: undefined };
+  const active = selection.get(parent) ?? defaultChildOf(tree, parent);
+  return { branch: active, branchOptions: options };
+}
+
+export function getMessageMetadata(
+  tree: MessageTree,
+  selection: Map<string, string>,
+  messageId: string,
+): MessageMetadata {
+  const { branch, branchOptions } = getBranchInfo(tree, selection, messageId);
   return {
-    branchTree,
-    flatHistory,
-    branchByCheckpoint,
-    threadHead: flatHistory.at(-1),
+    messageId,
+    firstSeenState: tree.firstStateOf.get(messageId),
+    branch,
+    branchOptions,
   };
 }
 
-export function getMessagesMetadataMap(options: {
-  branchContext: BranchContext;
-  history: AnyThreadState[];
-  getMessages: GetMessages;
-  initialValues?: any;
-}): MessageMetadata[] {
-  const { branchContext, history, getMessages } = options;
-  const { branchByCheckpoint, flatHistory } = branchContext;
-  const currentValues =
-    branchContext.threadHead?.values ?? options.initialValues ?? {};
-  const alreadyShown = new Set<string>();
+/**
+ * State whose message list is exactly `path` (same length, same tip). Prefers a
+ * completed leaf (`next: []`) over an intermediate node step. Used to resolve
+ * the checkpoint to continue/fork a viewed branch from.
+ */
+export function findTipState(
+  states: AnyThreadState[],
+  path: string[],
+  getMessages: GetMessages,
+): AnyThreadState | undefined {
+  const lastId = path.at(-1);
+  if (lastId == null) return undefined;
+  let fallback: AnyThreadState | undefined;
+  for (const state of states) {
+    const messages = getMessages(state.values);
+    if (messages.length !== path.length) continue;
+    if (String(messages.at(-1)?.id) !== lastId) continue;
+    if ((state.next?.length ?? 0) === 0) return state;
+    fallback ??= state;
+  }
+  return fallback;
+}
 
-  const seenIn = (states: AnyThreadState[], messageId: string | number) =>
-    findLast(
-      states ?? [],
-      (state) =>
-        state.values != null &&
-        getMessages(state.values)
-          .map((m, i) => m.id ?? i)
-          .includes(messageId),
-    );
-
-  const result = getMessages(currentValues).map((message, idx) => {
-    const messageId = message.id ?? idx;
-    let firstSeenState = seenIn(history, messageId);
-    let checkpointId = firstSeenState?.checkpoint?.checkpoint_id;
-    // The global-oldest occurrence can sit on a sibling branch when a message
-    // id is shared across forks (e.g. an edited human message keeps its id).
-    // Such a checkpoint isn't in branchByCheckpoint (which only holds the
-    // viewed branch), so re-resolve within the viewed branch to keep the
-    // switcher on the diverging message instead of the next unique-id one.
-    if (checkpointId != null && !(checkpointId in branchByCheckpoint)) {
-      const scoped = seenIn(flatHistory, messageId);
-      const scopedId = scoped?.checkpoint?.checkpoint_id;
-      if (scopedId != null && scopedId in branchByCheckpoint) {
-        firstSeenState = scoped;
-        checkpointId = scopedId;
-      }
-    }
-    let branch =
-      checkpointId != null ? branchByCheckpoint[checkpointId] : undefined;
-    if (!branch?.branch?.length) branch = undefined;
-    const optionsShown = branch?.branchOptions?.flat().join(",");
-    if (optionsShown) {
-      if (alreadyShown.has(optionsShown)) branch = undefined;
-      alreadyShown.add(optionsShown);
-    }
-    return {
-      messageId: messageId.toString(),
-      firstSeenState,
-      branch: branch?.branch,
-      branchOptions: branch?.branchOptions,
-    };
-  });
-
-  const branchSummary = result
-    .filter((item) => (item.branchOptions?.length ?? 0) > 1)
-    .map((item) => ({
-      messageId: item.messageId,
-      branch: item.branch,
-      branchOptions: item.branchOptions,
-    }));
-
-  debugOnce(
-    `metadata-summary-${result.map((item) => item.messageId).join("|")}-${branchSummary.length}`,
-    "Metadata summary after branch computation",
-    {
-      currentMessageIds: result.map((item) => item.messageId),
-      branchSummary,
-    },
-    "H7",
-  );
-
-  return result;
+export function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }

@@ -48,7 +48,8 @@ import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -68,26 +69,6 @@ import ModelPicker from "./ModelPicker";
 import TokenUsageIndicator from "./TokenUsageIndicator";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
-
-// #region debug
-const DEBUG_SESSION_ID = "branch-switcher-send-from-branch-6cc880";
-const DEBUG_LOG_URL = "http://localhost:8787/log";
-const debugLog = (
-  msg: string,
-  data: Record<string, unknown> = {},
-  hypothesisId?: string,
-) => {
-  const payload = JSON.stringify({
-    sessionId: DEBUG_SESSION_ID,
-    msg,
-    data,
-    hypothesisId,
-    loc: new Error().stack?.split("\n")[2]?.trim(),
-  });
-  if (navigator.sendBeacon?.(DEBUG_LOG_URL, payload)) return;
-  fetch(DEBUG_LOG_URL, { method: "POST", body: payload }).catch(() => {});
-};
-// #endregion
 
 const ModuleIcon: React.FC<{ name: string; className?: string }> = ({
   name,
@@ -151,6 +132,8 @@ interface InputAreaProps {
 
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
+  const { threadId } = useParams<{ threadId?: string }>();
+  const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(
     getInitialIsMobileDevice,
@@ -187,7 +170,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     activateCollection,
     deactivateCollection,
   } = useRagContext();
-  const { settings, setSettings } = useSettings();
+  const { settings } = useSettings();
   const {
     mcpTools,
     openMcpModal,
@@ -246,18 +229,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
       const forkCheckpoint = branches.isViewingNonHead
         ? branches.activeCheckpoint
         : undefined;
-      debugLog(
-        "Send from input",
-        {
-          content,
-          isViewingNonHead: branches.isViewingNonHead,
-          activeBranch: branches.activeBranch,
-          forkCheckpointId: forkCheckpoint?.checkpoint_id ?? null,
-          viewedMessageIds: branches.viewedMessages.map((m) => m.id ?? null),
-          activeMessageIds: branches.activeMessages.map((m) => m.id ?? null),
-        },
-        "H6",
-      );
       thread?.submit(
         {
           messages: [newMessage],
@@ -282,6 +253,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),
+              auto_approve: autoApprove,
             },
           },
         },
@@ -301,6 +273,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
       deepResearchForced,
       selectedSkillNames,
       clearSelectedSkills,
+      autoApprove,
     ],
   );
   const handleContinueThread = useCallback(
@@ -649,7 +622,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     const canAutoApprove =
       !!thread?.interrupt &&
       ["approve", "tool_call"].includes(thread?.interrupt.value?.type ?? "") &&
-      settings.autoApprove;
+      autoApprove;
 
     const interruptKey = thread?.interrupt?.value;
 
@@ -669,7 +642,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     thread?.interrupt?.value,
     thread?.isLoading,
     isMCPLoading,
-    settings.autoApprove,
+    autoApprove,
     handleContinue,
   ]);
 
@@ -1187,10 +1160,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           >
             <span>Автономность</span>
             <Switch
-              checked={settings.autoApprove ?? false}
-              onCheckedChange={(checked) =>
-                setSettings((prev) => ({ ...prev, autoApprove: checked }))
-              }
+              checked={autoApprove}
+              onCheckedChange={(checked) => setAutoApprove(checked)}
             />
           </label>
         </div>

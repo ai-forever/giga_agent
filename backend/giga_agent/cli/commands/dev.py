@@ -322,6 +322,8 @@ def dev(
             "timeout_graceful_shutdown",
             _DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC,
         )
+        from giga_agent.core.sqlite_checkpointer import CHECKPOINTER_CONFIG
+
         try:
             run_server(
                 host,
@@ -330,6 +332,7 @@ def dev(
                 graphs,
                 auth={"path": auth_path},
                 http=http_config,
+                checkpointer=CHECKPOINTER_CONFIG,
                 n_jobs_per_worker=min(int(os.getenv("N_JOBS_PER_WORKER", 6)), 6),
                 **kwargs,
             )

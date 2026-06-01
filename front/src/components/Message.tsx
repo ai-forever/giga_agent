@@ -360,38 +360,21 @@ const Message: React.FC<MessageProps> = ({
     const parentMessage: Message_[] = [];
     // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegра, так как в их API нельзя просто передавать checkpoint (без input)
     const { meta, history } = await branches.resolveForkData(message);
-    const branchCheckpointId = meta?.branch?.split(">").at(-1);
-    const branchState = branchCheckpointId
-      ? history.find(
-          (state) => state.checkpoint?.checkpoint_id === branchCheckpointId,
-        )
+    // Fork point = the checkpoint whose message list is exactly the prefix
+    // before the regenerated message (ends at previousMessage), resolved
+    // against the currently viewed branch. Fall back to the message's
+    // first-seen parent checkpoint when no exact prefix match exists.
+    const localMatchingState = previousMessage
+      ? history.find((state) => {
+          const stateMessages = state.values?.messages ?? [];
+          return (
+            stateMessages.length === targetIndex &&
+            stateMessages.at(-1)?.id === previousMessage.id
+          );
+        })
       : undefined;
-    const selectedMessageParentCheckpoint = branchState?.parent_checkpoint
-      ? ({
-          ...branchState.parent_checkpoint,
-          thread_id:
-            branchState.checkpoint?.thread_id ??
-            branchState.parent_checkpoint.thread_id,
-        } as Checkpoint)
-      : meta?.firstSeenState?.parent_checkpoint;
-    const parentCheckpoint = selectedMessageParentCheckpoint;
-
-    let effectiveParentCheckpoint = parentCheckpoint;
-    if (previousMessage && !meta?.branch) {
-      // Refine the fork point using the compact branch tree: the checkpoint
-      // whose last message is the one just before the regenerated message.
-      const localMatchingState = history.find((state) => {
-        const stateMessages = state.values?.messages ?? [];
-        const lastMessage = stateMessages.at(-1);
-        return (
-          stateMessages.length === targetIndex &&
-          lastMessage?.id === previousMessage.id
-        );
-      });
-      if (localMatchingState?.checkpoint) {
-        effectiveParentCheckpoint = localMatchingState.checkpoint as Checkpoint;
-      }
-    }
+    const effectiveParentCheckpoint = (localMatchingState?.checkpoint ??
+      meta?.firstSeenState?.parent_checkpoint) as Checkpoint | undefined;
 
     // Stream the regenerated run into the head view.
     branches.switchBranch("");

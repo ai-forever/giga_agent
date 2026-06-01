@@ -1,6 +1,7 @@
 // Custom branch store. The app loads threads with `fetchStateHistory: false`,
 // so the SDK can't reconstruct branches. This provider lazily fetches a compact
-// branch tree from the backend and exposes SDK-compatible branch helpers
+// branch tree from the backend, builds a message-level tree from it (see
+// `@/lib/branching`) and exposes SDK-compatible branch helpers
 // (getMessagesMetadata / getHistory) plus branch viewing + switching, so the
 // rest of the UI keeps working without the heavy history download.
 
@@ -23,29 +24,22 @@ import {
   type BranchTree,
 } from "@/lib/branches-api";
 import {
-  getBranchContext,
-  getMessagesMetadataMap,
+  arraysEqual,
+  buildMessageTree,
+  findTipState,
+  getActivePath,
+  getMessageMetadata,
+  HEAD_BRANCH,
   type AnyThreadState,
   type MessageMetadata,
+  type MessageTree,
 } from "@/lib/branching";
 
 const HISTORY_LIMIT = 1000;
 
-const getMessages = (values: any): Message[] => values?.messages ?? [];
+const EMPTY_SELECTION: Map<string, string> = new Map();
 
-function computeMetadata(
-  states: AnyThreadState[],
-  activeBranch: string,
-  initialValues: any,
-): MessageMetadata[] {
-  const branchContext = getBranchContext(activeBranch, states);
-  return getMessagesMetadataMap({
-    branchContext,
-    history: states,
-    getMessages,
-    initialValues,
-  });
-}
+const getMessages = (values: any): Message[] => values?.messages ?? [];
 
 // --- Incremental checkpoint-event ingestion ---------------------------------
 // The `onCheckpointEvent` stream callback lets us grow the branch tree as a run
@@ -102,27 +96,6 @@ function readCheckpointNs(data: any): string {
   );
 }
 
-// has_forks mirrors the backend: a parent checkpoint with more than one distinct
-// child checkpoint is a fork point.
-function computeHasForks(states: AnyThreadState[]): boolean {
-  const childrenByParent = new Map<string, Set<string>>();
-  for (const st of states) {
-    const childId = st.checkpoint?.checkpoint_id;
-    if (!childId) continue;
-    const parentId = st.parent_checkpoint?.checkpoint_id ?? "$";
-    let set = childrenByParent.get(parentId);
-    if (!set) {
-      set = new Set<string>();
-      childrenByParent.set(parentId, set);
-    }
-    set.add(childId);
-  }
-  for (const set of childrenByParent.values()) {
-    if (set.size > 1) return true;
-  }
-  return false;
-}
-
 export interface MessageBranchInfo {
   meta: MessageMetadata | undefined;
   branch: string | undefined;
@@ -143,13 +116,14 @@ interface BranchesContextValue {
   initialLoading: boolean;
   activeBranch: string;
   isViewingNonHead: boolean;
-  /** Messages of the active branch (head when activeBranch is ""). */
+  /** Messages of the active branch (head when at the live newest path). */
   viewedMessages: Message[];
   /** What should actually render: viewed branch when non-head, else live head. */
   activeMessages: Message[];
   activeCheckpoint: AnyThreadState["checkpoint"] | undefined;
   ensureTree: () => Promise<BranchTree | null>;
   reloadTree: () => Promise<BranchTree | null>;
+  /** Select a sibling message id at its fork, or HEAD_BRANCH ("") for head. */
   switchBranch: (branch: string) => void;
   getMessageBranchInfo: (message: Message) => MessageBranchInfo;
   /** Drop-in replacement for thread.getMessagesMetadata (render-time, reactive). */
@@ -220,13 +194,16 @@ export function BranchesProvider({
   const { token } = useAuth();
   const [tree, setTree] = useState<BranchTree | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeBranch, setActiveBranch] = useState("");
+  // Per-fork branch choice (parentMsgId → chosen childMsgId). Empty = head.
+  const [selection, setSelection] = useState<Map<string, string>>(
+    EMPTY_SELECTION,
+  );
 
   // Refs mirror state so async handlers (edit/refresh) read fresh values after
   // an await, not the stale closure captured at render time.
   const treeRef = useRef<BranchTree | null>(null);
-  const activeBranchRef = useRef("");
-  activeBranchRef.current = activeBranch;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
   const tokenRef = useRef(token);
   tokenRef.current = token;
   const currentThreadIdRef = useRef(threadId);
@@ -247,7 +224,7 @@ export function BranchesProvider({
     cancelBranchTree();
     setTree(null);
     treeRef.current = null;
-    setActiveBranch("");
+    setSelection(EMPTY_SELECTION);
     loadedThreadIdRef.current = null;
     inFlightRef.current = null;
     lastCheckpointIdRef.current = null;
@@ -295,10 +272,6 @@ export function BranchesProvider({
   const ensureTree = useCallback(() => load(false), [load]);
   const reloadTree = useCallback(() => load(true), [load]);
 
-  const switchBranch = useCallback((branch: string) => {
-    setActiveBranch(branch);
-  }, []);
-
   // Load the compact tree once when a thread first opens. Subsequent updates
   // arrive incrementally via `appendCheckpointEvent`, so we never refetch the
   // full history on each request.
@@ -322,8 +295,8 @@ export function BranchesProvider({
 
   // Merge a single streamed checkpoint into the in-memory tree, deduping by
   // checkpoint id. New checkpoints are newer than everything we hold, so they
-  // prepend (states stay newest→oldest, which `findLast` relies on). Wired to
-  // `onCheckpointEvent` by Chat via `checkpointEventRef`.
+  // prepend (states stay newest→oldest). Wired to `onCheckpointEvent` by Chat
+  // via `checkpointEventRef`.
   const appendCheckpointEvent = useCallback((data: any) => {
     if (!data || typeof data !== "object") return;
     const checkpointId = readCheckpointId(data);
@@ -356,7 +329,12 @@ export function BranchesProvider({
           }
         : null,
       metadata: {},
-      created_at: data?.created_at ?? null,
+      // `checkpoints` stream events carry no `created_at`. The message tree
+      // ranks branches by `created_at` (recency → default head, edge order), so
+      // a null/empty timestamp makes a freshly streamed branch lose to every
+      // historical one. Events arrive in chronological order, so receipt time is
+      // newer than all loaded history and correctly ordered among themselves.
+      created_at: data?.created_at ?? new Date().toISOString(),
       tasks: [],
     } as unknown as AnyThreadState;
 
@@ -384,7 +362,9 @@ export function BranchesProvider({
 
     const next: BranchTree = {
       states: nextStates,
-      hasForks: computeHasForks(nextStates),
+      // Recomputed reactively from the message tree below; the BranchTree flag
+      // is informational only.
+      hasForks: treeRef.current?.hasForks ?? false,
     };
     treeRef.current = next;
     setTree(next);
@@ -400,28 +380,49 @@ export function BranchesProvider({
     };
   }, [checkpointEventRef, appendCheckpointEvent]);
 
-  const states = tree?.states ?? [];
+  const states = useMemo(() => tree?.states ?? [], [tree]);
 
-  const branchContext = useMemo(
-    () => getBranchContext(activeBranch, states),
-    [activeBranch, states],
+  // The message-level tree drives everything below. Rebuilt from raw states on
+  // each change (cheap — only message ids and timestamps are walked).
+  const messageTree = useMemo<MessageTree>(
+    () => buildMessageTree(states, getMessages),
+    [states],
   );
+  const messageTreeRef = useRef(messageTree);
+  messageTreeRef.current = messageTree;
+
+  const activePath = useMemo(
+    () => getActivePath(messageTree, selection),
+    [messageTree, selection],
+  );
+  const defaultPath = useMemo(
+    () => getActivePath(messageTree, EMPTY_SELECTION),
+    [messageTree],
+  );
+  const isViewingNonHead = !!tree && !arraysEqual(activePath, defaultPath);
+
+  const switchBranch = useCallback((branch: string) => {
+    if (branch === HEAD_BRANCH) {
+      setSelection(EMPTY_SELECTION);
+      return;
+    }
+    const parent = messageTreeRef.current.parentOf.get(branch);
+    if (parent == null) return;
+    setSelection((prev) => {
+      const next = new Map(prev);
+      next.set(parent, branch);
+      return next;
+    });
+  }, []);
 
   // Reactive metadata for render-time consumers (BranchSwitcher, AgentRun).
   const metaById = useMemo(() => {
-    const initialValues = thread?.messages
-      ? { ...(thread?.values ?? {}), messages: thread.messages }
-      : thread?.values;
-    const list = getMessagesMetadataMap({
-      branchContext,
-      history: states,
-      getMessages,
-      initialValues,
-    });
     const map = new Map<string, MessageMetadata>();
-    for (const m of list) map.set(m.messageId, m);
+    for (const id of messageTree.firstStateOf.keys()) {
+      map.set(id, getMessageMetadata(messageTree, selection, id));
+    }
     return map;
-  }, [branchContext, states, thread?.messages, thread?.values]);
+  }, [messageTree, selection]);
 
   const getMessagesMetadata = useCallback(
     (message: Message): MessageMetadata | undefined => {
@@ -455,38 +456,37 @@ export function BranchesProvider({
     async (message: Message): Promise<ForkData> => {
       const loaded = await load(false);
       const freshStates = loaded?.states ?? treeRef.current?.states ?? [];
-      const initialValues = thread?.messages
-        ? { ...(thread?.values ?? {}), messages: thread.messages }
-        : thread?.values;
-      const list = computeMetadata(
-        freshStates,
-        activeBranchRef.current,
-        initialValues,
-      );
+      const freshTree = buildMessageTree(freshStates, getMessages);
       const meta =
         message?.id != null
-          ? list.find((m) => m.messageId === String(message.id))
+          ? getMessageMetadata(freshTree, selectionRef.current, String(message.id))
           : undefined;
       return { meta, history: freshStates };
     },
-    [load, thread?.messages, thread?.values],
+    [load],
   );
 
-  const isViewingNonHead = !!tree && activeBranch !== "";
-
   const viewedMessages = useMemo(
-    () => getMessages(branchContext.threadHead?.values ?? thread?.values),
-    [branchContext, thread?.values],
+    () =>
+      activePath
+        .map((id) => messageTree.messageById.get(id))
+        .filter((m): m is Message => m != null),
+    [activePath, messageTree],
   );
 
   const activeMessages = isViewingNonHead
     ? viewedMessages
     : (thread?.messages ?? []);
 
-  const activeCheckpoint = branchContext.threadHead?.checkpoint;
+  const activeCheckpoint = useMemo(
+    () => findTipState(states, activePath, getMessages)?.checkpoint,
+    [states, activePath],
+  );
+
+  const activeBranch = isViewingNonHead ? activePath.join(">") : "";
 
   const value: BranchesContextValue = {
-    hasForks: tree?.hasForks ?? false,
+    hasForks: messageTree.hasForks,
     loading,
     initialLoading: loading && !tree,
     activeBranch,

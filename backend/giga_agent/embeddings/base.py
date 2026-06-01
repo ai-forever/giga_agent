@@ -7,9 +7,36 @@ import asyncio
 from typing import Any, ClassVar, Type
 
 from langchain_core.embeddings import Embeddings
+from langchain_core.rate_limiters import BaseRateLimiter
 from pydantic import BaseModel, ConfigDict, PrivateAttr, create_model
 
 from giga_agent.connectors.base import BaseConnector
+
+
+class _RateLimitedEmbeddings(Embeddings):
+    """Wraps an Embeddings client and acquires a rate-limit token per async call.
+
+    Only the async methods are gated (the agent/RAG paths use ``aembed_*``); the sync
+    methods delegate unchanged.
+    """
+
+    def __init__(self, inner: Embeddings, limiter: BaseRateLimiter) -> None:
+        self._inner = inner
+        self._limiter = limiter
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._inner.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._inner.embed_query(text)
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        await self._limiter.aacquire(blocking=True)
+        return await self._inner.aembed_documents(texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        await self._limiter.aacquire(blocking=True)
+        return await self._inner.aembed_query(text)
 
 
 class EmbeddingModelFetchError(Exception):
@@ -53,6 +80,11 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
     }
 
     _embeddings_instance: Embeddings | None = PrivateAttr(default=None)
+    _rate_limiter: BaseRateLimiter | None = PrivateAttr(default=None)
+
+    def attach_rate_limiter(self, limiter: BaseRateLimiter | None) -> None:
+        """Attach a rate limiter applied on every embeddings invocation."""
+        self._rate_limiter = limiter
 
     @classmethod
     @abc.abstractmethod
@@ -96,6 +128,8 @@ class BaseEmbeddingRuntime(BaseModel, abc.ABC):
         if embeddings is not None:
             return embeddings
         embeddings = await self._create_embeddings()
+        if self._rate_limiter is not None:
+            embeddings = _RateLimitedEmbeddings(embeddings, self._rate_limiter)
         self._embeddings_instance = embeddings
         return embeddings
 

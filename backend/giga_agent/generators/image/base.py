@@ -6,6 +6,7 @@ import abc
 import asyncio
 from typing import Any, ClassVar, Type
 
+from langchain_core.rate_limiters import BaseRateLimiter
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
@@ -42,9 +43,14 @@ class BaseImageGenerator(BaseModel, abc.ABC):
     }
     _semaphore: asyncio.Semaphore = PrivateAttr()
     _initialized: bool = PrivateAttr(default=False)
+    _rate_limiter: BaseRateLimiter | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
         self._semaphore = asyncio.Semaphore(self.parallel_calls)
+
+    def attach_rate_limiter(self, limiter: BaseRateLimiter | None) -> None:
+        """Attach a rate limiter applied on every image generation."""
+        self._rate_limiter = limiter
 
     @abc.abstractmethod
     async def init(self) -> None:
@@ -72,6 +78,8 @@ class BaseImageGenerator(BaseModel, abc.ABC):
             raise RuntimeError(
                 f"{self.__class__.__name__}.init() must be called before generate_image()."
             )
+        if self._rate_limiter is not None:
+            await self._rate_limiter.aacquire(blocking=True)
         async with self._semaphore:
             return await self._generate_image(prompt, width, height, **kwargs)
 

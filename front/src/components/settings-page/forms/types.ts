@@ -219,6 +219,28 @@ export interface ResourcePermissionsDraft {
   public_read: boolean;
 }
 
+export type RateLimitPeriod = "second" | "minute" | "hour";
+
+export const RATE_LIMIT_PERIODS: RateLimitPeriod[] = [
+  "second",
+  "minute",
+  "hour",
+];
+
+export interface RateLimitResponse {
+  id: string;
+  resource_type: string;
+  resource_id: string;
+  requests_global: number | null;
+  requests_per_user: number | null;
+  period: RateLimitPeriod;
+  settings: Record<string, unknown>;
+  is_active: boolean;
+  can_edit: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export const EMPTY_RESOURCE_PERMISSIONS: ResourcePermissionsDraft = {
   read_user_ids: [],
   read_group_ids: [],

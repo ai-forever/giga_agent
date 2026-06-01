@@ -19,6 +19,7 @@ import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import SchemaFields from "./forms/schema-fields";
 import ResourcePermissions from "./forms/resource-permissions";
+import ResourceRateLimits from "./forms/resource-rate-limits";
 import type {
   ConnectorResponse,
   JsonSchema,
@@ -800,15 +801,23 @@ export const SearchEnginesSettings: React.FC = () => {
                   onCancel={handleCancelEdit}
                   permissionsSection={
                     canManagePermissions ? (
-                      <ResourcePermissions
-                        mode="edit"
-                        resourceType="search_engine"
-                        resourceId={editingEngineId ?? undefined}
-                        value={editPermissions}
-                        onChange={setEditPermissions}
-                        canManage={canManagePermissions}
-                        disabled={saving || loadingPermissions}
-                      />
+                      <>
+                        <ResourcePermissions
+                          mode="edit"
+                          resourceType="search_engine"
+                          resourceId={editingEngineId ?? undefined}
+                          value={editPermissions}
+                          onChange={setEditPermissions}
+                          canManage={canManagePermissions}
+                          disabled={saving || loadingPermissions}
+                        />
+                        <ResourceRateLimits
+                          resourceType="search_engine"
+                          resourceId={editingEngineId ?? ""}
+                          canManage={canManagePermissions}
+                          disabled={saving}
+                        />
+                      </>
                     ) : undefined
                   }
                 />
