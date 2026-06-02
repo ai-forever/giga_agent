@@ -419,7 +419,187 @@ const getToolDisplay = (toolCall: ToolCall): ToolDisplay => {
   return { label, detail: detail ? truncate(detail, 80) : undefined };
 };
 
+const EXT_LANG: Record<string, string> = {
+  py: "python",
+  js: "javascript",
+  jsx: "jsx",
+  mjs: "javascript",
+  cjs: "javascript",
+  ts: "typescript",
+  tsx: "tsx",
+  json: "json",
+  html: "markup",
+  htm: "markup",
+  xml: "markup",
+  svg: "markup",
+  vue: "markup",
+  css: "css",
+  scss: "scss",
+  sass: "sass",
+  less: "less",
+  md: "markdown",
+  markdown: "markdown",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  yml: "yaml",
+  yaml: "yaml",
+  sql: "sql",
+  java: "java",
+  go: "go",
+  rs: "rust",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  cc: "cpp",
+  hpp: "cpp",
+  cs: "csharp",
+  rb: "ruby",
+  php: "php",
+  kt: "kotlin",
+  kts: "kotlin",
+  swift: "swift",
+  dart: "dart",
+  r: "r",
+  lua: "lua",
+  pl: "perl",
+  toml: "toml",
+  ini: "ini",
+  cfg: "ini",
+  conf: "ini",
+  env: "bash",
+  dockerfile: "docker",
+  txt: "text",
+};
+
+const getLanguageFromPath = (path: string): string => {
+  const name = path.trim().split("/").at(-1)?.toLowerCase() ?? "";
+  if (name === "dockerfile") return "docker";
+  const ext = name.includes(".") ? name.split(".").at(-1) ?? "" : "";
+  return EXT_LANG[ext] ?? "text";
+};
+
+const codeStyle = {
+  margin: 0,
+  padding: "8px 10px",
+  fontSize: "12px",
+  borderRadius: 6,
+  maxHeight: 400,
+  overflow: "auto" as const,
+};
+
+type DiffLine = { type: "add" | "remove" | "context"; text: string };
+
+const computeLineDiff = (before: string, after: string): DiffLine[] => {
+  const a = before.split("\n");
+  const b = after.split("\n");
+  const m = a.length;
+  const n = b.length;
+  // LCS table, computed bottom-up.
+  const dp: number[][] = Array.from({ length: m + 1 }, () =>
+    new Array<number>(n + 1).fill(0),
+  );
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] =
+        a[i] === b[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const result: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) {
+      result.push({ type: "context", text: a[i] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      result.push({ type: "remove", text: a[i] });
+      i++;
+    } else {
+      result.push({ type: "add", text: b[j] });
+      j++;
+    }
+  }
+  while (i < m) result.push({ type: "remove", text: a[i++] });
+  while (j < n) result.push({ type: "add", text: b[j++] });
+  return result;
+};
+
+const DIFF_STYLES = {
+  add: { bg: "rgba(80, 250, 123, 0.16)", color: "#69ff94", sign: "+" },
+  remove: { bg: "rgba(255, 85, 85, 0.16)", color: "#ff6e6e", sign: "-" },
+  context: { bg: "transparent", color: "#f8f8f2", sign: " " },
+} as const;
+
+const DiffView: React.FC<{ before: string; after: string }> = ({
+  before,
+  after,
+}) => {
+  const lines = useMemo(
+    () => computeLineDiff(before, after),
+    [before, after],
+  );
+  return (
+    <div
+      className="overflow-auto rounded-md font-mono text-xs leading-5"
+      style={{ maxHeight: 400, background: "#282a36", padding: "6px 0" }}
+    >
+      {lines.map((line, idx) => {
+        const s = DIFF_STYLES[line.type];
+        return (
+          <div
+            key={idx}
+            style={{
+              background: s.bg,
+              color: s.color,
+              padding: "0 10px",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            <span
+              style={{ userSelect: "none", opacity: 0.5, marginRight: 8 }}
+              aria-hidden
+            >
+              {s.sign}
+            </span>
+            {line.text.length ? line.text : " "}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 const renderArgsBlock = (toolCall: ToolCall) => {
+  if (toolCall.name === "write_file") {
+    const args = (toolCall.args ?? {}) as Record<string, any>;
+    const content = typeof args.content === "string" ? args.content : "";
+    const path = typeof args.file_path === "string" ? args.file_path : "";
+    return (
+      <SyntaxHighlighter
+        language={getLanguageFromPath(path)}
+        style={dracula}
+        customStyle={codeStyle}
+        wrapLongLines
+      >
+        {content}
+      </SyntaxHighlighter>
+    );
+  }
+
+  if (toolCall.name === "edit_file") {
+    const args = (toolCall.args ?? {}) as Record<string, any>;
+    const findString =
+      typeof args.find_string === "string" ? args.find_string : "";
+    const replaceString =
+      typeof args.replace_string === "string" ? args.replace_string : "";
+    return <DiffView before={findString} after={replaceString} />;
+  }
+
   if (toolCall.name === "python") {
     const code =
       typeof (toolCall.args as any)?.code === "string"

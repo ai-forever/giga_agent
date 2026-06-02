@@ -27,7 +27,9 @@ import type {
 } from "./types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
 import SchemaFields from "./schema-fields";
+import ConnectorSelect from "./connector-select";
 import { compactObject } from "./schema-fields-utils";
 
 interface EmbeddingFormProps {
@@ -53,6 +55,8 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
   onCancel,
   permissionsSection,
 }) => {
+  const { user } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [submitting, setSubmitting] = useState(false);
   const [embeddingTypes, setEmbeddingTypes] = useState<EmbeddingTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
@@ -353,43 +357,17 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
 
       <div className="space-y-2">
         <Label htmlFor="embedding-connector-select">Коннектор</Label>
-        <Select
+        <ConnectorSelect
+          id="embedding-connector-select"
           value={selectedConnectorId}
           onValueChange={setSelectedConnectorId}
-          disabled={
-            !!embedding ||
-            submitting ||
-            loadingConnectors ||
-            !selectedEmbeddingType ||
-            filteredConnectors.length === 0
-          }
-        >
-          <SelectTrigger id="embedding-connector-select" className="w-full">
-            {loadingConnectors ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Загрузка коннекторов...
-              </div>
-            ) : (
-              <SelectValue placeholder="Выберите коннектор" />
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            {filteredConnectors.map((item) => (
-              <SelectItem key={item.id} value={item.id}>
-                {item.name || item.type}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedEmbeddingType &&
-          filteredConnectors.length === 0 &&
-          !loadingConnectors && (
-            <p className="text-sm text-amber-600">
-              Нет активных коннекторов для типа{" "}
-              <span className="font-medium">{selectedEmbeddingType}</span>.
-            </p>
-          )}
+          allowedTypes={supportedConnectorTypes}
+          disabled={!!embedding || submitting || !selectedEmbeddingType}
+          loading={loadingConnectors}
+          connectors={connectors}
+          onConnectorsChanged={fetchConnectors}
+          canManagePermissions={canManagePermissions}
+        />
       </div>
 
       <div className="space-y-2">

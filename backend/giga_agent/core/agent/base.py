@@ -290,7 +290,6 @@ class BaseAgent(BaseModel):
             base_prompt.format(modules="\n===\n\n".join(modules_prompts))
             + instructions_prompt
         )
-        print(pr)
         return (
             base_prompt.format(modules="\n===\n\n".join(modules_prompts))
             + instructions_prompt
