@@ -25,7 +25,12 @@ COPY README.md /README.md
 
 # Copy the actual backend package (includes `giga_agent/ui_dist`)
 COPY backend/giga_agent/ ./giga_agent/
-RUN mkdir -p ./giga_agent/ui_dist/
+# The UI is served by the separate nginx frontend container, so the bundle is not
+# packaged here. Drop any synced `ui_dist` and leave an empty dir: a non-empty
+# `ui_dist` would be force-included by hatch_build.py *and* picked up by the normal
+# package walk (no `.git` in the build context disables the gitignore filter),
+# making hatchling fail with "A second file is being added to the wheel archive".
+RUN rm -rf ./giga_agent/ui_dist/ && mkdir -p ./giga_agent/ui_dist/
 
 # Install the package (and dependencies from pyproject.toml)
 RUN pip install --no-cache-dir .
