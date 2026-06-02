@@ -146,7 +146,8 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     const targetIndex = targetMessageId
       ? currentMessages.findIndex((m) => (m as any)?.id === targetMessageId)
       : -1;
-    const previousMessage = targetIndex > 0 ? currentMessages[targetIndex - 1] : undefined;
+    const previousMessage =
+      targetIndex > 0 ? currentMessages[targetIndex - 1] : undefined;
     const segmentEnd =
       targetIndex >= 0
         ? currentMessages.findIndex(

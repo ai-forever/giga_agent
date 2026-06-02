@@ -16,7 +16,8 @@ export function BranchSwitcher({
   useEffect(() => {
     void branches.ensureTree();
   }, [branches.ensureTree]);
-  const { branch, branchOptions, index } = branches.getMessageBranchInfo(message);
+  const { branch, branchOptions, index } =
+    branches.getMessageBranchInfo(message);
   if (!branchOptions || !branch || branchOptions.length <= 1) return null;
   const onSelect = (b: string) => branches.switchBranch(b);
 

@@ -195,9 +195,8 @@ export function BranchesProvider({
   const [tree, setTree] = useState<BranchTree | null>(null);
   const [loading, setLoading] = useState(false);
   // Per-fork branch choice (parentMsgId → chosen childMsgId). Empty = head.
-  const [selection, setSelection] = useState<Map<string, string>>(
-    EMPTY_SELECTION,
-  );
+  const [selection, setSelection] =
+    useState<Map<string, string>>(EMPTY_SELECTION);
 
   // Refs mirror state so async handlers (edit/refresh) read fresh values after
   // an await, not the stale closure captured at render time.
@@ -459,7 +458,11 @@ export function BranchesProvider({
       const freshTree = buildMessageTree(freshStates, getMessages);
       const meta =
         message?.id != null
-          ? getMessageMetadata(freshTree, selectionRef.current, String(message.id))
+          ? getMessageMetadata(
+              freshTree,
+              selectionRef.current,
+              String(message.id),
+            )
           : undefined;
       return { meta, history: freshStates };
     },

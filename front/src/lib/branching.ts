@@ -92,14 +92,22 @@ export function buildMessageTree(
   for (const [parent, children] of edges) {
     const ordered = [...children.entries()]
       .sort(
-        (a, b) => (a[1] || "").localeCompare(b[1] || "") || a[0].localeCompare(b[0]),
+        (a, b) =>
+          (a[1] || "").localeCompare(b[1] || "") || a[0].localeCompare(b[0]),
       )
       .map(([id]) => id);
     childrenOf.set(parent, ordered);
     if (ordered.length > 1) hasForks = true;
   }
 
-  return { childrenOf, parentOf, firstStateOf, recencyOf, messageById, hasForks };
+  return {
+    childrenOf,
+    parentOf,
+    firstStateOf,
+    recencyOf,
+    messageById,
+    hasForks,
+  };
 }
 
 /** Default child at a fork: the one with the most recent activity in its path. */
@@ -136,7 +144,8 @@ export function getActivePath(
     const children = tree.childrenOf.get(current);
     if (!children?.length) break;
     let next = selection.get(current);
-    if (next == null || !children.includes(next)) next = defaultChildOf(tree, current);
+    if (next == null || !children.includes(next))
+      next = defaultChildOf(tree, current);
     if (next == null || visited.has(next)) break;
     visited.add(next);
     path.push(next);

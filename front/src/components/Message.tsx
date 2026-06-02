@@ -13,13 +13,7 @@ import MessageEditor from "./MessageEditor.tsx";
 import ToolCallsList from "./ToolCallsList.tsx";
 import { findScrollRoot } from "@/lib/scroll";
 import { useBranches } from "@/hooks/useBranches";
-import {
-  Check,
-  Download,
-  Pencil,
-  RefreshCw,
-  X,
-} from "lucide-react";
+import { Check, Download, Pencil, RefreshCw, X } from "lucide-react";
 import { BranchSwitcher } from "./BranchSwitcher.tsx";
 import {
   DropdownMenu,
@@ -684,7 +678,9 @@ const Message: React.FC<MessageProps> = ({
           >
             {message.type === "human" && (
               <button
-                disabled={!thread || thread.isLoading || branches.initialLoading}
+                disabled={
+                  !thread || thread.isLoading || branches.initialLoading
+                }
                 onClick={() => {
                   setEdit(true);
                   if (
@@ -707,7 +703,9 @@ const Message: React.FC<MessageProps> = ({
             {message.type === "ai" && !rawHasToolCalls && (
               <>
                 <button
-                  disabled={!thread || thread.isLoading || branches.initialLoading}
+                  disabled={
+                    !thread || thread.isLoading || branches.initialLoading
+                  }
                   onClick={onRefresh}
                   className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
                 >

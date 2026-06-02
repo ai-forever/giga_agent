@@ -475,7 +475,7 @@ const EXT_LANG: Record<string, string> = {
 const getLanguageFromPath = (path: string): string => {
   const name = path.trim().split("/").at(-1)?.toLowerCase() ?? "";
   if (name === "dockerfile") return "docker";
-  const ext = name.includes(".") ? name.split(".").at(-1) ?? "" : "";
+  const ext = name.includes(".") ? (name.split(".").at(-1) ?? "") : "";
   return EXT_LANG[ext] ?? "text";
 };
 
@@ -538,10 +538,7 @@ const DiffView: React.FC<{ before: string; after: string }> = ({
   before,
   after,
 }) => {
-  const lines = useMemo(
-    () => computeLineDiff(before, after),
-    [before, after],
-  );
+  const lines = useMemo(() => computeLineDiff(before, after), [before, after]);
   return (
     <div
       className="overflow-auto rounded-md font-mono text-xs leading-5"
