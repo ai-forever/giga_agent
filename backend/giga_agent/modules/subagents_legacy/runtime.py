@@ -13,6 +13,7 @@ from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.generators.image.base import BaseImageGenerator
 from giga_agent.models.users import UserShort
 from giga_agent.search_engines.base import BaseSearchEngine
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 SecretKey = Literal[
     "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE",
@@ -61,9 +62,7 @@ def get_owner_id_from_config(config: RunnableConfig | dict) -> uuid.UUID:
         resolver = RuntimeResolver.from_config(config)
         return resolver.user.id
     except ValueError:
-        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-        user_data = configurable.get("langgraph_auth_user", {})
-        user_id = user_data.get("identity")
+        user_id = get_user_id_from_config(config)
         if user_id is None:
             raise ValueError("langgraph_auth_user.identity отсутствует в config")
         return uuid.UUID(user_id) if isinstance(user_id, str) else user_id

@@ -28,6 +28,7 @@ from giga_agent.modules.auth.api import (
     oauth2_scheme,
 )
 from giga_agent.utils.langgraph_sdk import get_client as get_langgraph_client
+from giga_agent.utils.thread_metadata import update_thread_metadata
 
 logger = get_logger(__name__)
 
@@ -48,6 +49,18 @@ class CompactHistoryResponse(BaseModel):
     messages: dict[str, Any]
     states: list[CompactState]
     has_forks: bool
+
+
+class ThreadAutoApproveRequest(BaseModel):
+    auto_approve: bool
+
+
+class ThreadAutoApproveResponse(BaseModel):
+    auto_approve: bool
+
+
+def _langgraph_config(token: str) -> dict[str, Any]:
+    return {"configurable": {"langgraph_auth_user": {"token": token}}}
 
 
 def _bearer_token(
@@ -130,3 +143,42 @@ async def get_thread_history_compact(
     return CompactHistoryResponse(
         messages=messages, states=out_states, has_forks=has_forks
     )
+
+
+@router.put("/{thread_id}/auto-approve", response_model=ThreadAutoApproveResponse)
+async def set_thread_auto_approve(
+    thread_id: str,
+    body: ThreadAutoApproveRequest,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    token: Annotated[str | None, Depends(_bearer_token)],
+) -> ThreadAutoApproveResponse:
+    """Persist the autonomy (``auto_approve``) flag in thread metadata.
+
+    Writes through :func:`update_thread_metadata`, which both updates the
+    langgraph thread metadata (via the forwarded token) and refreshes the
+    ``thread_metadata`` cache the run middlewares read from — so a toggle is
+    honored even mid-run, without piggybacking on the next ``submit``.
+    """
+    _ = current_user  # ownership is enforced downstream via the forwarded token
+
+    if token is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Could not validate credentials",
+        )
+
+    try:
+        await update_thread_metadata(
+            _langgraph_config(token),
+            thread_id,
+            {"auto_approve": bool(body.auto_approve)},
+        )
+    except Exception as exc:
+        logger.warning(
+            "thread_auto_approve_update_failed", thread_id=thread_id, error=str(exc)
+        )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Failed to update thread metadata"
+        ) from exc
+
+    return ThreadAutoApproveResponse(auto_approve=bool(body.auto_approve))

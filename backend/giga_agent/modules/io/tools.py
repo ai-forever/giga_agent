@@ -24,6 +24,7 @@ from giga_agent.modules.io.memory_bridge import (
     _memory_read,
     _memory_write,
 )
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 logger = get_logger(__name__)
 
@@ -267,7 +268,7 @@ def _build_next_read_hint(
 
 
 async def _get_owner_id(runtime: ToolRuntime) -> uuid.UUID:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
@@ -515,7 +516,7 @@ async def read_file(
     if _is_memory_path(sandbox_path):
         return await _memory_read(sandbox_path, runtime)
 
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
     if _is_tabular_file_reference(sandbox_path=sandbox_path):

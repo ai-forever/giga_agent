@@ -99,6 +99,7 @@ services:
       MEM0_DIR: /tmp/.mem0
       AEGRA_CONFIG: /app/config/langgraph.json
       AUTH_TYPE: custom
+      REDIS_BROKER_ENABLED: true
       GIGA_AGENT_UI: "0"
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
       REDIS_URI: redis://langgraph-redis:6379

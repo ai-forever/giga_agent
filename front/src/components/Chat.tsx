@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import { ArrowDown } from "lucide-react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
-import { useStableMessages } from "../hooks/useStableMessages";
 import { GraphState } from "../interfaces";
 import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
@@ -77,7 +76,9 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   );
   const firstSroll = useRef<boolean>(false);
   const [showScrollBtn, setShowScrollBtn] = useState<boolean>(false);
-  const stableMessages = useStableMessages(thread);
+  const stableMessages = thread.messages;
+  // @ts-ignore
+  globalThis.messages = thread.messages;
 
   const resolveScrollRoot = (): HTMLElement | null => {
     const container = containerRef.current;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSettings } from "@/components/Settings.tsx";
 import { useLangGraphClient } from "@/hooks/useLangGraphClient";
+import { apiClient } from "@/lib/api-client";
+import { API_AGENT_PREFIX } from "@/config";
 
 const readMetadata = (thread: unknown): Record<string, unknown> => {
   const meta = (thread as { metadata?: Record<string, unknown> } | null)
@@ -12,9 +14,11 @@ const readMetadata = (thread: unknown): Record<string, unknown> => {
  * Manages the "Autonomy" (auto_approve) flag at the thread level.
  *
  * - The value is stored per-thread in the thread metadata. On toggle it is written
- *   immediately (fetch-then-merge, to avoid clobbering thread_title). The backend
- *   (ToolResultMiddleware.before_agent) also syncs it from config.configurable on
- *   submit, which covers a brand-new chat that has no threadId yet.
+ *   immediately via the backend `PUT /threads/{id}/auto-approve` endpoint, which
+ *   merges it into thread metadata and refreshes the server-side thread_metadata
+ *   cache the run middlewares read from (so a mid-run toggle is honored). The
+ *   backend (ToolResultMiddleware.before_agent) also syncs it from
+ *   config.configurable on submit, which covers a brand-new chat with no threadId.
  * - The global value in localStorage stays as the default for new chats.
  * - When opening an existing thread the value is read from metadata
  *   (falling back to the global default if the flag isn't stored yet).
@@ -81,25 +85,26 @@ export const useThreadAutoApprove = (threadId?: string) => {
     (value: boolean) => {
       setAutoApproveState(value);
       setSettings((prev) => ({ ...prev, autoApprove: value }));
-      if (!client || !threadId) return;
+      if (!threadId) return;
 
-      // Persist to thread metadata, cancelling any previous unfinished request.
+      // Persist via the backend endpoint (merges metadata + refreshes the cache),
+      // cancelling any previous unfinished request.
       const controller = beginRequest();
       void (async () => {
         try {
-          const thread = await client.threads.get(threadId, {
-            signal: controller.signal,
-          });
-          await client.threads.update(threadId, {
-            metadata: { ...readMetadata(thread), auto_approve: value },
-            signal: controller.signal,
-          });
+          await apiClient.put(
+            `${API_AGENT_PREFIX}/threads/${encodeURIComponent(
+              threadId,
+            )}/auto-approve`,
+            { auto_approve: value },
+            { signal: controller.signal, showError: false },
+          );
         } catch {
           /* aborted or failed — local state still applies; backend syncs on submit */
         }
       })();
     },
-    [client, threadId, beginRequest, setSettings],
+    [threadId, beginRequest, setSettings],
   );
 
   return { autoApprove, setAutoApprove };

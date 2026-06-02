@@ -17,6 +17,7 @@ from langchain_core.runnables.config import RunnableConfig
 from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 CONFIG_KEY = "runtime_resolver"
 
@@ -44,8 +45,7 @@ class RuntimeResolver:
         if get_settings().giga_agent_runtime == "cli":
             return await CliRuntimeResolver.create(config)
 
-        configurable = config.get("configurable") or {}
-        identity = (configurable.get("langgraph_auth_user") or {}).get("identity")
+        identity = get_user_id_from_config(config)
         if identity is None:
             raise ValueError("langgraph_auth_user.identity is missing from config")
         user_uuid = uuid.UUID(identity) if isinstance(identity, str) else identity

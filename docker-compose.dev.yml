@@ -93,12 +93,14 @@ services:
       - giga-agent-net
     env_file:
       - ./.env
-      - ./.env.giga_agent
+      - path: ./.env.giga_agent
+        required: false
     environment:
       MEM0_DIR: /tmp/.mem0
       # Use the mounted backend sources in dev.
       PYTHONPATH: /app/backend
       AEGRA_CONFIG: /app/backend/langgraph.json
+      REDIS_BROKER_ENABLED: true
       AUTH_TYPE: custom
       GIGA_AGENT_UI: "0"
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net-dev}

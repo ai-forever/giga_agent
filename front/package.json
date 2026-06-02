@@ -5,7 +5,7 @@
   "type": "module",
   "dependencies": {
     "@langchain/core": "^1.1.48",
-    "@langchain/langgraph-sdk": "^1.9.8",
+    "@langchain/langgraph-sdk": "^1.9.11",
     "@modelcontextprotocol/sdk": "1.17.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.10",

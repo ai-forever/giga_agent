@@ -18,7 +18,11 @@ from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import get_client, get_user_id_from_config
+from giga_agent.utils.thread_metadata import (
+    get_thread_metadata,
+    update_thread_metadata,
+)
 
 if TYPE_CHECKING:
     from langgraph.prebuilt.tool_node import ToolCallRequest
@@ -63,9 +67,7 @@ def _resolve_thread_id(config: RunnableConfig | dict[str, Any]) -> str:
 
 
 def _resolve_owner_id(config: RunnableConfig | dict[str, Any]) -> uuid.UUID | None:
-    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-    user = configurable.get("langgraph_auth_user", {})
-    identity = user.get("identity")
+    identity = get_user_id_from_config(config)
     if identity is None:
         return None
     if isinstance(identity, uuid.UUID):
@@ -433,28 +435,30 @@ class ToolResultMiddleware(AgentMiddleware):
         config: RunnableConfig,
     ) -> dict[str, Any] | None:
         # Sync the autonomy flag from the current run (configurable) into the
-        # thread metadata so it survives resume and a page reload.
-        # The frontend does not write metadata itself: on submit configurable is
-        # the source of truth. On resume configurable.auto_approve is absent
-        # (conf_val is None) -> no-op, the value stored in metadata is kept.
+        # thread metadata so it survives resume and a page reload. This covers a
+        # brand-new chat (no threadId yet, so the frontend can't hit the
+        # /auto-approve endpoint): configurable is the source of truth on submit.
+        # On resume configurable.auto_approve is absent (conf_val is None) ->
+        # no-op, the value stored in metadata is kept.
         _ = runtime, state
         configurable = config.get("configurable", {}) or {}
         conf_val = configurable.get("auto_approve")
         if conf_val is None:
             return None
 
-        metadata = config.get("metadata", {}) or {}
+        thread_id = _resolve_thread_id(config)
+        metadata = await get_thread_metadata(config, thread_id)
         if metadata.get("auto_approve") == bool(conf_val):
             return None
 
-        thread_id = _resolve_thread_id(config)
+        # Mirror into the in-run config too, so other readers in this run agree.
+        config.setdefault("metadata", {})["auto_approve"] = bool(conf_val)
         if thread_id.startswith("temporary/"):
             return None
 
         try:
-            client = get_client(config)
-            await client.threads.update(
-                thread_id, metadata={"auto_approve": bool(conf_val)}
+            await update_thread_metadata(
+                config, thread_id, {"auto_approve": bool(conf_val)}
             )
         except Exception:
             return None
@@ -478,9 +482,9 @@ class ToolResultMiddleware(AgentMiddleware):
             action for action in actions if action.get("name") in mcp_tool_names
         ]
 
-        # The autonomy flag lives in thread metadata (survives resume)
-        # — the frontend sends the current value.
-        metadata = config.get("metadata", {}) or {}
+        # The autonomy flag lives in thread metadata (survives resume). Read it
+        # live (cache-first, SDK fallback) so a mid-run toggle is honored.
+        metadata = await get_thread_metadata(config, _resolve_thread_id(config))
         auto_approve = bool(metadata.get("auto_approve"))
 
         if frontend_actions:

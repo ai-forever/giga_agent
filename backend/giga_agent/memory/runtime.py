@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from giga_agent.core.agent.runtime_resolver import CliRuntimeResolver, RuntimeResolver
 from giga_agent.memory.backends import get_backend
 from giga_agent.memory.service import MemoryService
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 _CLI_EMBEDDING_NAMESPACE = uuid.UUID("8b0e1f6a-1d80-4a4f-8a25-2d4f1bda9c10")
 
@@ -41,8 +42,7 @@ def is_memory_disabled(config: RunnableConfig | None) -> bool:
 
 
 def get_owner_id_from_config(config: RunnableConfig) -> uuid.UUID:
-    configurable = config.get("configurable") or {}
-    identity = (configurable.get("langgraph_auth_user") or {}).get("identity")
+    identity = get_user_id_from_config(config)
     if identity is None:
         raise ValueError("langgraph_auth_user.identity is missing from config")
     return uuid.UUID(identity) if isinstance(identity, str) else identity
