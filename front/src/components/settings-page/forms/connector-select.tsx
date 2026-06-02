@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Loader2, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
@@ -57,6 +57,18 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
 }) => {
   const [subform, setSubform] = useState<SubformMode>("none");
 
+  // Track whether the connector list has finished loading at least once, so the
+  // create subform only auto-opens once we actually know the list is empty —
+  // not during the initial render before the parent's fetch has started.
+  const [connectorsLoaded, setConnectorsLoaded] = useState(false);
+  const wasLoadingRef = useRef(loading);
+  useEffect(() => {
+    if (wasLoadingRef.current && !loading) {
+      setConnectorsLoaded(true);
+    }
+    wasLoadingRef.current = loading;
+  }, [loading]);
+
   const allowedLower = useMemo(
     () => allowedTypes.map((type) => type.toLowerCase()),
     [allowedTypes],
@@ -78,9 +90,12 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
   const canEditSelected = Boolean(selectedConnector?.can_edit);
   const interactive = !disabled && !loading;
   // When a connector is required but there is nothing to pick, the create form
-  // is the only sensible affordance — surface it immediately and persistently.
+  // is the only sensible affordance — surface it once the list has loaded.
   const forceCreate =
-    interactive && !allowNone && filteredConnectors.length === 0;
+    interactive &&
+    connectorsLoaded &&
+    !allowNone &&
+    filteredConnectors.length === 0;
   const showCreate = forceCreate || subform === "create";
   const showEdit = subform === "edit" && !!selectedConnector && interactive;
 
@@ -110,13 +125,15 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
   const handleSaved = async (saved: ConnectorResponse, savedMode: FormMode) => {
     await onConnectorsChanged();
     if (saved.is_active) {
+      // Keep the inline form open after saving: select the connector and show
+      // it in edit mode (a freshly created one is now an editable connector).
       onValueChange(saved.id);
+      setSubform("edit");
     } else if (savedMode === "create") {
       toast.info(
         "Коннектор создан, но неактивен — активируйте его, чтобы выбрать",
       );
     }
-    setSubform("none");
   };
 
   const selectValue = showCreate
