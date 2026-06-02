@@ -42,13 +42,14 @@ import {
 } from "./Attachments.tsx";
 import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
+import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
-import { useAuth } from "@/components/providers/auth.tsx";
 import { Switch } from "@/components/ui/switch";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -131,6 +132,8 @@ interface InputAreaProps {
 
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
+  const { threadId } = useParams<{ threadId?: string }>();
+  const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(
     getInitialIsMobileDevice,
@@ -167,8 +170,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     activateCollection,
     deactivateCollection,
   } = useRagContext();
-  const { settings, setSettings } = useSettings();
-  const { user } = useAuth();
+  const { settings } = useSettings();
   const {
     mcpTools,
     openMcpModal,
@@ -204,6 +206,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   );
 
   const selectedCount = Object.keys(selected).length;
+  const branches = useBranches();
 
   const isUploading = uploads.some((u) => u.progress < 100 && !u.error);
   const handleSendMessage = useCallback(
@@ -217,29 +220,31 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           selected: selected,
         },
       } as HumanMessage;
-      const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
-      const contextInstructions =
-        typeof userSettings.contextInstructions === "string"
-          ? userSettings.contextInstructions
-          : "";
-      const contextSecrets = Array.isArray(userSettings.contextSecrets)
-        ? userSettings.contextSecrets
-        : [];
       clear();
+      // Continue from the branch currently being viewed (head by default),
+      // then stream the new run into the head view.
+      const baseMessages = branches.isViewingNonHead
+        ? branches.activeMessages
+        : (thread?.messages ?? []);
+      const forkCheckpoint = branches.isViewingNonHead
+        ? branches.activeCheckpoint
+        : undefined;
       thread?.submit(
         {
           messages: [newMessage],
           collections: enabledCollections,
           mcp_tools: mcpToolsPayload,
-          secrets: contextSecrets,
-          instructions: contextInstructions,
         },
         {
           optimisticValues(prev) {
             const prevMessages = prev.messages ?? [];
-            const newMessages = [...prevMessages, newMessage];
+            const sourceMessages = branches.isViewingNonHead
+              ? baseMessages
+              : prevMessages;
+            const newMessages = [...sourceMessages, newMessage];
             return { ...prev, messages: newMessages };
           },
+          checkpoint: forkCheckpoint,
           streamMode: ["messages"],
           onDisconnect: "continue",
           config: {
@@ -248,6 +253,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),
+              auto_approve: autoApprove,
             },
           },
         },
@@ -259,14 +265,15 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     },
     [
       thread,
+      branches,
       selected,
       clear,
       mcpToolsPayload,
       enabledCollections,
-      user,
       deepResearchForced,
       selectedSkillNames,
       clearSelectedSkills,
+      autoApprove,
     ],
   );
   const handleContinueThread = useCallback(
@@ -615,7 +622,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     const canAutoApprove =
       !!thread?.interrupt &&
       ["approve", "tool_call"].includes(thread?.interrupt.value?.type ?? "") &&
-      settings.autoApprove;
+      autoApprove;
 
     const interruptKey = thread?.interrupt?.value;
 
@@ -635,7 +642,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     thread?.interrupt?.value,
     thread?.isLoading,
     isMCPLoading,
-    settings.autoApprove,
+    autoApprove,
     handleContinue,
   ]);
 
@@ -1153,10 +1160,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           >
             <span>Автономность</span>
             <Switch
-              checked={settings.autoApprove ?? false}
-              onCheckedChange={(checked) =>
-                setSettings((prev) => ({ ...prev, autoApprove: checked }))
-              }
+              checked={autoApprove}
+              onCheckedChange={(checked) => setAutoApprove(checked)}
             />
           </label>
         </div>

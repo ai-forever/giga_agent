@@ -1,6 +1,7 @@
-from typing import TypedDict, Annotated
+from typing import Annotated, Required, TypedDict
+
 from langchain.messages import AnyMessage
-from langgraph.graph import add_messages
+from langgraph.graph.message import add_messages
 
 
 class CollectionMetadata(TypedDict):
@@ -13,21 +14,15 @@ class Collection(TypedDict):
     metadata: CollectionMetadata
 
 
-class Secret(TypedDict):
-    name: str
-    value: str
-    description: str | None
-
-
+# TODO: Вернуть DeltaChannel когда исправят баг с форками в langgraph-api / langgraph-checkpoint-sqlite.
+# См. https://www.langchain.com/blog/delta-channels-evolving-agent-runtime
+# Баг: при форке (refresh/regenerate) API-сервер некорректно реконструирует состояние DeltaChannel —
+# сообщения из всех веток накапливаются вместо показа только активной.
 class AgentState(TypedDict):  # noqa: D101
-    messages: Annotated[list[AnyMessage], add_messages]
+    messages: Required[Annotated[list[AnyMessage], add_messages]]
     kernel_id: str
-    tool_call_index: int
-    tools: list
     collections: list[Collection]
     mcp_tools: list[dict[str, dict]]
-    instructions: str
-    secrets: list[Secret]
 
 
 class Context(TypedDict):

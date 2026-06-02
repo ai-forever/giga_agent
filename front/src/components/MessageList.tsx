@@ -7,6 +7,7 @@ import ThinkingIndicator from "./ThinkingIndicator.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "../interfaces.ts";
 import ChatError from "./ChatError.tsx";
+import { useBranches } from "@/hooks/useBranches";
 
 interface MessageListProps {
   messages: Message_[];
@@ -53,12 +54,18 @@ type RenderItem =
   | { kind: "run"; aiMessages: Message_[]; key: string };
 
 const MessageList: React.FC<MessageListProps> = ({
-  messages,
+  messages: messagesProp,
   thread,
   children,
   notShowWelcomeMessage,
   maybeAutoScroll,
 }) => {
+  const branches = useBranches();
+  // When viewing a non-head branch, render that branch's messages instead of
+  // the live head. During streaming we stay on the head (activeBranch is "").
+  const messages = branches.isViewingNonHead
+    ? branches.activeMessages
+    : messagesProp;
   const resultsById = useMemo(() => {
     const map: Record<string, Message_> = {};
     for (const m of messages) {

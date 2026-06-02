@@ -14,6 +14,7 @@ import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
+import ResourceRateLimits from "./forms/resource-rate-limits";
 import {
   hasNonDefaultPermissions,
   permissionsEqual,
@@ -368,15 +369,23 @@ export const EmbeddingsSettings: React.FC = () => {
                 onCancel={handleCancelEdit}
                 permissionsSection={
                   canManagePermissions ? (
-                    <ResourcePermissions
-                      mode="edit"
-                      resourceType="embedding"
-                      resourceId={editingEmbedding.id}
-                      value={editPermissions}
-                      onChange={setEditPermissions}
-                      canManage={canManagePermissions}
-                      disabled={saving || loadingPermissions}
-                    />
+                    <>
+                      <ResourcePermissions
+                        mode="edit"
+                        resourceType="embedding"
+                        resourceId={editingEmbedding.id}
+                        value={editPermissions}
+                        onChange={setEditPermissions}
+                        canManage={canManagePermissions}
+                        disabled={saving || loadingPermissions}
+                      />
+                      <ResourceRateLimits
+                        resourceType="embedding"
+                        resourceId={editingEmbedding.id}
+                        canManage={canManagePermissions}
+                        disabled={saving}
+                      />
+                    </>
                   ) : undefined
                 }
               />

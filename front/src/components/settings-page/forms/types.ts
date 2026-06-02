@@ -2,6 +2,18 @@
 
 export type ConnectorType = "openai" | "gigachat" | "tavily" | "deepseek";
 
+/** Create vs edit mode for the connector editor. */
+export type ConnectorFormMode = "create" | "edit";
+
+/** Connector types with a dedicated managed form (vs schema-driven custom types). */
+export const MANAGED_CONNECTOR_TYPES: ConnectorType[] = [
+  "openai",
+  "deepseek",
+  "gigachat",
+];
+export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+export const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
+
 /** GigaChat API type: prod uses credentials + urls; dev uses base_url + username + password */
 export type GigaChatApiType = "prod" | "dev";
 
@@ -217,6 +229,28 @@ export interface ResourcePermissionsDraft {
   read_user_ids: string[];
   read_group_ids: string[];
   public_read: boolean;
+}
+
+export type RateLimitPeriod = "second" | "minute" | "hour";
+
+export const RATE_LIMIT_PERIODS: RateLimitPeriod[] = [
+  "second",
+  "minute",
+  "hour",
+];
+
+export interface RateLimitResponse {
+  id: string;
+  resource_type: string;
+  resource_id: string;
+  requests_global: number | null;
+  requests_per_user: number | null;
+  period: RateLimitPeriod;
+  settings: Record<string, unknown>;
+  is_active: boolean;
+  can_edit: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export const EMPTY_RESOURCE_PERMISSIONS: ResourcePermissionsDraft = {

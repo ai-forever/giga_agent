@@ -23,9 +23,9 @@ import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
-import { useAuth } from "@/components/providers/auth.tsx";
 import { useParams } from "react-router-dom";
 import { buildContentByPathUrl } from "./attachments/file-utils.ts";
+import { useBranches } from "@/hooks/useBranches";
 
 interface MessageEditorProps {
   message: Message;
@@ -50,7 +50,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
   const { selected } = useSelectedAttachments();
   const { collections, activeCollections } = useRagContext();
   const selectedCount = Object.keys(selected).length;
-  const { user } = useAuth();
+  const branches = useBranches();
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -127,7 +127,9 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
 
   const handleSendMessage = useCallback(async () => {
     const allFiles = getAllFileData();
+    const editedMessageId = crypto.randomUUID();
     const newMessage = {
+      id: editedMessageId,
       type: "human",
       content: messageText,
       // @ts-ignore
@@ -137,32 +139,15 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
         selected: selected,
       },
     } as HumanMessage;
-
-    const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
-    const contextInstructions =
-      typeof userSettings.contextInstructions === "string"
-        ? userSettings.contextInstructions
-        : "";
-    const contextSecrets = Array.isArray(userSettings.contextSecrets)
-      ? userSettings.contextSecrets
-      : [];
-
-    const editedMessage = {
-      ...(message as any),
-      type: "human",
-      content: messageText,
-      additional_kwargs: {
-        ...(message as any)?.additional_kwargs,
-        user_input: messageText,
-        files: allFiles,
-        selected: selected,
-      },
-    } as unknown as HumanMessage;
     const targetMessageId = (message as any)?.id ?? null;
-    const currentMessages = thread?.messages ?? [];
+    const currentMessages = branches.isViewingNonHead
+      ? branches.activeMessages
+      : (thread?.messages ?? []);
     const targetIndex = targetMessageId
       ? currentMessages.findIndex((m) => (m as any)?.id === targetMessageId)
       : -1;
+    const previousMessage =
+      targetIndex > 0 ? currentMessages[targetIndex - 1] : undefined;
     const segmentEnd =
       targetIndex >= 0
         ? currentMessages.findIndex(
@@ -175,44 +160,33 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
             .slice(targetIndex + 1, segmentEnd >= 0 ? segmentEnd : undefined)
             .findLast((m) => m.type === "ai")
         : undefined;
-    const meta = checkpointMessage
-      ? thread?.getMessagesMetadata(checkpointMessage)
-      : thread?.getMessagesMetadata(message);
-    const metadataCheckpoint = meta?.branch
-      ? ({
-          ...meta?.firstSeenState?.parent_checkpoint,
-          thread_id: meta.firstSeenState?.checkpoint.thread_id,
-          checkpoint_id:
-            meta.branch.split(">").length > 1
-              ? meta.branch.split(">")[0]
-              : meta.branch,
-        } as Checkpoint)
-      : meta?.firstSeenState?.parent_checkpoint;
+    const { meta, history } = await branches.resolveForkData(
+      checkpointMessage ?? message,
+    );
+    const localParentState =
+      targetIndex === 0
+        ? history.find((state) => (state.values?.messages ?? []).length === 0)
+        : previousMessage
+          ? history.find((state) => {
+              const stateMessages = state.values?.messages ?? [];
+              const lastMessage = stateMessages.at(-1);
+              return (
+                stateMessages.length === targetIndex &&
+                lastMessage?.id === previousMessage.id
+              );
+            })
+          : undefined;
+    const parentCheckpoint =
+      (localParentState?.checkpoint as Checkpoint | undefined) ??
+      (meta?.firstSeenState?.parent_checkpoint as Checkpoint | undefined);
 
-    type MessageHistory = NonNullable<typeof thread>["history"];
-    const findHumanTailCheckpoint = (history: MessageHistory = []) =>
-      history.find((state) => {
-        const stateMessages = state.values?.messages ?? [];
-        const lastMessage = stateMessages.at(-1);
-        return (
-          stateMessages.length === targetIndex + 1 &&
-          lastMessage?.id === targetMessageId &&
-          lastMessage?.type === "human"
-        );
-      })?.checkpoint as Checkpoint | undefined;
-
-    const localTailCheckpoint = targetMessageId
-      ? findHumanTailCheckpoint(thread?.history ?? [])
-      : undefined;
-    const parentCheckpoint = localTailCheckpoint ?? metadataCheckpoint;
-
+    // Stream the edited run into the head view.
+    branches.switchBranch("");
     thread?.submit(
       {
-        messages: [editedMessage],
+        messages: [newMessage],
         mcp_tools: mcpToolsPayload,
         collections: enabledCollections,
-        secrets: contextSecrets,
-        instructions: contextInstructions,
         disabled_modules: disabledModules,
       },
       {
@@ -230,6 +204,7 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
                 ...prevMessages.slice(0, idx),
                 {
                   ...prevMessages[idx],
+                  id: editedMessageId,
                   content: messageText,
                   additional_kwargs: {
                     // @ts-ignore
@@ -250,12 +225,12 @@ const MessageEditor: React.FC<MessageEditorProps> = ({
     );
   }, [
     thread,
+    branches,
     messageText,
     message,
     onCancel,
     getAllFileData,
     selected,
-    user,
     enabledCollections,
     mcpToolsPayload,
     disabledModules,

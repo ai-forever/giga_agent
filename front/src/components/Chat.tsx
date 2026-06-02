@@ -12,6 +12,8 @@ import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
+import { hideThrowingThreadGetters } from "@/lib/thread-history";
+import { BranchesProvider } from "@/hooks/useBranches";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -25,13 +27,16 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   const suppressNextThreadLoadingRef = useRef(false);
   const suppressedThreadIdRef = useRef<string | null>(null);
   const suppressedThreadLoadingStartedRef = useRef(false);
+  // Filled by BranchesProvider; lets onCheckpointEvent grow the branch tree
+  // incrementally instead of refetching the whole history after each run.
+  const checkpointEventRef = useRef<((data: any) => void) | null>(null);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
     assistantId: "giga_agent",
     messagesKey: "messages",
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
-    fetchStateHistory: true,
+    fetchStateHistory: false,
     throttle: 75,
     apiKey: token,
     defaultHeaders: {
@@ -51,7 +56,11 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
         return { ...prev, ui };
       });
     },
-  });
+    onCheckpointEvent: (data) => {
+      checkpointEventRef.current?.(data);
+    },
+  }) as unknown as UseStream<GraphState>;
+  hideThrowingThreadGetters(thread);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
@@ -92,7 +101,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [stableMessages.length]);
 
   useEffect(() => {
-    onThreadReady?.(thread as unknown as UseStream<GraphState>);
+    onThreadReady?.(thread);
   }, [thread, onThreadReady]);
 
   useEffect(() => {
@@ -100,6 +109,14 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
       onThreadIdChange?.(threadId);
     }
   }, [threadId, onThreadIdChange]);
+
+  // A thread just created here (its first messages are happening now) is flagged
+  // by the same refs that suppress its initial loading spinner. For such threads
+  // BranchesProvider builds the tree from checkpoint events instead of fetching.
+  const isNewThread =
+    !!threadId &&
+    suppressNextThreadLoadingRef.current &&
+    suppressedThreadIdRef.current === threadId;
 
   const isThreadLoading =
     Boolean(threadId) &&
@@ -303,56 +320,63 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
 
   return (
     <SelectedAttachmentsProvider>
-      <div
-        className={[
-          "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
-          !stableMessages.length ? "justify-center" : "",
-        ].join(" ")}
-        ref={containerRef}
+      <BranchesProvider
+        thread={thread}
+        threadId={threadId}
+        isNewThread={isNewThread}
+        checkpointEventRef={checkpointEventRef}
       >
         <div
           className={[
-            stableMessages.length || isThreadLoading
-              ? "grow flex-1 p-7 max-[900px]:p-0"
-              : "",
-            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
+            "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
+            !stableMessages.length ? "justify-center" : "",
           ].join(" ")}
+          ref={containerRef}
         >
-          {!isThreadLoading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
-            >
-              <MessageList
-                messages={stableMessages ?? []}
-                thread={thread}
-                maybeAutoScroll={maybeAutoScroll}
-              />
-            </motion.div>
-          )}
-        </div>
-
-        {showScrollBtn && stableMessages.length > 0 && (
-          <button
-            type="button"
-            onClick={scrollToBottom}
-            title="Прокрутить вниз"
-            aria-label="Прокрутить вниз"
-            className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
-            style={{
-              backdropFilter: "blur(2px)",
-            }}
+          <div
+            className={[
+              stableMessages.length || isThreadLoading
+                ? "grow flex-1 p-7 max-[900px]:p-0"
+                : "",
+              "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
+            ].join(" ")}
           >
-            <ArrowDown className="size-4" strokeWidth={1.75} />
-          </button>
-        )}
-        <InputArea
-          // @ts-ignore
-          thread={thread}
-        />
-        <div ref={bottomSentinelRef} style={{ height: 1 }} />
-      </div>
+            {!isThreadLoading && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
+              >
+                <MessageList
+                  messages={stableMessages ?? []}
+                  thread={thread}
+                  maybeAutoScroll={maybeAutoScroll}
+                />
+              </motion.div>
+            )}
+          </div>
+
+          {showScrollBtn && stableMessages.length > 0 && (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              title="Прокрутить вниз"
+              aria-label="Прокрутить вниз"
+              className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
+              style={{
+                backdropFilter: "blur(2px)",
+              }}
+            >
+              <ArrowDown className="size-4" strokeWidth={1.75} />
+            </button>
+          )}
+          <InputArea
+            // @ts-ignore
+            thread={thread}
+          />
+          <div ref={bottomSentinelRef} style={{ height: 1 }} />
+        </div>
+      </BranchesProvider>
     </SelectedAttachmentsProvider>
   );
 };

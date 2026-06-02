@@ -12,15 +12,9 @@ import { GraphState, GraphTemplate } from "../interfaces.ts";
 import MessageEditor from "./MessageEditor.tsx";
 import ToolCallsList from "./ToolCallsList.tsx";
 import { findScrollRoot } from "@/lib/scroll";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Pencil,
-  RefreshCw,
-  X,
-} from "lucide-react";
+import { useBranches } from "@/hooks/useBranches";
+import { Check, Download, Pencil, RefreshCw, X } from "lucide-react";
+import { BranchSwitcher } from "./BranchSwitcher.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,52 +51,6 @@ function getHumanMessageText(message: Message_): string {
     (message.additional_kwargs as Record<string, string>)?.user_input ??
     getMessageText(message);
   return rawText.replace(/\n*\[system:[\s\S]*$/i, "").trimEnd();
-}
-
-function BranchSwitcher({
-  thread,
-  message,
-}: {
-  thread?: UseStream<GraphState, GraphTemplate>;
-  message: Message_;
-}) {
-  if (!thread) return null;
-  const meta = thread.getMessagesMetadata(message);
-  const branch = meta?.branch;
-  const branchOptions = meta?.branchOptions;
-  if (!branchOptions || !branch) return null;
-  const onSelect = (branch: any) => thread.setBranch(branch);
-  const index = branchOptions.indexOf(branch);
-
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => {
-          const prevBranch = branchOptions[index - 1];
-          if (!prevBranch) return;
-          onSelect(prevBranch);
-        }}
-        disabled={thread.isLoading}
-        className="transition-transform duration-200 bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
-      >
-        <ChevronLeft size={16} />
-      </button>
-      <span className="text-[13px]">
-        {index + 1} / {branchOptions.length}
-      </span>
-      <button
-        onClick={() => {
-          const nextBranch = branchOptions[index + 1];
-          if (!nextBranch) return;
-          onSelect(nextBranch);
-        }}
-        disabled={thread.isLoading}
-        className="transition-transform duration-200 bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
-      >
-        <ChevronRight size={16} />
-      </button>
-    </div>
-  );
 }
 
 interface MessageProps {
@@ -394,65 +342,36 @@ const Message: React.FC<MessageProps> = ({
     onWrite();
   }, [normalizedContent, onWrite]);
 
+  const branches = useBranches();
   const onRefresh = async () => {
-    const messages = thread?.messages ?? [];
+    // Index against the branch currently being viewed (head by default).
+    const messages = branches.isViewingNonHead
+      ? branches.activeMessages
+      : (thread?.messages ?? []);
     const targetIndex = messages.findIndex((m) => m.id === message.id);
     if (targetIndex < 0) return;
     const previousMessage = messages[targetIndex - 1];
     const parentMessage: Message_[] = [];
-    // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegra, так как в их API нельзя просто передавать checkpoint (без input)
-    const meta = thread?.getMessagesMetadata(message);
-    const selectedMessageParentCheckpoint = meta?.branch
-      ? ({
-          ...meta?.firstSeenState?.parent_checkpoint,
-          thread_id: meta.firstSeenState?.checkpoint.thread_id,
-          checkpoint_id:
-            meta.branch.split(">").length > 1
-              ? meta.branch.split(">")[0]
-              : meta.branch,
-        } as Checkpoint)
-      : meta?.firstSeenState?.parent_checkpoint;
-    const parentCheckpoint = selectedMessageParentCheckpoint;
+    // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegра, так как в их API нельзя просто передавать checkpoint (без input)
+    const { meta, history } = await branches.resolveForkData(message);
+    // Fork point = the checkpoint whose message list is exactly the prefix
+    // before the regenerated message (ends at previousMessage), resolved
+    // against the currently viewed branch. Fall back to the message's
+    // first-seen parent checkpoint when no exact prefix match exists.
+    const localMatchingState = previousMessage
+      ? history.find((state) => {
+          const stateMessages = state.values?.messages ?? [];
+          return (
+            stateMessages.length === targetIndex &&
+            stateMessages.at(-1)?.id === previousMessage.id
+          );
+        })
+      : undefined;
+    const effectiveParentCheckpoint = (localMatchingState?.checkpoint ??
+      meta?.firstSeenState?.parent_checkpoint) as Checkpoint | undefined;
 
-    let effectiveParentCheckpoint = parentCheckpoint;
-    if (previousMessage) {
-      const localMatchingState = (thread?.history ?? []).find((state) => {
-        const stateMessages = state.values?.messages ?? [];
-        const lastMessage = stateMessages.at(-1);
-        return (
-          stateMessages.length === targetIndex &&
-          lastMessage?.id === previousMessage.id
-        );
-      });
-      if (localMatchingState?.checkpoint) {
-        effectiveParentCheckpoint = localMatchingState.checkpoint as Checkpoint;
-      }
-    }
-
-    if (
-      effectiveParentCheckpoint === parentCheckpoint &&
-      parentCheckpoint?.thread_id &&
-      thread?.client &&
-      previousMessage
-    ) {
-      const threadsClient = (thread.client as any).threads;
-      const fullHistory = await threadsClient
-        .getHistory(parentCheckpoint.thread_id, { limit: 200 })
-        .catch((error: unknown) => ({ error: String(error) }));
-      const historyStates = Array.isArray(fullHistory) ? fullHistory : [];
-      const matchingState = historyStates.find((state: any) => {
-        const stateMessages = state.values?.messages ?? [];
-        const lastMessage = stateMessages.at(-1);
-        return (
-          stateMessages.length === targetIndex &&
-          lastMessage?.id === previousMessage.id
-        );
-      });
-      if (matchingState?.checkpoint) {
-        effectiveParentCheckpoint = matchingState.checkpoint as Checkpoint;
-      }
-    }
-
+    // Stream the regenerated run into the head view.
+    branches.switchBranch("");
     thread?.submit(
       { messages: parentMessage },
       {
@@ -759,7 +678,9 @@ const Message: React.FC<MessageProps> = ({
           >
             {message.type === "human" && (
               <button
-                disabled={!thread || thread.isLoading}
+                disabled={
+                  !thread || thread.isLoading || branches.initialLoading
+                }
                 onClick={() => {
                   setEdit(true);
                   if (
@@ -782,7 +703,9 @@ const Message: React.FC<MessageProps> = ({
             {message.type === "ai" && !rawHasToolCalls && (
               <>
                 <button
-                  disabled={!thread || thread.isLoading}
+                  disabled={
+                    !thread || thread.isLoading || branches.initialLoading
+                  }
                   onClick={onRefresh}
                   className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
                 >

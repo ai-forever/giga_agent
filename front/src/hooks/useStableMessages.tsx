@@ -6,7 +6,6 @@ export function useStableMessages(thread: any) {
 
   useEffect(() => {
     if (!("__interrupt__" in thread.values) && thread.messages.length > 0) {
-      // Обновляем, если пришли нормальные сообщения
       previousMessagesRef.current = thread.messages;
       setStableMessages(thread.messages);
       // @ts-ignore

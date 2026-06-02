@@ -16,11 +16,11 @@ import {
 } from "lucide-react";
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
-import { API_BASE_URL, ragEnabled } from "@/config.ts";
+import { ragEnabled } from "@/config.ts";
 import { useTheme } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import type { Thread } from "@langchain/langgraph-sdk";
-import { Client } from "@langchain/langgraph-sdk";
+import { useLangGraphClient } from "@/hooks/useLangGraphClient";
 import { appEvents, refreshThreads, THREADS_REFRESH_EVENT } from "@/lib/events";
 import {
   DropdownMenu,
@@ -108,7 +108,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const location = useLocation();
   const { settings, setSettings } = useSettings();
   const { isDark } = useTheme();
-  const { user, logout, token } = useAuth();
+  const { user, logout } = useAuth();
   const { openContextModal } = useUserInfo();
   const SIDEBAR_WIDTH = 270;
 
@@ -117,16 +117,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     return match ? decodeURIComponent(match[1]) : null;
   }, [location.pathname]);
 
-  const langGraphClient = useMemo(() => {
-    if (!token) return null;
-    return new Client({
-      apiUrl: API_BASE_URL,
-      apiKey: token,
-      defaultHeaders: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  }, [token]);
+  const langGraphClient = useLangGraphClient();
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);

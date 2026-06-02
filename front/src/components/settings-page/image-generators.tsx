@@ -18,7 +18,9 @@ import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import SchemaFields from "./forms/schema-fields";
+import ConnectorSelect from "./forms/connector-select";
 import ResourcePermissions from "./forms/resource-permissions";
+import ResourceRateLimits from "./forms/resource-rate-limits";
 import type {
   ImageGeneratorResponse,
   ImageGeneratorTypeMeta,
@@ -99,19 +101,22 @@ interface ImageGeneratorFormProps {
   settingsSchema: JsonSchema | null;
   settingsValues: Record<string, unknown>;
   selectedConnectorId: string;
-  filteredConnectors: ConnectorResponse[];
+  connectors: ConnectorResponse[];
+  allowedTypes: string[];
   requiresConnector: boolean;
   isActive: boolean;
   checkConnection: boolean;
   loadingTypes: boolean;
   loadingSchema: boolean;
   loadingConnectors: boolean;
+  canManagePermissions: boolean;
   saving: boolean;
   submitDisabled: boolean;
   onTypeChange: (type: string) => void;
   onGeneratorNameChange: (name: string) => void;
   onSettingsChange: (values: Record<string, unknown>) => void;
   onConnectorChange: (connectorId: string) => void;
+  onConnectorsChanged: () => void | Promise<void>;
   onActiveChange: (value: boolean) => void;
   onCheckConnectionChange: (value: boolean) => void;
   onSubmit: () => void;
@@ -127,19 +132,22 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
   settingsSchema,
   settingsValues,
   selectedConnectorId,
-  filteredConnectors,
+  connectors,
+  allowedTypes,
   requiresConnector,
   isActive,
   checkConnection,
   loadingTypes,
   loadingSchema,
   loadingConnectors,
+  canManagePermissions,
   saving,
   submitDisabled,
   onTypeChange,
   onGeneratorNameChange,
   onSettingsChange,
   onConnectorChange,
+  onConnectorsChanged,
   onActiveChange,
   onCheckConnectionChange,
   onSubmit,
@@ -222,37 +230,17 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
           <Label htmlFor="image-generator-connector">
             Коннектор <span className="text-destructive">*</span>
           </Label>
-          <Select
+          <ConnectorSelect
+            id="image-generator-connector"
             value={selectedConnectorId}
             onValueChange={onConnectorChange}
-            disabled={
-              loadingConnectors || saving || filteredConnectors.length === 0
-            }
-          >
-            <SelectTrigger id="image-generator-connector" className="w-full">
-              {loadingConnectors ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  Загрузка коннекторов...
-                </div>
-              ) : (
-                <SelectValue placeholder="Выберите коннектор" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {filteredConnectors.map((connector) => (
-                <SelectItem key={connector.id} value={connector.id}>
-                  {connector.name || connector.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {filteredConnectors.length === 0 && !loadingConnectors && (
-            <p className="text-sm text-amber-600">
-              Нет активных коннекторов для типа{" "}
-              <span className="font-medium">{selectedType}</span>.
-            </p>
-          )}
+            allowedTypes={allowedTypes}
+            disabled={saving}
+            loading={loadingConnectors}
+            connectors={connectors}
+            onConnectorsChanged={onConnectorsChanged}
+            canManagePermissions={canManagePermissions}
+          />
         </div>
       )}
 
@@ -709,13 +697,15 @@ export const ImageGeneratorsSettings: React.FC = () => {
             settingsSchema={settingsSchema}
             settingsValues={settingsValues}
             selectedConnectorId={selectedConnectorId}
-            filteredConnectors={filteredConnectors}
+            connectors={connectors}
+            allowedTypes={supportedConnectorTypes}
             requiresConnector={requiresConnector}
             isActive={isActive}
             checkConnection={checkConnection}
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             loadingConnectors={loadingConnectors}
+            canManagePermissions={canManagePermissions}
             saving={saving}
             submitDisabled={isSaveDisabled}
             onTypeChange={(nextType) => {
@@ -726,6 +716,7 @@ export const ImageGeneratorsSettings: React.FC = () => {
             onGeneratorNameChange={setGeneratorName}
             onSettingsChange={setSettingsValues}
             onConnectorChange={setSelectedConnectorId}
+            onConnectorsChanged={fetchConnectors}
             onActiveChange={setIsActive}
             onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
@@ -779,13 +770,15 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   settingsSchema={settingsSchema}
                   settingsValues={settingsValues}
                   selectedConnectorId={selectedConnectorId}
-                  filteredConnectors={filteredConnectors}
+                  connectors={connectors}
+                  allowedTypes={supportedConnectorTypes}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
                   checkConnection={checkConnection}
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
                   loadingConnectors={loadingConnectors}
+                  canManagePermissions={canManagePermissions}
                   saving={saving}
                   submitDisabled={isSaveDisabled}
                   onTypeChange={() => {
@@ -794,21 +787,30 @@ export const ImageGeneratorsSettings: React.FC = () => {
                   onGeneratorNameChange={setGeneratorName}
                   onSettingsChange={setSettingsValues}
                   onConnectorChange={setSelectedConnectorId}
+                  onConnectorsChanged={fetchConnectors}
                   onActiveChange={setIsActive}
                   onCheckConnectionChange={setCheckConnection}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
                   permissionsSection={
                     canManagePermissions ? (
-                      <ResourcePermissions
-                        mode="edit"
-                        resourceType="image_generator"
-                        resourceId={editingGeneratorId ?? undefined}
-                        value={editPermissions}
-                        onChange={setEditPermissions}
-                        canManage={canManagePermissions}
-                        disabled={saving || loadingPermissions}
-                      />
+                      <>
+                        <ResourcePermissions
+                          mode="edit"
+                          resourceType="image_generator"
+                          resourceId={editingGeneratorId ?? undefined}
+                          value={editPermissions}
+                          onChange={setEditPermissions}
+                          canManage={canManagePermissions}
+                          disabled={saving || loadingPermissions}
+                        />
+                        <ResourceRateLimits
+                          resourceType="image_generator"
+                          resourceId={editingGeneratorId ?? ""}
+                          canManage={canManagePermissions}
+                          disabled={saving}
+                        />
+                      </>
                     ) : undefined
                   }
                 />

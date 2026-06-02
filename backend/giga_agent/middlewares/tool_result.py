@@ -18,6 +18,7 @@ from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
+from giga_agent.utils.langgraph_sdk import get_client
 
 if TYPE_CHECKING:
     from langgraph.prebuilt.tool_node import ToolCallRequest
@@ -425,6 +426,40 @@ async def process_mcp_content(
 
 
 class ToolResultMiddleware(AgentMiddleware):
+    async def before_agent(
+        self,
+        state: AgentState,
+        runtime: Runtime[Context],
+        config: RunnableConfig,
+    ) -> dict[str, Any] | None:
+        # Sync the autonomy flag from the current run (configurable) into the
+        # thread metadata so it survives resume and a page reload.
+        # The frontend does not write metadata itself: on submit configurable is
+        # the source of truth. On resume configurable.auto_approve is absent
+        # (conf_val is None) -> no-op, the value stored in metadata is kept.
+        _ = runtime, state
+        configurable = config.get("configurable", {}) or {}
+        conf_val = configurable.get("auto_approve")
+        if conf_val is None:
+            return None
+
+        metadata = config.get("metadata", {}) or {}
+        if metadata.get("auto_approve") == bool(conf_val):
+            return None
+
+        thread_id = _resolve_thread_id(config)
+        if thread_id.startswith("temporary/"):
+            return None
+
+        try:
+            client = get_client(config)
+            await client.threads.update(
+                thread_id, metadata={"auto_approve": bool(conf_val)}
+            )
+        except Exception:
+            return None
+        return None
+
     async def after_model(
         self,
         state: AgentState,
@@ -443,11 +478,20 @@ class ToolResultMiddleware(AgentMiddleware):
             action for action in actions if action.get("name") in mcp_tool_names
         ]
 
-        value = (
-            interrupt({"type": "tool_call", "tools": frontend_actions})
-            if frontend_actions
-            else interrupt({"type": "approve"})
-        )
+        # The autonomy flag lives in thread metadata (survives resume)
+        # — the frontend sends the current value.
+        metadata = config.get("metadata", {}) or {}
+        auto_approve = bool(metadata.get("auto_approve"))
+
+        if frontend_actions:
+            # MCP tools run on the client — an interrupt is mandatory.
+            value = interrupt({"type": "tool_call", "tools": frontend_actions})
+        elif auto_approve:
+            # Autonomous mode without frontend_actions: don't interrupt, keep
+            # executing on the server (the run finishes even with the page closed).
+            return None
+        else:
+            value = interrupt({"type": "approve"})
 
         if value.get("type") == "comment":
             user_message = value.get("message")

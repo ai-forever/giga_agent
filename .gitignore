@@ -20,3 +20,5 @@ giga_agent.conf*.json
 .cursor
 agents_md
 .claude
+.debug/
+.playwright-cli/

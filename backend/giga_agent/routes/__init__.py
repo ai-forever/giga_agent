@@ -13,10 +13,12 @@ from giga_agent.routes.generators import router as generators_router
 from giga_agent.routes.groups import router as groups_router
 from giga_agent.routes.llms import router as llms_router
 from giga_agent.routes.models_config import router as models_config_router
+from giga_agent.routes.rate_limits import router as rate_limits_router
 from giga_agent.routes.resource_permissions import router as resource_permissions_router
 from giga_agent.routes.sandboxes import router as sandboxes_router
 from giga_agent.routes.search_engines import router as search_engines_router
 from giga_agent.routes.stt import router as stt_router
+from giga_agent.routes.threads import router as threads_router
 
 router = APIRouter(prefix=GIGA_AGENT_PREFIX_API)
 router.include_router(agent_router)
@@ -30,8 +32,10 @@ router.include_router(files_router)
 router.include_router(generators_router)
 router.include_router(search_engines_router)
 router.include_router(groups_router)
+router.include_router(rate_limits_router)
 router.include_router(resource_permissions_router)
 router.include_router(stt_router)
+router.include_router(threads_router)
 if GIGA_AGENT_RUNTIME_LOCAL:
     from giga_agent.routes.local_functions import router as local_functions_router
 
@@ -50,6 +54,8 @@ __all__ = [
     "generators_router",
     "search_engines_router",
     "groups_router",
+    "rate_limits_router",
     "resource_permissions_router",
     "stt_router",
+    "threads_router",
 ]

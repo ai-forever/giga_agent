@@ -114,6 +114,14 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionsPayload,
     ResourcePermissionRepository,
 )
+from giga_agent.models.rate_limit import (
+    RateLimit,
+    RateLimitBase,
+    RateLimitCreate,
+    RateLimitUpdate,
+    RateLimitResponse,
+    RateLimitRepository,
+)
 from giga_agent.models.skill import (
     Skill,
     SkillSourceType,
@@ -239,6 +247,13 @@ __all__ = [
     "ResourcePermission",
     "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
+    # Rate limits
+    "RateLimit",
+    "RateLimitBase",
+    "RateLimitCreate",
+    "RateLimitUpdate",
+    "RateLimitResponse",
+    "RateLimitRepository",
     # Skills
     "Skill",
     "SkillSourceType",
