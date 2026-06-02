@@ -845,17 +845,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         </div>
       )}
       <div className="relative p-4 pb-3 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[880px] mx-auto overflow-hidden">
-        {threadProject && (
-          <button
-            type="button"
-            onClick={() => navigate(`/projects/${threadProject.id}`)}
-            className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title="Открыть проект"
-          >
-            <FolderOpen className="h-3.5 w-3.5" />
-            <span className="truncate max-w-[200px]">{threadProject.name}</span>
-          </button>
-        )}
         <div className="relative">
           <input
             className="hidden"
@@ -883,7 +872,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               className="w-full min-h-[60px] max-h-[200px] resize-none font-sans p-2 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
             />
             <div className={"flex"}>
-              <div className="flex items-center gap-1 flex-1">
+              <div className="flex items-center gap-1 flex-1 min-w-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -1069,6 +1058,17 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                     </DropdownMenuSub>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {threadProject && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${threadProject.id}`)}
+                    className="inline-flex items-center gap-1 h-7 px-2 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors min-w-0 max-w-[180px]"
+                    title="Открыть проект"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{threadProject.name}</span>
+                  </button>
+                )}
                 {enabledCollectionCount > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
