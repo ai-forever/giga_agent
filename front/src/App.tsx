@@ -86,6 +86,12 @@ const InnerApp: React.FC = () => {
   const handleThreadReady = useCallback((thread: UseStream<GraphState>) => {
     currentThreadRef.current = thread;
   }, []);
+
+  // Тред мог получить новые сообщения, пока вкладка была в фоне (ран успел
+  // завершиться). Перемонтируем <Chat>, чтобы useStream заново подтянул state.
+  const handleRequestReload = useCallback(() => {
+    setReloadKey((prev) => prev + 1);
+  }, []);
   if (!demoItemsLoaded) {
     return null;
   }
@@ -99,6 +105,7 @@ const InnerApp: React.FC = () => {
           onNavigateAndReload={handleNavigateAndReload}
           onThreadIdChange={handleThreadIdChange}
           onThreadReady={handleThreadReady}
+          onRequestReload={handleRequestReload}
         />
       </MainContent>
       <OnboardingWizard />
@@ -112,29 +119,33 @@ const AppRoutes: React.FC<{
   onNavigateAndReload: () => void;
   onThreadIdChange: (threadId: string) => void;
   onThreadReady: (thread: UseStream<GraphState>) => void;
-}> = React.memo(({ reloadKey, onThreadIdChange, onThreadReady }) => {
-  return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Chat
-            key={reloadKey}
-            onThreadIdChange={onThreadIdChange}
-            onThreadReady={onThreadReady}
-          />
-        }
-      />
-      <Route
-        path="/threads/:threadId"
-        element={
-          <Chat
-            key={reloadKey}
-            onThreadIdChange={onThreadIdChange}
-            onThreadReady={onThreadReady}
-          />
-        }
-      />
+  onRequestReload: () => void;
+}> = React.memo(
+  ({ reloadKey, onThreadIdChange, onThreadReady, onRequestReload }) => {
+    return (
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <Chat
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route
+          path="/threads/:threadId"
+          element={
+            <Chat
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
       <Route path="/oauth/callback" element={<OAuthCallback />} />
       <Route path="/rag" element={<RAGInterface />} />
       <Route path="/memories" element={<MemoriesPage />} />

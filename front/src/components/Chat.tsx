@@ -11,15 +11,23 @@ import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
-import { hideThrowingThreadGetters } from "@/lib/thread-history";
+import {
+  hideThrowingThreadGetters,
+  suppressPhantomBreakpointInterrupt,
+} from "@/lib/thread-history";
 import { BranchesProvider } from "@/hooks/useBranches";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
   onThreadReady?: (thread: UseStream<GraphState>) => void;
+  onRequestReload?: () => void;
 }
 
-const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
+const Chat: React.FC<ChatProps> = ({
+  onThreadIdChange,
+  onThreadReady,
+  onRequestReload,
+}) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
@@ -60,6 +68,7 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
     },
   }) as unknown as UseStream<GraphState>;
   hideThrowingThreadGetters(thread);
+  suppressPhantomBreakpointInterrupt(thread);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
@@ -104,6 +113,102 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   useEffect(() => {
     onThreadReady?.(thread);
   }, [thread, onThreadReady]);
+
+  // reconnectOnMount хранит метаданные рана в sessionStorage (изолирован на вкладку),
+  // поэтому ни новая вкладка, ни другой браузер/устройство не подхватывают идущий
+  // стрим. Опрашиваем сервер: сравниваем последний известный ран с новейшим на
+  // сервере и при расхождении присоединяемся к нему через joinStream.
+  //
+  // joinStream доигрывает события не только активного, но и недавно завершённого
+  // рана: aegra держит replay-буфер ~10 мин (Redis TTL) / ~1 ч (in-memory) после
+  // финиша, а сообщения мёрджатся по id, так что повторный джойн идемпотентен.
+  // Поэтому отдельный getState не нужен — это покрывает и «ран закончился, пока
+  // вкладка была в фоне». Если же буфер уже истёк, делаем полный remount.
+  const REPLAY_WINDOW_MS = 8 * 60 * 1000; // консервативно меньше Redis TTL (10 мин)
+  const threadRef = useRef(thread);
+  threadRef.current = thread;
+  const onRequestReloadRef = useRef(onRequestReload);
+  onRequestReloadRef.current = onRequestReload;
+  // Последний ран, который мы уже учли (стримили / приджойнились / он в state).
+  const lastSeenRunIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!threadId) return;
+    lastSeenRunIdRef.current = null;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const reconcile = async () => {
+      // Запрос только в активной вкладке и когда мы сами не стримим.
+      if (cancelled || document.hidden || threadRef.current.isLoading) return;
+      try {
+        const runs = await threadRef.current.client.runs.list(threadId, {
+          limit: 1,
+        });
+        if (cancelled || threadRef.current.isLoading) return;
+        const latest = runs[0] as
+          | { run_id: string; status: string; updated_at?: string }
+          | undefined;
+        if (!latest) return;
+
+        const isActive =
+          latest.status === "running" || latest.status === "pending";
+
+        // Первая сверка: запоминаем текущий ран. Активный — джойнимся (мы могли
+        // открыть тред в новой вкладке во время стрима); завершённый уже в state.
+        if (lastSeenRunIdRef.current === null) {
+          lastSeenRunIdRef.current = latest.run_id;
+          if (isActive) {
+            // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
+            threadRef.current.joinStream(latest.run_id);
+          }
+          return;
+        }
+
+        // Ран не сменился — ничего нового.
+        if (latest.run_id === lastSeenRunIdRef.current) return;
+
+        // Появился новый ран (запущен в другой вкладке / на другом устройстве).
+        lastSeenRunIdRef.current = latest.run_id;
+        if (isActive) {
+          // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
+          threadRef.current.joinStream(latest.run_id);
+          return;
+        }
+        // Ран уже завершился. Если replay-буфер ещё жив — доигрываем через join,
+        // иначе буфер истёк и сообщения так не получить → полный remount.
+        const finishedAt = latest.updated_at
+          ? new Date(latest.updated_at).getTime()
+          : 0;
+        if (finishedAt && Date.now() - finishedAt < REPLAY_WINDOW_MS) {
+          // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
+          threadRef.current.joinStream(latest.run_id);
+        } else {
+          onRequestReloadRef.current?.();
+        }
+      } catch {
+        // тред мог ещё не существовать на сервере / сетевая ошибка — игнорируем
+      }
+    };
+
+    // Таймер тикает всегда, но сам запрос внутри уходит лишь при видимой вкладке.
+    const tick = async () => {
+      await reconcile();
+      if (!cancelled) timer = window.setTimeout(tick, 10000);
+    };
+
+    // Как только вкладка становится активной — проверяем сразу, не дожидаясь тика.
+    const onVisibilityChange = () => {
+      if (!document.hidden) void reconcile();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [threadId]);
 
   useEffect(() => {
     if (threadId) {
