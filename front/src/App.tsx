@@ -146,24 +146,25 @@ const AppRoutes: React.FC<{
             />
           }
         />
-      <Route path="/oauth/callback" element={<OAuthCallback />} />
-      <Route path="/rag" element={<RAGInterface />} />
-      <Route path="/memories" element={<MemoriesPage />} />
-      <Route path="/demo/settings" element={<DemoSettings />} />
-      <Route
-        path="/settings"
-        element={<Navigate to="/settings/general" replace />}
-      />
-      <Route path="/settings/:tab" element={<SettingsPage />} />
-      <Route
-        path="/admin-panel"
-        element={<Navigate to="/admin-panel/users" replace />}
-      />
-      <Route path="/admin-panel/users" element={<AdminPanelPage />} />
-      <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
-    </Routes>
-  );
-});
+        <Route path="/oauth/callback" element={<OAuthCallback />} />
+        <Route path="/rag" element={<RAGInterface />} />
+        <Route path="/memories" element={<MemoriesPage />} />
+        <Route path="/demo/settings" element={<DemoSettings />} />
+        <Route
+          path="/settings"
+          element={<Navigate to="/settings/general" replace />}
+        />
+        <Route path="/settings/:tab" element={<SettingsPage />} />
+        <Route
+          path="/admin-panel"
+          element={<Navigate to="/admin-panel/users" replace />}
+        />
+        <Route path="/admin-panel/users" element={<AdminPanelPage />} />
+        <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
+      </Routes>
+    );
+  },
+);
 
 AppRoutes.displayName = "AppRoutes";
 

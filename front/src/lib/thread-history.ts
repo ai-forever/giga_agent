@@ -62,7 +62,8 @@ export function suppressPhantomBreakpointInterrupt<T extends AnyThread>(
   const desc = Object.getOwnPropertyDescriptor(thread, "interrupts");
   const orig = desc?.get;
   if (!orig || !desc?.configurable) return thread;
-  if ((orig as { __phantomFiltered?: boolean }).__phantomFiltered) return thread;
+  if ((orig as { __phantomFiltered?: boolean }).__phantomFiltered)
+    return thread;
 
   const wrapped = function (this: unknown) {
     const all = (orig.call(this) ?? []) as Array<{
