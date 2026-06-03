@@ -470,11 +470,16 @@ const Message: React.FC<MessageProps> = ({
     );
   };
 
+  const interruptType = thread?.interrupt?.value?.type;
+  const isDestructiveConfirm = interruptType === "confirm_destructive";
   const isCurrentInterruptMessage =
-    !settings.autoApprove &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
-    ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+    // Деструктивное подтверждение показываем ВСЕГДА (даже в автономном режиме);
+    // обычные approve/tool_call — только когда автоодобрение выключено.
+    (isDestructiveConfirm ||
+      (!settings.autoApprove &&
+        ["approve", "tool_call"].includes(interruptType ?? ""))) &&
     // @ts-ignore
     !!message.tool_calls?.length &&
     thread?.messages.at(-1)?.id === message.id;
@@ -658,6 +663,11 @@ const Message: React.FC<MessageProps> = ({
               layout
               className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
             >
+              {isDestructiveConfirm && (
+                <span className="mr-auto text-xs font-medium text-red-600">
+                  ⚠️ Подтвердите удаление
+                </span>
+              )}
               <motion.button
                 layout
                 animate={{

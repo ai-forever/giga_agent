@@ -27,7 +27,7 @@ type BagTemplate = {
 };
 
 export interface GraphInterrupt {
-  type: "approve" | "comment" | "tool_call";
+  type: "approve" | "comment" | "tool_call" | "confirm_destructive";
   tools?: ToolCall[];
 }
 

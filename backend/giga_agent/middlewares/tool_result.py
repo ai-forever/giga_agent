@@ -443,11 +443,25 @@ class ToolResultMiddleware(AgentMiddleware):
             action for action in actions if action.get("name") in mcp_tool_names
         ]
 
-        value = (
-            interrupt({"type": "tool_call", "tools": frontend_actions})
-            if frontend_actions
-            else interrupt({"type": "approve"})
-        )
+        # Деструктивные вызовы (удаление и т.п.) требуют подтверждения ВСЕГДА —
+        # даже в автономном режиме. Для них отдельный тип interrupt, который
+        # фронт не авто-одобряет.
+        from giga_agent.core.agent.destructive import is_destructive
+
+        destructive_actions = [
+            {"name": a.get("name"), "args": a.get("args")}
+            for a in actions
+            if is_destructive(a.get("name"))
+        ]
+
+        if frontend_actions:
+            value = interrupt({"type": "tool_call", "tools": frontend_actions})
+        elif destructive_actions:
+            value = interrupt(
+                {"type": "confirm_destructive", "tools": destructive_actions}
+            )
+        else:
+            value = interrupt({"type": "approve"})
 
         if value.get("type") == "comment":
             user_message = value.get("message")
