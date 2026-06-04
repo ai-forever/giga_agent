@@ -39,6 +39,7 @@ from giga_agent.conf import (
     GIGA_AGENT_ENABLE_THINK_TOOL,
     GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
 )
+from giga_agent.core.agent.anti_loop import detect_loop
 from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.multi_tool_use import (
@@ -79,6 +80,14 @@ logger = get_logger(__name__)
 # Safety cap on consecutive think hops. Normally forced think is bounded by
 # MAX_FORCED_THINK_FOLLOWUPS, so reaching this means a runaway loop.
 MAX_THINK_HOPS = 6
+
+# User-facing message emitted when an anti-loop detector breaks the run.
+ANTI_LOOP_STOP_MESSAGE = (
+    "Похоже, я зациклился и не могу продвинуться дальше по этой задаче — "
+    "повторяю одни и те же действия без прогресса. Останавливаюсь, чтобы не "
+    "тратить шаги впустую. Уточни, пожалуйста, запрос или подскажи, как лучше "
+    "действовать, и я попробую снова."
+)
 
 
 def _is_feature_enabled_for_provider(
@@ -516,6 +525,19 @@ def create_graph(
         state: AgentState, runtime: Runtime[ContextT], config
     ) -> dict[str, Any]:
         """Async model request handler with sequential middleware processing."""
+        # Anti-loop guard: if the agent is stuck (repeating a call, oscillating,
+        # over the step budget, or failing the same tool), stop the run with a
+        # terminal assistant message instead of invoking the model again. The
+        # message has no tool calls, so _make_model_to_tools_edge routes it to
+        # the end of the graph.
+        loop_reason = detect_loop(state["messages"])
+        if loop_reason:
+            logger.warning("Anti-loop triggered, stopping run: %s", loop_reason)
+            stop_message = AIMessage(content=ANTI_LOOP_STOP_MESSAGE)
+            if name:
+                stop_message.name = name
+            return {"messages": [stop_message]}
+
         resolver = await RuntimeResolver.create(config)
         resolver.inject(config)
 
