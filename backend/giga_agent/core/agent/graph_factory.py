@@ -49,6 +49,7 @@ from giga_agent.core.agent.prompt import BASE_PROMPT
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.think import (
     THINK_VIA_FAST_MODEL,
+    _count_trailing_think_tool_pairs,
     collapse_think_hops,
     is_single_think_call,
     process_think_via_fast_model,
@@ -74,6 +75,10 @@ from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.agent.utils import merge_state
 
 logger = get_logger(__name__)
+
+# Safety cap on consecutive think hops. Normally forced think is bounded by
+# MAX_FORCED_THINK_FOLLOWUPS, so reaching this means a runaway loop.
+MAX_THINK_HOPS = 6
 
 
 def _is_feature_enabled_for_provider(
@@ -530,6 +535,15 @@ def create_graph(
             GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
             llm_type,
         )
+
+        if think_enabled:
+            think_hops = _count_trailing_think_tool_pairs(state["messages"])
+            if think_hops > MAX_THINK_HOPS:
+                msg = (
+                    f"Too many consecutive think hops: {think_hops} "
+                    f"(limit {MAX_THINK_HOPS})"
+                )
+                raise RuntimeError(msg)
 
         if multi_tool_use_enabled:
             few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
