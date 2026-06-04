@@ -404,7 +404,6 @@ async def _handle_special_input_request(
         raw_kwargs = payload.get("kwargs", {})
         if not isinstance(raw_kwargs, dict):
             raise ValueError("Tool kwargs must be a JSON object")
-
         if tool_name in repl_tools_map:
             raw_result = await _invoke_repl_tool_callable(
                 repl_tools_map[tool_name], raw_kwargs, runtime

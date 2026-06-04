@@ -283,14 +283,27 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
             self._kernel_id = None
             effective_kernel_id = None
 
-        async for chunk in super().run_code(
+        code_iter = super().run_code(
             code,
             kernel_id=effective_kernel_id,
             allow_stdin=allow_stdin,
             envs=envs,
             **kwargs,
-        ):
-            yield chunk
+        )
+        # ВАЖНО: пробрасываем значение из .asend() обратно во внутренний
+        # генератор, иначе ответы на input() теряются (input_reply уходит
+        # пустым). `async for ... yield chunk` молча отбрасывает asend-значение.
+        pending_input_reply: str | None = None
+        while True:
+            try:
+                if pending_input_reply is None:
+                    chunk = await anext(code_iter)
+                else:
+                    chunk = await code_iter.asend(pending_input_reply)
+                    pending_input_reply = None
+            except StopAsyncIteration:
+                break
+            pending_input_reply = yield chunk
 
     # ------------------------------------------------------------------
     # stop / reconnect / connectivity
