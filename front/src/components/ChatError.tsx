@@ -64,7 +64,11 @@ const ChatError = ({ thread }: ChatErrorProps) => {
     // checkpoint_id/checkpoint_map = null отфильтровываются на бэке, остаётся
     // checkpoint_ns: "" — корневой неймспейс основного графа.
     void thread.submit(undefined, {
-      checkpoint: { checkpoint_ns: "", checkpoint_id: null, checkpoint_map: null },
+      checkpoint: {
+        checkpoint_ns: "",
+        checkpoint_id: null,
+        checkpoint_map: null,
+      },
     });
   };
 
