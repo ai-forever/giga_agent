@@ -495,7 +495,7 @@ def create_graph(
         if request.system_message:
             messages = [request.system_message, *messages]
 
-        output = await model_.ainvoke(messages)
+        output = await model_.with_retry().ainvoke(messages)
         if name:
             output.name = name
         output.additional_kwargs.pop("function_call", None)
