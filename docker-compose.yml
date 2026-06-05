@@ -31,6 +31,17 @@ services:
   langgraph-redis:
     restart: unless-stopped
     image: redis:6
+    # maxmemory (2g) below mem_limit (3g) leaves headroom for redis overhead/
+    # fragmentation. volatile-lru evicts only TTL'd keys — i.e. the broker replay
+    # buffers (the thing that ballooned to 9GB in the incident) — while leaving
+    # the no-TTL worker queue key intact so runs are never silently dropped.
+    command:
+      - redis-server
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-2gb}
+      - --maxmemory-policy
+      - volatile-lru
+    mem_limit: ${REDIS_MEM_LIMIT:-3g}
     networks:
       - giga-agent-net
     healthcheck:
