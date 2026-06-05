@@ -118,6 +118,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.giga_agent:/.giga_agent
     command: ["sh", "/app/deployments/aegra-startup.sh"]
+    # Hard RAM ceiling so a runaway run OOM-kills only this container instead of
+    # dragging the whole host into swap. memswap_limit == mem_limit disables swap
+    # for the container (no thrash); default 4g, override via env.
+    mem_limit: ${GIGA_AGENT_MEM_LIMIT:-4g}
+    memswap_limit: ${GIGA_AGENT_MEMSWAP_LIMIT:-4g}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
