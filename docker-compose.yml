@@ -10,6 +10,7 @@ networks:
 
 services:
   nginx:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: deployments/local/Dockerfile.frontend-nginx
@@ -28,6 +29,7 @@ services:
       - "8123:80"
 
   langgraph-redis:
+    restart: unless-stopped
     image: redis:6
     networks:
       - giga-agent-net
@@ -38,6 +40,7 @@ services:
       retries: 5
 
   langgraph-postgres:
+    restart: unless-stopped
     image: postgres:16
     networks:
       - giga-agent-net
@@ -55,6 +58,7 @@ services:
       interval: 5s
 
   giga-agent-postgres:
+    restart: unless-stopped
     image: postgres:16
     networks:
       - giga-agent-net
@@ -72,6 +76,7 @@ services:
       interval: 5s
 
   qdrant:
+    restart: unless-stopped
     image: qdrant/qdrant
     networks:
       - giga-agent-net
@@ -79,6 +84,7 @@ services:
       - ./qdrant_storage:/qdrant/storage
 
   giga-agent:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: deployments/local/Dockerfile

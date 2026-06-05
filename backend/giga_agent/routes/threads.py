@@ -34,6 +34,13 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/threads", tags=["threads"])
 
+# Hard ceiling on how many checkpoints /history/compact materializes at once.
+# langgraph's get_history embeds the FULL message snapshot in every checkpoint's
+# `values` (O(checkpoints × messages)); a pathological thread (e.g. a runaway
+# tool loop with thousands of checkpoints, ~1MB each) can OOM the process. The
+# incoming `limit` is clamped to this value; clients paginate via `before`.
+MAX_COMPACT_HISTORY_LIMIT = 50
+
 
 class CompactState(BaseModel):
     """One checkpoint, stripped of message bodies (referenced by id instead)."""
@@ -79,11 +86,15 @@ async def get_thread_history_compact(
     thread_id: str,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     token: Annotated[str | None, Depends(_bearer_token)],
-    limit: int = 1000,
+    limit: int = MAX_COMPACT_HISTORY_LIMIT,
     before: str | None = None,
 ) -> CompactHistoryResponse:
     """Compact, deduplicated history so the FE can rebuild the branch tree cheaply."""
     _ = current_user  # ownership is enforced downstream via the forwarded token
+
+    # Clamp to the ceiling so a client can't request a payload large enough to
+    # OOM the process; pagination still works via `before`.
+    limit = max(1, min(limit, MAX_COMPACT_HISTORY_LIMIT))
 
     if token is None:
         raise HTTPException(
