@@ -1156,7 +1156,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </div>
           <label
             data-onboarding="autonomy-switch"
-            className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
+            className="absolute top-2 right-3 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
           >
             <span>Автономность</span>
             <Switch
