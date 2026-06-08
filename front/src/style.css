@@ -81,6 +81,8 @@
 }
 
 @theme inline {
+  --font-sans: "Golos Text", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
