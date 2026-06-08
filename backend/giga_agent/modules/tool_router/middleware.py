@@ -150,19 +150,26 @@ def _is_token_limit_error(exc: BaseException) -> bool:
     )
 
 
+def _notice(content: str) -> AIMessage:
+    """Служебное сообщение от инфраструктуры (не ответ модели).
+
+    Помечается kind="system_notice" — фронт рисует его отдельным серым
+    info-баблом, чтобы не выглядело как реплика ассистента.
+    """
+    return AIMessage(content=content, additional_kwargs={"kind": "system_notice"})
+
+
 def _overflow_message(all_tools: list, selected: list) -> AIMessage:
     """Сообщение, когда даже минимальный набор не влезает в бюджет GigaChat."""
     sel_ids = {id(t) for t in selected}
     dropped = [t.name for t in all_tools if id(t) not in sel_ids]
     groups = _groups_for(dropped) or _groups_for([t.name for t in all_tools])
     hint = ", ".join(groups) if groups else "часть модулей"
-    return AIMessage(
-        content=(
-            "⚠️ Слишком много активных инструментов для GigaChat — они не "
-            "помещаются в лимит блока функций (~4096 токенов).\n\n"
-            f"Отключите лишние модули в меню инструментов (например: {hint}) "
-            "и повторите запрос."
-        )
+    return _notice(
+        "⚠️ Слишком много активных инструментов для GigaChat — они не "
+        "помещаются в лимит блока функций (~4096 токенов).\n\n"
+        f"Отключите лишние модули в меню инструментов (например: {hint}) "
+        "и повторите запрос."
     )
 
 
@@ -170,13 +177,11 @@ def _limit_error_message(tools: list) -> AIMessage:
     """Сообщение при пойманном 413/лимите токенов от модели."""
     groups = _groups_for([t.name for t in (tools or [])])
     hint = f" (например: {', '.join(groups)})" if groups else ""
-    return AIMessage(
-        content=(
-            "⚠️ Запрос превысил лимит токенов GigaChat. Частые причины — "
-            "слишком много активных инструментов или разросшийся диалог.\n\n"
-            f"Отключите лишние модули в меню инструментов{hint} или начните "
-            "новый чат, затем повторите."
-        )
+    return _notice(
+        "⚠️ Запрос превысил лимит токенов GigaChat. Частые причины — "
+        "слишком много активных инструментов или разросшийся диалог.\n\n"
+        f"Отключите лишние модули в меню инструментов{hint} или начните "
+        "новый чат, затем повторите."
     )
 
 
@@ -240,7 +245,7 @@ def _stuck_message(request) -> AIMessage:
         parts.append("Доступные сейчас инструменты: " + ", ".join(avail) + ".")
     else:
         parts.append("Сейчас не подключено ни одного профильного инструмента.")
-    return AIMessage(content="\n".join(parts))
+    return _notice("\n".join(parts))
 
 
 class ToolRouterMiddleware(AgentMiddleware):
