@@ -833,7 +833,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                         className={[
                           "group relative px-2 py-1 h-10 text-sm rounded-lg cursor-pointer transition-colors flex items-center gap-2",
                           isActive
-                            ? "bg-accent text-accent-foreground border border-border"
+                            ? "bg-brand/10 text-foreground border border-brand/30"
                             : "hover:bg-muted/50",
                         ].join(" ")}
                         onClick={() => handleOpenThread(t.thread_id)}
