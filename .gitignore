@@ -22,3 +22,5 @@ agents_md
 .claude
 .debug/
 .playwright-cli/
+.gstack/
+.env.giga_agent
