@@ -17,6 +17,7 @@ from giga_agent.modules.tool_router import ToolRouterModule
 from giga_agent.modules.vk import VKModule
 from giga_agent.modules.weather import WeatherModule
 from giga_agent.modules.yandex_disk import YandexDiskModule
+from giga_agent.modules.yandex_tracker import YandexTrackerModule
 
 
 class GigaAgent(BaseAgent):
@@ -35,6 +36,7 @@ class GigaAgent(BaseAgent):
             GitHubModule(),
             VKModule(),
             YandexDiskModule(),
+            YandexTrackerModule(),
             WeatherModule(),
             DeepResearchModule(),
             SubAgentLegacyModule(),

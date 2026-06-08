@@ -180,10 +180,83 @@ def _limit_error_message(tools: list) -> AIMessage:
     )
 
 
+# Подсказки: какой модуль/секрет включить, если домен запрошен, но тулов нет.
+_MODULE_HINTS: dict[str, str] = {
+    "yandex_tracker": (
+        "нужен Яндекс.Трекер — добавьте секреты YANDEX_TRACKER_OAUTH_TOKEN и "
+        "YANDEX_TRACKER_ORG_ID (Настройки → API-ключи модулей)"
+    ),
+    "yandex_disk": "нужен Яндекс.Диск — добавьте секрет YANDEX_DISK_ACCESS_TOKEN",
+    "code": "включите модуль «Песочница (REPL)» в меню Инструменты",
+    "web": "включите модуль «Веб-скрапер» в меню Инструменты",
+    "docs": "включите модуль «Документы (RAG)» в меню Инструменты",
+    "memory": "включите модуль «Память» в меню Инструменты",
+    "images": "включите модуль «Анализ изображений» в меню Инструменты",
+    "skills": "включите модуль «Скиллы» в меню Инструменты",
+}
+
+
+def _consecutive_request_tools(messages) -> int:
+    """Сколько подряд последних ходов модель вызывала ТОЛЬКО request_tools."""
+    count = 0
+    for m in reversed(messages):
+        if isinstance(m, AIMessage):
+            calls = m.tool_calls or []
+            if calls and all(c.get("name") == "request_tools" for c in calls):
+                count += 1
+                continue
+            break
+        if getattr(m, "type", None) == "human":
+            break  # новый ход пользователя обнуляет счётчик
+    return count
+
+
+def _unavailable_domain_hint(request) -> str:
+    text = _gather_text(request.messages)
+    available = {t.name for t in (request.tools or [])}
+    for rule in RULES:
+        if not matches(text, rule):
+            continue
+        has = any(
+            (tok.endswith("_") and any(n.startswith(tok) for n in available))
+            or tok in available
+            for tok in rule.tools
+        )
+        if not has:
+            return _MODULE_HINTS.get(rule.name, f"модуль «{rule.name}» не подключён")
+    return ""
+
+
+def _stuck_message(request) -> AIMessage:
+    """Сообщение, когда модель зациклилась, прося недоступный инструмент."""
+    hint = _unavailable_domain_hint(request)
+    avail = sorted(
+        t.name for t in (request.tools or []) if t.name not in CORE_TOOL_NAMES
+    )
+    parts = ["Не получилось подобрать подходящий инструмент под запрос."]
+    if hint:
+        parts.append(f"Похоже, {hint}.")
+    if avail:
+        parts.append("Доступные сейчас инструменты: " + ", ".join(avail) + ".")
+    else:
+        parts.append("Сейчас не подключено ни одного профильного инструмента.")
+    return AIMessage(content="\n".join(parts))
+
+
 class ToolRouterMiddleware(AgentMiddleware):
     """Сужает набор тулов под бюджет GigaChat по ключевым словам разговора."""
 
     async def wrap_model_call(self, request, handler):
+        # --- Loop-guard: модель застряла на request_tools (нужного тула нет) ---
+        try:
+            if _consecutive_request_tools(request.messages) >= 2:
+                logger.warning(
+                    "ToolRouter: request_tools loop detected, short-circuiting"
+                )
+                return _stuck_message(request)
+        except Exception:
+            logger.exception("ToolRouter: loop-guard failed")
+
         req = request
         # --- Проактивно: сузить набор тулов под бюджет GigaChat ---
         try:
