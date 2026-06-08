@@ -90,6 +90,12 @@ const WellcomeMessage: React.FC = () => {
           variants={logoVariants}
           aria-label="GigaAgent Logo"
         />
+        <motion.p
+          className="mt-5 text-lg text-muted-foreground"
+          variants={itemVariants}
+        >
+          Чем помочь сегодня?
+        </motion.p>
       </motion.div>
     </div>
   );
