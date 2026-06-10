@@ -2,19 +2,24 @@ import React, { useMemo, useRef } from "react";
 import Message from "./Message.tsx";
 import AgentRun from "./AgentRun.tsx";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
+import { Loader2 } from "lucide-react";
 import WellcomeMessage from "./wellcome-message.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "../interfaces.ts";
 import ChatError from "./ChatError.tsx";
+import { FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED } from "@/config";
 import { useBranches } from "@/hooks/useBranches";
+import { useFollowUpSuggestions } from "@/hooks/useThreadSuggestions";
 
 interface MessageListProps {
   messages: Message_[];
   thread?: UseStream<GraphState>;
+  threadId?: string;
   children?: React.ReactNode;
   notShowWelcomeMessage?: boolean;
   maybeAutoScroll: () => void;
+  onSelectSuggestion?: (text: string) => void;
 }
 
 const THINK_TOOL_NAME = "think";
@@ -56,9 +61,11 @@ type RenderItem =
 const MessageList: React.FC<MessageListProps> = ({
   messages: messagesProp,
   thread,
+  threadId: routeThreadId,
   children,
   notShowWelcomeMessage,
   maybeAutoScroll,
+  onSelectSuggestion,
 }) => {
   const branches = useBranches();
   // When viewing a non-head branch, render that branch's messages instead of
@@ -136,6 +143,22 @@ const MessageList: React.FC<MessageListProps> = ({
     }
     return null;
   }, [renderable]);
+  const activeThreadId =
+    routeThreadId ??
+    ((thread as any)?.threadId as string | undefined) ??
+    undefined;
+  const canShowFollowUps =
+    FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED &&
+    Boolean(activeThreadId) &&
+    Boolean(lastAiId) &&
+    !thread?.isLoading &&
+    !branches.isViewingNonHead;
+  const { suggestions: followUpSuggestions, isLoading: isFollowUpsLoading } =
+    useFollowUpSuggestions({
+      threadId: activeThreadId,
+      messages: renderable,
+      enabled: canShowFollowUps,
+    });
 
   // "Историческими" считаются все руны, которые УЖЕ есть в треде до того, как
   // пользователь впервые что-то отправил (т.е. до того, как мы увидели
@@ -148,10 +171,10 @@ const MessageList: React.FC<MessageListProps> = ({
   const historicalRunKeysRef = useRef<Set<string>>(new Set());
   const sessionStartedRef = useRef<boolean>(false);
   const lastThreadIdRef = useRef<string | null | undefined>(undefined);
-  const threadId = (thread as any)?.threadId as string | null | undefined;
+  const streamThreadId = (thread as any)?.threadId as string | null | undefined;
 
-  if (lastThreadIdRef.current !== threadId) {
-    lastThreadIdRef.current = threadId;
+  if (lastThreadIdRef.current !== streamThreadId) {
+    lastThreadIdRef.current = streamThreadId;
     historicalRunKeysRef.current = new Set();
     sessionStartedRef.current = false;
   }
@@ -227,6 +250,29 @@ const MessageList: React.FC<MessageListProps> = ({
           />
         );
       })}
+      {canShowFollowUps && (
+        <div className="px-[34px] py-2">
+          {isFollowUpsLoading ? (
+            <div className="inline-flex items-center gap-2 text-sm text-muted-foreground animate-pulse">
+              <Loader2 className="size-4 animate-spin" />
+              Генерируем подсказки...
+            </div>
+          ) : followUpSuggestions.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {followUpSuggestions.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => onSelectSuggestion?.(item)}
+                  className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/90 transition-colors hover:bg-muted cursor-pointer"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
       <ChatError thread={thread} />
       <ThinkingIndicator messages={messages} thread={thread} />
     </div>

@@ -4,6 +4,7 @@
 
 import type { ThreadState } from "@langchain/langgraph-sdk";
 import { API_AGENT_PREFIX } from "@/config.ts";
+import { apiClient } from "@/lib/api-client";
 import type { AnyThreadState } from "./branching";
 
 interface CompactState {
@@ -18,6 +19,13 @@ interface CompactHistoryResponse {
   messages: Record<string, any>;
   states: CompactState[];
   has_forks: boolean;
+}
+
+export interface PromptSuggestionsResponse {
+  suggestions: string[];
+  cached: boolean;
+  based_on_pairs: number;
+  source_thread_count: number;
 }
 
 export interface BranchTree {
@@ -127,4 +135,45 @@ export function fetchBranchTree(
 
   inFlight = { key, controller, promise };
   return promise;
+}
+
+export function getStarterSuggestions(opts?: {
+  count?: number;
+  limitThreads?: number;
+  refresh?: boolean;
+  signal?: AbortSignal;
+}): Promise<PromptSuggestionsResponse> {
+  const params = new URLSearchParams();
+  if (opts?.count != null) params.set("count", String(opts.count));
+  if (opts?.limitThreads != null) {
+    params.set("limit_threads", String(opts.limitThreads));
+  }
+  if (opts?.refresh) params.set("refresh", "true");
+  const query = params.toString();
+  return apiClient.get<PromptSuggestionsResponse>(
+    `${API_AGENT_PREFIX}/threads/starter-suggestions${query ? `?${query}` : ""}`,
+    { signal: opts?.signal, showError: false },
+  );
+}
+
+export function getFollowUpSuggestions(
+  threadId: string,
+  opts?: {
+    count?: number;
+    pairs?: number;
+    refresh?: boolean;
+    signal?: AbortSignal;
+  },
+): Promise<PromptSuggestionsResponse> {
+  const params = new URLSearchParams();
+  if (opts?.count != null) params.set("count", String(opts.count));
+  if (opts?.pairs != null) params.set("pairs", String(opts.pairs));
+  if (opts?.refresh) params.set("refresh", "true");
+  const query = params.toString();
+  return apiClient.get<PromptSuggestionsResponse>(
+    `${API_AGENT_PREFIX}/threads/${encodeURIComponent(
+      threadId,
+    )}/follow-up-suggestions${query ? `?${query}` : ""}`,
+    { signal: opts?.signal, showError: false },
+  );
 }

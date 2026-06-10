@@ -85,6 +85,10 @@ const Chat: React.FC<ChatProps> = ({
   );
   const firstSroll = useRef<boolean>(false);
   const [showScrollBtn, setShowScrollBtn] = useState<boolean>(false);
+  const [prefillPayload, setPrefillPayload] = useState<{
+    text: string;
+    nonce: number;
+  } | null>(null);
   const stableMessages = thread.messages;
   // @ts-ignore
   globalThis.messages = thread.messages;
@@ -456,7 +460,11 @@ const Chat: React.FC<ChatProps> = ({
                 <MessageList
                   messages={stableMessages ?? []}
                   thread={thread}
+                  threadId={threadId}
                   maybeAutoScroll={maybeAutoScroll}
+                  onSelectSuggestion={(text) =>
+                    setPrefillPayload({ text, nonce: Date.now() })
+                  }
                 />
               </motion.div>
             )}
@@ -479,6 +487,7 @@ const Chat: React.FC<ChatProps> = ({
           <InputArea
             // @ts-ignore
             thread={thread}
+            prefillPayload={prefillPayload}
           />
           <div ref={bottomSentinelRef} style={{ height: 1 }} />
         </div>

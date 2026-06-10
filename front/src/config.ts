@@ -3,6 +3,13 @@ interface RuntimeSttConfig {
   runtime: "salute" | null;
 }
 
+interface RuntimePromptSuggestionsConfig {
+  enabled?: boolean;
+  starterEnabled?: boolean;
+  recommendationsEnabled?: boolean;
+  followUpEnabled?: boolean;
+}
+
 interface RuntimeConfig {
   baseUrl?: string;
   basePath?: string;
@@ -11,6 +18,7 @@ interface RuntimeConfig {
   runtimeLocal?: boolean;
   skipOnboarding?: boolean;
   stt?: RuntimeSttConfig;
+  promptSuggestions?: RuntimePromptSuggestionsConfig;
 }
 
 declare global {
@@ -108,6 +116,70 @@ export const API_AGENT_PREFIX = `${API_BASE_URL}/agent`;
 export const RUNTIME_LOCAL = runtimeConfig.runtimeLocal === true;
 export const SKIP_ONBOARDING = runtimeConfig.skipOnboarding === true;
 export const BACKEND_STT_ENABLED = runtimeConfig.stt?.enabled === true;
+export const PROMPT_SUGGESTIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.enabled ?? true;
+export const STARTER_PROMPT_SUGGESTIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.starterEnabled ?? true;
+export const STARTER_RECOMMENDATIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.recommendationsEnabled ?? true;
+export const FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.followUpEnabled ?? true;
+
+export interface PromptTemplateTopic {
+  id: string;
+  label: string;
+  prompts: string[];
+}
+
+export const PROMPT_TEMPLATE_TOPICS: PromptTemplateTopic[] = [
+  {
+    id: "planning",
+    label: "Планирование",
+    prompts: [
+      "Разбей задачу на шаги с приоритетами и рисками",
+      "Составь план на неделю по моему проекту",
+      "Сделай roadmap на месяц с контрольными точками",
+    ],
+  },
+  {
+    id: "analysis",
+    label: "Аналитика",
+    prompts: [
+      "Сравни два подхода и аргументируй выбор",
+      "Выдели основные риски и способы их снизить",
+      "Сделай SWOT-анализ этой идеи",
+    ],
+  },
+  {
+    id: "writing",
+    label: "Тексты",
+    prompts: [
+      "Напиши черновик письма клиенту в деловом тоне",
+      "Сделай краткое резюме текста по пунктам",
+      "Перефразируй это проще и короче",
+    ],
+  },
+  {
+    id: "coding",
+    label: "Код",
+    prompts: [
+      "Предложи минимальный план реализации этой фичи",
+      "Найди возможные ошибки в этом подходе",
+      "Сгенерируй тест-кейсы для этого сценария",
+    ],
+  },
+];
+
+export const STATIC_STARTER_RECOMMENDATIONS: string[] = [
+  "Помоги определить следующий шаг в текущем проекте",
+  "Составь чеклист для запуска новой фичи",
+  "Подготовь структуру презентации по результатам работы",
+  "Сравни варианты решения и выбери лучший",
+  "Сделай план исследования темы с источниками",
+  "Сформулируй 5 гипотез для роста продукта",
+  "Составь список рисков и план смягчения",
+  "Подготовь шаблон сообщения для клиента",
+];
 
 export const TOOL_MAP = {
   lean_canvas: "Агент по созданию Lean Canvas",
