@@ -1,21 +1,30 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, List
 
-from fastapi import APIRouter
+import httpx
+from fastapi import HTTPException
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
-from giga_agent.core.module import BaseModule, SecretMetadata
+from giga_agent.core.module import SecretMetadata
 from giga_agent.models.users import UserShort
+from giga_agent.modules.tracker_base import BaseTrackerModule
 from giga_agent.modules.yandex_tracker.auth import (
     YANDEX_TRACKER_OAUTH_TOKEN,
     YANDEX_TRACKER_ORG_ID,
+    get_tracker_auth_for_user,
     has_tracker_creds,
+)
+from giga_agent.modules.yandex_tracker.tools import (
+    TRACKER_API,
+    _disp,
+    _headers,
+    _to_issue,
 )
 
 
-class YandexTrackerModule(BaseModule):
+class YandexTrackerModule(BaseTrackerModule):
     id: str = "yandex_tracker"
     label: str = "Яндекс.Трекер"
     description: str = "Поиск и ведение задач в Яндекс.Трекере"
@@ -27,13 +36,76 @@ class YandexTrackerModule(BaseModule):
         _ = config, kwargs
         return has_tracker_creds(user)
 
-    def get_api_router(self, **kwargs: Any) -> Optional[APIRouter]:
-        # REST для интерактивных карточек: смена статуса прямо из чата без
-        # round-trip через модель (см. yandex_tracker/api.py).
-        _ = kwargs
-        from giga_agent.modules.yandex_tracker.api import router as tracker_api_router
+    # --- REST виджета (BaseTrackerModule.get_api_router зовёт эти методы) ---
 
-        return tracker_api_router
+    def _auth(self, user: UserShort) -> dict[str, str]:
+        try:
+            token, org_id = get_tracker_auth_for_user(user)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _headers(token, org_id)
+
+    @staticmethod
+    def _raise_for_tracker(exc: httpx.HTTPStatusError) -> None:
+        try:
+            detail: Any = exc.response.json()
+        except Exception:  # noqa: BLE001 — тело может быть не-JSON
+            detail = exc.response.text or "Ошибка Яндекс.Трекера"
+        raise HTTPException(
+            status_code=exc.response.status_code, detail=detail
+        ) from exc
+
+    async def widget_list_transitions(
+        self, user: UserShort, issue_key: str
+    ) -> list[dict[str, Any]]:
+        headers = self._auth(user)
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{TRACKER_API}/issues/{issue_key}/transitions", headers=headers
+            )
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                self._raise_for_tracker(exc)
+            transitions = resp.json()
+        return [
+            {"id": t.get("id"), "display": t.get("display"), "to": _disp(t.get("to"))}
+            for t in transitions
+        ]
+
+    async def _fetch_issue(
+        self, client: httpx.AsyncClient, headers: dict[str, str], issue_key: str
+    ) -> dict[str, Any]:
+        resp = await client.get(f"{TRACKER_API}/issues/{issue_key}", headers=headers)
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            self._raise_for_tracker(exc)
+        return _to_issue(resp.json(), with_description=True)
+
+    async def widget_execute_transition(
+        self, user: UserShort, issue_key: str, transition_id: str
+    ) -> dict[str, Any] | None:
+        headers = self._auth(user)
+        async with httpx.AsyncClient() as client:
+            ex = await client.post(
+                f"{TRACKER_API}/issues/{issue_key}/transitions/{transition_id}/_execute",
+                headers=headers,
+                json={},
+            )
+            try:
+                ex.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                self._raise_for_tracker(exc)
+            # Перечитываем: ответ _execute не всегда содержит новый статус.
+            return await self._fetch_issue(client, headers, issue_key)
+
+    async def widget_get_issue(
+        self, user: UserShort, issue_key: str
+    ) -> dict[str, Any] | None:
+        headers = self._auth(user)
+        async with httpx.AsyncClient() as client:
+            return await self._fetch_issue(client, headers, issue_key)
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
         _ = kwargs

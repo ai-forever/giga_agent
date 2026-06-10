@@ -947,9 +947,8 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
               />
             );
           }
-          // GenUI-виджеты: по имени тула или по маркеру payload (provider-agnostic).
+          // GenUI-виджеты: по маркеру payload результата (provider-agnostic).
           const Widget = resolveWidget(
-            tc.name,
             tc.id ? resultsById[tc.id] : undefined,
           );
           if (Widget) {

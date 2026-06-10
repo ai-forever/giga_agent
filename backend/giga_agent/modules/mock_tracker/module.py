@@ -3,13 +3,12 @@ from __future__ import annotations
 import os
 from typing import Any, List
 
-from fastapi import APIRouter
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
-from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
-from giga_agent.modules.mock_tracker.api import router as mock_api_router
+from giga_agent.modules.mock_tracker import data
+from giga_agent.modules.tracker_base import BaseTrackerModule
 
 
 def _enabled() -> bool:
@@ -21,12 +20,12 @@ def _enabled() -> bool:
     )
 
 
-class MockTrackerModule(BaseModule):
+class MockTrackerModule(BaseTrackerModule):
     """Фейковый второй трекер — доказательство расширяемости кита.
 
-    Эмитит нормализованный контракт `widget=issue_board`; фронт рендерит его тем
-    же китом, что и Яндекс, БЕЗ единой правки. За env-флагом
-    GIGA_AGENT_ENABLE_MOCK_TRACKER.
+    Наследует BaseTrackerModule (тот же контракт и REST переходов, что у Яндекса),
+    данные — в памяти. Фронт рендерит его тем же китом БЕЗ единой правки. За
+    env-флагом GIGA_AGENT_ENABLE_MOCK_TRACKER.
     """
 
     id: str = "mock_tracker"
@@ -40,9 +39,23 @@ class MockTrackerModule(BaseModule):
         _ = user, config, kwargs
         return _enabled()
 
-    def get_api_router(self, **kwargs: Any) -> APIRouter:
-        _ = kwargs
-        return mock_api_router
+    async def widget_list_transitions(
+        self, user: UserShort, issue_key: str
+    ) -> list[dict[str, Any]]:
+        _ = user
+        return data.transitions_for(issue_key)
+
+    async def widget_execute_transition(
+        self, user: UserShort, issue_key: str, transition_id: str
+    ) -> dict[str, Any] | None:
+        _ = user
+        return data.apply_transition(issue_key, transition_id)
+
+    async def widget_get_issue(
+        self, user: UserShort, issue_key: str
+    ) -> dict[str, Any] | None:
+        _ = user
+        return data.get_issue(issue_key)
 
     async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs

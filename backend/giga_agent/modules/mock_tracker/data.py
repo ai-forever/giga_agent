@@ -102,6 +102,13 @@ def single_payload(key: str) -> dict[str, Any]:
     }
 
 
+def get_issue(key: str) -> dict[str, Any] | None:
+    """Нормализованный Issue по ключу (для REST-refresh виджета)."""
+    if key not in _ISSUES:
+        return None
+    return _to_issue(key, with_description=True)
+
+
 def transitions_for(key: str) -> list[dict[str, str]]:
     if key not in _STATUS:
         return []
