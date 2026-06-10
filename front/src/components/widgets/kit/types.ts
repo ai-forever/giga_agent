@@ -37,3 +37,19 @@ export interface IssueBoardPayload {
   groupBy?: string;
   error?: string;
 }
+
+export type Accent = "success" | "info" | "warning" | "danger";
+
+/** Группа генеративной доски (агент собрал её в рантайме). */
+export interface IssueGroup {
+  label: string;
+  accent?: Accent;
+  issues: Issue[];
+}
+
+/** Композиция генеративной доски, пришедшая через push_ui_message. */
+export interface Composition {
+  provider: string;
+  title?: string;
+  groups: IssueGroup[];
+}

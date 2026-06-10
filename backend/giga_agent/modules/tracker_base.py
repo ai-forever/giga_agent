@@ -12,12 +12,17 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from langgraph.graph.ui import push_ui_message
 
 from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user
 
 WIDGET_KIND = "issue_board"
+# Имя pushed-UI генеративной доски. Фронт рендерит её, читая thread.values.ui по
+# этому имени + tool_call_id (как deep_research). Provider-agnostic: композиция
+# несёт provider, поэтому один фронт-рендерер обслуживает все трекеры.
+COMPOSED_UI = "issue_board_composed"
 
 
 def make_issue(
@@ -57,6 +62,51 @@ def single_payload(provider: str, issue: dict[str, Any] | None) -> dict[str, Any
         "widget": WIDGET_KIND,
         "provider": provider,
         "issues": [issue] if issue else [],
+    }
+
+
+def composed_group(
+    label: str, issues: list[dict[str, Any]], *, accent: str | None = None
+) -> dict[str, Any]:
+    """Группа генеративной доски: подпись + (опц.) акцент-тон + задачи."""
+    g: dict[str, Any] = {"label": label, "issues": issues}
+    if accent:
+        g["accent"] = accent  # success | info | warning | danger
+    return g
+
+
+def emit_composed_board(
+    runtime: Any,
+    provider: str,
+    groups: list[dict[str, Any]],
+    *,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Пушит генеративную композицию доски в thread.values.ui и возвращает
+    короткий tool-message (виджет рисует pushed-UI, как у deep_research).
+
+    Композиция — это то, что агент сам собрал в рантайме (группировка/акценты),
+    а не фиксированный статический Board.
+    """
+    composition: dict[str, Any] = {"provider": provider, "groups": groups}
+    if title:
+        composition["title"] = title
+    # push_ui_message — лайв-рендер во время выполнения тула (стриминговый канал).
+    push_ui_message(
+        COMPOSED_UI,
+        {
+            "tool_call_id": getattr(runtime, "tool_call_id", None),
+            "composition": composition,
+        },
+    )
+    total = sum(len(g.get("issues", [])) for g in groups)
+    # Композицию кладём И в результат тула — он персистентен (переживает стрим и
+    # перезагрузку), в отличие от thread.values.ui. Фронт читает отсюда.
+    return {
+        "view": "composed_board",
+        "composition": composition,
+        "groups": len(groups),
+        "total": total,
     }
 
 

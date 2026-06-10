@@ -64,8 +64,9 @@ class MockTrackerModule(BaseTrackerModule):
         if not _enabled():
             return []
         from giga_agent.modules.mock_tracker.tools import (
+            mock_board,
             mock_get_issue,
             mock_search_issues,
         )
 
-        return [mock_search_issues, mock_get_issue]
+        return [mock_search_issues, mock_get_issue, mock_board]

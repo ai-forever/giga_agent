@@ -7,7 +7,14 @@ import httpx
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
-from giga_agent.modules.tracker_base import board_payload, field, make_issue, single_payload
+from giga_agent.modules.tracker_base import (
+    board_payload,
+    composed_group,
+    emit_composed_board,
+    field,
+    make_issue,
+    single_payload,
+)
 from giga_agent.modules.yandex_tracker.auth import get_tracker_auth
 
 TRACKER_API = "https://api.tracker.yandex.net/v2"
@@ -124,6 +131,22 @@ async def tracker_search_issues(
         status: Статус для фильтра, например "open" или "closed".
         limit: Сколько задач вернуть (максимум 50).
     """
+    items = await _fetch_raw(runtime, query, queue, assignee, status, limit)
+    if isinstance(items, dict):
+        return items  # ошибка-валидация
+    return board_payload(PROVIDER, [_to_issue(i) for i in items])
+
+
+async def _fetch_raw(
+    runtime: ToolRuntime,
+    query: str | None,
+    queue: str | None,
+    assignee: str | None,
+    status: str | None,
+    limit: int,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Сырые задачи из Трекера (общий fetch для search и board). Возвращает
+    список raw-объектов либо dict-ошибку."""
     token, org_id = await get_tracker_auth(runtime)
     body: dict[str, Any] = {}
     if query:
@@ -151,8 +174,92 @@ async def tracker_search_issues(
             json=body,
         )
         resp.raise_for_status()
-        items = resp.json()
-    return board_payload(PROVIDER, [_to_issue(i) for i in items])
+        return resp.json()
+
+
+_GROUP_FIELDS = ("assignee", "status", "priority", "queue")
+_GROUP_TITLES = {
+    "assignee": "исполнителю",
+    "status": "статусу",
+    "priority": "приоритету",
+    "queue": "очереди",
+}
+_NO_VALUE = {
+    "assignee": "Без исполнителя",
+    "status": "Без статуса",
+    "priority": "Без приоритета",
+    "queue": "Без очереди",
+}
+
+
+def _group_label(item: dict[str, Any], group_by: str) -> str:
+    if group_by == "queue":
+        q = item.get("queue")
+        val = q.get("key") if isinstance(q, dict) else q
+    else:
+        val = _disp(item.get(group_by))
+    return val or _NO_VALUE.get(group_by, "—")
+
+
+def _status_accent(label: str) -> str | None:
+    s = label.lower()
+    if any(w in s for w in ("закры", "решён", "решен", "выполн", "done", "closed")):
+        return "success"
+    if any(w in s for w in ("работ", "progress", "review", "тест")):
+        return "info"
+    if any(w in s for w in ("отмен", "отклон", "reject", "cancel")):
+        return "danger"
+    return None
+
+
+def _build_groups(items: list[dict[str, Any]], group_by: str) -> list[dict[str, Any]]:
+    if group_by not in _GROUP_FIELDS:
+        group_by = "status"
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for it in items:
+        buckets.setdefault(_group_label(it, group_by), []).append(it)
+    groups = [
+        composed_group(
+            label,
+            [_to_issue(r) for r in raws],
+            accent=_status_accent(label) if group_by == "status" else None,
+        )
+        for label, raws in buckets.items()
+    ]
+    groups.sort(key=lambda g: len(g["issues"]), reverse=True)
+    return groups
+
+
+@tool(parse_docstring=True)
+async def tracker_board(
+    runtime: ToolRuntime,
+    group_by: str = "status",
+    query: str | None = None,
+    queue: str | None = None,
+    assignee: str | None = None,
+    status: str | None = None,
+    limit: int = 30,
+) -> dict[str, Any]:
+    """Собирает доску задач, СГРУППИРОВАННУЮ по полю (генеративное представление).
+
+    Вызывай, когда пользователь просит разбить/сгруппировать задачи — по
+    исполнителю, статусу, приоритету или очереди. Доска рисуется виджетом;
+    тебе достаточно вернуть результат, переписывать задачи текстом не нужно.
+
+    Args:
+        group_by: Поле группировки — "assignee", "status", "priority" или "queue".
+        query: Запрос на языке Трекера (как в tracker_search_issues).
+        queue: Ключ очереди для фильтра.
+        assignee: Логин исполнителя для фильтра.
+        status: Статус для фильтра.
+        limit: Сколько задач собрать (максимум 50).
+    """
+    items = await _fetch_raw(runtime, query, queue, assignee, status, limit)
+    if isinstance(items, dict):
+        return items
+    groups = _build_groups(items, group_by)
+    title = f"Задачи по {_GROUP_TITLES.get(group_by, group_by)}"
+    return emit_composed_board(runtime, PROVIDER, groups, title=title)
 
 
 @tool(parse_docstring=True)

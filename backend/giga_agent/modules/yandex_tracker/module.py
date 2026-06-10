@@ -136,6 +136,7 @@ class YandexTrackerModule(BaseTrackerModule):
             return []
         from giga_agent.modules.yandex_tracker.tools import (
             tracker_add_comment,
+            tracker_board,
             tracker_create_issue,
             tracker_get_issue,
             tracker_search_issues,
@@ -148,6 +149,7 @@ class YandexTrackerModule(BaseTrackerModule):
         return [
             tracker_search_issues,
             tracker_get_issue,
+            tracker_board,
             tracker_create_issue,
             tracker_add_comment,
             tracker_update_issue,

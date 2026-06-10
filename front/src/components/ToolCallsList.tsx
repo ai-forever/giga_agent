@@ -13,8 +13,12 @@ import MessageAttachment from "./attachments/MessageAttachment";
 import { notifyIfHidden } from "../lib/notifications";
 import { getScheduledTaskId } from "./scheduler/detect";
 import { resolveWidget } from "./widgets/registry";
+import { ComposedBoard } from "./widgets/kit";
+import type { Composition } from "./widgets/kit";
 
 const THINK_TOOL_NAME = "think";
+// Имя pushed-UI генеративной доски (совпадает с tracker_base.COMPOSED_UI).
+const COMPOSED_BOARD_UI = "issue_board_composed";
 
 interface DeepResearchSubQ {
   id: number;
@@ -188,6 +192,38 @@ const DeepResearchToolCall: React.FC<{
       )}
     </div>
   );
+};
+
+// Достаёт композицию генеративной доски из thread.values.ui по tool_call_id.
+const compositionFor = (
+  thread: UseStream<GraphState> | undefined,
+  toolCallId: string | undefined,
+): Composition | null => {
+  if (!thread || !toolCallId) return null;
+  // @ts-ignore — ui не типизирован в GraphState
+  const uis = (thread.values?.ui ?? []).filter(
+    (el: any) =>
+      el.name === COMPOSED_BOARD_UI && el.props?.tool_call_id === toolCallId,
+  );
+  const last = uis.at(-1);
+  return (last?.props?.composition as Composition) ?? null;
+};
+
+// Композиция из РЕЗУЛЬТАТА тула (персистентный источник, в отличие от
+// thread.values.ui, который живёт только во время стрима).
+const compositionFromResult = (resultMessage?: Message): Composition | null => {
+  if (!resultMessage) return null;
+  try {
+    const raw =
+      typeof resultMessage.content === "string"
+        ? JSON.parse(resultMessage.content)
+        : resultMessage.content;
+    const inner = (raw as any)?.data ?? raw;
+    if ((inner as any)?.view !== "composed_board") return null;
+    return ((inner as any)?.composition as Composition) ?? null;
+  } catch {
+    return null;
+  }
 };
 
 const ATTACHMENT_TEXTS: Record<string, string> = {
@@ -947,10 +983,18 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
               />
             );
           }
+          // Генеративная доска: композиция из результата (персистентно) или из
+          // thread.values.ui (лайв во время стрима). Provider-agnostic.
+          const result = tc.id ? resultsById[tc.id] : undefined;
+          const composition =
+            compositionFromResult(result) ?? compositionFor(thread, tc.id);
+          if (composition) {
+            return (
+              <ComposedBoard key={tc.id ?? tc.name} composition={composition} />
+            );
+          }
           // GenUI-виджеты: по маркеру payload результата (provider-agnostic).
-          const Widget = resolveWidget(
-            tc.id ? resultsById[tc.id] : undefined,
-          );
+          const Widget = resolveWidget(result);
           if (Widget) {
             return (
               <Widget

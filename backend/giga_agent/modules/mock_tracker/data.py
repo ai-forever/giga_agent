@@ -109,6 +109,30 @@ def get_issue(key: str) -> dict[str, Any] | None:
     return _to_issue(key, with_description=True)
 
 
+_ACCENTS = {"В работе": "info", "Закрыт": "success"}
+
+
+def grouped(group_by: str) -> list[dict[str, Any]]:
+    """Группы для генеративной доски: по статусу/исполнителю/приоритету."""
+    field_map = {
+        "status": lambda k: _STATUS[k],
+        "assignee": lambda k: _ISSUES[k]["assignee"],
+        "priority": lambda k: _ISSUES[k]["priority"],
+    }
+    pick = field_map.get(group_by, field_map["status"])
+    buckets: dict[str, list[str]] = {}
+    for key in _ISSUES:
+        buckets.setdefault(pick(key), []).append(key)
+    groups: list[dict[str, Any]] = []
+    for label, keys in buckets.items():
+        g: dict[str, Any] = {"label": label, "issues": [_to_issue(k) for k in keys]}
+        if group_by == "status" and label in _ACCENTS:
+            g["accent"] = _ACCENTS[label]
+        groups.append(g)
+    groups.sort(key=lambda x: len(x["issues"]), reverse=True)
+    return groups
+
+
 def transitions_for(key: str) -> list[dict[str, str]]:
     if key not in _STATUS:
         return []
