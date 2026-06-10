@@ -45,7 +45,6 @@ MODULES: dict[str, ModuleOAuth] = {
             "cloud_api:disk.read",
             "cloud_api:disk.write",
             "cloud_api:disk.info",
-            "cloud_api:disk.app_folder",
         ),
         access_secret="YANDEX_DISK_ACCESS_TOKEN",
         refresh_secret="YANDEX_DISK_REFRESH_TOKEN",

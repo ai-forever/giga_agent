@@ -23,7 +23,6 @@ import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
-import { YandexConnect } from "@/components/settings-page/yandex-connect";
 import { z } from "zod";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
@@ -733,8 +732,6 @@ export const GeneralSettings: React.FC = () => {
                     className="min-h-28 max-h-67"
                   />
                 </section>
-
-                <YandexConnect onChanged={refreshUser} />
 
                 <section className="space-y-3">
                   <div>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { HardDrive, ListTodo, Loader2, CheckCircle2 } from "lucide-react";
+import { HardDrive, ListTodo, Mail, Loader2, CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 
-type YandexModuleId = "yandex_disk" | "yandex_tracker";
+type YandexModuleId = "yandex_disk" | "yandex_tracker" | "yandex_mail";
 
 interface OAuthStatus {
   configured: boolean;
@@ -30,6 +30,11 @@ const MODULES: { id: YandexModuleId; label: string; icon: React.ReactNode }[] = 
     id: "yandex_tracker",
     label: "Яндекс.Трекер",
     icon: <ListTodo className="size-4" />,
+  },
+  {
+    id: "yandex_mail",
+    label: "Яндекс.Почта",
+    icon: <Mail className="size-4" />,
   },
 ];
 
@@ -158,10 +163,10 @@ export const YandexConnect: React.FC<Props> = ({ onChanged }) => {
     [fetchStatus, onChanged],
   );
 
-  if (loading) return null;
-  // Если на сервере не настроено приложение Яндекса — секцию не показываем,
-  // пользователь работает на ручных токенах ниже.
-  if (!status?.configured) return null;
+  if (loading || !status) return null;
+  // Сервер без client_id/secret: блок всё равно показываем (иначе фича не
+  // дискаверится), но с подсказкой «как включить» и без активных кнопок.
+  const notConfigured = !status.configured;
 
   return (
     <section className="space-y-3">
@@ -172,6 +177,31 @@ export const YandexConnect: React.FC<Props> = ({ onChanged }) => {
           автоматически. Альтернатива ручному вводу ключей ниже.
         </p>
       </div>
+
+      {notConfigured && (
+        <div className="text-sm text-muted-foreground bg-muted/60 border rounded-md px-3 py-2 space-y-1">
+          <p>
+            Серверный OAuth Яндекса ещё не настроен — это{" "}
+            <b>разовая настройка приложения</b>, а не ввод токена.
+          </p>
+          <p className="text-xs">
+            Зарегистрируйте одно OAuth-приложение на{" "}
+            <a
+              href="https://oauth.yandex.ru/client/new"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              oauth.yandex.ru
+            </a>{" "}
+            и задайте на сервере его <code>YANDEX_OAUTH_CLIENT_ID</code> и{" "}
+            <code>YANDEX_OAUTH_CLIENT_SECRET</code>, затем пересоздайте контейнер.
+            После этого подключение — <b>одной кнопкой, без ввода токенов</b>.
+            (Резервный вариант — вписать токен вручную во вкладке «Основные» →
+            «API-ключи модулей».)
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
@@ -201,7 +231,11 @@ export const YandexConnect: React.FC<Props> = ({ onChanged }) => {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {connected ? (
+                  {notConfigured ? (
+                    <Button size="sm" disabled>
+                      Подключить
+                    </Button>
+                  ) : connected ? (
                     <Button
                       variant="outline"
                       size="sm"
