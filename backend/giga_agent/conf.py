@@ -116,6 +116,22 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_SECRET_KEY",
     )
 
+    # Учётные данные одного зарегистрированного приложения Яндекс OAuth.
+    # Общие для всех yandex-модулей (Диск/Трекер): scope запрашивается под модуль
+    # в момент авторизации. Если не заданы — кнопка «Подключить Яндекс» неактивна,
+    # модули продолжают работать на ручных токенах.
+    giga_agent_yandex_oauth_client_id: str | None = Field(
+        None, alias="YANDEX_OAUTH_CLIENT_ID"
+    )
+    giga_agent_yandex_oauth_client_secret: str | None = Field(
+        None, alias="YANDEX_OAUTH_CLIENT_SECRET"
+    )
+    # Явный redirect_uri для server-callback. Если пуст — собирается из
+    # GIGA_AGENT_BASE_URL + префикса API (см. yandex_oauth.service.redirect_uri).
+    giga_agent_yandex_oauth_redirect_uri: str | None = Field(
+        None, alias="YANDEX_OAUTH_REDIRECT_URI"
+    )
+
     giga_agent_langgraph_api_url: str | None = Field(
         None, alias="GIGA_AGENT_LANGGRAPH_API_URL"
     )
