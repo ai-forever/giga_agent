@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
+import { Plus, Minus, Check, Loader, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -12,6 +12,7 @@ import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
 import { notifyIfHidden } from "../lib/notifications";
 import { getScheduledTaskId } from "./scheduler/detect";
+import { WIDGET_REGISTRY } from "./widgets/registry";
 
 const THINK_TOOL_NAME = "think";
 
@@ -932,17 +933,33 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   return (
     <>
       <div className="flex flex-col gap-0.5">
-        {visible.map((tc) =>
-          tc.name === "run_deep_research" ? (
-            <DeepResearchToolCall
-              key={tc.id ?? tc.name}
-              toolCall={tc}
-              resultMessage={tc.id ? resultsById[tc.id] : undefined}
-              isStreaming={isStreaming}
-              thread={thread}
-              onOpenAttachment={setPreviewFile}
-            />
-          ) : (
+        {visible.map((tc) => {
+          // run_deep_research — особый кейс (глубоко завязан на стриминг).
+          if (tc.name === "run_deep_research") {
+            return (
+              <DeepResearchToolCall
+                key={tc.id ?? tc.name}
+                toolCall={tc}
+                resultMessage={tc.id ? resultsById[tc.id] : undefined}
+                isStreaming={isStreaming}
+                thread={thread}
+                onOpenAttachment={setPreviewFile}
+              />
+            );
+          }
+          // GenUI-виджеты из реестра: имя тула → интерактивный компонент.
+          const Widget = WIDGET_REGISTRY[tc.name];
+          if (Widget) {
+            return (
+              <Widget
+                key={tc.id ?? tc.name}
+                toolCall={tc}
+                resultMessage={tc.id ? resultsById[tc.id] : undefined}
+                isStreaming={isStreaming}
+              />
+            );
+          }
+          return (
             <ToolCallRow
               key={tc.id ?? tc.name}
               toolCall={tc}
@@ -951,8 +968,8 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
               thread={thread}
               onOpenAttachment={setPreviewFile}
             />
-          ),
-        )}
+          );
+        })}
       </div>
 
       <OverlayPortal
