@@ -19,6 +19,7 @@ from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
 from giga_agent.modules.vk import VKModule
 from giga_agent.modules.weather import WeatherModule
 from giga_agent.modules.yandex_disk import YandexDiskModule
+from giga_agent.modules.yandex_mail import YandexMailModule
 from giga_agent.modules.yandex_oauth.module import YandexOAuthModule
 from giga_agent.modules.yandex_tracker import YandexTrackerModule
 
@@ -43,6 +44,7 @@ class GigaAgent(BaseAgent):
             YandexOAuthModule(),
             YandexDiskModule(),
             YandexTrackerModule(),
+            YandexMailModule(),
             WeatherModule(),
             DeepResearchModule(),
             SchedulerModule(),
