@@ -1,0 +1,96 @@
+name: Build and push Docker image to Cloud.ru Artifact Registry
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+    paths:
+      - "deployments/quickstart/Dockerfile"
+      - "backend/**"
+      - "front/**"
+      - "README.md"
+      - ".github/workflows/publish-cloudru.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CLOUDRU_REGISTRY_HOST: ${{ vars.CLOUDRU_REGISTRY_HOST }}
+  CLOUDRU_IMAGE_NAME: ${{ vars.CLOUDRU_IMAGE_NAME }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Cloud.ru registry settings
+        shell: bash
+        run: |
+          if [ -z "${CLOUDRU_REGISTRY_HOST}" ]; then
+            echo "::error::Repository variable CLOUDRU_REGISTRY_HOST is not set."
+            echo "::error::Expected format: <registry_name>.cr.cloud.ru"
+            exit 1
+          fi
+
+          if [ -z "${CLOUDRU_IMAGE_NAME}" ]; then
+            echo "::error::Repository variable CLOUDRU_IMAGE_NAME is not set."
+            echo "::error::Expected format: <repository_name>"
+            exit 1
+          fi
+
+      - name: Get version from backend/pyproject.toml
+        id: get_version
+        shell: bash
+        run: |
+          VERSION="$(python3 - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("backend/pyproject.toml").read_text(encoding="utf-8"))
+          print(pyproject["project"]["version"])
+          PY
+          )"
+
+          if [ -z "$VERSION" ]; then
+            echo "::error::Unable to determine project version from backend/pyproject.toml"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Cloud.ru Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.CLOUDRU_REGISTRY_HOST }}
+          username: ${{ secrets.CLOUDRU_KEY_ID }}
+          password: ${{ secrets.CLOUDRU_KEY_SECRET }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.CLOUDRU_REGISTRY_HOST }}/${{ env.CLOUDRU_IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=${{ steps.get_version.outputs.version }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+
+      - name: Build and push linux/amd64 only
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./deployments/quickstart/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
