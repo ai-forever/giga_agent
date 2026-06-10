@@ -12,7 +12,7 @@ import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
 import { notifyIfHidden } from "../lib/notifications";
 import { getScheduledTaskId } from "./scheduler/detect";
-import { WIDGET_REGISTRY } from "./widgets/registry";
+import { resolveWidget } from "./widgets/registry";
 
 const THINK_TOOL_NAME = "think";
 
@@ -947,8 +947,11 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
               />
             );
           }
-          // GenUI-виджеты из реестра: имя тула → интерактивный компонент.
-          const Widget = WIDGET_REGISTRY[tc.name];
+          // GenUI-виджеты: по имени тула или по маркеру payload (provider-agnostic).
+          const Widget = resolveWidget(
+            tc.name,
+            tc.id ? resultsById[tc.id] : undefined,
+          );
           if (Widget) {
             return (
               <Widget
