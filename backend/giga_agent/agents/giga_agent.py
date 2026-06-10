@@ -2,6 +2,7 @@ from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
 from giga_agent.memory.module import MemoryModule
 from giga_agent.modules.analyze_images import AnalyzeImagesModule
+from giga_agent.modules.mock_tracker.module import MockTrackerModule
 from giga_agent.modules.auth.module import AuthModule
 from giga_agent.modules.clarify import ClarifyModule
 from giga_agent.modules.deep_research import DeepResearchModule
@@ -45,6 +46,7 @@ class GigaAgent(BaseAgent):
             YandexDiskModule(),
             YandexTrackerModule(),
             YandexMailModule(),
+            MockTrackerModule(),
             WeatherModule(),
             DeepResearchModule(),
             SchedulerModule(),
