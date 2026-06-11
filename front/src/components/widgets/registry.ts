@@ -3,6 +3,7 @@ import type { Message } from "@langchain/langgraph-sdk";
 import type { ToolCall } from "@langchain/core/messages/tool";
 
 import BoardWidget from "./BoardWidget";
+import FileBrowser from "./FileBrowser";
 
 /**
  * Реестр GenUI-виджетов — маршрутизация по МАРКЕРУ payload, а не по имени тула.
@@ -21,6 +22,7 @@ export interface WidgetProps {
 
 const WIDGET_KIND_REGISTRY: Record<string, React.FC<WidgetProps>> = {
   issue_board: BoardWidget,
+  file_browser: FileBrowser,
 };
 
 function payloadWidgetKind(resultMessage?: Message): string | null {

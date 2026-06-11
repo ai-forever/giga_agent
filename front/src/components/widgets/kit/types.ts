@@ -53,3 +53,22 @@ export interface Composition {
   title?: string;
   groups: IssueGroup[];
 }
+
+/** Запись файлового браузера (файл или папка). */
+export interface FileEntry {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  size?: number;
+  modified?: string;
+  mime_type?: string;
+  public_url?: string;
+}
+
+/** Нормализованный payload файлового браузера (provider-agnostic). */
+export interface FileBrowserPayload {
+  widget: "file_browser";
+  provider: string;
+  path: string;
+  entries: FileEntry[];
+}
