@@ -12,8 +12,10 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -93,10 +95,23 @@ async def start(
     return StartResponse(authorize_url=url, flow=flow_name)
 
 
-def _callback_html(status: str, module: str, message: str = "") -> str:
+def _postmessage_origin() -> str:
+    """Конкретный origin для postMessage (никогда "*"): из base_url, иначе из
+    redirect_uri (scheme://host[:port]). Сужаем, кому popup отдаёт результат."""
     settings = get_settings()
-    origin = settings.giga_agent_base_url or "*"
-    target = f'"{origin}"' if origin != "*" else '"*"'
+    base = settings.giga_agent_base_url
+    if not base:
+        redirect = service.redirect_uri()  # напр. http://localhost:8123/api/...
+        if redirect:
+            parts = urlsplit(redirect)
+            base = f"{parts.scheme}://{parts.netloc}"
+    return base or ""
+
+
+def _callback_html(status: str, module: str, message: str = "") -> str:
+    origin = _postmessage_origin()
+    # Если конкретный origin неизвестен — JS-null, postMessage не шлётся (не "*").
+    target = json.dumps(origin or None)
     safe_msg = message.replace("<", "").replace(">", "").replace('"', "'")
     heading = "Готово!" if status == "connected" else "Не получилось"
     note = (
@@ -113,9 +128,10 @@ h1{{font-size:20px;margin:0 0 8px}}p{{color:#aaa;font-size:14px;line-height:1.5}
 </head><body><div class="card"><h1>{heading}</h1><p>{note}</p></div>
 <script>
 try {{
-  if (window.opener) {{
+  var target = {target};
+  if (window.opener && target) {{
     window.opener.postMessage(
-      {{type:"yandex_oauth", status:"{status}", module:"{module}"}}, {target});
+      {{type:"yandex_oauth", status:"{status}", module:"{module}"}}, target);
   }}
 }} catch (e) {{}}
 setTimeout(function(){{ window.close(); }}, 1200);

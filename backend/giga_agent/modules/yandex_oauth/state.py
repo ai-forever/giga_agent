@@ -22,7 +22,14 @@ STATE_TTL_SECONDS = 600
 
 
 def _signing_key() -> bytes:
-    secret = get_settings().giga_agent_secret_key or "giga-agent-dev-secret"
+    # Fail-closed: тот же secret_key, что подписывает auth-JWT (security.py).
+    # Без него state стал бы подделываемым (подмена identity в callback) —
+    # поэтому не падаем на дефолт, а требуем ключ, как и JWT-подпись.
+    secret = get_settings().giga_agent_secret_key
+    if not secret:
+        raise RuntimeError(
+            "GIGA_AGENT_SECRET_KEY не задан — подпись OAuth-state невозможна."
+        )
     return secret.encode("utf-8")
 
 

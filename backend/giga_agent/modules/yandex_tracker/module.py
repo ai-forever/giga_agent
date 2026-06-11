@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, NoReturn
 
 import httpx
 from fastapi import HTTPException
@@ -46,7 +46,7 @@ class YandexTrackerModule(BaseTrackerModule):
         return _headers(token, org_id)
 
     @staticmethod
-    def _raise_for_tracker(exc: httpx.HTTPStatusError) -> None:
+    def _raise_for_tracker(exc: httpx.HTTPStatusError) -> NoReturn:
         try:
             detail: Any = exc.response.json()
         except Exception:  # noqa: BLE001 — тело может быть не-JSON
