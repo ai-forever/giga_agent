@@ -128,7 +128,8 @@ async def tracker_search_issues(
         query: Запрос на языке Трекера, например 'Queue: TEST AND Status: Open'.
         queue: Ключ очереди для фильтра, например "TEST".
         assignee: Логин исполнителя для фильтра.
-        status: Статус для фильтра, например "open" или "closed".
+        status: Статус по отображаемому имени, например "в работе", "открыт",
+            "закрыт" (регистр не важен).
         limit: Сколько задач вернуть (максимум 50).
     """
     items = await _fetch_raw(runtime, query, queue, assignee, status, limit)
@@ -152,20 +153,25 @@ async def _fetch_raw(
     if query:
         body["query"] = query
     else:
-        filt: dict[str, Any] = {}
+        # Язык запросов из queue/assignee. Статус НЕ кладём ни в filter, ни в
+        # query: filter.status ждёт КЛЮЧ ("inProgress"), а query по Status
+        # регистрозависим — модель шлёт display-имя в любом регистре («в работе»).
+        # Поэтому статус фильтруем в Python ниже, по display-имени без учёта
+        # регистра. Это надёжнее всего.
+        parts: list[str] = []
         if queue:
-            filt["queue"] = queue
+            parts.append(f"Queue: {queue}")
         if assignee:
-            filt["assignee"] = assignee
-        if status:
-            filt["status"] = status
-        if filt:
-            body["filter"] = filt
+            parts.append(f'Assignee: "{assignee}"')
+        if parts:
+            body["query"] = " AND ".join(parts)
     if not body:
         return {
             "error": "Укажите query или хотя бы один фильтр (queue/assignee/status)."
         }
-    params = {"perPage": min(limit, 50)}
+    # При питон-фильтре по статусу берём с запасом, потом режем до limit.
+    per_page = 50 if status else min(limit, 50)
+    params = {"perPage": per_page}
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{TRACKER_API}/issues/_search",
@@ -174,7 +180,13 @@ async def _fetch_raw(
             json=body,
         )
         resp.raise_for_status()
-        return resp.json()
+        items = resp.json()
+    if status:
+        want = status.strip().lower()
+        items = [
+            i for i in items if (_disp(i.get("status")) or "").strip().lower() == want
+        ]
+    return items[:limit]
 
 
 _GROUP_FIELDS = ("assignee", "status", "priority", "queue")
@@ -251,7 +263,7 @@ async def tracker_board(
         query: Запрос на языке Трекера (как в tracker_search_issues).
         queue: Ключ очереди для фильтра.
         assignee: Логин исполнителя для фильтра.
-        status: Статус для фильтра.
+        status: Статус по отображаемому имени (регистр не важен), напр. "в работе".
         limit: Сколько задач собрать (максимум 50).
     """
     items = await _fetch_raw(runtime, query, queue, assignee, status, limit)
