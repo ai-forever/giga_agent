@@ -55,6 +55,7 @@ class YandexDiskModule(BaseModule):
             disk_list_files,
             disk_publish,
             disk_read_text,
+            disk_unpublish,
             disk_upload_text,
         )
 
@@ -66,5 +67,6 @@ class YandexDiskModule(BaseModule):
             disk_upload_text,
             disk_read_text,
             disk_publish,
+            disk_unpublish,
             disk_delete,
         ]

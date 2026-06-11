@@ -184,6 +184,17 @@ async def _publish_resource(token: str, path: str) -> str | None:
         return meta.json().get("public_url")
 
 
+async def _unpublish_resource(token: str, path: str) -> None:
+    """Снимает публикацию ресурса (общий для тула и REST)."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"{DISK_API}/resources/unpublish",
+            headers=_auth_headers(token),
+            params={"path": path},
+        )
+        resp.raise_for_status()
+
+
 @tool(parse_docstring=True)
 async def disk_publish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     """Делает файл или папку публичными и возвращает публичную ссылку.
@@ -194,6 +205,18 @@ async def disk_publish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     token = await get_valid_token(runtime)
     public_url = await _publish_resource(token, path)
     return {"path": path, "public_url": public_url}
+
+
+@tool(parse_docstring=True)
+async def disk_unpublish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
+    """Снимает публикацию: файл/папка перестаёт быть доступным по ссылке.
+
+    Args:
+        path: Путь к файлу или папке на Диске.
+    """
+    token = await get_valid_token(runtime)
+    await _unpublish_resource(token, path)
+    return {"status": "unpublished", "path": path}
 
 
 @tool(parse_docstring=True)

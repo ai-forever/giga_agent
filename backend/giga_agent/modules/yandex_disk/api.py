@@ -17,6 +17,7 @@ from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.modules.yandex_disk.tools import (
     _list_resources,
     _publish_resource,
+    _unpublish_resource,
     file_browser_payload,
 )
 from giga_agent.modules.yandex_oauth import tokens
@@ -71,3 +72,17 @@ async def publish(
     except httpx.HTTPStatusError as exc:
         _raise_for_disk(exc)
     return {"path": body.path, "public_url": public_url}
+
+
+@router.post("/unpublish")
+async def unpublish(
+    body: PublishRequest,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+) -> dict[str, Any]:
+    """Снимает публикацию файла/папки."""
+    token = await _token(current_user)
+    try:
+        await _unpublish_resource(token, body.path)
+    except httpx.HTTPStatusError as exc:
+        _raise_for_disk(exc)
+    return {"path": body.path, "public_url": None}

@@ -6,6 +6,7 @@ import {
   Image as ImageIcon,
   Loader,
   Link as LinkIcon,
+  Link2Off,
   Share2,
   ChevronRight,
 } from "lucide-react";
@@ -15,6 +16,7 @@ import { toast } from "sonner";
 
 import { API_AGENT_PREFIX } from "../../config";
 import { apiClient } from "../../lib/api-client";
+import { useConfirm } from "@/components/providers/confirm.tsx";
 import { WidgetShell, EmptyState } from "./kit";
 import type { FileEntry, FileBrowserPayload } from "./kit";
 
@@ -75,6 +77,7 @@ const FileBrowser: React.FC<{
     }
   }, [resultMessage]);
 
+  const confirm = useConfirm();
   const [path, setPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<FileEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,7 +104,22 @@ const FileBrowser: React.FC<{
     }
   }
 
+  function patchEntry(path: string, patch: Partial<FileEntry>) {
+    setEntries((prev) =>
+      (prev ?? curEntries).map((e) => (e.path === path ? { ...e, ...patch } : e)),
+    );
+  }
+
   async function publish(entry: FileEntry) {
+    const ok = await confirm({
+      title: "Опубликовать файл?",
+      description:
+        `«${entry.name}» станет доступен любому, у кого есть ссылка, без ` +
+        "пароля и авторизации. Снять публикацию можно кнопкой «снять».",
+      confirmText: "Опубликовать",
+      cancelText: "Отмена",
+    });
+    if (!ok) return;
     setBusyPath(entry.path);
     try {
       const data = await apiClient.post<{ public_url?: string }>(
@@ -111,15 +129,28 @@ const FileBrowser: React.FC<{
       );
       const url = data?.public_url;
       if (url) {
-        setEntries((prev) =>
-          (prev ?? curEntries).map((e) =>
-            e.path === entry.path ? { ...e, public_url: url } : e,
-          ),
-        );
+        patchEntry(entry.path, { public_url: url });
         toast.success(`${entry.name}: опубликовано`);
       }
     } catch {
       toast.error(`Не удалось опубликовать ${entry.name}`);
+    } finally {
+      setBusyPath(null);
+    }
+  }
+
+  async function unpublish(entry: FileEntry) {
+    setBusyPath(entry.path);
+    try {
+      await apiClient.post(
+        `${base}/unpublish`,
+        { path: entry.path },
+        { showError: false },
+      );
+      patchEntry(entry.path, { public_url: undefined });
+      toast.success(`${entry.name}: публикация снята`);
+    } catch {
+      toast.error(`Не удалось снять публикацию ${entry.name}`);
     } finally {
       setBusyPath(null);
     }
@@ -200,14 +231,30 @@ const FileBrowser: React.FC<{
                 )}
                 {!isDir &&
                   (entry.public_url ? (
-                    <a
-                      href={entry.public_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex shrink-0 items-center gap-1 text-[11px] text-primary/80 hover:text-primary"
-                    >
-                      <LinkIcon size={12} /> ссылка
-                    </a>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={entry.public_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-primary/80 hover:text-primary"
+                      >
+                        <LinkIcon size={12} /> ссылка
+                      </a>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => unpublish(entry)}
+                        title="Снять публикацию"
+                        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-rose-500 disabled:opacity-50"
+                      >
+                        {busy ? (
+                          <Loader size={12} className="animate-spin" />
+                        ) : (
+                          <Link2Off size={12} />
+                        )}
+                        снять
+                      </button>
+                    </span>
                   ) : (
                     <button
                       type="button"
