@@ -24,6 +24,7 @@ import { useAuth } from "@/components/providers/auth.tsx";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
+import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Secret } from "@/interfaces.ts";
 import type {
@@ -519,9 +520,11 @@ export const GeneralSettings: React.FC = () => {
 
       if (Object.keys(patchBody).length > 0) {
         await apiClient.patch(`${API_AGENT_PREFIX}/auth/users/me`, patchBody);
+        await refreshUser();
+        toast.success("Настройки сохранены");
+      } else {
+        toast.info("Изменений нет");
       }
-
-      await refreshUser();
     } catch {
       // Ошибка уже обработана глобально
     } finally {
