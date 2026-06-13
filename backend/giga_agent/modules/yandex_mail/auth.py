@@ -22,14 +22,8 @@ def has_mail_token(user: UserShort | None) -> bool:
     return oauth_tokens.is_connected(user, "yandex_mail")
 
 
-async def get_mail_auth(runtime: ToolRuntime) -> tuple[str, str]:
-    """Возвращает (email, access_token) текущего пользователя для XOAUTH2.
-
-    Токен берётся из общего OAuth-стора (с авто-refresh, как Диск/Трекер).
-    Адрес ящика определяется через Яндекс ID (`login.yandex.ru/info`) —
-    он нужен для строки XOAUTH2 (`user=<email>`).
-    """
-    token = await oauth_tokens.get_valid_access_token(runtime, "yandex_mail")
+async def _email_for_token(token: str) -> str:
+    """Адрес ящика по токену через Яндекс ID — нужен для строки XOAUTH2."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://login.yandex.ru/info",
@@ -44,7 +38,22 @@ async def get_mail_auth(runtime: ToolRuntime) -> tuple[str, str]:
             "Не удалось определить адрес ящика. Убедитесь, что у токена есть "
             "доступ к Яндекс ID (scope login:email)."
         )
-    return email, token
+    return email
+
+
+async def get_mail_auth(runtime: ToolRuntime) -> tuple[str, str]:
+    """Возвращает (email, access_token) текущего пользователя для XOAUTH2.
+
+    Токен берётся из общего OAuth-стора (с авто-refresh, как Диск/Трекер).
+    """
+    token = await oauth_tokens.get_valid_access_token(runtime, "yandex_mail")
+    return await _email_for_token(token), token
+
+
+async def get_mail_auth_for_user(user) -> tuple[str, str]:
+    """Версия для REST-эндпоинтов (виджет): пользователь уже из FastAPI-зависимости."""
+    token = await oauth_tokens.get_valid_access_token_for_user(user, "yandex_mail")
+    return await _email_for_token(token), token
 
 
 def xoauth2_bytes(email: str, token: str) -> bytes:

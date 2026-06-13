@@ -72,3 +72,23 @@ export interface FileBrowserPayload {
   path: string;
   entries: FileEntry[];
 }
+
+/** Письмо в списке входящих (краткое; тело подгружается по клику). */
+export interface MailMessage {
+  id: string;
+  from?: string;
+  subject?: string;
+  date?: string;
+  /** Тело — приходит при чтении (REST /read), не в списке. */
+  body?: string;
+  to?: string;
+  truncated?: boolean;
+}
+
+/** Нормализованный payload входящих (provider-agnostic). */
+export interface MailInboxPayload {
+  widget: "mail_inbox";
+  provider: string;
+  folder: string;
+  messages: MailMessage[];
+}

@@ -132,6 +132,20 @@ def _read_sync(
             pass
 
 
+PROVIDER = "yandex_mail"
+MAIL_INBOX_WIDGET = "mail_inbox"
+
+
+def inbox_payload(folder: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Нормализованный payload входящих — фронт рендерит mail_inbox по маркеру."""
+    return {
+        "widget": MAIL_INBOX_WIDGET,
+        "provider": PROVIDER,
+        "folder": folder,
+        "messages": messages,
+    }
+
+
 @tool(parse_docstring=True)
 async def mail_search(
     runtime: ToolRuntime, folder: str = "INBOX", limit: int = 15
@@ -148,7 +162,7 @@ async def mail_search(
     email_addr, token = await get_mail_auth(runtime)
     limit = max(1, min(limit, MAX_LIMIT))
     items = await asyncio.to_thread(_search_sync, email_addr, token, folder, limit)
-    return {"folder": folder, "messages": items}
+    return inbox_payload(folder, items)
 
 
 @tool(parse_docstring=True)

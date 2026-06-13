@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Optional
 
+from fastapi import APIRouter
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
@@ -24,6 +25,13 @@ class YandexMailModule(BaseModule):
     ) -> bool:
         _ = config, kwargs
         return has_mail_token(user)
+
+    def get_api_router(self, **kwargs: Any) -> Optional[APIRouter]:
+        # REST mail_inbox-виджета: список писем + чтение тела (см. api.py).
+        _ = kwargs
+        from giga_agent.modules.yandex_mail.api import router as mail_api_router
+
+        return mail_api_router
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
         _ = kwargs
