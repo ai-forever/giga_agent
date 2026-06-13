@@ -203,17 +203,21 @@ _MODULE_HINTS: dict[str, str] = {
 
 
 def _consecutive_request_tools(messages) -> int:
-    """Сколько подряд последних ходов модель вызывала ТОЛЬКО request_tools."""
+    """Сколько раз модель звала request_tools с последнего хода пользователя.
+
+    Не «строго подряд»: модель часто чередует request_tools с другим (не тем)
+    тулом — request_tools, mail_search, request_tools… — и при строгой
+    последовательности guard не срабатывал. Считаем все request_tools-ходы до
+    ближайшего human-сообщения.
+    """
     count = 0
     for m in reversed(messages):
-        if isinstance(m, AIMessage):
-            calls = m.tool_calls or []
-            if calls and all(c.get("name") == "request_tools" for c in calls):
-                count += 1
-                continue
-            break
         if getattr(m, "type", None) == "human":
             break  # новый ход пользователя обнуляет счётчик
+        if isinstance(m, AIMessage):
+            calls = m.tool_calls or []
+            if any(c.get("name") == "request_tools" for c in calls):
+                count += 1
     return count
 
 
@@ -311,14 +315,22 @@ class ToolRouterMiddleware(AgentMiddleware):
         }
         keep.update({n: by_name[n] for n in pending if n in by_name})
 
+        # 1.4) тул, ЯВНО названный в тексте, — максимальный приоритет. Модель в
+        # request_tools-intent часто пишет имя нужного тула ("вызвать mail_send");
+        # без этого он выпадал из бюджета и начинался request_tools-цикл.
+        named: list = [
+            by_name[n] for n in by_name if len(n) > 4 and n in text
+        ]
+
         # 1.5) operation-aware: тул с точечным совпадением ключевых слов идёт
         # первым в очереди (например "удали" → disk_delete), иначе при ~3
         # слотах нужная операция выпадала.
-        ordered: list = [
+        keyword_hit: list = [
             by_name[name]
             for name, kws in TOOL_KEYWORDS.items()
             if name in by_name and any(kw in text for kw in kws)
         ]
+        ordered: list = named + [t for t in keyword_hit if t not in named]
 
         # 2) тулсеты, совпавшие по ключевым словам (в порядке RULES)
         for rule in RULES:
