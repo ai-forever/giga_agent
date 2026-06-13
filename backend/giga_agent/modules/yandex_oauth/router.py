@@ -77,7 +77,7 @@ async def start(
     flow: str | None = Query(None),
 ) -> StartResponse:
     _check_module(module)
-    if not service.is_configured():
+    if not service.is_configured(module):
         raise HTTPException(
             status_code=400,
             detail="OAuth Яндекса не настроен на сервере "
@@ -158,7 +158,9 @@ async def callback(
         return HTMLResponse(_callback_html("error", module, "unknown module"))
     try:
         user_id = uuid.UUID(str(payload["u"]))
-        token_response = await service.exchange_code(code, use_callback=True)
+        token_response = await service.exchange_code(
+            code, use_callback=True, module_id=module
+        )
         await tokens.store_tokens(user_id, module, token_response)
     except Exception as exc:  # noqa: BLE001 — показываем юзеру причину в popup
         return HTMLResponse(_callback_html("error", module, str(exc)))
@@ -172,7 +174,9 @@ async def exchange(
 ) -> dict[str, str]:
     _check_module(body.module)
     try:
-        token_response = await service.exchange_code(body.code, use_callback=False)
+        token_response = await service.exchange_code(
+            body.code, use_callback=False, module_id=body.module
+        )
         await tokens.store_tokens(current_user.id, body.module, token_response)
     except service.YandexOAuthError as exc:
         raise HTTPException(status_code=400, detail=str(exc.detail)) from exc

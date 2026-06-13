@@ -76,17 +76,25 @@ def get_module(module_id: str) -> ModuleOAuth:
     return cfg
 
 
-def client_credentials() -> tuple[str | None, str | None]:
+# Модули, у которых может быть СВОЁ Яндекс-приложение (Яндекс требует отдельное
+# под mail-scope). Env: YANDEX_OAUTH_CLIENT_ID_<MODULE_UPPER> / ..._SECRET.
+# Если не задано — фолбэк на общие YANDEX_OAUTH_CLIENT_ID/SECRET.
+def client_credentials(module_id: str | None = None) -> tuple[str | None, str | None]:
     s = get_settings()
+    if module_id == "yandex_mail" and s.giga_agent_yandex_mail_client_id:
+        return (
+            s.giga_agent_yandex_mail_client_id,
+            s.giga_agent_yandex_mail_client_secret,
+        )
     return (
         s.giga_agent_yandex_oauth_client_id,
         s.giga_agent_yandex_oauth_client_secret,
     )
 
 
-def is_configured() -> bool:
-    """True, если на сервере заданы client_id и client_secret приложения."""
-    cid, secret = client_credentials()
+def is_configured(module_id: str | None = None) -> bool:
+    """True, если для модуля заданы client_id и client_secret (свои или общие)."""
+    cid, secret = client_credentials(module_id)
     return bool(cid and secret)
 
 
@@ -113,7 +121,7 @@ def build_authorize_url(module_id: str, state: str, *, use_callback: bool) -> st
     use_callback=False — verification_code (код показывается пользователю).
     """
     cfg = get_module(module_id)
-    cid, _ = client_credentials()
+    cid, _ = client_credentials(module_id)
     if not cid:
         raise ValueError("Не задан YANDEX_OAUTH_CLIENT_ID на сервере.")
 
@@ -137,8 +145,10 @@ def build_authorize_url(module_id: str, state: str, *, use_callback: bool) -> st
     return f"{OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
 
 
-async def _post_token(data: dict[str, str]) -> dict[str, Any]:
-    cid, secret = client_credentials()
+async def _post_token(
+    data: dict[str, str], module_id: str | None = None
+) -> dict[str, Any]:
+    cid, secret = client_credentials(module_id)
     if not (cid and secret):
         raise ValueError("Не заданы client_id/client_secret приложения Яндекс.")
     payload = {**data, "client_id": cid, "client_secret": secret}
@@ -163,18 +173,23 @@ class YandexOAuthError(Exception):
         super().__init__(f"Yandex OAuth error {status_code}: {detail}")
 
 
-async def exchange_code(code: str, *, use_callback: bool) -> dict[str, Any]:
+async def exchange_code(
+    code: str, *, use_callback: bool, module_id: str | None = None
+) -> dict[str, Any]:
     """Меняет authorization code на токены. redirect_uri должен совпадать с
-    тем, что использовался в authorize."""
+    тем, что использовался в authorize; creds — из приложения модуля."""
     redirect = redirect_uri() if use_callback else VERIFICATION_CODE_REDIRECT
     data = {"grant_type": "authorization_code", "code": code}
     if redirect:
         data["redirect_uri"] = redirect
-    return await _post_token(data)
+    return await _post_token(data, module_id)
 
 
-async def refresh_access_token(refresh_token: str) -> dict[str, Any]:
-    """Обновляет access-токен по refresh-токену."""
+async def refresh_access_token(
+    refresh_token: str, module_id: str | None = None
+) -> dict[str, Any]:
+    """Обновляет access-токен по refresh-токену (creds — из приложения модуля)."""
     return await _post_token(
-        {"grant_type": "refresh_token", "refresh_token": refresh_token}
+        {"grant_type": "refresh_token", "refresh_token": refresh_token},
+        module_id,
     )

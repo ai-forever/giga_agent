@@ -131,6 +131,15 @@ class Settings(BaseSettings):
     giga_agent_yandex_oauth_redirect_uri: str | None = Field(
         None, alias="YANDEX_OAUTH_REDIRECT_URI"
     )
+    # Отдельное приложение под Яндекс.Почту (Яндекс требует отдельное под
+    # mail-scope). Если не заданы — почта использует общие creds выше.
+    # Redirect у mail-приложения — тот же общий callback.
+    giga_agent_yandex_mail_client_id: str | None = Field(
+        None, alias="YANDEX_OAUTH_CLIENT_ID_YANDEX_MAIL"
+    )
+    giga_agent_yandex_mail_client_secret: str | None = Field(
+        None, alias="YANDEX_OAUTH_CLIENT_SECRET_YANDEX_MAIL"
+    )
 
     giga_agent_langgraph_api_url: str | None = Field(
         None, alias="GIGA_AGENT_LANGGRAPH_API_URL"

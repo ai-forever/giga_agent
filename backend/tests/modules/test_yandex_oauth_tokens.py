@@ -46,7 +46,7 @@ class ValidTokenTests(unittest.TestCase):
         ) as refresh, patch.object(tokens, "store_tokens", new=AsyncMock()) as store:
             result = asyncio.run(tokens._valid_token_for_user(user, "yandex_disk"))
         self.assertEqual(result, "new-tok")
-        refresh.assert_awaited_once_with("refresh-tok")
+        refresh.assert_awaited_once_with("refresh-tok", "yandex_disk")
         store.assert_awaited_once()
 
     def test_manual_token_returned_as_is(self):

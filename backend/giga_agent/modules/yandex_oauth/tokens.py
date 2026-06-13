@@ -123,7 +123,7 @@ async def _valid_token_for_user(user: UserShort, module_id: str) -> str:
 
     # Протух (или скоро) и есть refresh — обновляем и переписываем в БД.
     if refresh:
-        token_response = await service.refresh_access_token(refresh)
+        token_response = await service.refresh_access_token(refresh, module_id)
         await store_tokens(user.id, module_id, token_response)
         new_access = token_response.get("access_token")
         if new_access:
