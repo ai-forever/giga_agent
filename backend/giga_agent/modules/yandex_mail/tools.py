@@ -69,31 +69,53 @@ def _extract_text(msg: Message) -> str:
         return payload.decode("utf-8", errors="replace")
 
 
+# Окно сканирования при фильтре: IMAP SEARCH по кириллице капризен (charset),
+# поэтому фильтруем заголовки в Python по последним N письмам.
+_FILTER_SCAN = 60
+
+
 def _search_sync(
-    email_addr: str, token: str, folder: str, limit: int
+    email_addr: str,
+    token: str,
+    folder: str,
+    limit: int,
+    sender: str = "",
+    subject: str = "",
 ) -> list[dict[str, Any]]:
     conn = _connect(email_addr, token)
+    filtering = bool(sender.strip() or subject.strip())
     try:
         conn.select(f'"{folder}"', readonly=True)
         typ, data = conn.search(None, "ALL")
         ids = data[0].split()
-        ids = ids[-limit:][::-1]  # последние N, новые первыми
+        # без фильтра — последние limit; с фильтром — сканируем шире, потом режем.
+        scan = ids[-(_FILTER_SCAN if filtering else limit) :][::-1]
+        want_from = sender.strip().lower()
+        want_subj = subject.strip().lower()
         out: list[dict[str, Any]] = []
-        for mid in ids:
+        for mid in scan:
             typ, msg_data = conn.fetch(
                 mid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
             )
             if not msg_data or not msg_data[0]:
                 continue
             hdr = email.message_from_bytes(msg_data[0][1])
+            frm = _decode(hdr.get("From"))
+            subj = _decode(hdr.get("Subject"))
+            if want_from and want_from not in frm.lower():
+                continue
+            if want_subj and want_subj not in subj.lower():
+                continue
             out.append(
                 {
                     "id": mid.decode(),
-                    "from": _decode(hdr.get("From")),
-                    "subject": _decode(hdr.get("Subject")),
+                    "from": frm,
+                    "subject": subj,
                     "date": hdr.get("Date"),
                 }
             )
+            if len(out) >= limit:
+                break
         return out
     finally:
         try:
@@ -148,20 +170,30 @@ def inbox_payload(folder: str, messages: list[dict[str, Any]]) -> dict[str, Any]
 
 @tool(parse_docstring=True)
 async def mail_search(
-    runtime: ToolRuntime, folder: str = "INBOX", limit: int = 15
+    runtime: ToolRuntime,
+    folder: str = "INBOX",
+    limit: int = 15,
+    sender: str = "",
+    subject: str = "",
 ) -> dict[str, Any]:
-    """Возвращает список последних писем в папке Яндекс.Почты.
+    """Возвращает список писем в папке Яндекс.Почты, по желанию с фильтром.
 
-    Отдаёт краткие данные (отправитель/тема/дата) без тел. Чтобы прочитать
+    Если просят письма от кого-то («от Сбербанка») — передай sender; по теме —
+    subject. Фильтр по подстроке без учёта регистра среди последних писем.
+    Отдаёт краткие данные (отправитель/тема/дата) без тел; чтобы прочитать
     письмо целиком — вызови mail_read с его id.
 
     Args:
         folder: Папка IMAP, например "INBOX" (входящие) или "Sent".
-        limit: Сколько последних писем вернуть (максимум 30).
+        limit: Сколько писем вернуть (максимум 30).
+        sender: Фильтр по отправителю (имя или адрес), напр. "сбербанк".
+        subject: Фильтр по теме письма.
     """
     email_addr, token = await get_mail_auth(runtime)
     limit = max(1, min(limit, MAX_LIMIT))
-    items = await asyncio.to_thread(_search_sync, email_addr, token, folder, limit)
+    items = await asyncio.to_thread(
+        _search_sync, email_addr, token, folder, limit, sender, subject
+    )
     return inbox_payload(folder, items)
 
 
