@@ -410,6 +410,26 @@ const Message: React.FC<MessageProps> = ({
     );
   };
 
+  const interruptType = thread?.interrupt?.value?.type;
+  const isDestructiveConfirm = interruptType === "confirm_destructive";
+  // Лейбл подтверждения по имени тула: деструктив — не только удаление
+  // (mail_send — отправка). Берём из interrupt.value.tools.
+  const destructiveLabel = (() => {
+    const names = ((thread?.interrupt?.value?.tools ?? []) as { name?: string }[])
+      .map((t) => t?.name || "")
+      .filter(Boolean);
+    if (names.length === 1) {
+      const n = names[0];
+      if (n === "mail_send") return "отправку письма";
+      if (/_(delete|remove|drop|purge)$/.test(n) || n.includes("delete"))
+        return "удаление";
+    }
+    return "действие";
+  })();
+  const isSystemNotice =
+    message.type === "ai" &&
+    // @ts-ignore — служебное сообщение от инфраструктуры (tool-router и т.п.)
+    message.additional_kwargs?.kind === "system_notice";
   const isCurrentInterruptMessage =
     !hideToolCalls &&
     message.type === "ai" &&
@@ -631,6 +651,11 @@ const Message: React.FC<MessageProps> = ({
               layout
               className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
             >
+              {isDestructiveConfirm && (
+                <span className="mr-auto text-xs font-medium text-red-600">
+                  ⚠️ Подтвердите {destructiveLabel}
+                </span>
+              )}
               <motion.button
                 layout
                 animate={{
