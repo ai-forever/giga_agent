@@ -421,6 +421,7 @@ const Message: React.FC<MessageProps> = ({
     if (names.length === 1) {
       const n = names[0];
       if (n === "mail_send") return "отправку письма";
+      if (n === "calendar_create_event") return "создание события";
       if (/_(delete|remove|drop|purge)$/.test(n) || n.includes("delete"))
         return "удаление";
     }

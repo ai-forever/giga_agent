@@ -12,6 +12,8 @@ from __future__ import annotations
 DESTRUCTIVE_TOOLS: set[str] = {
     "disk_delete",
     "mail_send",  # отправка письма необратима → подтверждение всегда
+    "calendar_create_event",  # запись в календарь — подтверждение
+    "calendar_delete_event",
 }
 
 # Соглашение по именам: всё, что удаляет/уничтожает данные.
