@@ -6,6 +6,7 @@ import BoardWidget from "./BoardWidget";
 import FileBrowser from "./FileBrowser";
 import MailInbox from "./MailInbox";
 import CalendarAgenda from "./CalendarAgenda";
+import MonthGrid from "./MonthGrid";
 
 /**
  * Реестр GenUI-виджетов — маршрутизация по МАРКЕРУ payload, а не по имени тула.
@@ -27,6 +28,7 @@ const WIDGET_KIND_REGISTRY: Record<string, React.FC<WidgetProps>> = {
   file_browser: FileBrowser,
   mail_inbox: MailInbox,
   calendar_agenda: CalendarAgenda,
+  calendar_month: MonthGrid,
 };
 
 function payloadWidgetKind(resultMessage?: Message): string | null {

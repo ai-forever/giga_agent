@@ -110,3 +110,12 @@ export interface CalendarAgendaPayload {
   days: number;
   events: CalendarEvent[];
 }
+
+/** Payload месяц-грида (year + month 1–12 + события месяца). */
+export interface CalendarMonthPayload {
+  widget: "calendar_month";
+  provider: string;
+  year: number;
+  month: number;
+  events: CalendarEvent[];
+}

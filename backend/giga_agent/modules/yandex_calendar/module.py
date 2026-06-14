@@ -54,7 +54,13 @@ class YandexCalendarModule(BaseModule):
             calendar_create_event,
             calendar_delete_event,
             calendar_list_events,
+            calendar_month,
         )
 
         # Порядок = приоритет для tool-router (на GigaChat ~3 слота).
-        return [calendar_list_events, calendar_create_event, calendar_delete_event]
+        return [
+            calendar_list_events,
+            calendar_month,
+            calendar_create_event,
+            calendar_delete_event,
+        ]
