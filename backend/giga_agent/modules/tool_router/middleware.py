@@ -45,6 +45,24 @@ def _enabled() -> bool:
     )
 
 
+def _name(tool) -> str:
+    """Имя тула, неважно BaseTool это или dict (MCP-тулы приходят dict'ами).
+
+    MCP-тулзы в graph_factory собираются как dict {"name","description",
+    "parameters"} через transform_tool — у них нет атрибута .name, поэтому
+    обращение tool.name роняло и сужение под бюджет, и loop-guard.
+    """
+    if isinstance(tool, dict):
+        return tool.get("name") or ""
+    return getattr(tool, "name", "") or ""
+
+
+def _desc(tool) -> str:
+    if isinstance(tool, dict):
+        return tool.get("description") or ""
+    return getattr(tool, "description", "") or ""
+
+
 def _unwrap(model):
     m = model
     for _ in range(6):
@@ -67,7 +85,7 @@ def _tool_tokens(tool) -> int:
         schema = json.dumps(convert_to_openai_tool(tool), ensure_ascii=False)
         size = len(schema)
     except Exception:
-        size = len(getattr(tool, "name", "")) + len(getattr(tool, "description", ""))
+        size = len(_name(tool)) + len(_desc(tool))
     return int(size / _CHARS_PER_TOKEN) + _PER_TOOL_OVERHEAD
 
 
@@ -100,7 +118,9 @@ def _pending_tool_names(messages) -> set[str]:
 
 
 def _resolve(token: str, by_name: dict) -> list:
-    if token.endswith("_"):
+    # Префикс-токен: "tracker_" (Яндекс-модули) или "bitrix-" (дефисные имена
+    # MCP-серверов). Точный токен — иначе.
+    if token.endswith(("_", "-")):
         return [t for n, t in by_name.items() if n.startswith(token)]
     t = by_name.get(token)
     return [t] if t is not None else []
@@ -121,6 +141,7 @@ _TOOL_GROUPS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("search_memories",), "Память"),
     (("analyze_image",), "Изображения"),
     (("read_skill_manifest",), "Скиллы"),
+    (("bitrix-",), "Битрикс24 (MCP)"),
 )
 
 
@@ -131,7 +152,7 @@ def _groups_for(tool_names: list[str]) -> list[str]:
         if label in found:
             continue
         for name in tool_names:
-            if any(name == tok or (tok.endswith("_") and name.startswith(tok))
+            if any(name == tok or (tok.endswith(("_", "-")) and name.startswith(tok))
                    for tok in toks):
                 found.append(label)
                 break
@@ -162,8 +183,8 @@ def _notice(content: str) -> AIMessage:
 def _overflow_message(all_tools: list, selected: list) -> AIMessage:
     """Сообщение, когда даже минимальный набор не влезает в бюджет GigaChat."""
     sel_ids = {id(t) for t in selected}
-    dropped = [t.name for t in all_tools if id(t) not in sel_ids]
-    groups = _groups_for(dropped) or _groups_for([t.name for t in all_tools])
+    dropped = [_name(t) for t in all_tools if id(t) not in sel_ids]
+    groups = _groups_for(dropped) or _groups_for([_name(t) for t in all_tools])
     hint = ", ".join(groups) if groups else "часть модулей"
     return _notice(
         "⚠️ Слишком много активных инструментов для GigaChat — они не "
@@ -175,7 +196,7 @@ def _overflow_message(all_tools: list, selected: list) -> AIMessage:
 
 def _limit_error_message(tools: list) -> AIMessage:
     """Сообщение при пойманном 413/лимите токенов от модели."""
-    groups = _groups_for([t.name for t in (tools or [])])
+    groups = _groups_for([_name(t) for t in (tools or [])])
     hint = f" (например: {', '.join(groups)})" if groups else ""
     return _notice(
         "⚠️ Запрос превысил лимит токенов GigaChat. Частые причины — "
@@ -199,6 +220,10 @@ _MODULE_HINTS: dict[str, str] = {
     "memory": "включите модуль «Память» в меню Инструменты",
     "images": "включите модуль «Анализ изображений» в меню Инструменты",
     "skills": "включите модуль «Скиллы» в меню Инструменты",
+    "bitrix": (
+        "нужен MCP Битрикс24 — подключите сервер mcp-dev.bitrix24.tech/mcp "
+        "в меню Инструменты → MCP"
+    ),
 }
 
 
@@ -223,12 +248,12 @@ def _consecutive_request_tools(messages) -> int:
 
 def _unavailable_domain_hint(request) -> str:
     text = _gather_text(request.messages)
-    available = {t.name for t in (request.tools or [])}
+    available = {_name(t) for t in (request.tools or [])}
     for rule in RULES:
         if not matches(text, rule):
             continue
         has = any(
-            (tok.endswith("_") and any(n.startswith(tok) for n in available))
+            (tok.endswith(("_", "-")) and any(n.startswith(tok) for n in available))
             or tok in available
             for tok in rule.tools
         )
@@ -241,7 +266,8 @@ def _stuck_message(request) -> AIMessage:
     """Сообщение, когда модель зациклилась, прося недоступный инструмент."""
     hint = _unavailable_domain_hint(request)
     avail = sorted(
-        t.name for t in (request.tools or []) if t.name not in CORE_TOOL_NAMES
+        n for n in (_name(t) for t in (request.tools or []))
+        if n and n not in CORE_TOOL_NAMES
     )
     parts = ["Не получилось подобрать подходящий инструмент под запрос."]
     if hint:
@@ -305,7 +331,7 @@ class ToolRouterMiddleware(AgentMiddleware):
             raise
 
     def _select(self, request, tools: list) -> list:
-        by_name = {t.name: t for t in tools}
+        by_name = {_name(t): t for t in tools if _name(t)}
         text = _gather_text(request.messages)
         pending = _pending_tool_names(request.messages)
 
@@ -345,17 +371,18 @@ class ToolRouterMiddleware(AgentMiddleware):
 
         # 4) жадно добавляем под бюджет (костяк уже внутри)
         for t in ordered:
-            if t.name in keep:
+            tn = _name(t)
+            if not tn or tn in keep:
                 continue
             if _estimate(list(keep.values()) + [t]) <= _BUDGET_TOKENS:
-                keep[t.name] = t
+                keep[tn] = t
 
         selected = list(keep.values())
-        dropped = [t.name for t in tools if t.name not in keep]
+        dropped = [_name(t) for t in tools if _name(t) not in keep]
         if dropped:
             logger.info(
                 "ToolRouter: kept %d/%d tools (~%d tok). kept=%s dropped=%s",
                 len(selected), len(tools), _estimate(selected),
-                [t.name for t in selected], dropped,
+                [_name(t) for t in selected], dropped,
             )
         return selected
