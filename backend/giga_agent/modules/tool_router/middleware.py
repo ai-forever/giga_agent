@@ -348,21 +348,45 @@ class ToolRouterMiddleware(AgentMiddleware):
             by_name[n] for n in by_name if len(n) > 4 and n in text
         ]
 
-        # 1.5) operation-aware: тул с точечным совпадением ключевых слов идёт
-        # первым в очереди (например "удали" → disk_delete), иначе при ~3
-        # слотах нужная операция выпадала.
-        keyword_hit: list = [
-            by_name[name]
-            for name, kws in TOOL_KEYWORDS.items()
-            if name in by_name and any(kw in text for kw in kws)
-        ]
-        ordered: list = named + [t for t in keyword_hit if t not in named]
+        # Токены тулсетов из ПРАВИЛ, совпавших с текстом. operation-precision
+        # (TOOL_KEYWORDS) имеет смысл только внутри активного домена.
+        matched_tokens: tuple[str, ...] = tuple(
+            tok for rule in RULES if matches(text, rule) for tok in rule.tools
+        )
+
+        def _in_matched_domain(name: str) -> bool:
+            for tok in matched_tokens:
+                if tok.endswith(("_", "-")):
+                    if name.startswith(tok):
+                        return True
+                elif name == tok:
+                    return True
+            return False
+
+        # 1.5) operation-aware: тул с точечным совпадением ключевых слов.
+        # Делим на «в активном домене» (его правило совпало) и «вне». Первые
+        # идут вперёд — точность операции ("удали файл" → disk_delete). Вторые
+        # уходят ПОСЛЕ тулсетов совпавших правил: иначе общие слова в
+        # рассуждении модели или в request_tools-intent ("прочитать", "найти")
+        # тянут чужие тулы и крадут слоты у нужного домена (напр. bitrix).
+        kw_hit_in: list = []
+        kw_hit_out: list = []
+        for name, kws in TOOL_KEYWORDS.items():
+            if name in by_name and any(kw in text for kw in kws):
+                bucket = kw_hit_in if _in_matched_domain(name) else kw_hit_out
+                bucket.append(by_name[name])
+
+        ordered: list = named + [t for t in kw_hit_in if t not in named]
 
         # 2) тулсеты, совпавшие по ключевым словам (в порядке RULES)
         for rule in RULES:
             if matches(text, rule):
                 for tok in rule.tools:
                     ordered.extend(_resolve(tok, by_name))
+
+        # 2.5) точечные хиты вне активного домена — доп. приоритет ПОСЛЕ
+        # совпавших доменов (доступны как филлер, но не крадут слоты).
+        ordered.extend(t for t in kw_hit_out if t not in ordered)
 
         # 3) общий приоритет для дозаполнения бюджета
         for tok in DEFAULT_PRIORITY:
