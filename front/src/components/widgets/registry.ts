@@ -5,6 +5,7 @@ import type { ToolCall } from "@langchain/core/messages/tool";
 import BoardWidget from "./BoardWidget";
 import FileBrowser from "./FileBrowser";
 import MailInbox from "./MailInbox";
+import CalendarAgenda from "./CalendarAgenda";
 
 /**
  * Реестр GenUI-виджетов — маршрутизация по МАРКЕРУ payload, а не по имени тула.
@@ -25,6 +26,7 @@ const WIDGET_KIND_REGISTRY: Record<string, React.FC<WidgetProps>> = {
   issue_board: BoardWidget,
   file_browser: FileBrowser,
   mail_inbox: MailInbox,
+  calendar_agenda: CalendarAgenda,
 };
 
 function payloadWidgetKind(resultMessage?: Message): string | null {

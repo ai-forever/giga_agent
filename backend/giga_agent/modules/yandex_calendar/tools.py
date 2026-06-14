@@ -13,6 +13,17 @@ from langchain_core.tools import tool
 from giga_agent.modules.yandex_calendar.auth import CALDAV_URL, get_calendar_creds
 
 MAX_EVENTS = 50
+PROVIDER = "yandex_calendar"
+
+
+def agenda_payload(days: int, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Нормализованный payload агенды — фронт рендерит calendar_agenda по маркеру."""
+    return {
+        "widget": "calendar_agenda",
+        "provider": PROVIDER,
+        "days": days,
+        "events": events,
+    }
 
 
 def _client(email: str, password: str) -> caldav.DAVClient:
@@ -119,7 +130,7 @@ async def calendar_list_events(runtime: ToolRuntime, days: int = 7) -> dict[str,
     email, password = await get_calendar_creds(runtime)
     days = max(1, min(days, 90))
     events = await asyncio.to_thread(_list_sync, email, password, days)
-    return {"days": days, "events": events}
+    return agenda_payload(days, events)
 
 
 @tool(parse_docstring=True)

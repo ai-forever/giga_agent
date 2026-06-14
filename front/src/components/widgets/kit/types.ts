@@ -92,3 +92,21 @@ export interface MailInboxPayload {
   folder: string;
   messages: MailMessage[];
 }
+
+/** Событие календаря. start/end — ISO; дата-только = весь день. */
+export interface CalendarEvent {
+  uid: string;
+  calendar?: string;
+  summary: string;
+  start?: string;
+  end?: string;
+  location?: string;
+}
+
+/** Нормализованный payload агенды (provider-agnostic). */
+export interface CalendarAgendaPayload {
+  widget: "calendar_agenda";
+  provider: string;
+  days: number;
+  events: CalendarEvent[];
+}
