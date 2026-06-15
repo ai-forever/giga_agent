@@ -72,6 +72,10 @@ import {
 import ModelPicker from "./ModelPicker";
 import TokenUsageIndicator from "./TokenUsageIndicator";
 import { useStarterRecommendations } from "@/hooks/useThreadSuggestions";
+import {
+  getPromptSuggestionTitle,
+  type PromptSuggestionScenario,
+} from "@/types/prompt-suggestions";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
@@ -133,7 +137,7 @@ const resolveSttSource = (): SttSource => {
 
 interface InputAreaProps {
   thread?: UseStream<GraphState, GraphTemplate>;
-  prefillPayload?: { text: string; nonce: number } | null;
+  prefillPayload?: { suggestion: PromptSuggestionScenario; nonce: number } | null;
 }
 
 const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
@@ -351,22 +355,74 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     autoResize();
   }, [message, isMobileDevice]);
 
-  useEffect(() => {
-    if (!prefillPayload?.text) return;
-    const trimmed = prefillPayload.text.trim();
-    if (!trimmed) return;
-    setMessage(trimmed);
-    requestAnimationFrame(() => {
-      const el = textRef.current;
-      if (!el) return;
-      el.focus();
-      try {
-        el.setSelectionRange(trimmed.length, trimmed.length);
-      } catch {
-        /* selection may fail if unmounted */
+  const applySuggestion = useCallback(
+    async (suggestion: PromptSuggestionScenario) => {
+      const trimmed = suggestion.text.trim();
+      if (!trimmed) return;
+
+      if (suggestion.deepResearchForced !== undefined) {
+        setDeepResearchForced(suggestion.deepResearchForced);
       }
-    });
-  }, [prefillPayload?.nonce, prefillPayload?.text]);
+
+      if (suggestion.skills) {
+        clearSelectedSkills();
+        suggestion.skills.forEach((name) => toggleSkill(name, true));
+      }
+
+      if (suggestion.ragMode) {
+        let availableCollections = collections;
+        if (availableCollections.length === 0 && !initialSearchExecuted) {
+          await initialFetch();
+          availableCollections = await getCollections();
+        }
+        if (suggestion.ragMode === "all") {
+          availableCollections.forEach((collection) =>
+            activateCollection(collection.uuid),
+          );
+        } else {
+          availableCollections.forEach((collection) =>
+            deactivateCollection(collection.uuid),
+          );
+        }
+      }
+
+      setMessage(trimmed);
+      requestAnimationFrame(() => {
+        const el = textRef.current;
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(trimmed.length, trimmed.length);
+        } catch {
+          /* selection may fail if unmounted */
+        }
+      });
+
+      if (suggestion.modules) {
+        void Promise.all(
+          Object.entries(suggestion.modules).map(([moduleId, enabled]) =>
+            toggleModule(moduleId, enabled),
+          ),
+        );
+      }
+    },
+    [
+      activateCollection,
+      clearSelectedSkills,
+      collections,
+      deactivateCollection,
+      getCollections,
+      initialFetch,
+      initialSearchExecuted,
+      toggleModule,
+      toggleSkill,
+    ],
+  );
+
+  useEffect(() => {
+    if (!prefillPayload?.suggestion) return;
+    void applySuggestion(prefillPayload.suggestion);
+  }, [applySuggestion, prefillPayload?.nonce, prefillPayload?.suggestion]);
 
   useEffect(() => {
     // A newly opened chat should start with all starter tabs collapsed.
@@ -427,22 +483,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
         }
       });
       return next;
-    });
-  }, []);
-
-  const fillInputWithPrompt = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setMessage(trimmed);
-    requestAnimationFrame(() => {
-      const el = textRef.current;
-      if (!el) return;
-      el.focus();
-      try {
-        el.setSelectionRange(trimmed.length, trimmed.length);
-      } catch {
-        /* selection may fail if unmounted */
-      }
     });
   }, []);
 
@@ -1295,14 +1335,14 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
           {(activeStarterTopic || isRecommendationsTab) && (
             <div className="mt-2 rounded-lg border border-border bg-card p-2">
               {activeStarterTopic &&
-                activeStarterTopic.prompts.map((prompt) => (
+                activeStarterTopic.prompts.map((prompt, idx) => (
                   <button
-                    key={prompt}
+                    key={`${prompt.text}-${idx}`}
                     type="button"
-                    onClick={() => fillInputWithPrompt(prompt)}
+                    onClick={() => void applySuggestion(prompt)}
                     className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
                   >
-                    {prompt}
+                    {getPromptSuggestionTitle(prompt)}
                   </button>
                 ))}
 
@@ -1314,14 +1354,19 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                     <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
                   </div>
                 ) : recommendationPrompts.length > 0 ? (
-                  recommendationPrompts.map((prompt) => (
+                  recommendationPrompts.map((prompt, idx) => (
                     <button
-                      key={prompt}
+                      key={`${prompt.text}-${idx}`}
                       type="button"
-                      onClick={() => fillInputWithPrompt(prompt)}
+                      onClick={() =>
+                        void applySuggestion({
+                          text: prompt.text,
+                          title: prompt.title,
+                        })
+                      }
                       className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
                     >
-                      {prompt}
+                      {getPromptSuggestionTitle(prompt)}
                     </button>
                   ))
                 ) : (

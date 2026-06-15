@@ -6,9 +6,13 @@ import {
   PromptSuggestionsResponse,
 } from "@/lib/branches-api";
 import { STATIC_STARTER_RECOMMENDATIONS } from "@/config";
+import {
+  normalizePromptSuggestion,
+  PromptSuggestionScenario,
+} from "@/types/prompt-suggestions";
 
 type StarterState = {
-  suggestions: string[];
+  suggestions: PromptSuggestionScenario[];
   sourceThreadCount: number;
   loaded: boolean;
 };
@@ -19,19 +23,22 @@ const starterCache: StarterState = {
   loaded: false,
 };
 
-const followUpCache = new Map<string, string[]>();
+const followUpCache = new Map<string, PromptSuggestionScenario[]>();
 
 const normalizeSuggestions = (
   payload: PromptSuggestionsResponse | null,
-): string[] => {
+): PromptSuggestionScenario[] => {
   if (!payload?.suggestions) return [];
   return payload.suggestions
-    .map((item) => item.trim())
-    .filter(Boolean)
+    .map((item) => normalizePromptSuggestion(item))
+    .filter((item): item is PromptSuggestionScenario => item !== null)
     .slice(0, 8);
 };
 
-const pickRandom = (pool: string[], count: number): string[] => {
+const pickRandom = (
+  pool: PromptSuggestionScenario[],
+  count: number,
+): PromptSuggestionScenario[] => {
   if (pool.length <= count) return [...pool];
   const copy = [...pool];
   for (let i = copy.length - 1; i > 0; i -= 1) {
@@ -42,7 +49,7 @@ const pickRandom = (pool: string[], count: number): string[] => {
 };
 
 export const useStarterRecommendations = (enabled: boolean) => {
-  const [suggestions, setSuggestions] = useState<string[]>(
+  const [suggestions, setSuggestions] = useState<PromptSuggestionScenario[]>(
     starterCache.loaded ? starterCache.suggestions : [],
   );
   const [isLoading, setIsLoading] = useState(false);
@@ -113,7 +120,7 @@ export const useFollowUpSuggestions = ({
   messages: Message_[];
   enabled: boolean;
 }) => {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<PromptSuggestionScenario[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const lastAiMessageId = useMemo(

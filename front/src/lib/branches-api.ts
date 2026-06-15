@@ -6,6 +6,7 @@ import type { ThreadState } from "@langchain/langgraph-sdk";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import type { AnyThreadState } from "./branching";
+import type { PromptSuggestionScenario } from "@/types/prompt-suggestions";
 
 interface CompactState {
   checkpoint: ThreadState["checkpoint"] | null;
@@ -22,7 +23,7 @@ interface CompactHistoryResponse {
 }
 
 export interface PromptSuggestionsResponse {
-  suggestions: string[];
+  suggestions: Array<string | PromptSuggestionScenario>;
   cached: boolean;
   based_on_pairs: number;
   source_thread_count: number;

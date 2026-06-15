@@ -11,6 +11,10 @@ import ChatError from "./ChatError.tsx";
 import { FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED } from "@/config";
 import { useBranches } from "@/hooks/useBranches";
 import { useFollowUpSuggestions } from "@/hooks/useThreadSuggestions";
+import {
+  getPromptSuggestionTitle,
+  type PromptSuggestionScenario,
+} from "@/types/prompt-suggestions";
 
 interface MessageListProps {
   messages: Message_[];
@@ -19,7 +23,7 @@ interface MessageListProps {
   children?: React.ReactNode;
   notShowWelcomeMessage?: boolean;
   maybeAutoScroll: () => void;
-  onSelectSuggestion?: (text: string) => void;
+  onSelectSuggestion?: (suggestion: PromptSuggestionScenario) => void;
 }
 
 const THINK_TOOL_NAME = "think";
@@ -259,14 +263,14 @@ const MessageList: React.FC<MessageListProps> = ({
             </div>
           ) : followUpSuggestions.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2">
-              {followUpSuggestions.map((item) => (
+              {followUpSuggestions.map((item, idx) => (
                 <button
-                  key={item}
+                  key={`${item.text}-${idx}`}
                   type="button"
                   onClick={() => onSelectSuggestion?.(item)}
                   className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/90 transition-colors hover:bg-muted cursor-pointer"
                 >
-                  {item}
+                  {getPromptSuggestionTitle(item)}
                 </button>
               ))}
             </div>
