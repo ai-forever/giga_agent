@@ -18,7 +18,7 @@ import json
 import logging
 import os
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from giga_agent.core.agent.middleware import AgentMiddleware
@@ -93,18 +93,50 @@ def _estimate(tools) -> int:
     return sum(_tool_tokens(t) for t in tools)
 
 
+def _extract_user_query(content: str) -> str:
+    """Вытащить блок <user_query>…</user_query>, если он есть.
+
+    Промпт-шаблон оборачивает запрос пользователя в <user_query>, но в то же
+    сообщение бывают вшиты few-shot примеры и инструкции со словами вроде
+    «задач»/«файл», которые ложно матчат доменные правила. Берём только сам
+    запрос; если тега нет — возвращаем контент как есть.
+    """
+    marker = "<user_query>"
+    if marker not in content:
+        return content
+    # Контент после ПЕРВОГО открывающего тега. Важно split (не rsplit): шаблон
+    # закрывает блок тем же кривым тегом <user_query> (а не </user_query>), и
+    # rsplit по последнему вхождению отдавал бы пустоту после закрытия.
+    tail = content.split(marker, 1)[1]
+    # Обрезаем по первому закрывающему варианту (нормальному или кривому).
+    for close in ("</user_query>", marker):
+        tail = tail.split(close, 1)[0]
+    return tail.strip()
+
+
 def _gather_text(messages) -> str:
     parts: list[str] = []
     for m in messages:
-        content = getattr(m, "content", "")
-        if isinstance(content, str):
-            parts.append(content)
-        elif isinstance(content, list):
-            parts.extend(str(p) for p in content)
-        # аргументы вызовов тулов (в т.ч. request_tools intent) — для стикинесса
+        # Контент для матчинга правил берём ТОЛЬКО из сообщений пользователя
+        # (и только сам <user_query>). Остальное — шум, ложно матчащий домены:
+        #   • SystemMessage — статичные инструкции/few-shot ("задач", "файл"…);
+        #   • AIMessage — многословный think агента;
+        #   • ToolMessage — большие JSON-результаты тулов (события, файлы…).
+        # request_tools-стикинесс держим отдельно — через args/имена tool_calls.
+        if isinstance(m, HumanMessage):
+            content = getattr(m, "content", "")
+            if isinstance(content, str):
+                parts.append(_extract_user_query(content))
+            elif isinstance(content, list):
+                parts.extend(_extract_user_query(str(p)) for p in content)
+        # Стикинесс: имя вызванного тула (держим домен активным между ходами) +
+        # args ТОЛЬКО у request_tools (это и есть intent «дайте мне тул X»).
+        # args прочих тулов (особенно think) — многословный шум, не матчим.
         for call in getattr(m, "tool_calls", None) or []:
-            parts.append(str(call.get("args", "")))
-            parts.append(str(call.get("name", "")))
+            name = call.get("name", "")
+            parts.append(str(name))
+            if name == "request_tools":
+                parts.append(str(call.get("args", "")))
     return "\n".join(parts).lower()
 
 
