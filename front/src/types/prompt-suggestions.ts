@@ -63,7 +63,8 @@ export function normalizePromptSuggestion(
     record.modules && typeof record.modules === "object"
       ? Object.fromEntries(
           Object.entries(record.modules as Record<string, unknown>).filter(
-            (entry): entry is [string, boolean] => typeof entry[1] === "boolean",
+            (entry): entry is [string, boolean] =>
+              typeof entry[1] === "boolean",
           ),
         )
       : undefined;

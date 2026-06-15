@@ -137,7 +137,10 @@ const resolveSttSource = (): SttSource => {
 
 interface InputAreaProps {
   thread?: UseStream<GraphState, GraphTemplate>;
-  prefillPayload?: { suggestion: PromptSuggestionScenario; nonce: number } | null;
+  prefillPayload?: {
+    suggestion: PromptSuggestionScenario;
+    nonce: number;
+  } | null;
 }
 
 const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {

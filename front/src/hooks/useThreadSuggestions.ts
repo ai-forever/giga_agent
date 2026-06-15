@@ -120,7 +120,9 @@ export const useFollowUpSuggestions = ({
   messages: Message_[];
   enabled: boolean;
 }) => {
-  const [suggestions, setSuggestions] = useState<PromptSuggestionScenario[]>([]);
+  const [suggestions, setSuggestions] = useState<PromptSuggestionScenario[]>(
+    [],
+  );
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const lastAiMessageId = useMemo(
