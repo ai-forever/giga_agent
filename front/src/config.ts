@@ -167,12 +167,12 @@ export const PROMPT_TEMPLATE_TOPICS: PromptTemplateTopic[] = [
       {
         title: "Презентация продукта",
         text: "Сделай презентацию-дайджест по новостям в ИИ-сфере за последний месяц. Сгенерируй изображения для каждого слайда",
-        modules: { subagents_legacy: true },
+        modules: { subagents_legacy: true, image: true },
       },
       {
         title: "Подкаст и мемы",
         text: "Сгенерируй сценарий короткого подкаста про удаленную работу и сделай смешной мем на эту тему",
-        modules: { subagents_legacy: true },
+        modules: { subagents_legacy: true, image: true },
       },
     ],
   },
@@ -184,16 +184,18 @@ export const PROMPT_TEMPLATE_TOPICS: PromptTemplateTopic[] = [
         title: "Глубокое исследование",
         text: "Найди статьи о подробностях архитектуры Deepseek-V4. Сделай выжимку и объясни простыми словами, добавляя иллюстрации к объяснениям. Оформи в виде отчета",
         deepResearchForced: true,
+        modules: { search: true, scraper: true },
       },
       {
         title: "Анализ конкурентов",
         text: "Найди в интернете 3 главных конкурентов Notion, сравни их тарифные планы и ключевые фичи в виде таблицы",
-        modules: { search: true },
+        modules: { search: true, scraper: true },
       },
       {
         title: "Поиск по базе знаний",
         text: "Найди в базе знаний все документы, связанные с онбордингом новых сотрудников, и составь из них единый чеклист",
         ragMode: "all",
+        modules: { rag: true },
       },
     ],
   },
@@ -209,11 +211,12 @@ export const PROMPT_TEMPLATE_TOPICS: PromptTemplateTopic[] = [
       {
         title: "Анализ рынка",
         text: "Проведи анализ рынка онлайн-образования: выдели основные тренды, барьеры для входа и потенциальные ниши",
-        modules: { search: true },
+        modules: { search: true, scraper: true },
       },
       {
         title: "Стратегия выхода на рынок",
         text: "Подготовь план запуска (Go-to-Market) для нового Telegram-бота по изучению английского: определи целевую аудиторию, выбери 3 канала привлечения и распиши шаги на первый месяц",
+        modules: { search: true },
       },
     ],
   },
@@ -249,7 +252,7 @@ export const STATIC_STARTER_RECOMMENDATIONS: PromptSuggestionScenario[] = [
   {
     title: "Создание лендинга",
     text: "Сгенерируй код лендинга для нового продукта, включая тексты и структуру страницы",
-    modules: { subagents_legacy: true },
+    skills: ["create_landing"],
   },
   {
     title: "Анализ данных (Python)",
@@ -259,7 +262,7 @@ export const STATIC_STARTER_RECOMMENDATIONS: PromptSuggestionScenario[] = [
   {
     title: "Бизнес-модель стартапа",
     text: "Составь Lean Canvas для нового мобильного приложения: опиши проблему, решение и целевую аудиторию",
-    modules: { subagents_legacy: true },
+    skills: ["lean_canvas"],
   },
   {
     title: "Анализ комментариев VK",
@@ -269,7 +272,7 @@ export const STATIC_STARTER_RECOMMENDATIONS: PromptSuggestionScenario[] = [
   {
     title: "Генерация презентации",
     text: "Создай презентацию на 5 слайдов с изображениями для питчинга нового проекта инвесторам",
-    modules: { subagents_legacy: true },
+    skills: ["generate_presentation"],
   },
   {
     title: "Анализ GitHub репозитория",
@@ -279,7 +282,7 @@ export const STATIC_STARTER_RECOMMENDATIONS: PromptSuggestionScenario[] = [
   {
     title: "Создание подкаста",
     text: "Напиши сценарий для короткого подкаста на тему 'Как нейросети меняют работу программистов'",
-    modules: { subagents_legacy: true },
+    skills: ["podcast_generate"],
   },
 ];
 
