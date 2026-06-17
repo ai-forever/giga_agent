@@ -153,14 +153,16 @@ async def delete_project(
     collection_id = project.collection_id
     await repo.delete(project)
     if collection_id is not None:
+        # Imported here to avoid a cycle (rag.api → projects → rag.api).
+        from giga_agent.modules.rag.api.collections import delete_collection
+
         try:
             collections = RagCollectionsRepository(db)
             collection = await collections.get_by_id(
                 owner_id=current_user.id, collection_id=collection_id
             )
             if collection is not None:
-                await db.delete(collection)
-                await db.commit()
+                await delete_collection(db=db, collection=collection)
         except Exception:
             logger.exception("Failed to delete project-backed RAG collection")
     return None

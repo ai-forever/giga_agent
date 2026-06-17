@@ -106,6 +106,65 @@ def _qdrant_delete_helpers():
     return build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection
 
 
+async def delete_collection(
+    *,
+    db: AsyncSession,
+    collection,
+) -> None:
+    """Fully delete a RAG collection and all of its backing data.
+
+    Removes the collection's files from sandbox storage (best-effort),
+    purges its chunks from the vector DB, and deletes the collection row.
+
+    Access control is the caller's responsibility — ``collection`` must be an
+    already-resolved row the caller is allowed to delete.
+    """
+    repo = RagCollectionsRepository(db)
+
+    # Best-effort delete all files from sandbox storage (S3) + remove core_files metadata.
+    docs_repo = RagDocumentsRepository(db)
+    offset = 0
+    limit = 200
+    while True:
+        docs = await docs_repo.list_by_collection(
+            owner_id=collection.owner_id,
+            collection_id=collection.id,
+            limit=limit,
+            offset=offset,
+        )
+        if not docs:
+            break
+        for d in docs:
+            if not d.sandbox_path:
+                continue
+            await SandboxManager(db).delete_file_by_path_for_user(
+                user_id=collection.owner_id,
+                sandbox_path=d.sandbox_path,
+            )
+        offset += len(docs)
+
+    # Remove all chunks belonging to this collection from the vector DB.
+    build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_delete_helpers()
+    )
+    qdrant_client = get_qdrant_client()
+    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
+    vector_size = int(runtime.vector_size)
+    qdrant_collection = await resolve_qdrant_collection(
+        client=qdrant_client,
+        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+        vector_size=vector_size,
+    )
+    qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection.id)
+    await delete_by_filter(
+        client=qdrant_client,
+        collection_name=qdrant_collection,
+        query_filter=qfilter,
+    )
+
+    await repo.delete(owner_id=collection.owner_id, collection_id=collection.id)
+
+
 @router.post(
     "",
     response_model=CollectionResponse,
@@ -210,48 +269,7 @@ async def collections_delete(
             detail="Access denied",
         )
 
-    # Best-effort delete all files from sandbox storage (S3) + remove core_files metadata.
-    docs_repo = RagDocumentsRepository(db)
-    offset = 0
-    limit = 200
-    while True:
-        docs = await docs_repo.list_by_collection(
-            owner_id=collection.owner_id,
-            collection_id=collection_id,
-            limit=limit,
-            offset=offset,
-        )
-        if not docs:
-            break
-        for d in docs:
-            if not d.sandbox_path:
-                continue
-            await SandboxManager(db).delete_file_by_path_for_user(
-                user_id=collection.owner_id,
-                sandbox_path=d.sandbox_path,
-            )
-        offset += len(docs)
-
-    # Remove all chunks belonging to this collection from the vector DB.
-    build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection = (
-        _qdrant_delete_helpers()
-    )
-    qdrant_client = get_qdrant_client()
-    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
-    vector_size = int(runtime.vector_size)
-    qdrant_collection = await resolve_qdrant_collection(
-        client=qdrant_client,
-        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
-        vector_size=vector_size,
-    )
-    qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection_id)
-    await delete_by_filter(
-        client=qdrant_client,
-        collection_name=qdrant_collection,
-        query_filter=qfilter,
-    )
-
-    await repo.delete(owner_id=collection.owner_id, collection_id=collection_id)
+    await delete_collection(db=db, collection=collection)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
