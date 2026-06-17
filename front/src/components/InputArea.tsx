@@ -11,6 +11,7 @@ import {
   Check,
   Cog,
   Files,
+  FolderOpen,
   Loader2,
   Mic,
   Paperclip,
@@ -50,6 +51,7 @@ import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate, useParams } from "react-router-dom";
 import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
+import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -134,6 +136,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
+  const { project: threadProject } = useThreadProject(threadId);
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(
     getInitialIsMobileDevice,
@@ -869,7 +872,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               className="w-full min-h-[60px] max-h-[200px] resize-none font-sans p-2 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
             />
             <div className={"flex"}>
-              <div className="flex items-center gap-1 flex-1">
+              <div className="flex items-center gap-1 flex-1 min-w-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -1055,6 +1058,17 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                     </DropdownMenuSub>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {threadProject && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${threadProject.id}`)}
+                    className="inline-flex items-center gap-1 h-7 px-2 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors min-w-0 max-w-[180px]"
+                    title="Открыть проект"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{threadProject.name}</span>
+                  </button>
+                )}
                 {enabledCollectionCount > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
