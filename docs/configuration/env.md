@@ -19,6 +19,7 @@
     - [Idle Sweeper](#idle-sweeper)
     - [Orphan Sweeper](#orphan-sweeper)
   - [Интеграции](#интеграции)
+    - [GigaChat](#gigachat)
     - [Qdrant и Mem0](#qdrant-и-mem0)
     - [Web Scraper (Jina)](#web-scraper-jina)
   - [Миграции и логирование](#миграции-и-логирование)
@@ -101,7 +102,9 @@ GIGA_AGENT_DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/giga_agen
 | `GIGA_AGENT_UI` | `bool` | `True` | Нет | Включить/выключить раздачу UI через FastAPI |
 | `GIGA_AGENT_FRONTEND_DIR` | `str` | `None` | Нет | Путь к директории с собранным frontend (если не задано, используется встроенный) |
 | `GIGA_AGENT_UI_PREFIX` | `str` | `None` | Нет | Префикс для UI роутов (если нужно отличие от корня) |
+| `GIGA_AGENT_BASE_URL` | `str` | `None` | Нет | Внешний базовый URL приложения. Используется для формирования `baseUrl`/`basePath` во frontend runtime config и абсолютных ссылок на API |
 | `GIGA_AGENT_PREFIX_API` | `str` | `/agent` | Нет | Префикс для API endpoints |
+| `GIGA_AGENT_SKIP_ONBOARDING` | `bool` | `False` | Нет | Скрыть onboarding flow во frontend UI |
 
 **Примеры:**
 ```bash
@@ -109,8 +112,14 @@ GIGA_AGENT_DATABASE_URL="postgresql+asyncpg://user:pass@localhost:5432/giga_agen
 GIGA_AGENT_PREFIX_API="/agent"
 GIGA_AGENT_UI=true
 
+# Приложение работает за reverse proxy на под-пути
+GIGA_AGENT_BASE_URL="https://example.com/giga-agent"
+
 # Кастомная директория frontend
 GIGA_AGENT_FRONTEND_DIR="/path/to/custom/dist"
+
+# Отключить onboarding
+GIGA_AGENT_SKIP_ONBOARDING=true
 ```
 
 ---
@@ -213,6 +222,17 @@ GIGA_AGENT_HOST_PROJECT_PATH="/absolute/path/to/giga_agent"
 
 ## Интеграции
 
+### GigaChat
+
+Настройки интеграции с GigaChat.
+
+| Переменная | Тип | По умолчанию | Описание |
+|------------|-----|--------------|----------|
+| `GIGA_AGENT_GIGACHAT_FROM_ENV` | `bool` | `False` | Разрешить пустую конфигурацию коннектора `gigachat` и брать runtime-настройки из env-переменных/стандартной конфигурации SDK GigaChat |
+| `GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN` | `bool` | `False` | Отключить кеширование access token GigaChat. Полезно для отладки проблем авторизации, но увеличивает количество запросов к auth endpoint |
+
+> **Примечание:** `GIGA_AGENT_GIGACHAT_FROM_ENV` влияет именно на встроенный connector `gigachat`. При включении этого режима креды и URL'ы можно не хранить в БД, а передавать через переменные окружения процесса.
+
 ### Qdrant и Mem0
 
 Настройки для векторного хранилища и долговременной памяти.
@@ -237,6 +257,7 @@ QDRANT_API_KEY="your-api-key"
 |------------|-----|--------------|----------|
 | `GIGA_AGENT_SCRAPER_JINA_BASE_URL` | `str` | `https://r.jina.ai/` | Base URL для Jina Reader API |
 | `GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY` | `int` | `8` | Максимальное количество одновременных запросов (минимум 1) |
+| `GIGA_AGENT_SCRAPER_DISABLED` | `bool` | `False` | Полностью отключить scraper module: он не будет добавлять tool'ы и инструкции агенту |
 
 ---
 

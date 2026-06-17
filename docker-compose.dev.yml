@@ -16,6 +16,9 @@ services:
       args:
         VITE_MCP_PROXY_URL: /proxy
         VITE_LOG_LEVEL: debug
+    environment:
+      GIGA_AGENT_BASE_URL: ${GIGA_AGENT_BASE_URL:-/}
+      GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
     depends_on:
       giga-agent:
         condition: service_started
@@ -88,11 +91,16 @@ services:
         condition: service_healthy
     networks:
       - giga-agent-net
+    env_file:
+      - ./.env
+      - path: ./.env.giga_agent
+        required: false
     environment:
       MEM0_DIR: /tmp/.mem0
       # Use the mounted backend sources in dev.
       PYTHONPATH: /app/backend
       AEGRA_CONFIG: /app/backend/langgraph.json
+      REDIS_BROKER_ENABLED: true
       AUTH_TYPE: custom
       GIGA_AGENT_UI: "0"
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net-dev}
@@ -107,6 +115,7 @@ services:
       GIGA_AGENT_SECRET_KEY: 123 # <- Only for dev setup
       GIGA_AGENT_PROJECT_ROOT: /.giga_agent
       GIGA_AGENT_HOST_PROJECT_PATH: /Users/mikelarg/PycharmProjects/giga_agent
+      GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
     working_dir: /app/backend
     volumes:
       - ./backend:/app/backend

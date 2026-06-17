@@ -1,7 +1,5 @@
 import React from "react";
-import { ArrowLeft } from "lucide-react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GeneralSettings } from "./general";
 import { LLMSettings } from "./llms";
@@ -10,6 +8,8 @@ import { SandboxSettings } from "./sandbox";
 import { ImageGeneratorsSettings } from "./image-generators";
 import { SearchEnginesSettings } from "./search-engines";
 import { ConnectorsSettings } from "./connectors";
+import { ChannelsSettings } from "./channels";
+import { SkillsSettings } from "./skills";
 
 const SETTINGS_TABS = [
   "general",
@@ -19,6 +19,8 @@ const SETTINGS_TABS = [
   "sandbox",
   "image",
   "search",
+  "channels",
+  "skills",
 ] as const;
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -44,6 +46,8 @@ const SettingsPage: React.FC = () => {
     { id: "image", label: "Image" },
     { id: "search", label: "Поиск" },
     { id: "sandbox", label: "Sandbox" },
+    { id: "channels", label: "Каналы" },
+    { id: "skills", label: "Скиллы" },
   ];
 
   const renderContent = () => {
@@ -62,6 +66,10 @@ const SettingsPage: React.FC = () => {
         return <SearchEnginesSettings />;
       case "sandbox":
         return <SandboxSettings />;
+      case "channels":
+        return <ChannelsSettings />;
+      case "skills":
+        return <SkillsSettings />;
       default:
         return null;
     }

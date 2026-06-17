@@ -10,12 +10,15 @@ LANGGRAPH_DEFAULT_DEPENDENCIES = ["."]
 
 
 def collect_run_server_graphs(
-    *, agent, base_graph_name: str, base_graph_target: str
+    *, agent, base_graph_target: str
 ) -> dict[str, str]:
     # Import lazily to avoid package import cycles.
     cli = importlib.import_module("giga_agent.cli")
 
-    graphs: dict[str, str] = {base_graph_name: base_graph_target}
+    graphs: dict[str, str] = {
+        "giga_agent": base_graph_target,
+        "giga_agent_channel": base_graph_target
+    }
 
     for module in agent.all_modules:
         module_subgraphs = module.get_subgraphs()
@@ -35,7 +38,7 @@ def build_langgraph_runtime_config(graph_and_app_path: str) -> dict[str, object]
     # Import lazily to keep tests able to patch `giga_agent.cli.*`.
     cli = importlib.import_module("giga_agent.cli")
 
-    graph, _fast_api_app = cli.load_graph_and_app_from_string(graph_and_app_path)
+    graph, fast_api_app = cli.load_graph_and_app_from_string(graph_and_app_path)
     agent = graph.giga_agent
 
     path_part, graph_var, app_var = _parse_import_string(
@@ -48,7 +51,6 @@ def build_langgraph_runtime_config(graph_and_app_path: str) -> dict[str, object]
 
     graphs = collect_run_server_graphs(
         agent=agent,
-        base_graph_name="giga_agent",
         base_graph_target=f"{path_part}:{graph_var}",
     )
 
@@ -75,6 +77,7 @@ def build_langgraph_runtime_config(graph_and_app_path: str) -> dict[str, object]
 
     return {
         "agent": agent,
+        "app": fast_api_app,
         "graphs": graphs,
         "auth_path": LANGGRAPH_DEFAULT_AUTH_PATH,
         "http_config": http_config,

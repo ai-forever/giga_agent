@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import functools
 import importlib
 import inspect
 import json
 import os
-import secrets
 import signal
 import subprocess
 import sys
@@ -14,40 +14,24 @@ from typing import Annotated
 
 import typer
 
-from giga_agent.conf import reset_settings_cache
+from giga_agent.conf import GIGA_AGENT_BASE_URL, reset_settings_cache
 from giga_agent.core.logging import get_logger, setup_cli_logging
+from giga_agent.core.process_supervisor import get_process_supervisor
 
 from ._langgraph_config import build_langgraph_runtime_config
 from ..types import LogLevel
+from ..utils.secret_key import ensure_dev_secret_key_env
 
 logger = get_logger(__name__)
 
-_SECRET_KEY_ENV = "GIGA_AGENT_SECRET_KEY"
-_DEV_SECRET_KEY_FILE = ".secret_key"
-
-
-def _ensure_dev_secret_key_env() -> None:
-    existing_secret = (os.getenv(_SECRET_KEY_ENV) or "").strip()
-    if existing_secret:
-        return
-
-    from giga_agent.core.paths import ensure_giga_agent_dir
-
-    project_root = ensure_giga_agent_dir()
-    secret_key_path = project_root / _DEV_SECRET_KEY_FILE
-    if secret_key_path.exists():
-        file_secret = secret_key_path.read_text(encoding="utf-8").strip()
-        if file_secret:
-            os.environ[_SECRET_KEY_ENV] = file_secret
-            return
-
-    generated_secret = secrets.token_hex(32)
-    secret_key_path.write_text(f"{generated_secret}\n", encoding="utf-8")
-    os.environ[_SECRET_KEY_ENV] = generated_secret
+_CHILD_SHUTDOWN_WAIT_TIMEOUT_SEC = 2.5
+_CHILD_FORCE_STOP_WAIT_TIMEOUT_SEC = 1.0
+_CHILD_FORCE_STOP_DELAY_SEC = 3.0
+_DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC = 3
 
 
 def _print_startup_banner(*, host: str, port: int) -> None:
-    url = f"http://{host}:{port}"
+    url = GIGA_AGENT_BASE_URL if GIGA_AGENT_BASE_URL else f"http://{host}:{port}"
     ascii_art = r"""
    ____ _                _                    _   
   / ___(_) __ _  __ _   / \   __ _  ___ _ __ | |_ 
@@ -81,6 +65,42 @@ def _terminate_process_group(proc: subprocess.Popen[object], *, force: bool) -> 
         return
     except Exception:
         return
+
+
+def _stop_supervised_processes_once(
+    *,
+    stop_state: dict[str, bool],
+    reason: str,
+) -> None:
+    if stop_state.get("done"):
+        return
+    stop_state["done"] = True
+    try:
+        stopped = get_process_supervisor().stop_all()
+    except Exception:
+        logger.exception(f"Failed to stop managed subprocesses during {reason}.")
+        return
+    if stopped:
+        logger.warning(
+            f"Stopped {len(stopped)} managed subprocess(es) during {reason}."
+        )
+
+
+def _dispose_global_engine_best_effort(cli_module: object) -> None:
+    try:
+        from giga_agent.core.db import dispose_engine
+
+        dispose_coro = dispose_engine()
+        try:
+            cli_module.asyncio.run(dispose_coro)
+        finally:
+            try:
+                if getattr(dispose_coro, "cr_frame", None) is not None:
+                    dispose_coro.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def _run_langgraph_server_in_subprocess(
@@ -118,6 +138,7 @@ def _run_langgraph_server_in_subprocess(
     stop_event = threading.Event()
     force_stop_event = threading.Event()
     stop_requested_at: float | None = None
+    supervised_stop_state = {"done": False}
 
     def _request_stop(*_args: object) -> None:
         stop_event.set()
@@ -136,6 +157,10 @@ def _run_langgraph_server_in_subprocess(
             if stop_event.is_set():
                 now = time.time()
                 if force_stop_event.is_set():
+                    _stop_supervised_processes_once(
+                        stop_state=supervised_stop_state,
+                        reason="hard stop request",
+                    )
                     logger.warning(
                         "Force-stopping LangGraph dev server (hard stop requested)..."
                     )
@@ -144,7 +169,11 @@ def _run_langgraph_server_in_subprocess(
                     stop_requested_at = now
                     logger.info("Stopping LangGraph dev server...")
                     _terminate_process_group(proc, force=False)
-                elif now - stop_requested_at > 3.0:
+                elif now - stop_requested_at > _CHILD_FORCE_STOP_DELAY_SEC:
+                    _stop_supervised_processes_once(
+                        stop_state=supervised_stop_state,
+                        reason="graceful shutdown timeout",
+                    )
                     logger.warning("Force-stopping LangGraph dev server...")
                     _terminate_process_group(proc, force=True)
 
@@ -160,11 +189,24 @@ def _run_langgraph_server_in_subprocess(
             logger.info("Graceful stop requested. Press Ctrl+C again to force stop.")
 
         stop_event.set()
+        if is_second_interrupt:
+            _stop_supervised_processes_once(
+                stop_state=supervised_stop_state,
+                reason="second Ctrl+C",
+            )
         _terminate_process_group(proc, force=is_second_interrupt)
         try:
-            return int(proc.wait(timeout=2.5))
+            return int(proc.wait(timeout=_CHILD_SHUTDOWN_WAIT_TIMEOUT_SEC))
         except Exception:
-            return 130
+            _stop_supervised_processes_once(
+                stop_state=supervised_stop_state,
+                reason="child shutdown timeout after Ctrl+C",
+            )
+            _terminate_process_group(proc, force=True)
+            try:
+                return int(proc.wait(timeout=_CHILD_FORCE_STOP_WAIT_TIMEOUT_SEC))
+            except Exception:
+                return 130
 
 
 def dev(
@@ -180,9 +222,6 @@ def dev(
     host: Annotated[str, typer.Option(help="Host to bind to")] = "localhost",
     port: Annotated[int, typer.Option(help="Port to bind to")] = 9090,
     no_reload: Annotated[bool, typer.Option(help="Disable auto-reload")] = False,
-    frontend_url: Annotated[
-        str, typer.Option(help="Frontend URL for /base hint")
-    ] = "http://localhost:3000",
 ) -> None:
     """
     Development mode: start LangGraph dev server.
@@ -227,9 +266,10 @@ def dev(
     from giga_agent.core.paths import ensure_giga_agent_dir
 
     ensure_giga_agent_dir()
-    _ensure_dev_secret_key_env()
+    ensure_dev_secret_key_env()
 
     os.environ.setdefault("GIGA_AGENT_RUNTIME", "local")
+    os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")
     os.environ.setdefault("GIGA_AGENT_HOST", f"http://{str(host)}")
     os.environ.setdefault("GIGA_AGENT_PORT", str(port))
     reset_settings_cache()
@@ -242,7 +282,11 @@ def dev(
     cli = importlib.import_module("giga_agent.cli")
 
     logger.info(f"Loading agent from {graph_and_app_path}...")
-    langgraph_runtime_config = build_langgraph_runtime_config(graph_and_app_path)
+    try:
+        langgraph_runtime_config = build_langgraph_runtime_config(graph_and_app_path)
+    except KeyboardInterrupt:
+        logger.warning("Interrupted during dev startup.")
+        raise typer.Exit(code=130)
     agent = langgraph_runtime_config["agent"]
     logger.info(f"Loaded agent with {len(agent.all_modules)} modules.")
 
@@ -261,6 +305,7 @@ def dev(
 
             original_uvicorn_run = uvicorn.run
 
+            @functools.wraps(original_uvicorn_run)
             def _run_with_ui_override(*args, **kwargs):
                 if args and args[0] == "langgraph_api.server:app":
                     args = ("giga_agent.scripts.combined_asgi:app", *args[1:])
@@ -273,6 +318,11 @@ def dev(
                 kwargs["allow_blocking"] = True
         except Exception:
             pass
+        kwargs.setdefault(
+            "timeout_graceful_shutdown",
+            _DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC,
+        )
+        from giga_agent.core.sqlite_checkpointer import CHECKPOINTER_CONFIG
 
         try:
             run_server(
@@ -282,11 +332,14 @@ def dev(
                 graphs,
                 auth={"path": auth_path},
                 http=http_config,
+                checkpointer=CHECKPOINTER_CONFIG,
+                n_jobs_per_worker=min(int(os.getenv("N_JOBS_PER_WORKER", 6)), 6),
                 **kwargs,
             )
         finally:
             if GIGA_AGENT_UI:
                 uvicorn.run = original_uvicorn_run
+        _dispose_global_engine_best_effort(cli)
         return
 
     rc = _run_langgraph_server_in_subprocess(
@@ -299,19 +352,5 @@ def dev(
         log_level=log_level.value.upper(),
     )
 
-    try:
-        from giga_agent.core.db import dispose_engine
-
-        dispose_coro = dispose_engine()
-        try:
-            cli.asyncio.run(dispose_coro)
-        finally:
-            try:
-                if getattr(dispose_coro, "cr_frame", None) is not None:
-                    dispose_coro.close()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
+    _dispose_global_engine_best_effort(cli)
     raise typer.Exit(code=rc)

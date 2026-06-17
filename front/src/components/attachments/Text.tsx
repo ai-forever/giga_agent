@@ -34,7 +34,7 @@ const Text: React.FC<TextProps> = ({ id, path }) => {
           buildContentByPathPreviewUrl(path),
           {
             attachAuth: true,
-            credentials: "omit",
+            credentials: "same-origin",
             showError: false,
           },
         );
@@ -69,6 +69,7 @@ const Text: React.FC<TextProps> = ({ id, path }) => {
         </a>
       </div>
     );
+  const fileLabel = path.split("/").filter(Boolean).pop() || id;
   return (
     <div className="rounded-md overflow-hidden border-2 border-border bg-card text-card-foreground shadow-sm">
       <div
@@ -104,14 +105,13 @@ const Text: React.FC<TextProps> = ({ id, path }) => {
         }}
       >
         <h4 className="m-0 text-base font-semibold">
-          Файл:{" "}
           <a
             className="text-primary hover:underline"
             href={buildContentByPathUrl(path)}
             target="_blank"
             rel="noreferrer"
           >
-            {id}
+            {fileLabel}
           </a>
         </h4>
         <ChevronUp

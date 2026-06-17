@@ -24,6 +24,7 @@ import { useAuth } from "@/components/providers/auth.tsx";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
+import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Secret } from "@/interfaces.ts";
 import type {
@@ -37,6 +38,7 @@ const NO_SEARCH_ENGINE_VALUE = "__none__";
 const NO_LLM_VALUE = "__none_llm__";
 const FAST_LLM_INHERIT_VALUE = "__inherit__";
 const NO_SECRET_LLM_VALUE = "__none_secret_llm__";
+const PASS_SECRET_MASK = "************************************************";
 
 type AgentSecretType = "pass" | "text" | "llm_id";
 
@@ -44,10 +46,19 @@ type SecretItem = Secret & {
   id: string;
 };
 
+type FilledSecretState = {
+  filled: boolean;
+};
+
 type AgentSecretMeta = {
   name: string;
   description?: string | null;
   type: AgentSecretType;
+};
+
+type ParsedUserSecrets = {
+  values: Record<string, string>;
+  filled: Record<string, boolean>;
 };
 
 const secretSchema = z.object({
@@ -103,22 +114,43 @@ const normalizeSecrets = (items: SecretItem[]) =>
     description: rest.description?.trim() || undefined,
   }));
 
-const parseUserSecrets = (value: unknown): Record<string, string> => {
+const isFilledSecretState = (value: unknown): value is FilledSecretState => {
+  return typeof value === "object" && value !== null && "filled" in value;
+};
+
+const parseUserSecrets = (
+  value: unknown,
+  secretMeta: AgentSecretMeta[],
+): ParsedUserSecrets => {
+  const parsed: ParsedUserSecrets = {
+    values: {},
+    filled: {},
+  };
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
+    return parsed;
   }
 
-  const parsed: Record<string, string> = {};
+  const secretTypes = new Map(secretMeta.map((item) => [item.name, item.type]));
   for (const [key, rawValue] of Object.entries(value)) {
+    const secretType = secretTypes.get(key);
+    if (secretType === "pass" || isFilledSecretState(rawValue)) {
+      const filled = isFilledSecretState(rawValue)
+        ? Boolean(rawValue.filled)
+        : rawValue != null && String(rawValue).trim().length > 0;
+      parsed.filled[key] = filled;
+      parsed.values[key] = filled ? PASS_SECRET_MASK : "";
+      continue;
+    }
+
     if (typeof rawValue === "string") {
-      parsed[key] = rawValue;
+      parsed.values[key] = rawValue;
       continue;
     }
     if (rawValue == null) {
-      parsed[key] = "";
+      parsed.values[key] = "";
       continue;
     }
-    parsed[key] = String(rawValue);
+    parsed.values[key] = String(rawValue);
   }
   return parsed;
 };
@@ -160,6 +192,9 @@ export const GeneralSettings: React.FC = () => {
   const [agentSecretsValues, setAgentSecretsValues] = useState<
     Record<string, string>
   >({});
+  const [filledAgentSecrets, setFilledAgentSecrets] = useState<
+    Record<string, boolean>
+  >({});
   const [defaultLLM, setDefaultLLM] = useState<string>(NO_LLM_VALUE);
   const [fastLLM, setFastLLM] = useState<string>(FAST_LLM_INHERIT_VALUE);
   const [currentImageGenerator, setCurrentImageGenerator] = useState<string>(
@@ -185,6 +220,7 @@ export const GeneralSettings: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     const settings = (user.settings ?? {}) as Record<string, unknown>;
+    const parsedSecrets = parseUserSecrets(user.secrets, agentSecretMeta);
     setDefaultLLM(user.llm_id ?? NO_LLM_VALUE);
     setFastLLM(user.fast_llm_id ?? FAST_LLM_INHERIT_VALUE);
     setCurrentImageGenerator(
@@ -197,8 +233,9 @@ export const GeneralSettings: React.FC = () => {
         : "",
     );
     setSecrets(parseSettingsSecrets(settings.contextSecrets));
-    setAgentSecretsValues(parseUserSecrets(user.secrets));
-  }, [user]);
+    setAgentSecretsValues(parsedSecrets.values);
+    setFilledAgentSecrets(parsedSecrets.filled);
+  }, [user, agentSecretMeta]);
 
   // Синхронизируем локальную тему с themeMode из провайдера
   // (ThemeProvider сам подхватывает тему из user.settings)
@@ -351,6 +388,30 @@ export const GeneralSettings: React.FC = () => {
     }));
   };
 
+  const handlePassSecretFocus = (name: string) => {
+    setAgentSecretsValues((prev) => {
+      if (!filledAgentSecrets[name] || prev[name] !== PASS_SECRET_MASK) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [name]: "",
+      };
+    });
+  };
+
+  const handlePassSecretBlur = (name: string) => {
+    setAgentSecretsValues((prev) => {
+      if (!filledAgentSecrets[name] || (prev[name] ?? "").trim()) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [name]: PASS_SECRET_MASK,
+      };
+    });
+  };
+
   const handleSave = async () => {
     if (!validate()) return;
     setSaving(true);
@@ -389,35 +450,42 @@ export const GeneralSettings: React.FC = () => {
         patchBody.settings = settingsPatch;
       }
 
-      const currentUserSecrets =
-        typeof user?.secrets === "object" &&
-        user.secrets !== null &&
-        !Array.isArray(user.secrets)
-          ? (user.secrets as Record<string, unknown>)
-          : {};
-      const normalizedAgentSecretsValues: Record<string, string> = {};
+      const currentUserSecrets = parseUserSecrets(
+        user?.secrets,
+        agentSecretMeta,
+      );
+      const changedAgentSecrets: Record<string, string> = {};
       for (const secretMeta of agentSecretMeta) {
-        normalizedAgentSecretsValues[secretMeta.name] = (
-          agentSecretsValues[secretMeta.name] ?? ""
+        const nextValue = (agentSecretsValues[secretMeta.name] ?? "").trim();
+        if (secretMeta.type === "pass") {
+          const isCurrentlyFilled = Boolean(
+            currentUserSecrets.filled[secretMeta.name],
+          );
+          if (
+            isCurrentlyFilled &&
+            (!nextValue || nextValue === PASS_SECRET_MASK)
+          ) {
+            continue;
+          }
+          if (!isCurrentlyFilled && !nextValue) {
+            continue;
+          }
+          if (nextValue) {
+            changedAgentSecrets[secretMeta.name] = nextValue;
+          }
+          continue;
+        }
+
+        const currentValue = (
+          currentUserSecrets.values[secretMeta.name] ?? ""
         ).trim();
+        if (nextValue !== currentValue) {
+          changedAgentSecrets[secretMeta.name] = nextValue;
+        }
       }
 
-      const hasAgentSecretChanges = agentSecretMeta.some((secretMeta) => {
-        const currentRaw = currentUserSecrets[secretMeta.name];
-        const currentValue =
-          typeof currentRaw === "string"
-            ? currentRaw.trim()
-            : currentRaw == null
-              ? ""
-              : String(currentRaw).trim();
-        return normalizedAgentSecretsValues[secretMeta.name] !== currentValue;
-      });
-
-      if (hasAgentSecretChanges) {
-        patchBody.secrets = {
-          ...currentUserSecrets,
-          ...normalizedAgentSecretsValues,
-        };
+      if (Object.keys(changedAgentSecrets).length > 0) {
+        patchBody.secrets = changedAgentSecrets;
       }
 
       if (defaultLLM !== (user?.llm_id ?? NO_LLM_VALUE)) {
@@ -452,9 +520,11 @@ export const GeneralSettings: React.FC = () => {
 
       if (Object.keys(patchBody).length > 0) {
         await apiClient.patch(`${API_AGENT_PREFIX}/auth/users/me`, patchBody);
+        await refreshUser();
+        toast.success("Настройки сохранены");
+      } else {
+        toast.info("Изменений нет");
       }
-
-      await refreshUser();
     } catch {
       // Ошибка уже обработана глобально
     } finally {
@@ -768,6 +838,12 @@ export const GeneralSettings: React.FC = () => {
                               id={`agent-secret-${secretMeta.name}`}
                               placeholder="Введите значение API-ключа"
                               value={agentSecretsValues[secretMeta.name] ?? ""}
+                              onFocus={() =>
+                                handlePassSecretFocus(secretMeta.name)
+                              }
+                              onBlur={() =>
+                                handlePassSecretBlur(secretMeta.name)
+                              }
                               onChange={(e) =>
                                 updateAgentSecretValue(
                                   secretMeta.name,

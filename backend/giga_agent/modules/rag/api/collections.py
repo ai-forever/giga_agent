@@ -12,11 +12,6 @@ from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
 )
-from giga_agent.vectorstores.qdrant import (
-    get_qdrant_client,
-    resolve_qdrant_collection,
-)
-from giga_agent.modules.rag.database.qdrant_store import build_filter, delete_by_filter
 from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
@@ -31,6 +26,145 @@ from giga_agent.sandbox.manager import SandboxManager
 router = APIRouter(prefix="/collections", tags=["collections"])
 
 
+def get_qdrant_client():
+    from giga_agent.vectorstores.qdrant import get_qdrant_client as _get_qdrant_client
+
+    return _get_qdrant_client()
+
+
+async def resolve_qdrant_collection(**kwargs):
+    from giga_agent.vectorstores.qdrant import (
+        resolve_qdrant_collection as _resolve_qdrant_collection,
+    )
+
+    return await _resolve_qdrant_collection(**kwargs)
+
+
+def build_filter(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import build_filter as _build_filter
+
+    return _build_filter(**kwargs)
+
+
+async def delete_by_filter(**kwargs):
+    from giga_agent.modules.rag.database.qdrant_store import (
+        delete_by_filter as _delete_by_filter,
+    )
+
+    return await _delete_by_filter(**kwargs)
+
+
+def _qdrant_create_helpers():
+    return get_qdrant_client, resolve_qdrant_collection
+
+
+async def create_collection_for_user(
+    *,
+    user: UserShort,
+    db: AsyncSession,
+    name: str,
+    metadata: dict | None = None,
+):
+    """Create a RAG collection on behalf of a user.
+
+    Raises HTTPException(400) if the user has no embedding configured, or
+    HTTPException(409) on a duplicate name. Ensures the underlying Qdrant
+    tech collection exists for the user's embedding model.
+    """
+    if user.embedding_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User embedding model is not configured",
+        )
+
+    runtime = await EmbeddingManager.resolve_by_id(user.embedding_id, session=db)
+    vector_size = int(runtime.vector_size)
+
+    client = get_qdrant_client()
+    await resolve_qdrant_collection(
+        client=client,
+        collection_name=rag_qdrant_collection_name_for_embedding(user.embedding_id),
+        vector_size=vector_size,
+    )
+
+    repo = RagCollectionsRepository(db)
+    try:
+        return await repo.create(
+            owner_id=user.id,
+            name=name,
+            embedding_id=user.embedding_id,
+            metadata=metadata,
+        )
+    except IntegrityError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Collection with this name already exists",
+        )
+
+
+def _qdrant_delete_helpers():
+    return build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection
+
+
+async def delete_collection(
+    *,
+    db: AsyncSession,
+    collection,
+) -> None:
+    """Fully delete a RAG collection and all of its backing data.
+
+    Removes the collection's files from sandbox storage (best-effort),
+    purges its chunks from the vector DB, and deletes the collection row.
+
+    Access control is the caller's responsibility — ``collection`` must be an
+    already-resolved row the caller is allowed to delete.
+    """
+    repo = RagCollectionsRepository(db)
+
+    # Best-effort delete all files from sandbox storage (S3) + remove core_files metadata.
+    docs_repo = RagDocumentsRepository(db)
+    offset = 0
+    limit = 200
+    while True:
+        docs = await docs_repo.list_by_collection(
+            owner_id=collection.owner_id,
+            collection_id=collection.id,
+            limit=limit,
+            offset=offset,
+        )
+        if not docs:
+            break
+        for d in docs:
+            if not d.sandbox_path:
+                continue
+            await SandboxManager(db).delete_file_by_path_for_user(
+                user_id=collection.owner_id,
+                sandbox_path=d.sandbox_path,
+            )
+        offset += len(docs)
+
+    # Remove all chunks belonging to this collection from the vector DB.
+    build_filter, delete_by_filter, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_delete_helpers()
+    )
+    qdrant_client = get_qdrant_client()
+    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
+    vector_size = int(runtime.vector_size)
+    qdrant_collection = await resolve_qdrant_collection(
+        client=qdrant_client,
+        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+        vector_size=vector_size,
+    )
+    qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection.id)
+    await delete_by_filter(
+        client=qdrant_client,
+        collection_name=qdrant_collection,
+        query_filter=qfilter,
+    )
+
+    await repo.delete(owner_id=collection.owner_id, collection_id=collection.id)
+
+
 @router.post(
     "",
     response_model=CollectionResponse,
@@ -42,40 +176,12 @@ async def collections_create(
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
     """Creates a new collection with optional metadata."""
-    if current_user.embedding_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User embedding model is not configured",
-        )
-
-    # Ensure Qdrant tech collection exists for this embedding model.
-    runtime = await EmbeddingManager.resolve_by_id(
-        current_user.embedding_id,
-        session=db,
+    created = await create_collection_for_user(
+        user=current_user,
+        db=db,
+        name=collection_data.name,
+        metadata=collection_data.metadata,
     )
-    vector_size = int(runtime.vector_size)
-
-    client = get_qdrant_client()
-    await resolve_qdrant_collection(
-        client=client,
-        collection_name=rag_qdrant_collection_name_for_embedding(current_user.embedding_id),
-        vector_size=vector_size,
-    )
-
-    repo = RagCollectionsRepository(db)
-    try:
-        created = await repo.create(
-            owner_id=current_user.id,
-            name=collection_data.name,
-            embedding_id=current_user.embedding_id,
-            metadata=collection_data.metadata,
-        )
-    except IntegrityError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Collection with this name already exists",
-        )
-
     return CollectionResponse(
         uuid=str(created.id),
         name=created.name,
@@ -89,7 +195,11 @@ async def collections_list(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ):
-    """Lists all available collections (name and UUID)."""
+    """Lists all available collections (name and UUID).
+
+    Collections owned by a Project are hidden — they're managed on the
+    project's own page, not in the global RAG list.
+    """
     repo = RagCollectionsRepository(db)
     rows = await repo.list_readable_with_edit_for_user(user_id=current_user.id)
     return [
@@ -100,6 +210,7 @@ async def collections_list(
             metadata=collection.metadata_ or {},
         )
         for collection, can_edit in rows
+        if not (collection.metadata_ or {}).get("project_id")
     ]
 
 
@@ -158,45 +269,7 @@ async def collections_delete(
             detail="Access denied",
         )
 
-    # Best-effort delete all files from sandbox storage (S3) + remove core_files metadata.
-    docs_repo = RagDocumentsRepository(db)
-    offset = 0
-    limit = 200
-    while True:
-        docs = await docs_repo.list_by_collection(
-            owner_id=collection.owner_id,
-            collection_id=collection_id,
-            limit=limit,
-            offset=offset,
-        )
-        if not docs:
-            break
-        for d in docs:
-            if not d.sandbox_path:
-                continue
-            await SandboxManager(db).delete_file_by_path_for_user(
-                user_id=collection.owner_id,
-                sandbox_path=d.sandbox_path,
-            )
-        offset += len(docs)
-
-    # Remove all chunks belonging to this collection from the vector DB.
-    qdrant_client = get_qdrant_client()
-    runtime = await EmbeddingManager.resolve_by_id(collection.embedding_id, session=db)
-    vector_size = int(runtime.vector_size)
-    qdrant_collection = await resolve_qdrant_collection(
-        client=qdrant_client,
-        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
-        vector_size=vector_size,
-    )
-    qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection_id)
-    await delete_by_filter(
-        client=qdrant_client,
-        collection_name=qdrant_collection,
-        query_filter=qfilter,
-    )
-
-    await repo.delete(owner_id=collection.owner_id, collection_id=collection_id)
+    await delete_collection(db=db, collection=collection)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

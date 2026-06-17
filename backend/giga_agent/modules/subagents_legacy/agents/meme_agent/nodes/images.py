@@ -253,7 +253,7 @@ async def image_node(state: MemeState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     img_ch = (
         IMAGE_PROMPT
         | llm.with_config(tags=["nostream"])
@@ -275,7 +275,11 @@ async def image_node(state: MemeState, config: RunnableConfig):
     if config["configurable"].get("print_messages", False):
         resp["message"].pretty_print()
     async with factory() as session:
-        image_gen = await resolve_user_image_generator(user, session=session)
+        image_gen = await resolve_user_image_generator(
+            user,
+            session=session,
+            config=config,
+        )
     await image_gen.init()
     image_data = await image_gen.generate_image(
         resp["json"]["image"]["description"],

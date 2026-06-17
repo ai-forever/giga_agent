@@ -59,7 +59,7 @@ async def slides_node(state: PresentationState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     llm = llm.with_config(tags=["nostream"]).bind(top_p=0.2)
     slide_tasks = []
     for idx, slide in enumerate(state["slides"]):

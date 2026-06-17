@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import Any, AsyncGenerator, Optional, Dict
 import aiohttp
 import websockets
 from pydantic import Field, PrivateAttr
@@ -9,6 +9,29 @@ from giga_agent.sandbox.base import BaseSandbox
 from giga_agent.sandbox.mixins.code import CodeMixin
 
 WS_MAX_SIZE = 32 * 1024 * 1024
+
+
+def _inject_env_prelude(code: str, envs: dict[str, str] | None) -> str:
+    if envs is None:
+        return code
+
+    managed_envs = {str(key): str(value) for key, value in envs.items()}
+    envs_json = json.dumps(managed_envs, ensure_ascii=False)
+    prelude = "\n".join(
+        [
+            "import json as _giga_agent_json",
+            "import os as _giga_agent_os",
+            f"_giga_agent_envs = _giga_agent_json.loads({envs_json!r})",
+            "_giga_agent_key = None",
+            "_giga_agent_value = None",
+            "for _giga_agent_key, _giga_agent_value in _giga_agent_envs.items():",
+            "    _giga_agent_os.environ[_giga_agent_key] = _giga_agent_value",
+            "del _giga_agent_key, _giga_agent_value",
+            "del _giga_agent_envs, _giga_agent_json, _giga_agent_os",
+            "",
+        ]
+    )
+    return prelude + code
 
 
 class JupyterSandbox(BaseSandbox, CodeMixin):
@@ -26,6 +49,22 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             headers.update(self.headers)
         return headers
 
+    def _get_kernel_request_payload(self) -> Dict[str, Any] | None:
+        return None
+
+    def is_base_url_internal(self) -> bool:
+        return False
+
+    def _get_client_session_kwargs(self) -> Dict[str, Any]:
+        if self.is_base_url_internal():
+            return {"trust_env": False}
+        return {}
+
+    def _get_websocket_connect_kwargs(self) -> Dict[str, Any]:
+        if self.is_base_url_internal():
+            return {"proxy": None}
+        return {}
+
     async def up(self) -> None:
         """
         JupyterSandbox подключается к уже существующему экземпляру,
@@ -35,7 +74,9 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
 
     async def is_up(self) -> bool:
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(
+                **self._get_client_session_kwargs()
+            ) as session:
                 async with session.get(
                     f"{self.base_url}/api/status",
                     headers=self._get_headers(),
@@ -48,8 +89,10 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             pass
         return False
 
-    async def _ensure_kernel(self):
-        async with aiohttp.ClientSession() as session:
+    async def _ensure_kernel(self) -> None:
+        async with aiohttp.ClientSession(
+            **self._get_client_session_kwargs()
+        ) as session:
             if self._kernel_id:
                 # Check if alive
                 try:
@@ -63,16 +106,27 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                     pass
 
             # Create new kernel
+            payload = self._get_kernel_request_payload()
             async with session.post(
-                f"{self.base_url}/api/kernels", headers=self._get_headers()
+                f"{self.base_url}/api/kernels",
+                headers=self._get_headers(),
+                json=payload,
             ) as r:
                 r.raise_for_status()
                 data = await r.json()
                 self._kernel_id = data["id"]
 
     async def run_code(
-        self, code: str, kernel_id: Optional[str] = None
-    ) -> AsyncGenerator[Dict[str, Any], str]:
+        self,
+        code: str,
+        kernel_id: str | None = None,
+        *,
+        allow_stdin: bool = True,
+        envs: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, Any], str]:
+        del kwargs
+        code = _inject_env_prelude(code, envs)
         if kernel_id is None:
             self._kernel_id = str(uuid.uuid4())
         else:
@@ -87,6 +141,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             url,
             additional_headers=self.headers,
             max_size=WS_MAX_SIZE,
+            **self._get_websocket_connect_kwargs(),
         ) as ws:
             msg_id = uuid.uuid4().hex
 
@@ -105,7 +160,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                     "silent": False,
                     "store_history": True,
                     "user_expressions": {},
-                    "allow_stdin": True,
+                    "allow_stdin": allow_stdin,
                     "stop_on_error": True,
                 },
                 "channel": "shell",
@@ -147,7 +202,6 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                         "data": content["data"],
                     }
                 elif msg_type == "input_request":
-                    # Wait for input from the consumer of the generator
                     user_input = yield {
                         "type": "input_request",
                         "prompt": content.get("prompt", ""),

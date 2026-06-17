@@ -4,6 +4,7 @@ type Settings = {
   autoApprove: boolean;
   sideBarOpen: boolean;
   activeCollections: Record<string, boolean>;
+  showChatType: "main" | "channels";
 };
 
 interface SettingsProps {
@@ -14,6 +15,7 @@ const defaultSettings: Settings = {
   autoApprove: false,
   sideBarOpen: true,
   activeCollections: {},
+  showChatType: "main",
 };
 
 const SettingsContext = createContext<{

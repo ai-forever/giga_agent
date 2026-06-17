@@ -1,17 +1,38 @@
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxRepository,
     SandboxProviderRepository,
+    SandboxProviderSnapshot,
 )
 from giga_agent.models.users import UserRepository
 from giga_agent.sandbox.manager.errors import ProviderNotFoundError
 from giga_agent.sandbox.manager.types import SandboxResolved
 
 logger = get_logger(__name__)
+
+
+def _is_cli_runtime() -> bool:
+    return get_settings().giga_agent_runtime == "cli"
+
+
+async def _resolve_cli_sandbox() -> SandboxResolved:
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+    resolver = await RuntimeResolver.create(
+        {
+            "configurable": {
+                "langgraph_auth_user": {
+                    "identity": "00000000-0000-0000-0000-000000000000"
+                }
+            }
+        }
+    )
+    return await resolver.get_sandbox()
 
 
 class SandboxResolveService:
@@ -29,6 +50,9 @@ class SandboxResolveService:
         *,
         session: AsyncSession,
     ) -> SandboxResolved:
+        if _is_cli_runtime():
+            return await _resolve_cli_sandbox()
+
         cached = await SandboxRepository.cache_get_pair(
             owner_id=user_id,
             provider_id=provider_id,
@@ -43,7 +67,6 @@ class SandboxResolveService:
                 owner_id=user_id,
                 provider_id=cached.provider.id,
             )
-
         return await cls(session).get_or_create_for_user(
             user_id=user_id,
             provider_id=provider_id,
@@ -55,7 +78,10 @@ class SandboxResolveService:
         self,
         user_id: uuid.UUID,
         provider_id: uuid.UUID | None = None,
-    ) -> SandboxProvider:
+    ) -> SandboxProvider | SandboxProviderSnapshot:
+        if _is_cli_runtime():
+            return (await _resolve_cli_sandbox()).provider
+
         resolved_provider_id = provider_id
         if resolved_provider_id is None:
             user = await UserRepository.get_cached_or_db(user_id, session=self.db)
@@ -78,6 +104,9 @@ class SandboxResolveService:
         *,
         use_cache: bool = True,
     ) -> SandboxResolved:
+        if _is_cli_runtime():
+            return await _resolve_cli_sandbox()
+
         if use_cache:
             cached = await SandboxRepository.cache_get_pair(
                 owner_id=user_id,

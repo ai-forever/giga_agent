@@ -9,6 +9,7 @@ from langchain_core.tools import tool
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 GITHUB_SECRET_KEY = "GITHUB_PERSONAL_ACCESS_TOKEN"
 
@@ -40,7 +41,7 @@ def _get_user_secret(user: UserShort, key: str) -> str | None:
 async def _get_current_user(runtime: ToolRuntime) -> UserShort:
     if runtime is None:
         raise ValueError("Tool runtime is required.")
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
     factory = await get_session_factory()
     async with factory() as session:

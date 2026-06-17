@@ -12,13 +12,10 @@ import uuid
 
 from langchain.tools import tool, ToolRuntime
 from langchain_core.messages import ToolMessage
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_WIDTH, DEFAULT_HEIGHT
-from giga_agent.generators.image.manager import ImageGeneratorManager
-from giga_agent.models import UserShort, UserRepository
 from giga_agent.models.file import FileResponse
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
@@ -28,23 +25,23 @@ logger = get_logger(__name__)
 import giga_agent.generators.image  # noqa: F401
 
 
-async def _resolve_generator_for_user(
-    user: UserShort,
-    *,
-    session: AsyncSession,
-) -> BaseImageGenerator:
-    """
-    Load ImageGenerator record by `user.image_generator_id`,
-    create and initialize runtime instance.
-    """
-    gen_id = user.image_generator_id
-    if gen_id is None:
+async def _resolve_generator(runtime: ToolRuntime) -> BaseImageGenerator:
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+    resolver = RuntimeResolver.from_config(runtime.config)
+    if not resolver.has_image_generator:
         raise ValueError(
             "У пользователя не выбран генератор изображений. "
-            "Установите image_generator_id в настройках пользователя."
+            "Настройте image_generator в runtime."
         )
+    return await resolver.get_image_generator()
 
-    return await ImageGeneratorManager.resolve_by_id(gen_id, session=session)
+
+def _resolve_owner_id(runtime: ToolRuntime) -> uuid.UUID:
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+    resolver = RuntimeResolver.from_config(runtime.config)
+    return resolver.user.id
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -57,7 +54,7 @@ def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
     return f"temporary/{uuid.uuid4().hex}"
 
 
-@tool
+@tool(parse_docstring=True, extras={"repl_save": False})
 async def gen_image(
     prompt: str,
     runtime: ToolRuntime,
@@ -71,16 +68,8 @@ async def gen_image(
         width: Image width in pixels (default 1024).
         height: Image height in pixels (default 1024).
     """
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-        if user is None:
-            raise ValueError(f"Пользователь {user_id} не найден")
-
-        generator = await _resolve_generator_for_user(user, session=session)
+    owner_id = _resolve_owner_id(runtime)
+    generator = await _resolve_generator(runtime)
 
     try:
         image_b64 = await generator.generate_image(prompt, width, height)
@@ -99,6 +88,7 @@ async def gen_image(
         }
     ]
 
+    factory = await get_session_factory()
     async with factory() as session:
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(

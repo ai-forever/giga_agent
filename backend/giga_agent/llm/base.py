@@ -8,6 +8,7 @@ from typing import Any, ClassVar, Type
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
+from langchain_core.rate_limiters import BaseRateLimiter
 from pydantic import BaseModel, ConfigDict, PrivateAttr, create_model
 
 from giga_agent.connectors.base import BaseConnector
@@ -39,8 +40,20 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         "connector",
         "model_id",
     }
+    _registered_llm_type: ClassVar[str] = ""
 
     _llm_instance: BaseChatModel | None = PrivateAttr(default=None)
+    _rate_limiter: BaseRateLimiter | None = PrivateAttr(default=None)
+
+    def attach_rate_limiter(self, limiter: BaseRateLimiter | None) -> None:
+        """Attach a rate limiter applied on every LLM invocation."""
+        self._rate_limiter = limiter
+        if self._llm_instance is not None and limiter is not None:
+            self._llm_instance.rate_limiter = limiter
+
+    @classmethod
+    def get_llm_type(cls) -> str:
+        return cls._registered_llm_type
 
     @classmethod
     @abc.abstractmethod
@@ -91,6 +104,9 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
             return llm
 
         llm = await self._create_llm()
+        if self._rate_limiter is not None:
+            # Native langchain hook: acquire is awaited before each generation.
+            llm.rate_limiter = self._rate_limiter
         self._llm_instance = llm
         return llm
 
@@ -115,6 +131,7 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         image_url = f"data:{mime_type};base64,{image_b64}"
         llm = await self.get_llm()
+        llm = llm.with_config(tags=["nostream"])
         response = await llm.ainvoke(
             [
                 HumanMessage(

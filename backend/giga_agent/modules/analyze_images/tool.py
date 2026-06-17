@@ -11,12 +11,37 @@ import httpx
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from PIL import Image, ImageOps
+from plotly import io as plotly_io
 
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.db import get_session_factory
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.users import UserRepository
+from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
 from giga_agent.sandbox.manager import SandboxManager
+
+
+async def resolve_image_analyzer_llm(
+    resolver: RuntimeResolver,
+) -> BaseLLMRuntime | None:
+    """Pick an LLM runtime that supports image analysis.
+
+    Priority: primary ``llm`` first, then ``fast_llm``.
+    """
+    if resolver.has_llm:
+        try:
+            llm = await resolver.get_llm_runtime()
+            if llm.can_analyze_image():
+                return llm
+        except Exception:
+            pass
+    if resolver.has_fast_llm:
+        try:
+            fast_llm = await resolver.get_fast_llm_runtime()
+            if fast_llm.can_analyze_image():
+                return fast_llm
+        except Exception:
+            pass
+    return None
 
 
 def _normalize_mime_type(value: str | None) -> str | None:
@@ -59,6 +84,57 @@ def _image_bytes_to_jpeg_bytes(*, image_bytes: bytes) -> bytes:
         return out.getvalue()
 
 
+def _is_json_mime_type(mime_type: str | None) -> bool:
+    normalized = _normalize_mime_type(mime_type)
+    return normalized in {
+        "application/json",
+        "application/vnd.plotly.v1+json",
+        "text/json",
+    }
+
+
+def _is_plotly_json_input(*, mime_type: str | None, image_path: str) -> bool:
+    return _is_json_mime_type(mime_type) or image_path.lower().endswith(".plotly.json")
+
+
+def _looks_like_plotly_figure(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return False
+
+    layout = payload.get("layout")
+    if layout is not None and not isinstance(layout, dict):
+        return False
+
+    frames = payload.get("frames")
+    if frames is not None and not isinstance(frames, list):
+        return False
+
+    allowed_keys = {"data", "layout", "frames", "config"}
+    return bool(set(payload).intersection({"data", "layout", "frames"})) and set(
+        payload
+    ).issubset(allowed_keys)
+
+
+def _plotly_json_to_png_bytes(*, payload_bytes: bytes) -> bytes | None:
+    try:
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+    if not _looks_like_plotly_figure(payload):
+        return None
+
+    try:
+        figure = plotly_io.from_json(json.dumps(payload, ensure_ascii=False))
+        return figure.to_image(format="png")
+    except ValueError:
+        return None
+
+
 async def _read_file_bytes(
     *,
     owner_id: uuid.UUID,
@@ -99,24 +175,25 @@ async def analyze_image(
         image_path: Полный путь вложения в sandbox (`attachment:<path>` без префикса).
         prompt: Что нужно определить по изображению.
     """
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    resolver = RuntimeResolver.from_config(runtime.config)
+    owner_id = resolver.user.id
     image_bytes, mime_type = await _read_file_bytes(
         owner_id=owner_id,
         image_path=image_path,
     )
+    if _is_plotly_json_input(mime_type=mime_type, image_path=image_path):
+        plotly_png_bytes = await asyncio.to_thread(
+            _plotly_json_to_png_bytes, payload_bytes=image_bytes
+        )
+        if plotly_png_bytes is None:
+            raise ValueError(
+                "analyze_image поддерживает только изображения и Plotly JSON-графики."
+            )
+        image_bytes = plotly_png_bytes
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-        if user is None:
-            raise ValueError(f"Пользователь {owner_id} не найден")
-        if user.llm_id is None:
-            raise ValueError("У пользователя не выбран llm_id")
+    llm_runtime = await resolve_image_analyzer_llm(resolver)
 
-        llm_runtime = await LLMManager.resolve_by_id(user.llm_id, session=session)
-
-    if not llm_runtime.can_analyze_image():
+    if llm_runtime is None:
         raise ValueError("Текущий LLM не поддерживает analyze_image")
 
     jpeg_bytes = await asyncio.to_thread(

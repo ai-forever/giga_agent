@@ -94,6 +94,10 @@ from giga_agent.models.rag import (
     RagCollectionsRepository,
     RagDocumentsRepository,
 )
+from giga_agent.models.memory import (
+    MemoryFile,
+    MemoryFileRepository,
+)
 from giga_agent.models.group import (
     Group,
     GroupMember,
@@ -109,6 +113,48 @@ from giga_agent.models.resource_permission import (
     ResourcePermission,
     ResourcePermissionsPayload,
     ResourcePermissionRepository,
+)
+from giga_agent.models.rate_limit import (
+    RateLimit,
+    RateLimitBase,
+    RateLimitCreate,
+    RateLimitUpdate,
+    RateLimitResponse,
+    RateLimitRepository,
+)
+from giga_agent.models.skill import (
+    Skill,
+    SkillSourceType,
+    SkillSummary,
+    SkillResponse,
+    SkillFile,
+    SkillActivation,
+    BuiltinSkillInfo,
+    SkillCreate,
+    SkillUpdate,
+    SkillRepository,
+)
+from giga_agent.models.project import (
+    Project,
+    ProjectCreate,
+    ProjectUpdate,
+    ProjectResponse,
+    ProjectRepository,
+)
+
+from giga_agent.models.channel import (
+    ChannelBot,
+    ChannelThread,
+    ChannelContact,
+    ChannelBotBase,
+    ChannelBotCreate,
+    ChannelBotUpdate,
+    ChannelBotResponse,
+    ChannelTypeMeta,
+    ChannelContactApprovalUpdate,
+    ChannelThreadResponse,
+    ChannelContactResponse,
+    ChannelBotRepository,
 )
 
 __all__ = [
@@ -191,6 +237,9 @@ __all__ = [
     "RagDocument",
     "RagCollectionsRepository",
     "RagDocumentsRepository",
+    # Memory
+    "MemoryFile",
+    "MemoryFileRepository",
     # Groups
     "Group",
     "GroupMember",
@@ -205,4 +254,41 @@ __all__ = [
     "ResourcePermission",
     "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
+    # Rate limits
+    "RateLimit",
+    "RateLimitBase",
+    "RateLimitCreate",
+    "RateLimitUpdate",
+    "RateLimitResponse",
+    "RateLimitRepository",
+    # Skills
+    "Skill",
+    "SkillSourceType",
+    "SkillSummary",
+    "SkillResponse",
+    "SkillFile",
+    "SkillActivation",
+    "BuiltinSkillInfo",
+    "SkillCreate",
+    "SkillUpdate",
+    "SkillRepository",
+    # Projects
+    "Project",
+    "ProjectCreate",
+    "ProjectUpdate",
+    "ProjectResponse",
+    "ProjectRepository",
+    # Channels
+    "ChannelBot",
+    "ChannelThread",
+    "ChannelContact",
+    "ChannelBotBase",
+    "ChannelBotCreate",
+    "ChannelBotUpdate",
+    "ChannelBotResponse",
+    "ChannelTypeMeta",
+    "ChannelContactApprovalUpdate",
+    "ChannelThreadResponse",
+    "ChannelContactResponse",
+    "ChannelBotRepository",
 ]

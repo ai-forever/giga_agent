@@ -1,4 +1,6 @@
 import React, { Fragment } from "react";
+import { Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input, SecretInput } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -29,6 +31,21 @@ interface SchemaGroup {
   separator?: boolean;
 }
 
+export interface SchemaFieldRendererProps {
+  name: string;
+  property: JsonSchemaProperty;
+  schema: JsonSchema;
+  value: unknown;
+  label: string;
+  required: boolean;
+  nullable: boolean;
+  disabled?: boolean;
+  idPrefix: string;
+  setValue: (value: unknown) => void;
+}
+
+type SchemaFieldRenderer = (props: SchemaFieldRendererProps) => React.ReactNode;
+
 interface SchemaFieldsProps {
   schema: JsonSchema;
   values: Record<string, unknown>;
@@ -38,6 +55,7 @@ interface SchemaFieldsProps {
   emptyState?: React.ReactNode;
   secretDetector?: (fieldName: string) => boolean;
   groups?: SchemaGroup[];
+  fieldRenderers?: Record<string, SchemaFieldRenderer>;
 }
 
 function encodeEnumValue(value: string | number | boolean | null): string {
@@ -74,6 +92,21 @@ function renderDefaultHint(property: JsonSchemaProperty): React.ReactNode {
   );
 }
 
+function isStringArrayProperty(property: JsonSchemaProperty): boolean {
+  if (property.type === "array") {
+    return property.items?.type === "string";
+  }
+
+  return (property.anyOf || []).some(
+    (option) => option.type === "array" && option.items?.type === "string",
+  );
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
 const SchemaFields: React.FC<SchemaFieldsProps> = ({
   schema,
   values,
@@ -83,6 +116,7 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
   emptyState,
   secretDetector = isFieldSecret,
   groups,
+  fieldRenderers,
 }) => {
   const entries = Object.entries(schema.properties || {});
 
@@ -109,6 +143,26 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
     const enumOptions = resolveEnumOptions(property);
     const hasEnum = enumOptions.length > 0;
     const label = fieldLabel(name, property);
+    const customRenderer = fieldRenderers?.[name];
+
+    if (customRenderer) {
+      return (
+        <Fragment key={name}>
+          {customRenderer({
+            name,
+            property,
+            schema,
+            value: rawValue,
+            label,
+            required,
+            nullable,
+            disabled,
+            idPrefix,
+            setValue: (value) => setFieldValue(name, value),
+          })}
+        </Fragment>
+      );
+    }
 
     if (hasEnum) {
       const selectValue =
@@ -168,6 +222,81 @@ const SchemaFields: React.FC<SchemaFieldsProps> = ({
     }
 
     const propertyType = resolvePropertyType(property);
+
+    if (propertyType === "array" && isStringArrayProperty(property)) {
+      const arrayValue = toStringArray(rawValue);
+      const rows = arrayValue.length > 0 ? arrayValue : [""];
+
+      const setArrayValue = (nextValues: string[]) => {
+        setFieldValue(name, nextValues.length > 0 ? nextValues : undefined);
+      };
+
+      const setArrayItem = (index: number, value: string) => {
+        const nextValues = [...rows];
+        nextValues[index] = value;
+        setArrayValue(nextValues);
+      };
+
+      const removeArrayItem = (index: number) => {
+        setArrayValue(rows.filter((_, rowIndex) => rowIndex !== index));
+      };
+
+      return (
+        <div key={name} className="space-y-1.5">
+          <Label htmlFor={`${idPrefix}-${name}-0`}>
+            {label}
+            {required && <span className="text-destructive ml-1">*</span>}
+            {!required && nullable && (
+              <span className="text-muted-foreground ml-1 text-xs font-normal">
+                (опционально)
+              </span>
+            )}
+          </Label>
+          <div className="space-y-2">
+            {rows.map((value, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <Input
+                  id={`${idPrefix}-${name}-${index}`}
+                  value={value}
+                  placeholder={property.description || ""}
+                  onChange={(event) => setArrayItem(index, event.target.value)}
+                  disabled={disabled}
+                  className="flex-1"
+                />
+                {rows.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeArrayItem(index)}
+                    disabled={disabled}
+                    aria-label="Удалить значение"
+                  >
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setArrayValue([...rows, ""])}
+              disabled={disabled}
+            >
+              <Plus className="mr-2 size-4" />
+              Добавить
+            </Button>
+          </div>
+          {renderDefaultHint(property)}
+          {property.description && (
+            <p className="text-xs text-muted-foreground">
+              {property.description}
+            </p>
+          )}
+        </div>
+      );
+    }
 
     if (propertyType === "boolean") {
       return (

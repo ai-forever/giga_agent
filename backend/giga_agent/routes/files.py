@@ -1,4 +1,5 @@
 import os
+import unicodedata
 import uuid
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -106,7 +107,11 @@ async def upload_file(
     file_type: FileType | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    file_name = (file.filename or "").strip()
+    # Приводим имя к канонической форме NFC: клиенты (особенно macOS/HFS+)
+    # присылают имена в NFD, и тогда на Linux-ФС точный поиск/open по NFC-пути
+    # от агента промахивается. Нормализуем на входе, чтобы файлы всегда
+    # сохранялись в одной форме.
+    file_name = unicodedata.normalize("NFC", (file.filename or "").strip())
     if not file_name:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -210,17 +215,17 @@ async def read_file_content_by_path(
     ),
 ):
     repo = FileRepository(db)
+    manager = SandboxManager(db)
     readable_file = await repo.get_by_path_readable(
         user_id=current_user.id,
         sandbox_path=path,
     )
     if readable_file is None:
-        existing = await repo.get_by_path_any_owner(sandbox_path=path)
-        if existing is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+        file, result = await manager.read_file_by_path_for_user(
+            user_id=current_user.id, sandbox_path=path
+        )
+        return _build_file_response(file, result, redirect_result=redirect_result)
 
-    manager = SandboxManager(db)
     try:
         file, result = await manager.read_file_for_user(
             user_id=readable_file.owner_id,

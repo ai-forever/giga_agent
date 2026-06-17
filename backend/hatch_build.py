@@ -5,6 +5,11 @@ import os
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
+def _env_flag_enabled(name: str) -> bool:
+    value = os.getenv(name, "")
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version: str, build_data: dict) -> None:
         """
@@ -39,10 +44,14 @@ class CustomBuildHook(BuildHookInterface):
             force_include_editable[front_dist] = "giga_agent/ui_dist"
             return
 
+        if _env_flag_enabled("GIGA_AGENT_SKIP_UI_BUNDLE_CHECK"):
+            return
+
         raise RuntimeError(
             "UI bundle not found. Expected either `backend/giga_agent/ui_dist` "
             "(pre-synced) or `front/dist` (built). Build the frontend first "
             "(e.g. in `front/`: `npm ci && npm run build`) or sync it into "
-            "`backend/giga_agent/ui_dist` before packaging."
+            "`backend/giga_agent/ui_dist` before packaging. To skip this check, "
+            "set `GIGA_AGENT_SKIP_UI_BUNDLE_CHECK=1`."
         )
 

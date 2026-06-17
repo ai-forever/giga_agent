@@ -11,6 +11,7 @@ import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import ResourcePermissions from "./forms/resource-permissions";
+import ResourceRateLimits from "./forms/resource-rate-limits";
 import {
   hasNonDefaultPermissions,
   permissionsEqual,
@@ -329,15 +330,23 @@ export const LLMSettings: React.FC = () => {
                 saving={saving}
                 permissionsSection={
                   canManagePermissions ? (
-                    <ResourcePermissions
-                      mode="edit"
-                      resourceType="llm"
-                      resourceId={editingLLM.id}
-                      value={editPermissions}
-                      onChange={setEditPermissions}
-                      canManage={canManagePermissions}
-                      disabled={saving || loadingPermissions}
-                    />
+                    <>
+                      <ResourcePermissions
+                        mode="edit"
+                        resourceType="llm"
+                        resourceId={editingLLM.id}
+                        value={editPermissions}
+                        onChange={setEditPermissions}
+                        canManage={canManagePermissions}
+                        disabled={saving || loadingPermissions}
+                      />
+                      <ResourceRateLimits
+                        resourceType="llm"
+                        resourceId={editingLLM.id}
+                        canManage={canManagePermissions}
+                        disabled={saving}
+                      />
+                    </>
                   ) : undefined
                 }
               />

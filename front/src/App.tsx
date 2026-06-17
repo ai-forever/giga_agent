@@ -7,8 +7,6 @@ import {
   Route,
   Routes,
   useLocation,
-  useNavigate,
-  useSearchParams,
 } from "react-router-dom";
 import Sidebar from "./components/Sidebar.tsx";
 import DemoSettings from "./components/demo/DemoSettings.tsx";
@@ -19,17 +17,22 @@ import { RagProvider } from "@/components/rag/providers/RAG.tsx";
 import RAGInterface from "@/components/rag";
 import { OAuthCallback } from "@/components/mcp/oauth-callback.tsx";
 import { UserInfoProvider } from "@/components/providers/user-info.tsx";
+import { SkillsProvider } from "@/components/providers/skills.tsx";
 import { AuthProvider } from "@/components/providers/auth.tsx";
 import { ApiProvider } from "@/components/providers/api.tsx";
 import { ThemeProvider } from "@/components/providers/theme.tsx";
 import { ConfirmProvider } from "@/components/providers/confirm.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
+import ProjectPage from "@/components/projects/ProjectPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
-import { API_BASE_URL_KEY } from "@/lib/api-client";
+import { runtimeConfig } from "@/config";
+import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
+import FunctionalityOnboarding from "@/components/onboarding/FunctionalityOnboarding";
+import { FunctionalityOnboardingProvider } from "@/components/onboarding/FunctionalityOnboardingContext";
 
 const normalizeHttpBaseUrl = (input: string): string | null => {
   const trimmed = input.trim();
@@ -50,24 +53,6 @@ const normalizeHttpBaseUrl = (input: string): string | null => {
   }
 };
 
-const BaseUrlRoute: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const rawUrl = searchParams.get("url");
-    if (rawUrl) {
-      const normalizedUrl = normalizeHttpBaseUrl(rawUrl);
-      if (normalizedUrl) {
-        localStorage.setItem(API_BASE_URL_KEY, normalizedUrl);
-      }
-    }
-    navigate("/", { replace: true });
-  }, [navigate, searchParams]);
-
-  return null;
-};
-
 const InnerApp: React.FC = () => {
   const location = useLocation();
   const prevPathRef = useRef(location.pathname);
@@ -86,8 +71,10 @@ const InnerApp: React.FC = () => {
 
   // эта функция будет прокидываться в Sidebar
   const handleNavigateAndReload = useCallback(() => {
-    // переключаем флаг, чтобы сделать новый key у соседнего компонента
-    setReloadKey((prev) => prev + 1);
+    // Только останавливаем текущий стрим. Remount (новый reloadKey) выполняет
+    // эффект выше — он меняет key лишь когда маршрут уже стал "/". Если бампать
+    // key здесь, <Chat> успевает перемонтироваться, пока маршрут ещё
+    // /threads/:id, и новый useStream грузит state предыдущего треда.
     if (currentThreadRef.current) {
       currentThreadRef.current.stop();
     }
@@ -100,12 +87,18 @@ const InnerApp: React.FC = () => {
   const handleThreadReady = useCallback((thread: UseStream<GraphState>) => {
     currentThreadRef.current = thread;
   }, []);
+
+  // Тред мог получить новые сообщения, пока вкладка была в фоне (ран успел
+  // завершиться). Перемонтируем <Chat>, чтобы useStream заново подтянул state.
+  const handleRequestReload = useCallback(() => {
+    setReloadKey((prev) => prev + 1);
+  }, []);
   if (!demoItemsLoaded) {
     return null;
   }
 
   return (
-    <>
+    <FunctionalityOnboardingProvider>
       <Sidebar onNewChat={handleNavigateAndReload} />
       <MainContent>
         <AppRoutes
@@ -113,9 +106,12 @@ const InnerApp: React.FC = () => {
           onNavigateAndReload={handleNavigateAndReload}
           onThreadIdChange={handleThreadIdChange}
           onThreadReady={handleThreadReady}
+          onRequestReload={handleRequestReload}
         />
       </MainContent>
-    </>
+      <OnboardingWizard />
+      <FunctionalityOnboarding />
+    </FunctionalityOnboardingProvider>
   );
 };
 
@@ -124,47 +120,53 @@ const AppRoutes: React.FC<{
   onNavigateAndReload: () => void;
   onThreadIdChange: (threadId: string) => void;
   onThreadReady: (thread: UseStream<GraphState>) => void;
-}> = React.memo(({ reloadKey, onThreadIdChange, onThreadReady }) => {
-  return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Chat
-            key={reloadKey}
-            onThreadIdChange={onThreadIdChange}
-            onThreadReady={onThreadReady}
-          />
-        }
-      />
-      <Route
-        path="/threads/:threadId"
-        element={
-          <Chat
-            key={reloadKey}
-            onThreadIdChange={onThreadIdChange}
-            onThreadReady={onThreadReady}
-          />
-        }
-      />
-      <Route path="/oauth/callback" element={<OAuthCallback />} />
-      <Route path="/rag" element={<RAGInterface />} />
-      <Route path="/memories" element={<MemoriesPage />} />
-      <Route path="/demo/settings" element={<DemoSettings />} />
-      <Route
-        path="/settings"
-        element={<Navigate to="/settings/general" replace />}
-      />
-      <Route path="/settings/:tab" element={<SettingsPage />} />
-      <Route
-        path="/admin-panel"
-        element={<Navigate to="/admin-panel/users" replace />}
-      />
-      <Route path="/admin-panel/users" element={<AdminPanelPage />} />
-      <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
-    </Routes>
-  );
-});
+  onRequestReload: () => void;
+}> = React.memo(
+  ({ reloadKey, onThreadIdChange, onThreadReady, onRequestReload }) => {
+    return (
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <Chat
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route
+          path="/threads/:threadId"
+          element={
+            <Chat
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route path="/oauth/callback" element={<OAuthCallback />} />
+        <Route path="/rag" element={<RAGInterface />} />
+        <Route path="/memories" element={<MemoriesPage />} />
+        <Route path="/projects/:projectId" element={<ProjectPage />} />
+        <Route path="/demo/settings" element={<DemoSettings />} />
+        <Route
+          path="/settings"
+          element={<Navigate to="/settings/general" replace />}
+        />
+        <Route path="/settings/:tab" element={<SettingsPage />} />
+        <Route
+          path="/admin-panel"
+          element={<Navigate to="/admin-panel/users" replace />}
+        />
+        <Route path="/admin-panel/users" element={<AdminPanelPage />} />
+        <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
+      </Routes>
+    );
+  },
+);
 
 AppRoutes.displayName = "AppRoutes";
 
@@ -190,7 +192,7 @@ MainContent.displayName = "MainContent";
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={runtimeConfig.basePath || undefined}>
       <AuthProvider>
         <ThemeProvider>
           <ConfirmProvider>
@@ -200,20 +202,21 @@ const App: React.FC = () => {
                 <SettingsProvider>
                   <RagProvider>
                     <UserInfoProvider>
-                      <Routes>
-                        <Route path="/login" element={<LoginPage />} />
-                        <Route path="/base" element={<BaseUrlRoute />} />
-                        <Route
-                          path="/*"
-                          element={
-                            <ProtectedRoute>
-                              <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
-                                <InnerApp />
-                              </div>
-                            </ProtectedRoute>
-                          }
-                        />
-                      </Routes>
+                      <SkillsProvider>
+                        <Routes>
+                          <Route path="/login" element={<LoginPage />} />
+                          <Route
+                            path="/*"
+                            element={
+                              <ProtectedRoute>
+                                <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
+                                  <InnerApp />
+                                </div>
+                              </ProtectedRoute>
+                            }
+                          />
+                        </Routes>
+                      </SkillsProvider>
                     </UserInfoProvider>
                   </RagProvider>
                 </SettingsProvider>

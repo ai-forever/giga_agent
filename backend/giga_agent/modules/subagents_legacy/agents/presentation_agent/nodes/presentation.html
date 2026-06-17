@@ -264,8 +264,23 @@
     function getFileContentUrl(path) {
         return buildUrl(`<|API_URL|>?path=${encodeURIComponent(path)}`);
     }
+    function createUuid() {
+        if (typeof crypto !== 'undefined') {
+            if (typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            if (typeof crypto.getRandomValues === 'function') {
+                return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (char) {
+                    const value = crypto.getRandomValues(new Uint8Array(1))[0] & 15;
+                    const nibble = char === 'x' ? value : (value & 3) | 8;
+                    return nibble.toString(16);
+                });
+            }
+        }
+        return `ga-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
     function createImage(el, path) {
-        const uuid = crypto.randomUUID();
+        const uuid = createUuid();
         const d = document.createElement('img');
         d.attributes = el.attributes;
         const attributes = $(el).prop("attributes");
@@ -292,7 +307,7 @@
             } else if (isPlotlyGraphInPath(graphId)) {
                 const plotTask = fetch(getFileContentUrl(graphId)).then((res) => {
                     return res.json().then((data) => {
-                        const uuid = crypto.randomUUID();
+                        const uuid = createUuid();
                         const d = document.createElement('div');
                         d.innerHTML = el.innerHTML;
                         d.attributes = el.attributes;

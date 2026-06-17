@@ -116,7 +116,7 @@ export function DocumentsTable({
                       <AlertDialogCancel>Отмена</AlertDialogCancel>
                       <AlertDialogAction
                         onClick={async () =>
-                          await deleteDocument(doc.metadata.file_id)
+                          doc.id ? await deleteDocument(doc.id) : null
                         }
                         className="bg-destructive hover:bg-destructive/90 text-white"
                         disabled={actionsDisabled}

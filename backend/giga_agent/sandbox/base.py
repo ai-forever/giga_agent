@@ -2,12 +2,18 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Type
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Type
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, create_model
-from typing_extensions import override
 
 if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+
+    from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.agent.types import AgentState
+    from giga_agent.models.users import UserShort
     from giga_agent.models.sandbox import SandboxProviderSnapshot, SandboxSnapshot
     from giga_agent.sandbox.manager.types import OrphanAction
 
@@ -42,6 +48,16 @@ class StreamResult:
 
 
 FileReadResult = RedirectResult | ContentResult | StreamResult
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSkillInfo:
+    """Skill metadata discovered directly from a sandbox runtime."""
+
+    name: str
+    description: str = ""
+    storage_path: str | None = None
+    source_url: str | None = None
 
 
 class BaseSandbox(BaseModel, ABC):
@@ -118,6 +134,37 @@ class BaseSandbox(BaseModel, ABC):
         """
         return {}
 
+    def preserve_runtime_state_on_stop(self) -> bool:
+        """Если True, менеджер НЕ затирает external_id и connection settings
+        в БД при stop(). Используется рантаймами, которые держат тот же
+        внешний ресурс между stop/up (например, LocalDocker с not_remove)."""
+        return False
+
+    def get_prompt(
+        self,
+        user: "UserShort | None" = None,
+        agent: "BaseAgent | None" = None,
+        state: "AgentState | None" = None,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """Вернуть дополнительные инструкции о среде выполнения для агента."""
+        _ = user, agent, state, config, kwargs
+        return ""
+
+    def current_workdir(self) -> str | None:
+        """Текущая рабочая директория рантайма в виде абсолютного пути.
+
+        Используется, например, для подсказок в сообщениях об ошибках.
+        Подклассы переопределяют, если умеют возвращать осмысленный cwd.
+        """
+        return None
+
+    @staticmethod
+    def get_tools() -> list["BaseTool"]:
+        """Вернуть sandbox-специфичные инструменты. Подклассы переопределяют."""
+        return []
+
     @classmethod
     async def cleanup_orphans(
         cls,
@@ -193,6 +240,29 @@ class BaseSandbox(BaseModel, ABC):
             f"{self.__class__.__name__} does not implement delete_file()"
         )
 
+    async def write_file_content(self, sandbox_path: str, content: bytes) -> None:
+        """
+        Записать байты в файл по произвольному пути внутри sandbox.
+
+        Создаёт родительские директории при необходимости.
+        Перезаписывает файл, если он уже существует (create-only guard — на уровне тула).
+
+        Базовая реализация — заглушка. Подклассы переопределяют метод.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement write_file_content()"
+        )
+
+    async def file_exists(self, sandbox_path: str) -> bool:
+        """
+        Проверить, существует ли файл по указанному sandbox_path.
+
+        Базовая реализация — заглушка. Подклассы переопределяют метод.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement file_exists()"
+        )
+
     def requires_running_for_upload(self) -> bool:
         """
         Нужен ли поднятый sandbox для upload_file.
@@ -219,3 +289,89 @@ class BaseSandbox(BaseModel, ABC):
         хранилищу (например, S3) могут вернуть False.
         """
         return True
+
+    def requires_running_for_write(self, sandbox_path: str) -> bool:
+        """
+        Нужен ли поднятый sandbox для write_file_content конкретного пути.
+
+        По умолчанию считаем, что нужен. Провайдеры с прямым доступом к
+        хранилищу могут вернуть False.
+        """
+        return True
+
+    def requires_running_for_file_exists(self, sandbox_path: str) -> bool:
+        """
+        Нужен ли поднятый sandbox для file_exists конкретного пути.
+
+        По умолчанию считаем, что нужен. Провайдеры с прямым доступом к
+        хранилищу могут вернуть False.
+        """
+        return True
+
+    # ---- Runtime skill discovery ----
+
+    def supports_runtime_skill_listing(self) -> bool:
+        """
+        Может ли sandbox быть источником правды для списка доступных skills.
+        """
+        return False
+
+    async def list_skills(self, owner_id: uuid.UUID) -> list[RuntimeSkillInfo]:
+        """
+        Вернуть skills, обнаруженные напрямую в runtime.
+
+        Базовая реализация пустая: сервис вызывает этот метод только если
+        supports_runtime_skill_listing() возвращает True.
+        """
+        _ = owner_id
+        return []
+
+    # ---- Skill file operations ----
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir: str | Path,
+    ) -> str:
+        """
+        Install skill files into the sandbox storage.
+
+        Returns the storage_path that uniquely identifies this skill's files.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement install_skill_files()"
+        )
+
+    async def read_skill_file(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        """Read a skill file (SKILL.md, scripts/*, references/*)."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement read_skill_file()"
+        )
+
+    async def list_skill_files(
+        self, owner_id: uuid.UUID, storage_path: str
+    ) -> list[str]:
+        """List all files of a skill by storage_path. Returns relative paths."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement list_skill_files()"
+        )
+
+    async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
+        """Remove all skill files from sandbox storage."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement remove_skill_files()"
+        )
+
+    def get_skill_sandbox_path(
+        self, owner_id: uuid.UUID, storage_path: str, relative_path: str
+    ) -> str:
+        """
+        Return the sandbox-visible path for a skill file, so the agent can
+        pass it to read_file / cat / python tools.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement get_skill_sandbox_path()"
+        )

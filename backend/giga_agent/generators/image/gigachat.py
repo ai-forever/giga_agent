@@ -8,7 +8,11 @@ import base64
 import httpx
 from pydantic import Field, PrivateAttr
 
-from giga_agent.connectors.gigachat_token_cache import get_gigachat_access_token_cached
+from giga_agent.connectors.gigachat_token_cache import (
+    get_gigachat_access_token_cached,
+    get_gigachat_access_token_uncached,
+    should_skip_gigachat_token_cache,
+)
 from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.core.logging import get_logger
@@ -48,7 +52,7 @@ class GigaChatImageGen(BaseImageGenerator):
                 "Provide a compatible gigachat connector."
             )
 
-        self._token = await get_gigachat_access_token_cached(
+        self._token = await self._get_access_token(
             connector,
             api_object=api_object,
         )
@@ -85,6 +89,24 @@ class GigaChatImageGen(BaseImageGenerator):
         if not hasattr(client, "aget_token"):
             return None
         return client
+
+    async def _get_access_token(
+        self,
+        connector,
+        *,
+        api_object: object | None = None,
+        force_refresh: bool = False,
+    ) -> str:
+        if should_skip_gigachat_token_cache():
+            return await get_gigachat_access_token_uncached(
+                connector,
+                api_object=api_object,
+            )
+        return await get_gigachat_access_token_cached(
+            connector,
+            api_object=api_object,
+            force_refresh=force_refresh,
+        )
 
     async def _generate_image(
         self,
@@ -125,7 +147,7 @@ class GigaChatImageGen(BaseImageGenerator):
             if resp.status_code in {401, 403} and not refreshed:
                 refreshed = True
                 connector = self.require_supported_connector()
-                self._token = await get_gigachat_access_token_cached(
+                self._token = await self._get_access_token(
                     connector,
                     force_refresh=True,
                 )

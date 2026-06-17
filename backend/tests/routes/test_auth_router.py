@@ -64,9 +64,46 @@ class AuthRouterTests(unittest.TestCase):
             search_engine_id=None,
         )
 
+    def test_get_users_me_masks_pass_secret_values(self):
+        self.user.secrets = {
+            "api_key": "super-secret",
+            "caption": "visible text",
+        }
+        self.app.state.agent = types.SimpleNamespace(
+            all_modules=[
+                _ModuleStub(
+                    [
+                        {"name": "api_key", "description": "API key", "type": "pass"},
+                        {"name": "caption", "description": "Caption", "type": "text"},
+                    ]
+                )
+            ]
+        )
+
+        response = self.client.get("/users/me")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["secrets"]["api_key"], {"filled": True})
+        self.assertEqual(payload["secrets"]["caption"], "visible text")
+
     def test_patch_users_me_updates_only_provided_fields_and_merges_settings(self):
         user_model = self._user_model()
         new_llm_id = uuid.uuid4()
+        self.app.state.agent = types.SimpleNamespace(
+            all_modules=[
+                _ModuleStub(
+                    [
+                        {"name": "api_key", "description": "API key", "type": "pass"},
+                        {
+                            "name": "keep_secret",
+                            "description": "Stored secret",
+                            "type": "pass",
+                        },
+                    ]
+                )
+            ]
+        )
 
         with patch(
             "giga_agent.modules.auth.api._get_user_model_by_id",
@@ -91,8 +128,8 @@ class AuthRouterTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["settings"]["theme"], "light")
         self.assertEqual(payload["settings"]["keep"], "value")
-        self.assertEqual(payload["secrets"]["api_key"], "new")
-        self.assertEqual(payload["secrets"]["keep_secret"], "value")
+        self.assertEqual(payload["secrets"]["api_key"], {"filled": True})
+        self.assertEqual(payload["secrets"]["keep_secret"], {"filled": True})
         self.assertEqual(payload["llm_id"], str(new_llm_id))
         self.assertIsNone(payload["fast_llm_id"])
         mocked_validate_llm.assert_awaited_once_with(self.db, self.user.id, new_llm_id)
@@ -1235,6 +1272,7 @@ class AuthRouterTests(unittest.TestCase):
 
     def test_patch_user_by_id_returns_422_for_self_flags_update(self):
         target = self._user_model()
+        target.is_superuser = True
         target.id = self.user.id
 
         with patch(

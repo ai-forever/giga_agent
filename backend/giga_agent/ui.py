@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import re
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi import Request
+from fastapi.responses import HTMLResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -14,6 +17,8 @@ from giga_agent.conf import (
     GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_UI_PREFIX,
 )
+from giga_agent.runtime_config import mount_runtime_config_route
+from giga_agent.runtime_config import resolve_ui_base_path
 
 
 def _resolve_ui_dir(app: FastAPI) -> Path | None:
@@ -75,6 +80,18 @@ def create_ui_app() -> FastAPI:
     return app
 
 
+def _render_index(index: Path, request: Request) -> HTMLResponse:
+    html = index.read_text(encoding="utf-8")
+    base_path = resolve_ui_base_path(request)
+    html = re.sub(
+        r'<base\s+href="[^"]*"\s*/?>',
+        f'<base href="{base_path}"/>',
+        html,
+        count=1,
+    )
+    return HTMLResponse(html)
+
+
 def mount_ui(app: FastAPI) -> None:
     ui_dir = _resolve_ui_dir(app)
     if ui_dir is None:
@@ -83,6 +100,7 @@ def mount_ui(app: FastAPI) -> None:
     index = ui_dir / "index.html"
     assets_dir = ui_dir / "assets"
     ui_prefix = GIGA_AGENT_UI_PREFIX
+    config_path = f"{ui_prefix}/app-config.js" if ui_prefix else "/app-config.js"
     # Reserved paths only matter when UI is mounted at root ("/") and would
     # otherwise swallow API/docs routes.
     reserved_prefixes = (
@@ -100,8 +118,10 @@ def mount_ui(app: FastAPI) -> None:
         assets_mount = f"{ui_prefix}/assets" if ui_prefix else "/assets"
         app.mount(assets_mount, StaticFiles(directory=assets_dir), name="ui-assets")
 
-    def _ui_root():
-        return FileResponse(index)
+    mount_runtime_config_route(app, path=config_path)
+
+    def _ui_root(request: Request):
+        return _render_index(index, request)
 
     root_paths = []
     if ui_prefix:
@@ -114,7 +134,7 @@ def mount_ui(app: FastAPI) -> None:
     spa_path = f"{ui_prefix}/{{path:path}}" if ui_prefix else "/{path:path}"
 
     @app.get(spa_path, include_in_schema=False)
-    def _ui_spa(path: str):
+    def _ui_spa(path: str, request: Request):
         if reserved_exact and path in reserved_exact:
             raise HTTPException(status_code=404)
         if reserved_prefixes and any(
@@ -126,4 +146,4 @@ def mount_ui(app: FastAPI) -> None:
             candidate = ui_dir / path
             if candidate.is_file():
                 return FileResponse(candidate)
-        return FileResponse(index)
+        return _render_index(index, request)

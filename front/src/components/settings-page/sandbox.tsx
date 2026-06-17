@@ -28,11 +28,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { API_AGENT_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX, RUNTIME_LOCAL } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
-import SchemaFields from "./forms/schema-fields";
+import SchemaFields, {
+  type SchemaFieldRendererProps,
+} from "./forms/schema-fields";
 import ResourcePermissions from "./forms/resource-permissions";
 import type { JsonSchema, ResourcePermissionsDraft } from "./forms/types";
 import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
@@ -42,6 +44,7 @@ import {
   stableStringify,
   toPermissionsApiPayload,
 } from "./forms/resource-permissions-utils";
+import { compactSchemaValues } from "./forms/schema-fields-utils";
 
 interface SandboxProviderResponse {
   id: string;
@@ -66,6 +69,160 @@ interface SandboxInstanceResponse {
   stopped_at: string | null;
   can_stop: boolean;
 }
+
+interface DirectoryPickerResponse {
+  path: string | null;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function cloneSchemaDefault(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function applySchemaDefaults(
+  schema: JsonSchema,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const nextValues = { ...values };
+  for (const [name, property] of Object.entries(schema.properties || {})) {
+    if (nextValues[name] !== undefined || property.default === undefined) {
+      continue;
+    }
+    nextValues[name] = cloneSchemaDefault(property.default);
+  }
+  return nextValues;
+}
+
+const DirectoryListField: React.FC<SchemaFieldRendererProps> = ({
+  name,
+  property,
+  value,
+  label,
+  required,
+  nullable,
+  disabled,
+  idPrefix,
+  setValue,
+}) => {
+  const [pickingDirectoryKey, setPickingDirectoryKey] = useState<string | null>(
+    null,
+  );
+  const arrayValue = toStringArray(value);
+  const rows = arrayValue.length > 0 ? arrayValue : [""];
+
+  const setArrayValue = (nextValues: string[]) => {
+    setValue(nextValues.length > 0 ? nextValues : undefined);
+  };
+
+  const setArrayItem = (index: number, nextValue: string) => {
+    const nextValues = [...rows];
+    nextValues[index] = nextValue;
+    setArrayValue(nextValues);
+  };
+
+  const removeArrayItem = (index: number) => {
+    setArrayValue(rows.filter((_, rowIndex) => rowIndex !== index));
+  };
+
+  const pickDirectory = async (index: number) => {
+    const pickerKey = `${name}-${index}`;
+    setPickingDirectoryKey(pickerKey);
+    try {
+      const response = await apiClient.post<DirectoryPickerResponse>(
+        `${API_AGENT_PREFIX}/local-functions/directory-picker`,
+        undefined,
+        { showError: false },
+      );
+      if (response.path) {
+        setArrayItem(index, response.path);
+      }
+    } catch {
+      toast.error("Не удалось открыть выбор директории");
+    } finally {
+      setPickingDirectoryKey(null);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={`${idPrefix}-${name}-0`}>
+        {label}
+        {required && <span className="text-destructive ml-1">*</span>}
+        {!required && nullable && (
+          <span className="text-muted-foreground ml-1 text-xs font-normal">
+            (опционально)
+          </span>
+        )}
+      </Label>
+      <div className="space-y-2">
+        {rows.map((rowValue, index) => {
+          const pickerKey = `${name}-${index}`;
+          const picking = pickingDirectoryKey === pickerKey;
+
+          return (
+            <div key={index} className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Input
+                  id={`${idPrefix}-${name}-${index}`}
+                  value={rowValue}
+                  placeholder={property.description || ""}
+                  onChange={(event) => setArrayItem(index, event.target.value)}
+                  disabled={disabled}
+                  className={RUNTIME_LOCAL ? "pr-44" : undefined}
+                />
+                {RUNTIME_LOCAL && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="absolute right-1 top-1 h-8"
+                    onClick={() => pickDirectory(index)}
+                    disabled={disabled || pickingDirectoryKey !== null}
+                  >
+                    {picking && (
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                    )}
+                    Указать директорию
+                  </Button>
+                )}
+              </div>
+              {rows.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => removeArrayItem(index)}
+                  disabled={disabled}
+                  aria-label="Удалить директорию"
+                >
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              )}
+            </div>
+          );
+        })}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setArrayValue([...rows, ""])}
+          disabled={disabled}
+        >
+          <Plus className="mr-2 size-4" />
+          Добавить
+        </Button>
+      </div>
+      {property.description && (
+        <p className="text-xs text-muted-foreground">{property.description}</p>
+      )}
+    </div>
+  );
+};
 
 function formatDateTime(value?: string | null): string {
   if (!value) return "—";
@@ -243,6 +400,9 @@ export const SandboxSettings: React.FC = () => {
         `${API_AGENT_PREFIX}/sandboxes/providers/types/${type}/settings-schema`,
       );
       setSettingsSchema(data);
+      setSettingsValues((currentValues) =>
+        applySchemaDefaults(data, currentValues),
+      );
     } catch {
       setSettingsSchema(null);
     } finally {
@@ -366,10 +526,11 @@ export const SandboxSettings: React.FC = () => {
 
     setSaving(true);
     try {
+      const nextSettings = compactSchemaValues(settingsSchema, settingsValues);
       const payload: Record<string, unknown> = {
         type: selectedType,
         name: providerName || null,
-        settings: settingsValues,
+        settings: nextSettings,
         idle_timeout: idleTimeout,
         is_active: isActive,
       };
@@ -395,7 +556,7 @@ export const SandboxSettings: React.FC = () => {
     setSaving(true);
     try {
       const nextName = providerName || null;
-      const nextSettings = settingsValues;
+      const nextSettings = compactSchemaValues(settingsSchema, settingsValues);
       const nextIdleTimeout = idleTimeout;
       const nextIsActive = isActive;
       const hasResourceChanges =
@@ -607,7 +768,7 @@ export const SandboxSettings: React.FC = () => {
             </Label>
             <Input
               id="provider-name"
-              placeholder="Мой E2B провайдер"
+              placeholder="Название провайдера"
               value={providerName}
               onChange={(e) => setProviderName(e.target.value)}
               disabled={saving}
@@ -628,6 +789,10 @@ export const SandboxSettings: React.FC = () => {
               onChange={setSettingsValues}
               disabled={saving}
               idPrefix="setting"
+              fieldRenderers={{
+                write_dirs: (props) => <DirectoryListField {...props} />,
+                exclude_read_dirs: (props) => <DirectoryListField {...props} />,
+              }}
               groups={[
                 {
                   id: "main",

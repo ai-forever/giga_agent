@@ -8,6 +8,7 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.conf import get_settings
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.meme_agent.config import (
     ConfigSchema,
@@ -42,47 +43,54 @@ async def create_meme(task: str, runtime: ToolRuntime):
 
     """
     last_mes = filter_tool_calls(runtime.state["messages"][-1])
+    input_data = {
+        "task": task,
+        "messages": runtime.state["messages"][:-1]
+        + [
+            last_mes,
+            (
+                "user",
+                task + "\nПомни, что тебе нужно сгенерировать идею для мема. "
+                "Отвечай в формате JSON согласно инструкции.",
+            ),
+        ],
+    }
 
-    client = get_client(runtime.config)
-    thread = await client.threads.create()
-    thread_id = thread["thread_id"]
-    push_ui_message(
-        "agent_execution",
-        {
-            "agent": "create_meme",
-            "node": "__start__",
-            "tool_call_id": runtime.tool_call_id,
-        },
-    )
-    async for chunk in client.runs.stream(
-        thread_id=thread_id,
-        assistant_id="meme",
-        input={
-            "task": task,
-            "messages": runtime.state["messages"][:-1]
-            + [
-                last_mes,
-                (
-                    "user",
-                    task + "\nПомни, что тебе нужно сгенерировать идею для мема. "
-                    "Отвечай в формате JSON согласно инструкции.",
-                ),
-            ],
-        },
-        stream_mode=["values", "updates"],
-        on_disconnect="cancel",
-    ):
-        if chunk.event == "values":
-            state = chunk.data
-        elif chunk.event == "updates":
-            push_ui_message(
-                "agent_execution",
-                {
-                    "agent": "create_meme",
-                    "node": list(chunk.data.keys())[0],
-                    "tool_call_id": runtime.tool_call_id,
-                },
-            )
+    if get_settings().giga_agent_runtime == "cli":
+        from giga_agent.modules.subagents_legacy.runtime import invoke_subgraph_cli
+
+        state = await invoke_subgraph_cli(graph, input_data, runtime)
+    else:
+        client = get_client(runtime.config)
+        thread = await client.threads.create()
+        thread_id = thread["thread_id"]
+        push_ui_message(
+            "agent_execution",
+            {
+                "agent": "create_meme",
+                "node": "__start__",
+                "tool_call_id": runtime.tool_call_id,
+            },
+        )
+        state = {}
+        async for chunk in client.runs.stream(
+            thread_id=thread_id,
+            assistant_id="meme",
+            input=input_data,
+            stream_mode=["values", "updates"],
+            on_disconnect="cancel",
+        ):
+            if chunk.event == "values":
+                state = chunk.data
+            elif chunk.event == "updates":
+                push_ui_message(
+                    "agent_execution",
+                    {
+                        "agent": "create_meme",
+                        "node": list(chunk.data.keys())[0],
+                        "tool_call_id": runtime.tool_call_id,
+                    },
+                )
     image = FileResponse.model_validate(state["meme_image"])
     return build_tool_message(
         runtime,

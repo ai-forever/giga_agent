@@ -19,6 +19,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+    base: "./",
     plugins: [
       tailwindcss(),
       svgr(),
@@ -60,6 +61,10 @@ export default defineConfig(({ mode }) => {
                 target: "http://localhost:9090/api",
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ""),
+              },
+              "/app-config.js": {
+                target: "http://localhost:9090/",
+                changeOrigin: true,
               },
             },
             port: 3000,

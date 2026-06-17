@@ -9,24 +9,27 @@ import json
 import keyword
 import re
 import traceback
+import types
 import uuid
 from typing import Any
-import types
 
-from cashews import cache
-from giga_agent.core.agent.tool_node import AgentToolNode
-from giga_agent.modules.repl.args_monkey_patch import _parse_input
-from langchain.tools import tool, ToolRuntime
-from langchain_core.tools import BaseTool
+from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool
 from langgraph.types import Command
-from pydantic import ValidationError, BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from giga_agent.core.agent.tool_node import AgentToolNode
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.models import UserShort, UserRepository
+from giga_agent.models import UserShort
 from giga_agent.models.file import FileResponse
-from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec, SandboxBusyError
+from giga_agent.modules.repl.args_monkey_patch import _parse_input
+from giga_agent.sandbox.manager import (
+    SandboxBusyError,
+    SandboxManager,
+    UploadFileSpec,
+)
 
 logger = get_logger(__name__)
 
@@ -44,6 +47,7 @@ _DISPLAY_MIME_CONFIG: dict[str, tuple[str, str, str]] = {
 }
 
 _REPL_TOOL_INPUT_PREFIX = "__GIGA_REPL_TOOL_CALL__:"
+_SECRET_ENV_SANITIZE_RE = re.compile(r"[^0-9A-Za-z_]+")
 
 
 def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
@@ -115,18 +119,26 @@ def _extract_upload_specs_from_display_data(
 def _build_attachment_info(file_type: str, path: str) -> str:
     attachment_info = ""
     if file_type == "plotly_graph":
-        attachment_info = "В результате выполнения был сгенерирован график. "
+        attachment_info = "В результате выполнения был сгенерирован Plotly-график. "
     elif file_type == "image":
         attachment_info = "В результате выполнения было сгенерировано изображение. "
     elif file_type == "audio":
         attachment_info = "В результате выполнения был сгенерирован аудиофайл. "
     elif file_type == "video":
         attachment_info = "В результате выполнения был сгенерирован видеофайл. "
+    else:
+        attachment_info = "В результате выполнения был сгенерирован файл. "
 
     if file_type == "image":
         render_hint = (
             f"Ты можешь показать это пользователю с помощью через "
             f'"![alt-текст](attachment:{path})" '
+        )
+    elif file_type == "plotly_graph":
+        render_hint = (
+            f"Ты можешь показать его пользователю как attachment: "
+            f'"[Plotly-график](attachment:{path})". '
+            "На стороне пользователя такой .plotly.json отрендерится как график. "
         )
     elif file_type == "audio":
         render_hint = (
@@ -140,28 +152,35 @@ def _build_attachment_info(file_type: str, path: str) -> str:
         )
     else:
         render_hint = (
-            f"Ты можешь показать это пользователю с помощью через "
-            f'"![alt-текст](attachment:{path})" '
+            f"Ты можешь показать его пользователю как attachment: "
+            f'"[файл](attachment:{path})". '
         )
 
     attachment_info += f"Путь до него '{path}'. {render_hint}"
     return attachment_info
 
 
-def get_user_secrets_code(user: UserShort):
+def normalize_secret_env_name(name: str) -> str:
+    normalized = _SECRET_ENV_SANITIZE_RE.sub("_", name.strip()).strip("_").upper()
+    if not normalized:
+        normalized = "SECRET"
+    if normalized[0].isdigit():
+        normalized = f"SECRET_{normalized}"
+    return normalized
+
+
+def get_user_secret_envs(user: UserShort) -> dict[str, str]:
     user_secrets = dict(user.settings or {}).get("contextSecrets")
     if not user_secrets:
-        return None
-    code_parts = []
+        return {}
+    envs: dict[str, str] = {}
     for user_secret in user_secrets:
         name = user_secret.get("name")
         value = user_secret.get("value")
-        if not name or not value:
+        if not name or value is None:
             continue
-        code_parts.append(f"SECRETS['{name}'] = '{value}'")
-    if not code_parts:
-        return None
-    return "SECRETS = {}\n" + "\n".join(code_parts)
+        envs[normalize_secret_env_name(name)] = str(value)
+    return envs
 
 
 def _is_tool_public_for_repl(tool_: BaseTool) -> bool:
@@ -385,7 +404,6 @@ async def _handle_special_input_request(
         raw_kwargs = payload.get("kwargs", {})
         if not isinstance(raw_kwargs, dict):
             raise ValueError("Tool kwargs must be a JSON object")
-
         if tool_name in repl_tools_map:
             raw_result = await _invoke_repl_tool_callable(
                 repl_tools_map[tool_name], raw_kwargs, runtime
@@ -425,65 +443,41 @@ async def python(
     Args:
         code: Python код для выполнения в Jupyter kernel.
     """
-    # Получаем user_id из конфигурации langgraph auth
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-    cached_user = await cache.get(UserRepository.cache_key(owner_id))
-    user = UserShort.model_validate(cached_user) if cached_user is not None else None
-    factory = await get_session_factory()
-    async with factory() as session:
-        if user is None:
-            user = await UserRepository(session).get_by_id(
-                owner_id,
-                use_cache=False,
-            )
-            if user is None:
-                raise ValueError(f"User with id {user_id} not found")
-
-        resolved = await SandboxManager.get_cached_or_db(
-            user_id=owner_id,
-            session=session,
-        )
-        manager = SandboxManager(session)
-        try:
-            sandbox_runtime = await manager.ensure_running_for_user(
-                user_id=owner_id,
-                provider_id=resolved.provider.id,
-            )
-        except SandboxBusyError as e:
-            raise ValueError(
-                "Ты не можешь выполнить код, так как в системе превышен лимит "
-                "виртуальных окружений. Скажи пользователю обратиться к "
-                "администратору!" + repr(e)
-            )
-
-    if user is None:
-        raise ValueError(f"User with id {user_id} not found")
-
-    secrets_code = get_user_secrets_code(user)
+    sandbox_runtime, user, owner_id = await _resolve_repl_runtime_context(runtime)
+    secret_envs = get_user_secret_envs(user)
 
     # Выполняем код и собираем результаты
     outputs: list[str] = []
     uploads: list[UploadFileSpec] = []
     giga_attachments: list[dict[str, Any]] = []
+    had_error = False
     upload_prefix = _resolve_upload_prefix(runtime)
     ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
     repl_tools_map = _extract_repl_tools_map()
     tool_node_tools_map = _extract_tool_node_tools_map(tool_node)
+
+    stripped_code = code.strip()
+    if stripped_code.startswith("```python"):
+        code = stripped_code.removeprefix("```python").lstrip("\r\n")
+    elif stripped_code.startswith("```"):
+        code = stripped_code.removeprefix("```").lstrip("\r\n")
+
+    if code.rstrip().endswith("```"):
+        code = code.rstrip().removesuffix("```").rstrip()
+
     prepared_code = _inject_repl_prelude(code, repl_tools_map, tool_node_tools_map)
 
     # Прокидываем kernel_id из state (создан в ReplMiddleware.before_agent)
     kernel_id = runtime.state.get("kernel_id")
 
-    if secrets_code is not None:
-        async for _ in sandbox_runtime.run_code(secrets_code, kernel_id=kernel_id):
-            pass
-
     kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
 
-    code_iter = sandbox_runtime.run_code(prepared_code, kernel_id=kernel_id)
+    code_iter = sandbox_runtime.run_code(
+        prepared_code,
+        kernel_id=kernel_id,
+        envs=secret_envs,
+    )
     pending_input_reply: str | None = None
     while True:
         try:
@@ -523,6 +517,7 @@ async def python(
                 outputs.append(data["text/html"])
 
         elif chunk_type == "error":
+            had_error = True
             ename = chunk.get("ename", "Error")
             evalue = chunk.get("evalue", "")
             traceback_lines = chunk.get("traceback", [])
@@ -560,29 +555,22 @@ async def python(
 
     result = "\n".join(outputs).strip()
     if not result:
-        data = {
-            "output": "Код выполнен успешно (нет вывода).",
-        }
-    else:
-        data = {
-            "output": result,
-        }
-    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
+        result = "Код выполнился без вывода."
+    kernel_id = sandbox_runtime._kernel_id
+    tool_message_kwargs: dict[str, Any] = {
+        "tool_call_id": runtime.tool_call_id,
+        "content": result,
+        "name": "python",
+        "additional_kwargs": {
+            "tool_attachments": giga_attachments,
+            "tool_name": "python",
+        },
+    }
+    if had_error:
+        tool_message_kwargs["status"] = "error"
     return Command(
         update={
-            "messages": [
-                ToolMessage(
-                    tool_call_id=runtime.tool_call_id,
-                    content=json.dumps(
-                        data,
-                        ensure_ascii=False,
-                    ),
-                    additional_kwargs={
-                        "tool_attachments": giga_attachments,
-                        "tool_name": "python",
-                    },
-                )
-            ],
+            "messages": [ToolMessage(**tool_message_kwargs)],
             "kernel_id": kernel_id,
         }
     )
@@ -592,92 +580,246 @@ async def python(
 python._parse_input = types.MethodType(_parse_input, python)
 
 
+async def _resolve_repl_runtime_context(
+    runtime: ToolRuntime,
+) -> tuple[Any, UserShort, uuid.UUID]:
+    from giga_agent.conf import get_settings
+    from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+    from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
+
+    resolver = RuntimeResolver.from_config(runtime.config)
+    user = resolver.user
+    owner_id = user.id
+
+    resolved = await resolver.get_sandbox()
+
+    if get_settings().giga_agent_runtime == "cli":
+        sandbox_runtime = SandboxRuntimeFactory.build(
+            resolved.provider, resolved.sandbox
+        )
+        await sandbox_runtime.up()
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            manager = SandboxManager(session)
+            try:
+                sandbox_runtime = await manager.ensure_running_for_user(
+                    user_id=owner_id,
+                    provider_id=resolved.provider.id,
+                )
+            except SandboxBusyError as e:
+                raise ValueError(
+                    "Ты не можешь выполнить код, так как в системе превышен лимит "
+                    "виртуальных окружений. Скажи пользователю обратиться к "
+                    "администратору!" + repr(e)
+                ) from e
+    return sandbox_runtime, user, owner_id
+
+
+def _format_shell_result(
+    result: BaseModel,
+    output_field: str,
+    empty_output_text: str = "(нет вывода)",
+) -> str:
+    header_parts: list[str] = []
+    for name, value in result:
+        if name == output_field or value is None:
+            continue
+        if isinstance(value, bool):
+            if value:
+                header_parts.append(f"{name}: true")
+        else:
+            header_parts.append(f"{name}: {value}")
+
+    raw_output = getattr(result, output_field, "") or ""
+    output = raw_output.strip() or empty_output_text
+
+    return "\n".join(header_parts) + "\n-----\n" + output
+
+
+def _build_shell_tool_command_result(
+    *,
+    runtime: ToolRuntime,
+    tool_name: str,
+    content: str,
+    is_error: bool = False,
+) -> Command:
+    tool_message_kwargs: dict = {
+        "tool_call_id": runtime.tool_call_id,
+        "content": content,
+        "name": tool_name,
+        "additional_kwargs": {"tool_name": tool_name},
+    }
+    if is_error:
+        tool_message_kwargs["status"] = "error"
+    return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
+
+
+_DANGEROUS_PATH_RE = (
+    r"(?:"
+    r"/|/\*|"
+    r"~|~/\*?|"
+    r"\$\{?HOME\}?/?\*?|"
+    r"/(?:etc|usr|var|bin|sbin|lib|lib32|lib64|boot|root|opt|sys|proc|dev"
+    r"|System|Applications|Users|home)(?:/?\*?)"
+    r")"
+)
+
+_PATH_BOUNDARY_BEFORE = r"(?<![\w./\-])"
+_PATH_BOUNDARY_AFTER = r"(?=[\s'\";|&)]|$)"
+
+_DANGEROUS_COMMAND_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (
+        re.compile(
+            rf"{_PATH_BOUNDARY_BEFORE}rm\s+"
+            rf"(?:-[a-zA-Z]*[rR][a-zA-Z]*\b|--recursive\b)"
+            rf"[^|;&\n]*?"
+            rf"{_PATH_BOUNDARY_BEFORE}{_DANGEROUS_PATH_RE}{_PATH_BOUNDARY_AFTER}"
+        ),
+        "Запрещено выполнять `rm -r/-R` на корневых или системных директориях "
+        "(`/`, `~`, `$HOME`, `/etc`, `/usr`, `/var`, `/bin`, `/sbin`, `/lib`, `/boot`, "
+        "`/root`, `/opt`, `/sys`, `/proc`, `/dev`, `/System`, `/Applications`, `/Users`, `/home`). "
+        "Сузьте путь до конкретной поддиректории.",
+    ),
+    (
+        re.compile(
+            rf"{_PATH_BOUNDARY_BEFORE}(?:chmod|chown)\s+"
+            rf"(?:-[a-zA-Z]*R[a-zA-Z]*\b|--recursive\b)"
+            rf"[^|;&\n]*?"
+            rf"{_PATH_BOUNDARY_BEFORE}{_DANGEROUS_PATH_RE}{_PATH_BOUNDARY_AFTER}"
+        ),
+        "Запрещено рекурсивно менять права/владельца (`chmod -R`/`chown -R`) "
+        "на корневых или системных директориях.",
+    ),
+    (
+        re.compile(r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:[^}]*\}\s*;\s*:"),
+        "Похоже на fork-bomb (`:(){ :|:& };:`) — выполнение запрещено.",
+    ),
+    (
+        re.compile(
+            rf"{_PATH_BOUNDARY_BEFORE}dd\b[^\n]*\bof=/dev/"
+            r"(?:sd|hd|nvme|mmcblk|disk|xvd|loop)[a-z0-9]*"
+        ),
+        "Запрещено писать через `dd` напрямую в блочные устройства (`of=/dev/sdX` и аналоги).",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}mkfs(?:\.\w+)?\b"),
+        "Форматирование файловой системы (`mkfs`) запрещено.",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}(?:shutdown|reboot|halt|poweroff)\b"),
+        "Запрещено управлять питанием sandbox (`shutdown`/`reboot`/`halt`/`poweroff`).",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}kill\s+(?:-\w+\s+)*-1(?=\s|$|[;|&])"),
+        "`kill -1` (рассылка сигнала всем процессам) запрещён.",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}find\s+/(?=\s)[^|;&\n]*\s-delete\b"),
+        "Запрещено использовать `find /` с `-delete` — сузьте корневую директорию.",
+    ),
+    (
+        re.compile(rf"{_PATH_BOUNDARY_BEFORE}crontab\s+-r\b"),
+        "`crontab -r` (удаление всех cron-задач) запрещено.",
+    ),
+    (
+        re.compile(r">\s*/dev/(?:sd|hd|nvme|mmcblk|disk|xvd)[a-z0-9]*"),
+        "Запрещена прямая запись в блочные устройства (`> /dev/sdX`).",
+    ),
+]
+
+
+def _check_shell_command_safety(command: str) -> str | None:
+    if not command or not command.strip():
+        return None
+    for pattern, message in _DANGEROUS_COMMAND_PATTERNS:
+        if pattern.search(command):
+            return message
+    return None
+
+
 @tool(parse_docstring=True, extras={"repl_save": False})
 async def shell(
     command: str,
     runtime: ToolRuntime,
+    working_directory: str | None = None,
+    block_until_ms: int = 10000,
+    description: str | None = None,
 ):
-    """Выполняет Shell-команду в Jupyter ноутбуке.
-    Используй, если нужно выполнить shell-команду в виртуальное окружение. Также обязательно используй, если нужно что-то установить из pipy.
+    """Выполняет shell-команду в sandbox и при необходимости уводит её в background.
 
     Args:
         command: Shell-команда
-
+        working_directory: Рабочая директория внутри sandbox
+        block_until_ms: Сколько миллисекунд ждать завершения перед возвратом
+        description: Короткое описание команды
     """
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+    safety_error = _check_shell_command_safety(command)
+    if safety_error:
+        raise ValueError(safety_error)
 
-    factory = await get_session_factory()
-    async with factory() as session:
-        resolved = await SandboxManager.get_cached_or_db(
-            user_id=owner_id,
-            session=session,
+    sandbox_runtime, user, _ = await _resolve_repl_runtime_context(runtime)
+    secret_envs = get_user_secret_envs(user)
+    try:
+        result = await sandbox_runtime.run_shell(
+            command=command,
+            working_directory=working_directory,
+            block_until_ms=block_until_ms,
+            description=description,
+            envs=secret_envs,
         )
-        manager = SandboxManager(session)
-        try:
-            sandbox_runtime = await manager.ensure_running_for_user(
-                user_id=owner_id,
-                provider_id=resolved.provider.id,
-            )
-        except SandboxBusyError as e:
-            raise ValueError(
-                "Ты не можешь выполнить код, так как в системе превышен лимит "
-                "виртуальных окружений. Скажи пользователю обратиться к "
-                "администратору!" + repr(e)
-            )
+    except NotImplementedError as exc:
+        raise ValueError(
+            "Текущий sandbox не поддерживает shell-инструмент."
+        ) from exc
 
-    command = command.strip()
-    if not command:
-        data = {"output": "Пустая команда: передайте непустую shell-команду."}
-        return ToolMessage(
-            tool_call_id=runtime.tool_call_id,
-            content=json.dumps(data, ensure_ascii=False),
-            additional_kwargs={"tool_name": "shell"},
+    is_error = result.status == "failed" or (
+        result.exit_code is not None and result.exit_code != 0
+    )
+    return _build_shell_tool_command_result(
+        runtime=runtime,
+        tool_name="shell",
+        content=_format_shell_result(result, output_field="output"),
+        is_error=is_error,
+    )
+
+
+@tool(parse_docstring=True, extras={"repl_save": False})
+async def await_shell(
+    shell_id: str,
+    runtime: ToolRuntime,
+    block_until_ms: int = 30000,
+    pattern: str | None = None,
+):
+    """Ожидает shell-сессию и читает только новый вывод.
+
+    Args:
+        shell_id: Идентификатор shell-сессии
+        block_until_ms: Сколько миллисекунд ждать завершения/совпадения pattern
+        pattern: Python regex, который матчится по накопленному логу
+    """
+    sandbox_runtime, _, _ = await _resolve_repl_runtime_context(runtime)
+    try:
+        result = await sandbox_runtime.await_shell(
+            shell_id=shell_id,
+            block_until_ms=block_until_ms,
+            pattern=pattern,
         )
+    except NotImplementedError as exc:
+        raise ValueError(
+            "Текущий sandbox не поддерживает await_shell-инструмент."
+        ) from exc
 
-    kernel_id = runtime.state.get("kernel_id")
-
-    shell_code = f"!{command}" if "\n" not in command else f"%%bash\n{command}"
-    outputs: list[str] = []
-    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-
-    async for chunk in sandbox_runtime.run_code(shell_code, kernel_id=kernel_id):
-        chunk_type = chunk.get("type")
-        if chunk_type in ("stdout", "stderr"):
-            text = chunk.get("text", "")
-            if text.strip():
-                clean_text = ansi_escape.sub("", text)
-                outputs.append(
-                    f"[stderr] {clean_text}" if chunk_type == "stderr" else clean_text
-                )
-        elif chunk_type == "result":
-            data = chunk.get("data", {})
-            if "text/plain" in data:
-                outputs.append(str(data["text/plain"]))
-            elif "text/html" in data:
-                outputs.append(str(data["text/html"]))
-        elif chunk_type == "error":
-            ename = chunk.get("ename", "Error")
-            evalue = chunk.get("evalue", "")
-            traceback_lines = chunk.get("traceback", [])
-            clean_tb = "\n".join(ansi_escape.sub("", line) for line in traceback_lines)
-            outputs.append(f"Error: {ename}: {evalue}\n{clean_tb}")
-    kernel_id = kernel_id if kernel_id is not None else sandbox_runtime._kernel_id
-
-    result = "\n".join(outputs).strip()
-    data = {"output": result or "Команда выполнена успешно (нет вывода)."}
-
-    return Command(
-        update={
-            "messages": [
-                ToolMessage(
-                    tool_call_id=runtime.tool_call_id,
-                    content=json.dumps(data, ensure_ascii=False),
-                    additional_kwargs={
-                        "tool_name": "shell",
-                    },
-                )
-            ],
-            "kernel_id": kernel_id,
-        }
+    is_error = result.status in ("failed", "not_found") or (
+        result.exit_code is not None and result.exit_code != 0
+    )
+    return _build_shell_tool_command_result(
+        runtime=runtime,
+        tool_name="await_shell",
+        content=_format_shell_result(
+            result,
+            output_field="output_delta",
+            empty_output_text="(нет нового вывода)",
+        ),
+        is_error=is_error,
     )

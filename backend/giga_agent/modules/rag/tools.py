@@ -6,19 +6,27 @@ import uuid
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
+from giga_agent.core.agent.tool_results import build_error_tool_message
+from giga_agent.core.agent.types import Collection
 from giga_agent.core.db import get_session_factory
 from giga_agent.embeddings.manager import EmbeddingManager
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
 )
-from giga_agent.vectorstores.qdrant import (
-    get_qdrant_client,
-    resolve_qdrant_collection,
-)
-from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
-from giga_agent.models.rag import RagCollectionsRepository
-from giga_agent.core.agent.types import Collection
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
+
+
+def _qdrant_search_helpers():
+    from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
+    from giga_agent.vectorstores.qdrant import (
+        get_qdrant_client,
+        resolve_qdrant_collection,
+    )
+
+    return build_filter, search_chunks, get_qdrant_client, resolve_qdrant_collection
 
 
 @tool(
@@ -33,25 +41,30 @@ async def get_documents(
     query: Annotated[str, "Поисковый запрос для поиска релевантных документов"],
     runtime: ToolRuntime,
     limit: Annotated[int, "Количество документов, которые возвращаются"] = 10,
-) -> dict:
-    def _json(payload: dict) -> str:
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-
+) -> dict | ToolMessage:
     hint = (
-        "Чтобы изучить документ подробнее, прочитай исходный файл по `sandbox_path` "
-        "и возьми фрагмент между `start_index` и `end_index` (при необходимости расширь диапазон)."
+        "Чтобы изучить документ подробнее, используй инструмент read_file с sandbox_path из результата. "
+        "Это позволит прочитать файл целиком и найти нужную информацию."
     )
 
-    if runtime is None:
-        return {"error": "ToolRuntime is required", "documents": [], "hint": hint}
+    def _error(message: str) -> ToolMessage:
+        payload = {"error": message, "documents": [], "hint": hint}
+        return build_error_tool_message(
+            content=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            runtime=runtime,
+            tool_name="get_documents",
+        )
 
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    if runtime is None:
+        return _error("ToolRuntime is required")
+
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
     try:
         collection_id = uuid.UUID(collection_uuid)
     except ValueError:
-        return {"error": "Invalid collection UUID", "documents": [], "hint": hint}
+        return _error("Invalid collection UUID")
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -60,7 +73,7 @@ async def get_documents(
             collection_id=collection_id,
         )
         if collection is None:
-            return _json({"error": "Collection not found", "documents": [], "hint": hint})
+            return _error("Collection not found")
 
         embedding_runtime = await EmbeddingManager.resolve_by_id(
             collection.embedding_id,
@@ -68,6 +81,9 @@ async def get_documents(
         )
         embeddings = await embedding_runtime.get_embeddings()
 
+    build_filter, search_chunks, get_qdrant_client, resolve_qdrant_collection = (
+        _qdrant_search_helpers()
+    )
     qdrant_client = get_qdrant_client()
     try:
         qfilter = build_filter(owner_id=owner_id, collection_id=collection_id)
@@ -89,7 +105,7 @@ async def get_documents(
             limit=limit,
         )
     except Exception as e:
-        return {"error": str(e), "documents": [], "hint": hint}
+        return _error(str(e))
 
     documents: list[dict] = []
     for p in points:
@@ -121,7 +137,7 @@ async def get_documents(
         "limit": limit,
         "documents": documents,
         "hint": hint,
-        "next_step": "Если информации недостаточно, переформулируй запрос и вызови get_documents ещё раз.",
+        "next_step": "Если информации недостаточно, используй read_file(sandbox_path) чтобы прочитать документ целиком, или переформулируй запрос.",
     }
 
 
@@ -133,7 +149,10 @@ RAG_PROMPT = """
 ====
 БАЗА ЗНАНИЙ
 
-У тебя есть доступ к документам пользователя через инструмент get_documents.
+У тебя есть доступ к документам пользователя через инструменты:
+- get_documents — семантический (векторный) поиск по чанкам документов
+- read_file — чтение файла целиком по sandbox_path
+
 ВСЕГДА проверяй информацию в базе знаний перед ответом, даже если уверен в своих знаниях.
 
 ДОСТУПНЫЕ КОЛЛЕКЦИИ:
@@ -144,12 +163,12 @@ RAG_PROMPT = """
 1. ПРОСТЫЕ ЗАПРОСЫ (конкретный факт/процедура):
    * Сформулируй query как естественный вопрос с ключевыми терминами
    * Начни с limit=5-10
-   * Если результат неполный → переформулируй (синонимы, другой угол)
+   * Если результат неполный → используй read_file(sandbox_path) чтобы прочитать документ целиком
    * Для смежных коллекций делай отдельные запросы
 
 2. ГЛУБОКИЙ АНАЛИЗ:
-   * Шаг 1: Обзорный запрос -> определи структуру и ключевые термины
-   * Шаг 2: Декомпозиция на аспекты (условия, ограничения, обязательства, риски, процедуры, стоимость)
+   * Шаг 1: Обзорный запрос через get_documents -> определи структуру и ключевые термины
+   * Шаг 2: Используй read_file для полного чтения ключевых документов
    * Шаг 3: Серия целевых запросов по каждому аспекту к базе знаний
    * Шаг 4: Структурированный отчет:
      - Резюме и выводы
@@ -157,7 +176,9 @@ RAG_PROMPT = """
      - Вопросы для уточнения
      - Таблица основных параметров
 
-ЦИТИРОВАНИЕ: Всегда указывай ID документа и, если есть, раздел/пункт/страницу.
+ВАЖНО: Если get_documents нашёл релевантный документ, но информации в чанке недостаточно — ОБЯЗАТЕЛЬНО прочитай файл целиком через read_file(sandbox_path), прежде чем говорить что данных нет.
+
+ЦИТИРОВАНИЕ: Всегда указывай название документа и, если есть, раздел/пункт/страницу.
 
 """
 

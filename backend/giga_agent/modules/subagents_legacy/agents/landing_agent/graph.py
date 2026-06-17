@@ -13,6 +13,7 @@ from langgraph.constants import START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
@@ -40,7 +41,6 @@ from giga_agent.modules.subagents_legacy.agents.landing_agent.tools import (
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
     resolve_user_llm,
-    with_auth_from_runtime,
 )
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
 from giga_agent.utils.langgraph_sdk import get_client
@@ -54,7 +54,7 @@ async def agent(state: LandingState, config: RunnableConfig):
     factory = await get_session_factory()
     async with factory() as session:
         user = await get_current_user_from_config(config, session=session)
-        llm = await resolve_user_llm(user, session=session)
+        llm = await resolve_user_llm(user, session=session, config=config)
     chain = prompt | llm.with_config(tags=["nostream"]).bind_tools(
         [plan, image, coder, done],
         parallel_tool_calls=False,
@@ -150,66 +150,77 @@ async def create_landing(
         нужно продолжить работу над веб-страницей
 
     """
-    client = get_client(runtime.config)
-    if not thread_id:
-        thread = await client.threads.create()
-        thread_id = thread["thread_id"]
-    result_state = {}
     action = runtime.state["messages"][-1].tool_calls[0]
-    push_ui_message(
-        "agent_execution",
-        {
-            "agent": "create_landing",
-            "node": "__start__",
-            "tool_call_id": runtime.tool_call_id,
-        },
-    )
-    async for chunk in client.runs.stream(
-        thread_id=thread_id,
-        if_not_exists="create",
-        assistant_id="landing",
-        input={
-            "agent_messages": [
-                {
-                    "role": "user",
-                    "content": task
-                    + (
-                        f"\nДополнительная информация: "
-                        f"{runtime.state['messages'][-1].content}"
-                    ),
-                },
-            ],
-            "task": task
-            + f"\nДополнительная информация: {runtime.state['messages'][-1].content}",
-            "plan_messages": runtime.state["messages"][:]
-            + [
-                ToolMessage(
-                    tool_call_id=action.get("id", str(uuid.uuid4())),
-                    content=json.dumps(
-                        {"message": "Приступаю к работе!"},
-                        ensure_ascii=False,
-                    ),
+    input_data = {
+        "agent_messages": [
+            {
+                "role": "user",
+                "content": task
+                + (
+                    f"\nДополнительная информация: "
+                    f"{runtime.state['messages'][-1].content}"
                 ),
-            ],
-        },
-        stream_mode=["values", "updates"],
-        on_disconnect="cancel",
-    ):
-        if chunk.event == "values":
-            result_state = chunk.data
-        elif chunk.event == "updates":
-            if "agent" in chunk.data:
-                message = chunk.data["agent"]["agent_messages"]
-                if message["tool_calls"]:
-                    if message["tool_calls"][0]["name"] != "done":
-                        push_ui_message(
-                            "agent_execution",
-                            {
-                                "agent": "create_landing",
-                                "node": message["tool_calls"][0]["name"],
-                                "tool_call_id": runtime.tool_call_id,
-                            },
-                        )
+            },
+        ],
+        "task": task
+        + f"\nДополнительная информация: {runtime.state['messages'][-1].content}",
+        "plan_messages": runtime.state["messages"][:]
+        + [
+            ToolMessage(
+                tool_call_id=action.get("id", str(uuid.uuid4())),
+                content=json.dumps(
+                    {"message": "Приступаю к работе!"},
+                    ensure_ascii=False,
+                ),
+            ),
+        ],
+    }
+
+    if get_settings().giga_agent_runtime == "cli":
+        from giga_agent.modules.subagents_legacy.runtime import invoke_subgraph_cli
+
+        result_state = await invoke_subgraph_cli(
+            graph, input_data, runtime, thread_id=thread_id
+        )
+        if not thread_id:
+            thread_id = str(uuid.uuid4())
+    else:
+        client = get_client(runtime.config)
+        if not thread_id:
+            thread = await client.threads.create()
+            thread_id = thread["thread_id"]
+        result_state = {}
+        push_ui_message(
+            "agent_execution",
+            {
+                "agent": "create_landing",
+                "node": "__start__",
+                "tool_call_id": runtime.tool_call_id,
+            },
+        )
+        async for chunk in client.runs.stream(
+            thread_id=thread_id,
+            if_not_exists="create",
+            assistant_id="landing",
+            input=input_data,
+            stream_mode=["values", "updates"],
+            on_disconnect="cancel",
+        ):
+            if chunk.event == "values":
+                result_state = chunk.data
+            elif chunk.event == "updates":
+                if "agent" in chunk.data:
+                    message = chunk.data["agent"]["agent_messages"]
+                    if message["tool_calls"]:
+                        if message["tool_calls"][0]["name"] != "done":
+                            push_ui_message(
+                                "agent_execution",
+                                {
+                                    "agent": "create_landing",
+                                    "node": message["tool_calls"][0]["name"],
+                                    "tool_call_id": runtime.tool_call_id,
+                                },
+                            )
     html_page = FileResponse.model_validate(result_state["html"])
     message = (
         f"В результате выполнения была сгенерирована HTML страница {html_page.sandbox_path}."

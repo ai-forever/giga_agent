@@ -4,10 +4,11 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   PropsWithChildren,
 } from "react";
 import { API_AGENT_PREFIX } from "@/config.ts";
-import { resolveApiUrl } from "@/lib/api-client";
+import type { LLMResponse } from "@/components/settings-page/forms/types";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
@@ -33,9 +34,14 @@ interface AuthContextType {
   isLoading: boolean;
   user: User | null;
   token: string | null;
+  llms: LLMResponse[];
+  currentLlm: LLMResponse | null;
+  isLoadingLLMs: boolean;
+  hasLoadedLLMs: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  refreshLLMs: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -46,30 +52,37 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
   });
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [llms, setLlms] = useState<LLMResponse[]>([]);
+  const [isLoadingLLMs, setIsLoadingLLMs] = useState(false);
+  const [hasLoadedLLMs, setHasLoadedLLMs] = useState(false);
 
   const isAuthenticated = !!token && !!user;
+  const currentLlm = useMemo(
+    () => llms.find((llm) => llm.id === user?.llm_id) ?? null,
+    [llms, user?.llm_id],
+  );
 
   const logout = useCallback(() => {
-    void fetch(resolveApiUrl(`${API_AGENT_PREFIX}/auth/logout`), {
+    void fetch(`${API_AGENT_PREFIX}/auth/logout`, {
       method: "POST",
       credentials: "include",
     });
     localStorage.removeItem(AUTH_TOKEN_KEY);
     setToken(null);
     setUser(null);
+    setLlms([]);
+    setIsLoadingLLMs(false);
+    setHasLoadedLLMs(false);
   }, []);
 
   const checkAuth = useCallback(async (authToken: string) => {
     try {
-      const response = await fetch(
-        resolveApiUrl(`${API_AGENT_PREFIX}/auth/users/me`),
-        {
-          credentials: "include",
-          headers: {
-            Authorization: `Bearer ${authToken}`,
-          },
+      const response = await fetch(`${API_AGENT_PREFIX}/auth/users/me`, {
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
         },
-      );
+      });
 
       if (!response.ok) {
         throw new Error("Invalid token");
@@ -89,14 +102,11 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
       formData.append("username", email);
       formData.append("password", password);
 
-      const response = await fetch(
-        resolveApiUrl(`${API_AGENT_PREFIX}/auth/token`),
-        {
-          method: "POST",
-          credentials: "include",
-          body: formData,
-        },
-      );
+      const response = await fetch(`${API_AGENT_PREFIX}/auth/token`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -108,6 +118,7 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
 
       localStorage.setItem(AUTH_TOKEN_KEY, newToken);
       setToken(newToken);
+      setHasLoadedLLMs(false);
 
       await checkAuth(newToken);
     },
@@ -119,6 +130,49 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
       await checkAuth(token);
     }
   }, [token, checkAuth]);
+
+  const refreshLLMs = useCallback(async () => {
+    if (!token) {
+      setLlms([]);
+      setHasLoadedLLMs(false);
+      return;
+    }
+
+    setIsLoadingLLMs(true);
+    setHasLoadedLLMs(false);
+    try {
+      const response = await fetch(`${API_AGENT_PREFIX}/llms`, {
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to load LLMs");
+      }
+
+      const data: LLMResponse[] = await response.json();
+      setLlms(data);
+      setHasLoadedLLMs(true);
+    } catch {
+      setLlms([]);
+      setHasLoadedLLMs(false);
+    } finally {
+      setIsLoadingLLMs(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !user) {
+      setLlms([]);
+      setIsLoadingLLMs(false);
+      setHasLoadedLLMs(false);
+      return;
+    }
+
+    void refreshLLMs();
+  }, [token, user?.id, refreshLLMs]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -141,9 +195,14 @@ export const AuthProvider: React.FC<PropsWithChildren> = ({ children }) => {
         isLoading,
         user,
         token,
+        llms,
+        currentLlm,
+        isLoadingLLMs,
+        hasLoadedLLMs,
         login,
         logout,
         refreshUser,
+        refreshLLMs,
       }}
     >
       {children}

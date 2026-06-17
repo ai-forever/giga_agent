@@ -32,6 +32,56 @@ interface AgentNode {
   image?: string;
 }
 
+interface DeepResearchSubQ {
+  id: number;
+  text: string;
+  status?: string;
+  queries?: string[];
+}
+
+const SUBQ_STATUS_STYLES: Record<string, string> = {
+  pending: "bg-muted-foreground/40",
+  searched: "bg-blue-400",
+  read: "bg-amber-400",
+  covered: "bg-emerald-500",
+  gap: "bg-rose-500",
+};
+
+const DeepResearchPlan: React.FC<{ plan: DeepResearchSubQ[] }> = ({ plan }) => (
+  <div className="mt-3 flex flex-col gap-2">
+    {plan.map((sub) => {
+      const dotCls =
+        SUBQ_STATUS_STYLES[sub.status || "pending"] ||
+        SUBQ_STATUS_STYLES.pending;
+      return (
+        <div key={sub.id} className="text-xs">
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-block h-2 w-2 rounded-full ${dotCls}`}
+              aria-hidden
+            />
+            <span className="font-medium text-foreground">{sub.text}</span>
+          </div>
+          {sub.queries && sub.queries.length > 0 && (
+            <div className="ml-4 mt-1 flex flex-wrap gap-1">
+              {sub.queries.map((q, i) => (
+                <span
+                  key={i}
+                  className="rounded bg-muted px-2 py-0.5 text-muted-foreground"
+                >
+                  {q}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    })}
+  </div>
+);
+
+const THINK_TOOL_NAME = "think";
+
 export const ToolExecuting = ({ toolCall, thread }: ToolExecProps) => {
   const name = toolCall.name;
   const agentProgress: AgentNode | null = useMemo(() => {
@@ -60,6 +110,23 @@ export const ToolExecuting = ({ toolCall, thread }: ToolExecProps) => {
     }
     return null;
   }, [thread?.values.ui]);
+
+  const deepResearchPlan: DeepResearchSubQ[] | null = useMemo(() => {
+    if (name !== "run_deep_research") return null;
+    // @ts-ignore
+    const uis = (thread?.values?.ui ?? []).filter(
+      // @ts-ignore
+      (el) =>
+        el.name === "agent_execution" && el.props.tool_call_id === toolCall.id,
+    );
+    let latest: DeepResearchSubQ[] | null = null;
+    for (const u of uis) {
+      // @ts-ignore
+      const p = u.props?.plan;
+      if (Array.isArray(p) && p.length) latest = p;
+    }
+    return latest;
+  }, [thread?.values?.ui, name, toolCall.id]);
   // @ts-ignore
   const toolName = name in TOOL_MAP ? `: ${TOOL_MAP[name]} ` : "";
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -122,6 +189,7 @@ export const ToolExecuting = ({ toolCall, thread }: ToolExecProps) => {
             )}
           </span>
         </div>
+        {deepResearchPlan && <DeepResearchPlan plan={deepResearchPlan} />}
       </div>
     </div>
   );
@@ -135,7 +203,13 @@ export const ToolsExecuting = ({ message, thread }: ToolsExecProps) => {
   ) {
     return null;
   }
-  return message.tool_calls.map((el, index) => (
+  const visibleToolCalls = message.tool_calls.filter(
+    (toolCall) => toolCall.name !== THINK_TOOL_NAME,
+  );
+  if (!visibleToolCalls.length) {
+    return null;
+  }
+  return visibleToolCalls.map((el, index) => (
     <ToolExecuting toolCall={el} thread={thread} key={index} />
   ));
 };
@@ -160,11 +234,23 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
 
   const attachments: any = message.additional_kwargs?.tool_attachments || [];
   let content;
+  let parsedPayload: any = null;
   try {
-    content = JSON.stringify(JSON.parse(message.content as string), null, 2);
+    const parsed = JSON.parse(message.content as string);
+    parsedPayload = parsed;
+    content = JSON.stringify(parsed, null, 2);
   } catch (e) {
     content = message.content as string;
   }
+
+  const deepResearchFinalPlan: DeepResearchSubQ[] | null = (() => {
+    if (name !== "run_deep_research" || !parsedPayload) return null;
+    // Когда payload больше GIGA_AGENT_TOOL_MAX_SIZE, middleware оборачивает в
+    // { data: <наш payload>, result_path, message } — см. tool_result.py.
+    const inner = parsedPayload.data ?? parsedPayload;
+    const plan = inner?.plan;
+    return Array.isArray(plan) && plan.length ? plan : null;
+  })();
 
   const handleLinkClick = (ev: React.MouseEvent, file: any) => {
     ev.preventDefault();
@@ -211,6 +297,9 @@ const ToolMessage: React.FC<ToolMessageProps> = ({ message, name }) => {
               {content}
             </SyntaxHighlighter>
           </div>
+          {deepResearchFinalPlan && (
+            <DeepResearchPlan plan={deepResearchFinalPlan} />
+          )}
         </div>
       </div>
       {attachments.length > 0 && (

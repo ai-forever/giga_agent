@@ -28,6 +28,7 @@ from giga_agent.models.users import User, UserRepository
 from giga_agent.models.file import FileRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.rag import RagDocumentsRepository
+from giga_agent.modules.skills.service import SkillsService
 from giga_agent.models.sandbox import (
     SandboxProvider,
     SandboxProviderCreate,
@@ -40,8 +41,13 @@ from giga_agent.models.sandbox import (
     SandboxRepository,
     SandboxStatus,
 )
+from giga_agent.sandbox.access import (
+    ensure_provider_type_creatable_by_user,
+    filter_provider_types_for_user
+)
+from giga_agent.sandbox.local_jupyter.dependencies import MissingDependenciesError
 from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
-from giga_agent.sandbox.registry import LOCAL_DOCKER_PROVIDER, SandboxRegistry
+from giga_agent.sandbox.registry import SandboxRegistry
 from giga_agent.sandbox.manager import (
     SandboxBusyError,
     SandboxManager,
@@ -98,23 +104,24 @@ async def _best_effort_stop_sandboxes(
             continue
 
 
-def _is_local_docker_type(provider_type: str) -> bool:
-    return provider_type == LOCAL_DOCKER_PROVIDER
-
-
 def _assert_local_provider_access(provider_type: str, current_user: User) -> None:
-    if _is_local_docker_type(provider_type) and not current_user.is_superuser:
+    try:
+        ensure_provider_type_creatable_by_user(
+            provider_type,
+            is_superuser=current_user.is_superuser,
+        )
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
-        )
+        ) from exc
 
 
 def _visible_provider_types_for_user(current_user: User) -> list[str]:
-    types = SandboxRegistry.available_types()
-    if current_user.is_superuser:
-        return types
-    return [provider_type for provider_type in types if not _is_local_docker_type(provider_type)]
+    return filter_provider_types_for_user(
+        SandboxRegistry.available_types(),
+        is_superuser=current_user.is_superuser,
+    )
 
 
 async def validate_provider_settings(
@@ -128,7 +135,6 @@ async def validate_provider_settings(
     Проверяет реальное подключение (API key, S3 и т.д.).
     Бросает HTTPException при ошибке валидации или подключения.
     """
-    _assert_local_provider_access(provider_type, current_user)
     if not SandboxRegistry.is_registered(provider_type):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -141,6 +147,11 @@ async def validate_provider_settings(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=e.errors(),
+        )
+    except MissingDependenciesError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=e.to_validation_detail(),
         )
     except ValueError as e:
         raise HTTPException(
@@ -187,6 +198,7 @@ async def create_sandbox_provider(
     """
     if data.permissions is not None:
         require_superuser(current_user)
+    _assert_local_provider_access(data.type, current_user)
 
     validated_settings = await validate_provider_settings(
         data.type,
@@ -216,6 +228,7 @@ async def create_sandbox_provider(
         user.sandbox_provider_id = provider.id
         await provider_repo.db.commit()
         await UserRepository.invalidate_cache(current_user.id)
+        await SkillsService.invalidate_list_cache(current_user.id)
 
     await cache.delete_match(f"sandboxpair:owner:{current_user.id}:*")
 
@@ -369,7 +382,6 @@ async def get_sandbox_provider_settings_schema(
 
     Полезно для фронтенда — динамическая генерация формы настроек.
     """
-    _assert_local_provider_access(provider_type, current_user)
     if not SandboxRegistry.is_registered(provider_type):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -492,6 +504,7 @@ async def delete_sandbox_provider(
         user.sandbox_provider_id = None
         await provider_repo.db.commit()
         await UserRepository.invalidate_cache(provider.owner_id)
+        await SkillsService.invalidate_list_cache(provider.owner_id)
 
     provider_snapshot = SandboxProviderSnapshot(
         id=provider.id,

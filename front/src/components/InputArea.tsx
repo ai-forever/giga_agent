@@ -1,24 +1,34 @@
 import React, {
-  useState,
-  useRef,
-  useEffect,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
+  useState,
 } from "react";
 import { HumanMessage } from "@langchain/langgraph-sdk";
+import * as LucideIcons from "lucide-react";
 import {
   Check,
-  Paperclip,
-  Send,
-  X,
-  Settings2,
-  Brain,
-  Files,
   Cog,
-  Printer,
+  Files,
+  FolderOpen,
+  Loader2,
+  Mic,
+  Paperclip,
+  Plus,
+  Send,
+  Wrench,
+  X,
 } from "lucide-react";
 import { useSettings } from "./Settings.tsx";
-import { useFileUpload, UploadedFile } from "../hooks/useFileUploads";
+import { UploadedFile, useFileUpload } from "../hooks/useFileUploads";
+import { apiClient, ApiError } from "../lib/api-client.ts";
+import {
+  API_AGENT_PREFIX,
+  BACKEND_STT_ENABLED,
+  BROWSER_USE_NAME,
+} from "../config.ts";
+import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import {
   AttachmentBubble,
@@ -32,23 +42,89 @@ import {
   RemoveButton,
 } from "./Attachments.tsx";
 import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
-import { BROWSER_USE_NAME } from "../config.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
+import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
-import Spinner from "./Spinner.tsx";
-import { AnimatePresence, motion } from "framer-motion";
+import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
-import { useAuth } from "@/components/providers/auth.tsx";
+import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
+import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ensureNotificationPermission } from "@/lib/notifications";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import ModelPicker from "./ModelPicker";
+import TokenUsageIndicator from "./TokenUsageIndicator";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
+
+const ModuleIcon: React.FC<{ name: string; className?: string }> = ({
+  name,
+  className,
+}) => {
+  const Icon = (LucideIcons as unknown as Record<string, React.ElementType>)[
+    name
+  ];
+  const Fallback = LucideIcons.Box;
+  const Comp = Icon ?? Fallback;
+  return <Comp className={className ?? "size-4"} />;
+};
+
+const getInitialIsMobileDevice = () => {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  return window.matchMedia("(pointer: coarse)").matches;
+};
+
+type BrowserSpeechRecognitionInstance = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+  abort(): void;
+};
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognitionInstance;
+
+const BrowserSpeechRecognitionClass: BrowserSpeechRecognitionCtor | undefined =
+  typeof window !== "undefined"
+    ? (((window as unknown as Record<string, unknown>).SpeechRecognition as
+        | BrowserSpeechRecognitionCtor
+        | undefined) ??
+      ((window as unknown as Record<string, unknown>)
+        .webkitSpeechRecognition as BrowserSpeechRecognitionCtor | undefined))
+    : undefined;
+
+type SttSource = "backend" | "browser" | null;
+
+const resolveSttSource = (): SttSource => {
+  if (typeof window === "undefined") return null;
+  if (
+    BACKEND_STT_ENABLED &&
+    typeof window.MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia
+  ) {
+    return "backend";
+  }
+  if (BrowserSpeechRecognitionClass) return "browser";
+  return null;
+};
 
 // Прочие стили для превью и оверлея оставляем без изменений...
 
@@ -58,15 +134,34 @@ interface InputAreaProps {
 
 const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const navigate = useNavigate();
+  const { threadId } = useParams<{ threadId?: string }>();
+  const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
+  const { project: threadProject } = useThreadProject(threadId);
   const [message, setMessage] = useState("");
-  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [isMobileDevice, setIsMobileDevice] = useState(
+    getInitialIsMobileDevice,
+  );
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const { uploads, uploadFiles, removeUpload, resetUploads } = useFileUpload();
   const { selected, clear } = useSelectedAttachments();
   const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
+  const [deepResearchForced, setDeepResearchForced] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const sttSource = useMemo<SttSource>(() => resolveSttSource(), []);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const browserRecognitionRef = useRef<BrowserSpeechRecognitionInstance | null>(
+    null,
+  );
+  const browserTranscriptRef = useRef("");
+  const cancelRecordingRef = useRef(false);
 
   const {
     collections,
@@ -74,11 +169,27 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     getCollections,
     initialSearchExecuted,
     initialFetch,
+    collectionsLoading,
+    activateCollection,
+    deactivateCollection,
   } = useRagContext();
-  const { settings, setSettings } = useSettings();
-  const { user } = useAuth();
-  const { mcpTools, openMcpModal, openContextModal, openCollectionsModal } =
-    useUserInfo();
+  const { settings } = useSettings();
+  const {
+    mcpTools,
+    openMcpModal,
+    enabledModules,
+    toggleModule,
+    availableModules,
+  } = useUserInfo();
+  const {
+    skills,
+    selectedSkills,
+    selectedSkillNames,
+    toggleSkill,
+    clearSelectedSkills,
+    fetchSkills,
+    skillsLoading,
+  } = useSkills();
 
   const enabledCollections = useMemo(() => {
     const active = Object.keys(activeCollections).filter(
@@ -98,6 +209,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   );
 
   const selectedCount = Object.keys(selected).length;
+  const branches = useBranches();
 
   const isUploading = uploads.some((u) => u.progress < 100 && !u.error);
   const handleSendMessage = useCallback(
@@ -111,35 +223,61 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           selected: selected,
         },
       } as HumanMessage;
-      const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
-      const contextInstructions =
-        typeof userSettings.contextInstructions === "string"
-          ? userSettings.contextInstructions
-          : "";
-      const contextSecrets = Array.isArray(userSettings.contextSecrets)
-        ? userSettings.contextSecrets
-        : [];
       clear();
+      // Continue from the branch currently being viewed (head by default),
+      // then stream the new run into the head view.
+      const baseMessages = branches.isViewingNonHead
+        ? branches.activeMessages
+        : (thread?.messages ?? []);
+      const forkCheckpoint = branches.isViewingNonHead
+        ? branches.activeCheckpoint
+        : undefined;
       thread?.submit(
         {
           messages: [newMessage],
           collections: enabledCollections,
           mcp_tools: mcpToolsPayload,
-          secrets: contextSecrets,
-          instructions: contextInstructions,
         },
         {
           optimisticValues(prev) {
             const prevMessages = prev.messages ?? [];
-            const newMessages = [...prevMessages, newMessage];
+            const sourceMessages = branches.isViewingNonHead
+              ? baseMessages
+              : prevMessages;
+            const newMessages = [...sourceMessages, newMessage];
             return { ...prev, messages: newMessages };
           },
+          checkpoint: forkCheckpoint,
           streamMode: ["messages"],
           onDisconnect: "continue",
+          config: {
+            configurable: {
+              ...(deepResearchForced ? { deep_research_forced: true } : {}),
+              ...(selectedSkillNames.length > 0
+                ? { selected_skills: selectedSkillNames }
+                : {}),
+              auto_approve: autoApprove,
+            },
+          },
         },
       );
+      // Скиллы — одноразовый выбор: сбрасываем чекмарки после отправки.
+      if (selectedSkillNames.length > 0) {
+        clearSelectedSkills();
+      }
     },
-    [thread, selected, clear, mcpToolsPayload, enabledCollections, user],
+    [
+      thread,
+      branches,
+      selected,
+      clear,
+      mcpToolsPayload,
+      enabledCollections,
+      deepResearchForced,
+      selectedSkillNames,
+      clearSelectedSkills,
+      autoApprove,
+    ],
   );
   const handleContinueThread = useCallback(
     async (data: any) => {
@@ -171,15 +309,23 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const autoResize = () => {
     const el = textRef.current;
     if (!el) return;
+    const computedBefore = window.getComputedStyle(el);
     el.style.height = "auto";
-    const newHeight = Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT);
+    const scrollHeightAfterAuto = el.scrollHeight;
+    const baseHeight = Number.parseFloat(computedBefore.minHeight);
+    const hasText = el.value.length > 0;
+    const newHeight = hasText
+      ? Math.min(scrollHeightAfterAuto, MAX_TEXTAREA_HEIGHT)
+      : Number.isFinite(baseHeight) && baseHeight > 0
+        ? baseHeight
+        : Math.min(scrollHeightAfterAuto, MAX_TEXTAREA_HEIGHT);
     el.style.height = `${newHeight}px`;
   };
 
   // при первом рендере и при очистке
   useEffect(() => {
     autoResize();
-  }, [message]);
+  }, [message, isMobileDevice]);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -192,6 +338,246 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
     return () => media.removeEventListener("change", updateIsMobileDevice);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
+      try {
+        browserRecognitionRef.current?.abort();
+      } catch {
+        /* instance may be already stopped */
+      }
+      browserRecognitionRef.current = null;
+    };
+  }, []);
+
+  const insertAtCursor = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const el = textRef.current;
+    setMessage((prev) => {
+      const start = el?.selectionStart ?? prev.length;
+      const end = el?.selectionEnd ?? prev.length;
+      const before = prev.slice(0, start);
+      const after = prev.slice(end);
+      const needsLeadingSpace = before.length > 0 && !/\s$/.test(before);
+      const needsTrailingSpace = after.length > 0 && !/^\s/.test(after);
+      const insertion =
+        (needsLeadingSpace ? " " : "") +
+        trimmed +
+        (needsTrailingSpace ? " " : "");
+      const next = before + insertion + after;
+      requestAnimationFrame(() => {
+        const caret = before.length + insertion.length;
+        if (el) {
+          el.focus();
+          try {
+            el.setSelectionRange(caret, caret);
+          } catch {
+            /* selection may fail if unmounted */
+          }
+        }
+      });
+      return next;
+    });
+  }, []);
+
+  const teardownBackendRecording = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+    recordedChunksRef.current = [];
+  }, []);
+
+  const finishBackendRecording = useCallback(
+    async (cancelled: boolean) => {
+      const rec = mediaRecorderRef.current;
+      if (!rec) {
+        setIsRecording(false);
+        return;
+      }
+      const blob = await new Promise<Blob>((resolve) => {
+        const handle = () => {
+          const b = new Blob(recordedChunksRef.current, {
+            type: rec.mimeType || "audio/webm",
+          });
+          resolve(b);
+        };
+        rec.addEventListener("stop", handle, { once: true });
+        if (rec.state !== "inactive") {
+          try {
+            rec.stop();
+          } catch {
+            handle();
+          }
+        } else {
+          handle();
+        }
+      });
+      const mime = rec.mimeType || "audio/webm";
+      teardownBackendRecording();
+      setIsRecording(false);
+
+      if (cancelled || blob.size === 0) return;
+
+      setIsTranscribing(true);
+      try {
+        const form = new FormData();
+        const ext = mime.includes("ogg")
+          ? "ogg"
+          : mime.includes("mp4")
+            ? "m4a"
+            : "webm";
+        form.append("audio", blob, `record.${ext}`);
+        const res = await apiClient.post<{ text: string }>(
+          `${API_AGENT_PREFIX}/stt/recognize`,
+          form,
+          { attachAuth: true, showError: false },
+        );
+        if (res?.text) insertAtCursor(res.text);
+        else {
+          toast.warning("Речь не распознана", {
+            description: "Попробуй ещё раз, говори чуть громче.",
+            richColors: true,
+          });
+        }
+      } catch (err) {
+        const detail =
+          err instanceof ApiError ? err.message : "Не удалось распознать речь";
+        toast.error("Распознавание не удалось", {
+          description: detail,
+          richColors: true,
+        });
+      } finally {
+        setIsTranscribing(false);
+      }
+    },
+    [teardownBackendRecording, insertAtCursor],
+  );
+
+  const startRecording = useCallback(async () => {
+    if (isRecording || isTranscribing) return;
+    if (thread?.isLoading || isMCPLoading) return;
+    if (!sttSource) return;
+    cancelRecordingRef.current = false;
+
+    if (sttSource === "backend") {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        mediaStreamRef.current = stream;
+        const candidates = [
+          "audio/webm;codecs=opus",
+          "audio/ogg;codecs=opus",
+          "audio/webm",
+          "audio/mp4",
+        ];
+        const mimeType = candidates.find((c) =>
+          typeof MediaRecorder.isTypeSupported === "function"
+            ? MediaRecorder.isTypeSupported(c)
+            : false,
+        );
+        const rec = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+        recordedChunksRef.current = [];
+        rec.addEventListener("dataavailable", (e) => {
+          if (e.data && e.data.size > 0) recordedChunksRef.current.push(e.data);
+        });
+        mediaRecorderRef.current = rec;
+        rec.start();
+        setIsRecording(true);
+      } catch {
+        teardownBackendRecording();
+        setIsRecording(false);
+      }
+      return;
+    }
+
+    // Browser Web Speech API path
+    const Ctor = BrowserSpeechRecognitionClass;
+    if (!Ctor) return;
+    try {
+      const rec = new Ctor();
+      rec.lang = navigator.language || "ru-RU";
+      rec.continuous = true;
+      rec.interimResults = false;
+      browserTranscriptRef.current = "";
+      rec.onresult = (event: Event) => {
+        const anyEvent = event as unknown as {
+          resultIndex: number;
+          results: ArrayLike<
+            ArrayLike<{ transcript: string }> & { isFinal: boolean }
+          >;
+        };
+        for (let i = anyEvent.resultIndex; i < anyEvent.results.length; i++) {
+          const result = anyEvent.results[i];
+          if (result.isFinal) {
+            browserTranscriptRef.current += result[0].transcript;
+          }
+        }
+      };
+      rec.onerror = () => {
+        cancelRecordingRef.current = true;
+      };
+      rec.onend = () => {
+        const wasCancelled = cancelRecordingRef.current;
+        const transcript = browserTranscriptRef.current.trim();
+        browserRecognitionRef.current = null;
+        cancelRecordingRef.current = false;
+        browserTranscriptRef.current = "";
+        setIsRecording(false);
+        if (!wasCancelled && transcript) insertAtCursor(transcript);
+      };
+      browserRecognitionRef.current = rec;
+      rec.start();
+      setIsRecording(true);
+    } catch {
+      browserRecognitionRef.current = null;
+      setIsRecording(false);
+    }
+  }, [
+    isRecording,
+    isTranscribing,
+    sttSource,
+    thread?.isLoading,
+    isMCPLoading,
+    teardownBackendRecording,
+    insertAtCursor,
+  ]);
+
+  const acceptRecording = useCallback(() => {
+    if (!isRecording) return;
+    if (sttSource === "backend") {
+      cancelRecordingRef.current = false;
+      void finishBackendRecording(false);
+      return;
+    }
+    cancelRecordingRef.current = false;
+    try {
+      browserRecognitionRef.current?.stop();
+    } catch {
+      /* stop may throw if already ended */
+    }
+  }, [isRecording, sttSource, finishBackendRecording]);
+
+  const cancelRecording = useCallback(() => {
+    if (!isRecording) return;
+    if (sttSource === "backend") {
+      cancelRecordingRef.current = true;
+      void finishBackendRecording(true);
+      return;
+    }
+    cancelRecordingRef.current = true;
+    try {
+      browserRecognitionRef.current?.abort();
+    } catch {
+      /* abort may throw if already ended */
+    }
+  }, [isRecording, sttSource, finishBackendRecording]);
 
   const handleContinue = useCallback(
     async (type: "comment" | "approve") => {
@@ -239,7 +625,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     const canAutoApprove =
       !!thread?.interrupt &&
       ["approve", "tool_call"].includes(thread?.interrupt.value?.type ?? "") &&
-      settings.autoApprove;
+      autoApprove;
 
     const interruptKey = thread?.interrupt?.value;
 
@@ -259,7 +645,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     thread?.interrupt?.value,
     thread?.isLoading,
     isMCPLoading,
-    settings.autoApprove,
+    autoApprove,
     handleContinue,
   ]);
 
@@ -269,7 +655,16 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     void handleSendMessage(message, attachments as any);
     setMessage("");
     resetUploads();
+    setDeepResearchForced(false);
   };
+
+  const toggleDeepResearchForced = useCallback(async () => {
+    setDeepResearchForced((prev) => {
+      const next = !prev;
+      if (next) void ensureNotificationPermission();
+      return next;
+    });
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isMobileDevice) return;
@@ -293,36 +688,164 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     }
   };
 
-  const handleOpenDocuments = useCallback(async () => {
-    if (collections.length > 0) {
-      openCollectionsModal();
-      return;
-    }
+  const isBusy = thread?.isLoading || isMCPLoading;
 
-    if (!initialSearchExecuted) {
-      await initialFetch();
-    }
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (isBusy) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === "file") {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        uploadFiles(files);
+      }
+    },
+    [uploadFiles, isBusy],
+  );
 
-    const latestCollections = await getCollections().catch(() => []);
-    if (latestCollections.length > 0) {
-      openCollectionsModal();
-      return;
-    }
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
-    navigate("/rag");
-  }, [
-    collections.length,
-    getCollections,
-    initialFetch,
-    initialSearchExecuted,
-    navigate,
-    openCollectionsModal,
-  ]);
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragCounterRef.current += 1;
+      if (!isBusy) setIsDragging(true);
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = isBusy ? "none" : "copy";
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) setIsDragging(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      if (isBusy) return;
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length > 0) uploadFiles(files);
+    };
+
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [uploadFiles, isBusy]);
+
+  const showMicButton =
+    sttSource !== null &&
+    !isRecording &&
+    !isTranscribing &&
+    !isBusy &&
+    !message.trim() &&
+    uploads.length === 0 &&
+    !thread?.interrupt;
+
+  const renderInputActions = (className?: string) => (
+    <div
+      className={
+        className ??
+        (isRecording
+          ? "flex items-center gap-2"
+          : "flex flex-col items-end gap-1")
+      }
+    >
+      {isRecording ? (
+        <>
+          <button
+            type="button"
+            onClick={cancelRecording}
+            title="Отменить запись"
+            aria-label="Отменить запись"
+            className="w-9 h-9 p-0 rounded-full text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+          >
+            <X />
+          </button>
+          <button
+            type="button"
+            onClick={acceptRecording}
+            title="Готово"
+            aria-label="Готово"
+            className="w-9 h-9 p-0 rounded-full bg-red-500/15 text-red-500 animate-pulse flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+          >
+            <Check />
+          </button>
+        </>
+      ) : isTranscribing ? (
+        <button
+          type="button"
+          disabled
+          title="Распознавание…"
+          aria-label="Распознавание"
+          className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center outline-hidden"
+        >
+          <Loader2 className="animate-spin" />
+        </button>
+      ) : showMicButton ? (
+        <button
+          type="button"
+          onClick={() => void startRecording()}
+          title="Голосовой ввод"
+          aria-label="Голосовой ввод"
+          className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden"
+        >
+          <Mic />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={
+            thread?.isLoading || isMCPLoading || !message.trim() || isUploading
+          }
+          title="Отправить"
+          className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+        >
+          <Send />
+        </button>
+      )}
+    </div>
+  );
+
+  const enabledCollectionCount = enabledCollections.length;
 
   return (
     <div className="bg-card w-full sticky bottom-0 p-5 pt-0 max-[900px]:p-0 z-9">
-      <div className="p-4 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[900px] mx-auto overflow-hidden">
-        <div className="flex items-end gap-2 relative">
+      {isDragging && (
+        <div
+          className={[
+            "fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-sm pointer-events-none print:hidden animate-in fade-in duration-150",
+            settings.sideBarOpen ? "min-[900px]:left-[200px]" : "",
+          ].join(" ")}
+        >
+          <div className="m-6 flex flex-col items-center gap-4 px-8 py-10 text-foreground text-base font-medium">
+            <Files className="size-14 text-foreground/90" />
+            Отпустите, чтобы прикрепить файлы
+          </div>
+        </div>
+      )}
+      <div className="relative p-4 pb-3 bg-card dark:bg-input border-border rounded-lg print:hidden border-1 border-highlight max-w-[880px] mx-auto overflow-hidden">
+        <div className="relative">
           <input
             className="hidden"
             type="file"
@@ -331,180 +854,331 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             multiple
             disabled={thread?.isLoading || isMCPLoading}
           />
-          <div className="flex flex-col items-center gap-1">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={thread?.isLoading || isMCPLoading}
-                  title="Открыть настройки"
-                  className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-                >
-                  <Settings2 />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="input-dropdown"
-                align="start"
-                sideOffset={3}
-              >
-                <DropdownMenuItem onSelect={openContextModal}>
-                  <Brain className={"size-5"} />
-                  <span>Персонализация</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={openMcpModal}>
-                  <Cog className={"size-5"} />
-                  <span>Инструменты</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleOpenDocuments()}>
-                  <Files className={"size-5"} />
-                  <span>Документы</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => window.print()}>
-                  <Printer className={"size-5"} />
-                  <span>Печать</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
+          <div className={"flex flex-col"}>
+            <textarea
+              data-onboarding="chat-input"
+              placeholder={
+                thread?.interrupt
+                  ? "Принять / Отменить с комментарием…"
+                  : "Введите вашу задачу…"
+              }
+              ref={textRef}
+              rows={1}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
               disabled={thread?.isLoading || isMCPLoading}
-              title="Добавить вложения"
-              className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-            >
-              <Paperclip />
-            </button>
-          </div>
-
-          <textarea
-            placeholder={
-              thread?.interrupt
-                ? "Принять / Отменить с комментарием…"
-                : "Введите вашу задачу…"
-            }
-            ref={textRef}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={thread?.isLoading || isMCPLoading}
-            className="flex-1 min-h-[76px] max-h-[200px] resize-none font-sans p-3 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60"
-          />
-          <div className="flex flex-col items-end gap-1">
-            {thread?.interrupt &&
-            thread?.interrupt.value &&
-            ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
-            (!settings.autoApprove ||
-              thread.interrupt.value.type === "tool_call") ? (
-              <>
-                {isMCPLoading ? (
-                  <div className="w-9 h-9 flex items-center justify-center">
-                    <Spinner size="16" />
-                  </div>
-                ) : (
-                  <>
-                    <motion.div layout className="flex items-center gap-2">
-                      <motion.button
-                        layout
-                        transition={{
-                          type: "spring",
-                          stiffness: 500,
-                          damping: 35,
-                        }}
-                        onClick={() => handleContinue("comment")}
-                        disabled={thread.isLoading || isMCPLoading}
-                        title="Отменить выполнение"
-                        className="w-9 h-9 p-0 rounded-full bg-red-600 text-white flex z-8 items-center justify-center transition-colors hover:bg-red-700 disabled:opacity-67"
-                      >
-                        <X />
-                      </motion.button>
-                      <AnimatePresence mode="popLayout">
-                        {!message.trim() && (
-                          <motion.button
-                            key="approve-btn"
-                            layout
-                            initial={{ x: 24, scale: 1, opacity: 1 }}
-                            animate={{ x: 0, scale: 1, opacity: 1 }}
-                            exit={{ x: 24, scale: 1, opacity: 1 }}
-                            transition={{
-                              type: "spring",
-                              stiffness: 500,
-                              damping: 35,
-                            }}
-                            onClick={() => handleContinue("approve")}
-                            disabled={thread.isLoading || isMCPLoading}
-                            title="Подтвердить выполнение"
-                            className="w-9 h-9 p-0 rounded-full bg-green-600 text-white flex items-center justify-center z-8 transition-colors hover:bg-green-700 disabled:opacity-67"
-                          >
-                            <Check />
-                          </motion.button>
+              className="w-full min-h-[60px] max-h-[200px] resize-none font-sans p-2 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
+            />
+            <div className={"flex"}>
+              <div className="flex items-center gap-1 flex-1 min-w-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      data-onboarding="gear-menu-btn"
+                      type="button"
+                      disabled={thread?.isLoading || isMCPLoading}
+                      title="Добавить"
+                      className="w-7 h-7 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
+                    >
+                      <Plus />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    className="input-dropdown"
+                    align="start"
+                    sideOffset={3}
+                  >
+                    <DropdownMenuItem
+                      onSelect={() => fileInputRef.current?.click()}
+                    >
+                      <Paperclip className={"size-5"} />
+                      <span>Прикрепить файл</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub
+                      onOpenChange={(open) => {
+                        if (open) {
+                          if (!initialSearchExecuted) void initialFetch();
+                          if (collections.length === 0) void getCollections();
+                        }
+                      }}
+                    >
+                      <DropdownMenuSubTrigger className="gap-2">
+                        <Files className="size-5" />
+                        <span>Документы</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
+                        {collectionsLoading && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Загрузка…
+                          </div>
                         )}
-                      </AnimatePresence>
-                    </motion.div>
-                  </>
+                        {!collectionsLoading && collections.length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Папки не найдены
+                          </div>
+                        )}
+                        {!collectionsLoading &&
+                          collections.map((c) => {
+                            const isOn = Boolean(activeCollections[c.uuid]);
+                            return (
+                              <button
+                                key={c.uuid}
+                                type="button"
+                                onClick={() => {
+                                  if (isOn) deactivateCollection(c.uuid);
+                                  else activateCollection(c.uuid);
+                                }}
+                                className="w-full flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left hover:bg-accent cursor-pointer"
+                              >
+                                <span className="text-sm truncate">
+                                  {getCollectionName(c.name)}
+                                </span>
+                                <div className="size-4 shrink-0 flex items-center justify-center">
+                                  {isOn && (
+                                    <Check className="size-4 text-primary" />
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub
+                      onOpenChange={(open) => {
+                        if (open && skills.length === 0) void fetchSkills();
+                      }}
+                    >
+                      <DropdownMenuSubTrigger className="gap-2">
+                        <LucideIcons.Sparkles className="size-5" />
+                        <span>Скиллы</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
+                        {skillsLoading && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Загрузка…
+                          </div>
+                        )}
+                        {!skillsLoading && skills.length === 0 && (
+                          <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                            Нет доступных скиллов
+                          </div>
+                        )}
+                        {!skillsLoading &&
+                          skills.map((s) => {
+                            const isOn = selectedSkills[s.name] === true;
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={() => toggleSkill(s.name, !isOn)}
+                                className="w-full flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-left hover:bg-accent cursor-pointer"
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium truncate">
+                                    {s.name}
+                                  </div>
+                                  {s.description && (
+                                    <div className="text-xs text-muted-foreground truncate">
+                                      {s.description.length > 50
+                                        ? `${s.description.slice(0, 50)}...`
+                                        : s.description}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="size-4 shrink-0 flex items-center justify-center">
+                                  {isOn && (
+                                    <Check className="size-4 text-primary" />
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void toggleDeepResearchForced();
+                      }}
+                      className="gap-2"
+                    >
+                      <LucideIcons.ScanSearch className="size-5" />
+                      <span className="flex-1">Исследование</span>
+                      <div className="size-4 shrink-0 flex items-center justify-center">
+                        {deepResearchForced && (
+                          <Check className="size-4 text-primary" />
+                        )}
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={openMcpModal}>
+                      <Cog className={"size-5"} />
+                      <span>MCP</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger className="gap-2">
+                        <Wrench className="size-5" />
+                        <span>Инструменты</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
+                        {availableModules.length === 0 && (
+                          <div className="px-2 py-3 text-xs text-muted-foreground text-center">
+                            Нет доступных инструментов
+                          </div>
+                        )}
+                        {availableModules.map((mod) => (
+                          <div
+                            key={mod.id}
+                            className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <ModuleIcon
+                                name={mod.icon}
+                                className="size-5 shrink-0 text-muted-foreground"
+                              />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium truncate">
+                                  {mod.label}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {mod.description}
+                                </div>
+                              </div>
+                            </div>
+                            <Switch
+                              checked={enabledModules[mod.id] !== false}
+                              onCheckedChange={(checked) =>
+                                toggleModule(mod.id, Boolean(checked))
+                              }
+                            />
+                          </div>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {threadProject && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${threadProject.id}`)}
+                    className="inline-flex items-center gap-1 h-7 px-2 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors min-w-0 max-w-[180px]"
+                    title="Открыть проект"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{threadProject.name}</span>
+                  </button>
                 )}
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={
-                  thread?.isLoading ||
-                  isMCPLoading ||
-                  !message.trim() ||
-                  isUploading
-                }
-                title="Отправить"
-                className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center transition-colors cursor-pointer outline-hidden disabled:opacity-67"
-              >
-                <Send />
-              </button>
-            )}
+                {enabledCollectionCount > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center mr-1">
+                        <Files className="size-5" />
+                        <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-[15px] h-[15px] flex items-center justify-center px-1">
+                          {enabledCollectionCount}
+                        </span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" align="start">
+                      <div className="text-xs space-y-0.5">
+                        {enabledCollections.map((c) => (
+                          <div key={c.uuid}>{c.name}</div>
+                        ))}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {selectedSkillNames.length > 0 && (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {selectedSkillNames.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => toggleSkill(name, false)}
+                        title={`Убрать скилл ${name}`}
+                        aria-label={`Убрать скилл ${name}`}
+                        className="group inline-flex items-center gap-1 rounded-full border border-primary/20 bg-muted/10 px-2 py-1 text-xs font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors duration-150 cursor-pointer hover:bg-muted/20 hover:border-primary/30 dark:bg-primary/20 dark:border-primary/30 dark:hover:bg-primary/30 dark:hover:border-primary/40"
+                      >
+                        <Wrench className="size-3 group-hover:hidden" />
+                        <X className="size-3 hidden group-hover:block" />
+                        <span className="truncate max-w-40">{name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {deepResearchForced && (
+                  <button
+                    type="button"
+                    onClick={() => setDeepResearchForced(false)}
+                    title="Убрать исследование"
+                    aria-label="Убрать исследование"
+                    className="group inline-flex items-center gap-1 rounded-full border border-primary/20 bg-muted/10 px-2 py-1 text-xs font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors duration-150 cursor-pointer hover:bg-muted/20 hover:border-primary/30 dark:bg-primary/20 dark:border-primary/30 dark:hover:bg-primary/30 dark:hover:border-primary/40"
+                  >
+                    <LucideIcons.ScanSearch className="size-3 group-hover:hidden" />
+                    <X className="size-3 hidden group-hover:block" />
+                    <span className="truncate max-w-40">
+                      Глубокое исследование
+                    </span>
+                  </button>
+                )}
+              </div>
+              <div className="self-end mb-1 shrink-0 flex items-center gap-1">
+                <TokenUsageIndicator messages={thread?.messages ?? []} />
+                <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+              </div>
+              <div>{renderInputActions()}</div>
+            </div>
+            <div>
+              <div className={"flex align-middle"}>
+                {uploads.length > 0 && (
+                  <AttachmentsContainer>
+                    {uploads.map((u: UploadedFile, idx) => (
+                      <AttachmentBubble
+                        key={idx}
+                        onClick={() =>
+                          u.previewUrl && setEnlargedImage(u.previewUrl!)
+                        }
+                      >
+                        {u.previewUrl ? (
+                          <ImagePreview src={u.previewUrl} />
+                        ) : (
+                          <span>{u.file.name}</span>
+                        )}
+
+                        {u.progress < 100 && (
+                          <ProgressOverlay>
+                            <CircularProgress progress={u.progress}>
+                              {u.progress}%
+                            </CircularProgress>
+                          </ProgressOverlay>
+                        )}
+
+                        <RemoveButton
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeUpload(idx);
+                          }}
+                        >
+                          ×
+                        </RemoveButton>
+                      </AttachmentBubble>
+                    ))}
+                  </AttachmentsContainer>
+                )}
+              </div>
+            </div>
           </div>
-          <label className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none">
+          <label
+            data-onboarding="autonomy-switch"
+            className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
+          >
             <span>Автономность</span>
             <Switch
-              checked={settings.autoApprove ?? false}
-              onCheckedChange={(checked) =>
-                setSettings((prev) => ({ ...prev, autoApprove: checked }))
-              }
+              checked={autoApprove}
+              onCheckedChange={(checked) => setAutoApprove(checked)}
             />
           </label>
         </div>
-
-        {uploads.length > 0 && (
-          <AttachmentsContainer>
-            {uploads.map((u: UploadedFile, idx) => (
-              <AttachmentBubble
-                key={idx}
-                onClick={() => u.previewUrl && setEnlargedImage(u.previewUrl!)}
-              >
-                {u.previewUrl ? (
-                  <ImagePreview src={u.previewUrl} />
-                ) : (
-                  <span>{u.file.name}</span>
-                )}
-
-                {u.progress < 100 && (
-                  <ProgressOverlay>
-                    <CircularProgress progress={u.progress}>
-                      {u.progress}%
-                    </CircularProgress>
-                  </ProgressOverlay>
-                )}
-
-                <RemoveButton
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeUpload(idx);
-                  }}
-                >
-                  ×
-                </RemoveButton>
-              </AttachmentBubble>
-            ))}
-          </AttachmentsContainer>
-        )}
 
         <div
           className={[
@@ -518,7 +1192,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
         </div>
 
         {enlargedImage && (
-          <Overlay onClick={() => setEnlargedImage(null)}>
+          <Overlay
+            onClick={() => setEnlargedImage(null)}
+            style={{ left: settings.sideBarOpen ? "265px" : "0" }}
+          >
             <EnlargedImage src={enlargedImage} />
             <CloseButton onClick={() => setEnlargedImage(null)}>×</CloseButton>
           </Overlay>

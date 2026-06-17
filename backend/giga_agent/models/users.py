@@ -160,6 +160,7 @@ class UserShort(UserBase):
     """Короткая версия пользователя без дат"""
 
     id: uuid.UUID
+    is_synthetic: bool = False
 
     def __hash__(self):
         def _freeze(value):
@@ -191,6 +192,18 @@ class UserShort(UserBase):
                 _freeze(self.sandbox_provider_id),
             )
         )
+
+    class Config:
+        from_attributes = True
+
+
+class FilledSecretStatus(BaseModel):
+    filled: bool
+
+
+class UserSelfResponse(UserBase):
+    id: uuid.UUID
+    secrets: dict[str, str | FilledSecretStatus] | None = None
 
     class Config:
         from_attributes = True
@@ -263,6 +276,9 @@ class UserRepository:
     @staticmethod
     async def invalidate_cache(user_id: uuid.UUID) -> None:
         await cache.delete(UserRepository.cache_key(user_id))
+        # Кэш доступных модулей зависит от user-настроек (secrets, embedding_id и т.п.) —
+        # инвалидируем вместе с user-кэшем.
+        await cache.delete(f"modules:user:{user_id}")
 
     @staticmethod
     def _to_short(user: User) -> UserShort:
@@ -274,7 +290,6 @@ class UserRepository:
 
     async def get_by_email(self, email: str) -> User | None:
         """Получить пользователя по email"""
-        u = await self.db.execute(select(User))
         result = await self.db.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 

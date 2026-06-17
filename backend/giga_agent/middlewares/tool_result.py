@@ -1,16 +1,16 @@
+from __future__ import annotations
+
 import base64
 import binascii
 import json
 import mimetypes
 import uuid
 from copy import deepcopy
-from typing import Any, Awaitable, Callable, Optional
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
-from genson import SchemaBuilder
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
-from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 
@@ -18,8 +18,30 @@ from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
-from giga_agent.models.file import FileResponse, FileType
-from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
+from giga_agent.utils.langgraph_sdk import get_client, get_user_id_from_config
+from giga_agent.utils.thread_metadata import (
+    get_thread_metadata,
+    update_thread_metadata,
+)
+
+if TYPE_CHECKING:
+    from langgraph.prebuilt.tool_node import ToolCallRequest
+
+    from giga_agent.models.file import FileType
+    from giga_agent.sandbox.manager import UploadFileSpec
+
+
+def _get_schema_builder_cls():
+    from genson import SchemaBuilder
+
+    return SchemaBuilder
+
+
+def _get_file_upload_helpers():
+    from giga_agent.models.file import FileResponse
+    from giga_agent.sandbox.manager import SandboxManager
+
+    return FileResponse, SandboxManager
 
 
 def _get_max_tool_size() -> int:
@@ -45,9 +67,7 @@ def _resolve_thread_id(config: RunnableConfig | dict[str, Any]) -> str:
 
 
 def _resolve_owner_id(config: RunnableConfig | dict[str, Any]) -> uuid.UUID | None:
-    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
-    user = configurable.get("langgraph_auth_user", {})
-    identity = user.get("identity")
+    identity = get_user_id_from_config(config)
     if identity is None:
         return None
     if isinstance(identity, uuid.UUID):
@@ -85,6 +105,7 @@ async def _upload_files_for_owner(
 
     factory = await get_session_factory()
     async with factory() as session:
+        FileResponse, SandboxManager = _get_file_upload_helpers()
         manager = SandboxManager(session)
         uploaded = await manager.upload_files_for_user(user_id=owner_id, files=files)
 
@@ -168,6 +189,68 @@ _MIME_EXTENSION_MAP = {
 }
 
 
+def _should_skip_process(tool: Optional[BaseTool]) -> bool:
+    if tool is None:
+        return False
+    extras = getattr(tool, "extras", {}) or {}
+    return bool(extras.get("not_process"))
+
+
+# Инструменты, чей результат никогда не оборачивается в result_path-файл.
+# Иначе возникает цикл: LLM читает файл через python → stdout снова > лимита →
+# middleware сохраняет новый файл → LLM получает новый путь → читает → цикл.
+_INLINE_OUTPUT_TOOLS = {"python", "shell"}
+
+
+def _truncate_utf8(text: str, max_size: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_size:
+        return text
+    truncated = encoded[:max_size].decode("utf-8", errors="ignore")
+    hint = (
+        f"\n\n[... вывод обрезан до {max_size} байт. "
+        "Исходный вывод был слишком большим для контекста. "
+        "Перепиши код: используй срезы/фильтрацию/агрегацию, "
+        "либо сохрани результат в файл и читай его по частям.]"
+    )
+    return truncated + hint
+
+
+def _build_inline_output_message(
+    normalized_result: Any,
+    action: dict[str, Any],
+    tool_attachments: list[dict[str, Any]],
+    message: str,
+    max_size: int,
+) -> ToolMessage:
+    if isinstance(normalized_result, dict) and isinstance(
+        normalized_result.get("output"), str
+    ):
+        output_text = normalized_result["output"]
+        truncated = _truncate_utf8(output_text, max_size)
+        if truncated is not output_text:
+            normalized_result = {**normalized_result, "output": truncated}
+    else:
+        serialized = _safe_json_dumps(normalized_result)
+        if len(serialized.encode("utf-8")) > max_size:
+            normalized_result = {
+                "output": _truncate_utf8(serialized, max_size),
+            }
+
+    payload: dict[str, Any] = {"data": normalized_result}
+    if message:
+        payload["message"] = message
+
+    return ToolMessage(
+        tool_call_id=action.get("id"),
+        content=_safe_json_dumps(payload),
+        additional_kwargs={
+            "tool_attachments": tool_attachments,
+            "tool_name": action.get("name"),
+        },
+    )
+
+
 async def process_tool_result(
     result: Any,
     action: dict[str, Any],
@@ -177,14 +260,27 @@ async def process_tool_result(
     message: str = "",
 ) -> ToolMessage:
     normalized_result = _normalize_result_payload(result)
+    tool_name = action.get("name")
+    if tool_name == "think" and normalized_result in ("", None):
+        normalized_result = ""
+
+    if action.get("name") in ["message", "think"] or _should_skip_process(tool):
+        return ToolMessage(
+            tool_call_id=action.get("id"),
+            content=_safe_json_dumps(normalized_result),
+            additional_kwargs={
+                "tool_attachments": tool_attachments,
+                "tool_name": tool_name,
+                "tool_args": action.get("args"),
+            },
+        )
+
     result_path = await _save_tool_result(
         normalized_result, action=action, config=config
     )
     saved_result_message = (
-        "Полный результат вызова инструмента сохранен в файле JSON по пути "
+        "Результат вызова инструмента сохранен в файле JSON по пути "
         f"'{result_path}'. "
-        "Этот путь нужно читать через python; внутри хранится полный JSON-результат "
-        "выполнения инструмента."
     )
 
     serialized = _safe_json_dumps(normalized_result)
@@ -194,7 +290,7 @@ async def process_tool_result(
 
     payload: dict[str, Any]
     if compress:
-        schema = SchemaBuilder()
+        schema = _get_schema_builder_cls()()
         schema.add_object(obj=normalized_result)
         extra_msg = (
             "Результат функции вышел слишком длинным. "
@@ -222,7 +318,8 @@ async def process_tool_result(
         content=_safe_json_dumps(payload),
         additional_kwargs={
             "tool_attachments": tool_attachments,
-            "tool_name": action.get("name"),
+            "tool_name": tool_name,
+            "tool_args": action.get("args"),
         },
     )
 
@@ -331,6 +428,42 @@ async def process_mcp_content(
 
 
 class ToolResultMiddleware(AgentMiddleware):
+    async def before_agent(
+        self,
+        state: AgentState,
+        runtime: Runtime[Context],
+        config: RunnableConfig,
+    ) -> dict[str, Any] | None:
+        # Sync the autonomy flag from the current run (configurable) into the
+        # thread metadata so it survives resume and a page reload. This covers a
+        # brand-new chat (no threadId yet, so the frontend can't hit the
+        # /auto-approve endpoint): configurable is the source of truth on submit.
+        # On resume configurable.auto_approve is absent (conf_val is None) ->
+        # no-op, the value stored in metadata is kept.
+        _ = runtime, state
+        configurable = config.get("configurable", {}) or {}
+        conf_val = configurable.get("auto_approve")
+        if conf_val is None:
+            return None
+
+        thread_id = _resolve_thread_id(config)
+        metadata = await get_thread_metadata(config, thread_id)
+        if metadata.get("auto_approve") == bool(conf_val):
+            return None
+
+        # Mirror into the in-run config too, so other readers in this run agree.
+        config.setdefault("metadata", {})["auto_approve"] = bool(conf_val)
+        if thread_id.startswith("temporary/"):
+            return None
+
+        try:
+            await update_thread_metadata(
+                config, thread_id, {"auto_approve": bool(conf_val)}
+            )
+        except Exception:
+            return None
+        return None
+
     async def after_model(
         self,
         state: AgentState,
@@ -341,30 +474,47 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
+        if all(action.get("name") == "think" for action in actions):
+            return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]
         frontend_actions = [
             action for action in actions if action.get("name") in mcp_tool_names
         ]
 
-        value = (
-            interrupt({"type": "tool_call", "tools": frontend_actions})
-            if frontend_actions
-            else interrupt({"type": "approve"})
-        )
+        # The autonomy flag lives in thread metadata (survives resume). Read it
+        # live (cache-first, SDK fallback) so a mid-run toggle is honored.
+        metadata = await get_thread_metadata(config, _resolve_thread_id(config))
+        auto_approve = bool(metadata.get("auto_approve"))
+
+        if frontend_actions:
+            # MCP tools run on the client — an interrupt is mandatory.
+            value = interrupt({"type": "tool_call", "tools": frontend_actions})
+        elif auto_approve:
+            # Autonomous mode without frontend_actions: don't interrupt, keep
+            # executing on the server (the run finishes even with the page closed).
+            return None
+        else:
+            value = interrupt({"type": "approve"})
 
         if value.get("type") == "comment":
-            tool_message = (
-                "Пользователь оставил комментарий к твоему вызову инструмента. "
-                f'Прочитай его и реши, как действовать дальше: "{value.get("message")}"'
-            )
+            user_message = value.get("message")
+            if user_message:
+                tool_message = (
+                    "Пользователь отменил вызов инструмента и оставил комментарий к твоему вызову инструмента. "
+                    f'Прочитай его и реши, как действовать дальше: "{user_message}"'
+                )
+            else:
+                tool_message = (
+                    "Пользователь отменил вызов инструмента без комментария. "
+                    "Не выполняй этот вызов. Спроси пользователя, чем можешь помочь."
+                )
             tools_response = [
                 ToolMessage(
                     tool_call_id=action.get("id", str(uuid.uuid4())),
-                    content=json.dumps({"message": tool_message}, ensure_ascii=False),
+                    content=tool_message,
                     additional_kwargs={"tool_name": action.get("name")},
-                )
-                for action in actions
+                ) for action in actions
             ]
             return {"messages": tools_response}
 

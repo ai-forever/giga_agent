@@ -30,6 +30,36 @@ import { toast } from "sonner";
 import { getCollectionName } from "@/components/rag/hooks/use-rag.tsx";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 
+// Supported document types for RAG uploads. Must stay in sync with the backend
+// document_processor HANDLERS (backend/giga_agent/modules/rag/services/document_processor.py).
+const ACCEPTED_FILE_EXTENSIONS = [
+  ".pdf",
+  ".txt",
+  ".md",
+  ".markdown",
+  ".html",
+  ".doc",
+  ".docx",
+];
+const ACCEPTED_MIME_TYPES = [
+  "application/pdf",
+  "text/plain",
+  "text/markdown",
+  "text/x-markdown",
+  "text/html",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+const getFileExtension = (fileName: string) =>
+  fileName.substring(fileName.lastIndexOf(".")).toLowerCase();
+
+// A file is accepted if its MIME type is known, or — for types browsers often
+// report with an empty MIME (e.g. .md) — if its extension is allowed.
+const isSupportedFile = (file: File) =>
+  ACCEPTED_MIME_TYPES.includes(file.type) ||
+  ACCEPTED_FILE_EXTENSIONS.includes(getFileExtension(file.name));
+
 interface DocumentsCardProps {
   selectedCollection: Collection | undefined;
   currentPage: number;
@@ -77,16 +107,7 @@ export function DocumentsCard({
   const handleFiles = (files: File[] | null) => {
     if (!files?.length) return;
 
-    const allowedTypes = [
-      "application/pdf",
-      "text/plain",
-      "text/html",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
-    const filteredFiles = files.filter((file) =>
-      allowedTypes.includes(file.type),
-    );
+    const filteredFiles = files.filter(isSupportedFile);
 
     setStagedFiles((prevFiles) => [...prevFiles, ...filteredFiles]);
   };
@@ -115,15 +136,11 @@ export function DocumentsCard({
     setIsDragging(false);
 
     const files = event.dataTransfer.files;
-    const acceptedExtensions = [".pdf", ".txt", ".html", ".doc", ".docx"];
     const supportedFiles: File[] = [];
     const unsupportedFiles: File[] = [];
 
     for (const file of files) {
-      const fileExtension = file.name
-        .substring(file.name.lastIndexOf("."))
-        .toLowerCase();
-      if (acceptedExtensions.includes(fileExtension)) {
+      if (isSupportedFile(file)) {
         supportedFiles.push(file);
       } else {
         unsupportedFiles.push(file);
@@ -133,7 +150,7 @@ export function DocumentsCard({
     if (unsupportedFiles.length > 0) {
       const unsupportedNames = unsupportedFiles.map((f) => f.name).join(", ");
       toast.error(
-        `Неподдерживаемые типы файлов: ${unsupportedNames}. Пожалуйста, используйте PDF, TXT, DOC, DOCX или HTML.`,
+        `Неподдерживаемые типы файлов: ${unsupportedNames}. Пожалуйста, используйте PDF, TXT, MD, DOC, DOCX или HTML.`,
         { richColors: true },
       );
     }
@@ -233,7 +250,7 @@ export function DocumentsCard({
                   id="file-upload"
                   multiple
                   onChange={handleFileSelect}
-                  accept=".pdf,.txt,.html,.doc,.docx"
+                  accept={ACCEPTED_FILE_EXTENSIONS.join(",")}
                 />
                 <Label htmlFor="file-upload">
                   <Button variant="outline" className="mt-2" asChild>

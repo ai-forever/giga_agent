@@ -8,39 +8,42 @@ from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState
-from giga_agent.core.db import get_session_factory
 from giga_agent.core.module import BaseModule
-from giga_agent.llm.manager import LLMManager
 from giga_agent.models.users import UserShort
 from giga_agent.modules.analyze_images.prompts import ANALYZE_IMAGES_MODULE_INSTRUCTIONS
-from giga_agent.modules.analyze_images.tool import analyze_image
+from giga_agent.modules.analyze_images.tool import analyze_image, resolve_image_analyzer_llm
 
 
 class AnalyzeImagesModule(BaseModule):
     id: str = "analyze_images"
+    label: str = "Анализ изображений"
+    description: str = "Распознавание и описание содержимого изображений"
+    icon: str = "ScanSearch"
 
-    async def _is_enabled(self, user: UserShort | None) -> bool:
-        if user is None or user.llm_id is None:
+    async def _is_enabled(
+        self, user: UserShort | None, *, config=None
+    ) -> bool:
+        from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+        if config is None:
             return False
 
-        factory = await get_session_factory()
         try:
-            async with factory() as session:
-                llm_runtime = await LLMManager.resolve_by_id(
-                    user.llm_id, session=session
-                )
+            resolver = RuntimeResolver.from_config(config)
+            return await resolve_image_analyzer_llm(resolver) is not None
         except Exception:
             return False
 
-        return llm_runtime.can_analyze_image()
-
-    async def get_tools(
+    async def _get_tools(
         self,
         user: UserShort | None,
         agent: BaseAgent,
+        *,
+        config=None,
+        **kwargs: Any,
     ) -> List[BaseTool]:
         _ = agent
-        if not await self._is_enabled(user):
+        if not await self._is_enabled(user, config=config):
             return []
         return [analyze_image]
 
@@ -49,9 +52,10 @@ class AnalyzeImagesModule(BaseModule):
         user: UserShort | None,
         agent: BaseAgent,
         state: Optional["AgentState"] = None,
+        config=None,
         **kwargs: Any,
     ) -> str | None:
         _ = agent, state, kwargs
-        if not await self._is_enabled(user):
+        if not await self._is_enabled(user, config=config):
             return None
         return ANALYZE_IMAGES_MODULE_INSTRUCTIONS

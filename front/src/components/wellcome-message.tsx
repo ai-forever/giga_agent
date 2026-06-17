@@ -56,8 +56,8 @@ const logoVariants: Variants = {
 
 const tasks = [];
 
-const MotionDarkLogo = motion(DarkLogoSvg);
-const MotionLightLogo = motion(LightLogoSvg);
+const MotionDarkLogo = motion.create(DarkLogoSvg);
+const MotionLightLogo = motion.create(LightLogoSvg);
 
 let hasShownWelcomeAnimation = false;
 
@@ -84,7 +84,7 @@ const WellcomeMessage: React.FC = () => {
         animate="visible"
       >
         <LogoComponent
-          className="mx-auto mb-2 h-16 w-[250px] sm:h-14 sm:w-96 md:h-7 md:w-[250px]"
+          className="mx-auto mb-2 h-16 w-[250px] sm:h-14 sm:w-[250px] md:h-7 md:w-[250px]"
           style={{ display: "block" }}
           preserveAspectRatio="xMidYMid slice"
           variants={logoVariants}

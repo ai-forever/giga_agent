@@ -4,7 +4,6 @@
  */
 
 export type ApiErrorHandler = (error: ApiError) => void;
-export const API_BASE_URL_KEY = "API_BASE_URL";
 
 export interface RequestOptions extends Omit<RequestInit, "method" | "body"> {
   /**
@@ -33,35 +32,10 @@ type RedirectInstruction = {
 const REDIRECT_INSTRUCTION_MEDIA_TYPE =
   "application/vnd.giga-agent.redirect+json";
 
-const ABSOLUTE_HTTP_URL_REGEX = /^https?:\/\//i;
-const API_PREFIX_REGEX = /^\/api(?=\/|\?|#|$)/;
-
 function isRedirectInstruction(value: unknown): value is RedirectInstruction {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return record.kind === "redirect" && typeof record.url === "string";
-}
-
-function normalizeBaseUrl(baseUrl: string): string | null {
-  const trimmed = baseUrl.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return null;
-    }
-    const normalizedPath = parsed.pathname.replace(/\/+$/, "");
-    return `${parsed.origin}${normalizedPath}`;
-  } catch {
-    return null;
-  }
-}
-
-export function resolveApiUrl(url: string): string {
-  return url;
 }
 
 class ApiClient {
@@ -119,7 +93,7 @@ class ApiClient {
       headers["Content-Type"] = "application/json";
     }
 
-    const response = await fetch(resolveApiUrl(url), {
+    const response = await fetch(url, {
       ...fetchOptions,
       credentials: fetchOptions.credentials ?? "include",
       method,
@@ -204,7 +178,7 @@ class ApiClient {
       headers["Authorization"] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(resolveApiUrl(url), {
+    const response = await fetch(url, {
       ...fetchOptions,
       credentials: fetchOptions.credentials ?? "omit",
       method: "GET",

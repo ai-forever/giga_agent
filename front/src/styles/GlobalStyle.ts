@@ -10,7 +10,7 @@ export const GlobalStyle = createGlobalStyle`
         cursor: pointer;
     }
     
-    thinking {
+        thinking {
             font-size: 0.7rem;
     font-style: italic;
     color: gray;

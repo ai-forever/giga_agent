@@ -13,6 +13,7 @@ from giga_agent.conf import reset_settings_cache
 from giga_agent.core.db import get_session
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.routes.sandboxes import router
+from giga_agent.sandbox.local_jupyter.dependencies import MissingDependenciesError
 from giga_agent.sandbox.manager import SandboxBusyError, StorageOperationError
 
 
@@ -517,11 +518,11 @@ class SandboxesRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 500)
 
-    def test_get_provider_types_hides_local_for_non_superuser(self):
+    def test_get_provider_types_shows_local_for_non_superuser(self):
         self.user.is_superuser = False
         with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
             "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
-            return_value=["e2b", "local_docker"],
+            return_value=["e2b", "local_docker", "local_jupyter"],
         ):
             response = self.client.get("/sandboxes/providers/types")
 
@@ -531,20 +532,20 @@ class SandboxesRouterTests(unittest.TestCase):
     def test_get_provider_types_shows_local_for_superuser_when_enabled(self):
         with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
             "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
-            return_value=["e2b", "local_docker"],
+            return_value=["e2b", "local_docker", "local_jupyter"],
         ):
             response = self.client.get("/sandboxes/providers/types")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), ["e2b", "local_docker"])
+        self.assertEqual(response.json(), ["e2b", "local_docker", "local_jupyter"])
 
-    def test_get_local_provider_schema_forbidden_for_non_superuser(self):
+    def test_get_local_provider_schema_allowed_for_non_superuser(self):
         self.user.is_superuser = False
         with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}):
             response = self.client.get(
                 "/sandboxes/providers/types/local_docker/settings-schema"
             )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
 
     def test_get_local_provider_schema_materializes_default_factory_values(self):
         env = {
@@ -598,6 +599,49 @@ class SandboxesRouterTests(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 403)
+
+    def test_create_local_jupyter_provider_returns_structured_missing_dependencies(self):
+        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
+            "giga_agent.routes.sandboxes.SandboxRegistry.validate_settings",
+            AsyncMock(
+                side_effect=MissingDependenciesError(
+                    ["jupyter_server", "ipykernel"]
+                )
+            ),
+        ):
+            response = self.client.post(
+                "/sandboxes/providers",
+                json={
+                    "type": "local_jupyter",
+                    "name": "local-jupyter",
+                    "settings": {},
+                    "idle_timeout": 3600,
+                    "is_active": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(
+            response.json()["detail"],
+            [
+                {
+                    "type": "value_error.missing_dependencies",
+                    "loc": ["body", "settings"],
+                    "msg": (
+                        "Required Jupyter dependencies are not installed. "
+                        "Install them with: pip install -U "
+                        '"giga-agent[jupyter]". Missing modules: '
+                        "jupyter_server, ipykernel"
+                    ),
+                    "ctx": {
+                        "error": "missing_dependencies",
+                        "provider_type": "local_jupyter",
+                        "missing": ["jupyter_server", "ipykernel"],
+                        "install": 'pip install -U "giga-agent[jupyter]"',
+                    },
+                }
+            ],
+        )
 
     def test_patch_provider_allows_null_name_and_invalidates_cache(self):
         provider = self._provider_obj()

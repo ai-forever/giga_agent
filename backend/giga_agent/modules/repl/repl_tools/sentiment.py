@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -9,11 +10,9 @@ import joblib
 import numpy as np
 from langchain.tools import ToolRuntime
 
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.logging import get_logger
-from giga_agent.core.db import get_session_factory
 from giga_agent.embeddings.base import BaseEmbeddingRuntime
-from giga_agent.embeddings.manager import EmbeddingManager
-from giga_agent.models.users import UserRepository
 
 _MODELS_DIR = Path(__file__).resolve().parent / "models"
 _MODEL_PREFIX = "sentiment_"
@@ -87,31 +86,39 @@ def _preload_models() -> dict[str, Any]:
     return preloaded
 
 
-# _PRELOADED_SENTIMENT_MODELS: dict[str, Any] = _preload_models()
+_PRELOADED_SENTIMENT_MODELS: dict[str, Any] = {}
+_MODELS_READY = threading.Event()
+
+
+def _preload_models_background() -> None:
+    try:
+        _PRELOADED_SENTIMENT_MODELS.update(_preload_models())
+    except Exception:
+        logger.exception("Background sentiment model preload failed")
+    finally:
+        _MODELS_READY.set()
+
+
+# Грузим модели в фоне, чтобы joblib.load не блокировал импорт/старт приложения.
+threading.Thread(
+    target=_preload_models_background,
+    name="sentiment-preload",
+    daemon=True,
+).start()
+
+
+async def _ensure_models_ready() -> None:
+    """Дожидается окончания фоновой загрузки моделей, не блокируя event loop."""
+    if not _MODELS_READY.is_set():
+        await asyncio.to_thread(_MODELS_READY.wait)
 
 
 async def _resolve_user_embeddings(
     tool_runtime: ToolRuntime,
 ) -> tuple[BaseEmbeddingRuntime, str]:
-    user_id = tool_runtime.config["configurable"]["langgraph_auth_user"]["identity"]
-    owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-
-    factory = await get_session_factory()
-    async with factory() as session:
-        user = await UserRepository.get_cached_or_db(owner_id, session=session)
-        if user is None:
-            raise ValueError(f"Пользователь {owner_id} не найден")
-        if user.embedding_id is None:
-            raise ValueError(
-                "У пользователя не настроены эмбеддинги. "
-                "Укажите embedding_id в настройках пользователя."
-            )
-
-        embedding_runtime = await EmbeddingManager.resolve_by_id(
-            user.embedding_id,
-            session=session,
-        )
-        return embedding_runtime, embedding_runtime.model_id
+    resolver = RuntimeResolver.from_config(tool_runtime.config)
+    embedding_runtime = await resolver.get_embedding_runtime()
+    return embedding_runtime, embedding_runtime.model_id
 
 
 async def predict_sentiments(
@@ -135,6 +142,7 @@ async def predict_sentiments(
         raise ValueError("tool_runtime is required for predict_sentiments.")
 
     embedding_runtime, embedding_model_id = await _resolve_user_embeddings(tool_runtime)
+    await _ensure_models_ready()
     clf = _PRELOADED_SENTIMENT_MODELS.get(embedding_model_id)
     if clf is None:
         available = ", ".join(sorted(_PRELOADED_SENTIMENT_MODELS.keys())) or "нет"

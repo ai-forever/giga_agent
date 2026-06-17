@@ -5,19 +5,22 @@ import uuid
 from typing import Annotated
 
 from langchain.tools import ToolRuntime, tool
+from langchain_core.messages import ToolMessage
 
+from giga_agent.core.agent.tool_results import build_error_tool_message
+from giga_agent.core.agent.types import Collection
 from giga_agent.core.db import get_session_factory
 from giga_agent.embeddings.manager import EmbeddingManager
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
 )
+from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 from giga_agent.vectorstores.qdrant import (
     get_qdrant_client,
     resolve_qdrant_collection,
 )
-from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
-from giga_agent.models.rag import RagCollectionsRepository
-from giga_agent.core.agent.types import Collection
 
 
 @tool(
@@ -32,17 +35,24 @@ async def get_documents(
     query: Annotated[str, "Поисковый запрос для поиска релевантных документов"],
     runtime: ToolRuntime,
     limit: Annotated[int, "Количество документов, которые возвращаются"] = 10,
-) -> str:
-    if runtime is None:
-        return "<all-documents>\n  <error>ToolRuntime is required</error>\n</all-documents>"
+) -> str | ToolMessage:
+    def _error(message: str) -> ToolMessage:
+        return build_error_tool_message(
+            content=f"<all-documents>\n  <error>{message}</error>\n</all-documents>",
+            runtime=runtime,
+            tool_name="get_documents",
+        )
 
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    if runtime is None:
+        return _error("ToolRuntime is required")
+
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
     try:
         collection_id = uuid.UUID(collection_uuid)
     except ValueError:
-        return "<all-documents>\n  <error>Invalid collection UUID</error>\n</all-documents>"
+        return _error("Invalid collection UUID")
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -51,13 +61,13 @@ async def get_documents(
             collection_id=collection_id,
         )
         if collection is None:
-            return "<all-documents>\n  <error>Collection not found</error>\n</all-documents>"
+            return _error("Collection not found")
 
-        runtime = await EmbeddingManager.resolve_by_id(
+        embedding_runtime = await EmbeddingManager.resolve_by_id(
             collection.embedding_id,
             session=session,
         )
-        embeddings = await runtime.get_embeddings()
+        embeddings = await embedding_runtime.get_embeddings()
 
     qdrant_client = get_qdrant_client()
     try:
@@ -80,7 +90,7 @@ async def get_documents(
             limit=limit,
         )
     except Exception as e:
-        return f"<all-documents>\n  <error>{e!s}</error>\n</all-documents>"
+        return _error(str(e))
 
     formatted_docs = "Найденные части документов:\n"
     for p in points:

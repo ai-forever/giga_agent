@@ -10,12 +10,16 @@ networks:
 
 services:
   nginx:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: deployments/local/Dockerfile.frontend-nginx
       args:
         VITE_MCP_PROXY_URL: /proxy
         VITE_LOG_LEVEL: info
+    environment:
+      GIGA_AGENT_BASE_URL: ${GIGA_AGENT_BASE_URL:-/}
+      GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
     depends_on:
       giga-agent:
         condition: service_started
@@ -25,7 +29,19 @@ services:
       - "8123:80"
 
   langgraph-redis:
+    restart: unless-stopped
     image: redis:6
+    # maxmemory (2g) below mem_limit (3g) leaves headroom for redis overhead/
+    # fragmentation. volatile-lru evicts only TTL'd keys — i.e. the broker replay
+    # buffers (the thing that ballooned to 9GB in the incident) — while leaving
+    # the no-TTL worker queue key intact so runs are never silently dropped.
+    command:
+      - redis-server
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-2gb}
+      - --maxmemory-policy
+      - volatile-lru
+    mem_limit: ${REDIS_MEM_LIMIT:-3g}
     networks:
       - giga-agent-net
     healthcheck:
@@ -35,6 +51,7 @@ services:
       retries: 5
 
   langgraph-postgres:
+    restart: unless-stopped
     image: postgres:16
     networks:
       - giga-agent-net
@@ -52,6 +69,7 @@ services:
       interval: 5s
 
   giga-agent-postgres:
+    restart: unless-stopped
     image: postgres:16
     networks:
       - giga-agent-net
@@ -69,6 +87,7 @@ services:
       interval: 5s
 
   qdrant:
+    restart: unless-stopped
     image: qdrant/qdrant
     networks:
       - giga-agent-net
@@ -76,6 +95,7 @@ services:
       - ./qdrant_storage:/qdrant/storage
 
   giga-agent:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: deployments/local/Dockerfile
@@ -88,12 +108,15 @@ services:
         condition: service_healthy
     env_file:
       - ./.env
+      - path: ./.env.giga_agent
+        required: false
     networks:
       - giga-agent-net
     environment:
       MEM0_DIR: /tmp/.mem0
       AEGRA_CONFIG: /app/config/langgraph.json
       AUTH_TYPE: custom
+      REDIS_BROKER_ENABLED: true
       GIGA_AGENT_UI: "0"
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
       REDIS_URI: redis://langgraph-redis:6379
@@ -105,12 +128,17 @@ services:
       GIGA_AGENT_LANGGRAPH_API_URL: http://giga-agent:8000
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       GIGA_AGENT_PROJECT_ROOT: /.giga_agent
+      GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
     volumes:
       - ./backend/langgraph.json:/app/config/langgraph.json:ro
       - ./deployments/aegra-startup.sh:/app/deployments/aegra-startup.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ./.giga_agent:/.giga_agent
     command: ["sh", "/app/deployments/aegra-startup.sh"]
+    # Hard RAM ceiling so a runaway run OOM-kills only this container instead of
+    # dragging the whole host into swap. memswap_limit == mem_limit disables swap
+    # for the container (no thrash); default 4g, override via env.
+    mem_limit: ${GIGA_AGENT_MEM_LIMIT:-4g}
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -1,6 +1,5 @@
 import re
-import uuid
-from typing import Any, Mapping
+from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
@@ -8,11 +7,12 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from giga_agent.core.agent.middleware import AgentMiddleware
+from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.core.db import get_session_factory
-from giga_agent.llm.manager import LLMManager
-from giga_agent.models.users import UserRepository
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.thread_metadata import (
+    get_thread_metadata,
+    update_thread_metadata,
+)
 
 _TITLE_MAX_LEN = 80
 _MESSAGE_MAX_LEN = 1200
@@ -34,32 +34,6 @@ def _resolve_thread_id(config: RunnableConfig | dict[str, Any]) -> str | None:
         return thread_id.strip().strip("/")
 
     return None
-
-
-def _resolve_owner_id(config: RunnableConfig | dict[str, Any]) -> uuid.UUID | None:
-    if not isinstance(config, dict):
-        return None
-    configurable = config.get("configurable", {}) or {}
-    user = configurable.get("langgraph_auth_user", {}) or {}
-    identity = user.get("identity")
-    if identity is None:
-        return None
-    if isinstance(identity, uuid.UUID):
-        return identity
-    if isinstance(identity, str):
-        try:
-            return uuid.UUID(identity)
-        except ValueError:
-            return None
-    return None
-
-
-def _extract_metadata(config: Any) -> dict[str, Any]:
-    if isinstance(config, dict):
-        meta = config.get("metadata")
-        return dict(meta) if isinstance(meta, Mapping) else {}
-    meta = getattr(config, "metadata", None)
-    return dict(meta) if isinstance(meta, Mapping) else {}
 
 
 def _pick_first_user_message(state: AgentState) -> str | None:
@@ -146,7 +120,7 @@ class ThreadTitleMiddleware(AgentMiddleware):
         if not thread_id or thread_id.startswith("temporary/"):
             return None
 
-        metadata = _extract_metadata(config)
+        metadata = await get_thread_metadata(config, thread_id)
         existing_title = metadata.get("thread_title")
         if isinstance(existing_title, str) and existing_title.strip():
             return None
@@ -155,28 +129,21 @@ class ThreadTitleMiddleware(AgentMiddleware):
         if not first_message:
             return None
 
-        owner_id = _resolve_owner_id(config)
-        if owner_id is None:
+        try:
+            resolver = RuntimeResolver.from_config(config)
+        except ValueError:
             return None
 
-        factory = await get_session_factory()
-        async with factory() as session:
-            user = await UserRepository.get_cached_or_db(owner_id, session=session)
-            if user is None:
-                return None
+        user = resolver.user
+        if not (user.fast_llm_id or user.llm_id):
+            return None
 
-            llm_id = user.fast_llm_id or user.llm_id
-            if not llm_id:
-                return None
-
-            llm_runtime = await LLMManager.resolve_by_id(llm_id, session=session)
-            llm = await llm_runtime.get_llm()
+        fast_llm_runtime = await resolver.get_fast_llm_runtime()
+        llm = await fast_llm_runtime.get_llm()
 
         title = await _generate_title(llm, first_message)
-        metadata = {"thread_title": title}
         try:
-            client = get_client(config)
-            await client.threads.update(thread_id, metadata=metadata)
+            await update_thread_metadata(config, thread_id, {"thread_title": title})
         except Exception:
             return None
 
