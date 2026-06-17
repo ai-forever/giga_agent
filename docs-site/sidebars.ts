@@ -10,6 +10,19 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Примеры',
+      items: [
+        'examples/index',
+        'examples/data-analysis',
+        'examples/vk-social-listening',
+        'examples/business-analytics',
+        'examples/presentations',
+        'examples/image-to-business-canvas',
+        'examples/security-logs',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Руководство пользователя',
       items: [
         'user-guide/chat',
