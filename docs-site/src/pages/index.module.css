@@ -2,8 +2,15 @@
   padding: 5rem 0;
   text-align: center;
   color: #fff;
-  background: radial-gradient(circle at top left, #56b6ff 0, transparent 30%),
-    linear-gradient(135deg, #0b1220 0%, #1f6feb 55%, #7c3aed 100%);
+  background: radial-gradient(circle at 28% 18%, rgba(220, 38, 38, 0.38) 0, transparent 46%),
+    linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 58%, #3a1414 100%);
+}
+
+.heroLogo {
+  width: 320px;
+  max-width: 80%;
+  height: auto;
+  margin-bottom: 1.5rem;
 }
 
 .subtitle {

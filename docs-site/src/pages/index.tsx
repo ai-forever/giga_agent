@@ -3,6 +3,7 @@ import clsx from 'clsx';
 import Heading from '@theme/Heading';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import styles from './index.module.css';
 
 const cards = [
@@ -35,6 +36,11 @@ export default function Home(): ReactNode {
       description="Документация GigaAgent 0.1.9">
       <header className={clsx('hero hero--primary', styles.heroBanner)}>
         <div className="container">
+          <img
+            className={styles.heroLogo}
+            src={useBaseUrl('/img/giga-agent-logo-on-dark.png')}
+            alt="GigaAgent"
+          />
           <Heading as="h1" className="hero__title">
             Документация GigaAgent
           </Heading>

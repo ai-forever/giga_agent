@@ -1,11 +1,21 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import docsVersionData from './docs-version.json';
+
+// Единый источник истины для версии пакета, которую описывает документация.
+// Должен совпадать с версией `giga-agent` в PyPI; проверяется в CI
+// (.github/workflows/check-docs-version.yml).
+const DOCS_VERSION = docsVersionData.version;
 
 const config: Config = {
   title: 'GigaAgent',
   tagline: 'Документация по универсальному AI-агенту на FastAPI, LangGraph и React',
   favicon: 'img/favicon.ico',
+
+  customFields: {
+    docsVersion: DOCS_VERSION,
+  },
 
   future: {
     v4: true,
@@ -45,7 +55,14 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/giga-agent-logo.svg',
+    image: 'img/giga-agent-icon.png',
+    announcementBar: {
+      id: `docs-version-${DOCS_VERSION}`,
+      content: `Эта документация соответствует пакету <b>giga-agent ${DOCS_VERSION}</b> из PyPI. Код в репозитории может уходить вперёд релиза.`,
+      backgroundColor: '#1f2937',
+      textColor: '#ffffff',
+      isCloseable: true,
+    },
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -53,7 +70,7 @@ const config: Config = {
       title: 'GigaAgent',
       logo: {
         alt: 'GigaAgent',
-        src: 'img/giga-agent-logo.svg',
+        src: 'img/giga-agent-icon.png',
       },
       items: [
         {
