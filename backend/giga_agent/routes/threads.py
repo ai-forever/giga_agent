@@ -32,7 +32,7 @@ from giga_agent.services.prompt_suggestions import (
     get_follow_up_suggestions,
     get_starter_suggestions,
 )
-from giga_agent.utils.langgraph_sdk import get_client as get_langgraph_client
+from giga_agent.utils.langgraph_sdk import client_session
 from giga_agent.utils.thread_metadata import update_thread_metadata
 
 logger = get_logger(__name__)
@@ -122,9 +122,10 @@ async def get_thread_history_compact(
         },
     }
     try:
-        states = await get_langgraph_client(langgraph_config).threads.get_history(
-            thread_id, limit=limit, before=before
-        )
+        async with client_session(langgraph_config) as client:
+            states = await client.threads.get_history(
+                thread_id, limit=limit, before=before
+            )
     except Exception as exc:
         logger.warning(
             "compact_history_fetch_failed", thread_id=thread_id, error=str(exc)

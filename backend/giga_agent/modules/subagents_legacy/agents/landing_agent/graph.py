@@ -43,7 +43,7 @@ from giga_agent.modules.subagents_legacy.runtime import (
     resolve_user_llm,
 )
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 from giga_agent.utils.messages import filter_tool_messages
 
 
@@ -185,42 +185,42 @@ async def create_landing(
         if not thread_id:
             thread_id = str(uuid.uuid4())
     else:
-        client = get_client(runtime.config)
-        if not thread_id:
-            thread = await client.threads.create()
-            thread_id = thread["thread_id"]
         result_state = {}
-        push_ui_message(
-            "agent_execution",
-            {
-                "agent": "create_landing",
-                "node": "__start__",
-                "tool_call_id": runtime.tool_call_id,
-            },
-        )
-        async for chunk in client.runs.stream(
-            thread_id=thread_id,
-            if_not_exists="create",
-            assistant_id="landing",
-            input=input_data,
-            stream_mode=["values", "updates"],
-            on_disconnect="cancel",
-        ):
-            if chunk.event == "values":
-                result_state = chunk.data
-            elif chunk.event == "updates":
-                if "agent" in chunk.data:
-                    message = chunk.data["agent"]["agent_messages"]
-                    if message["tool_calls"]:
-                        if message["tool_calls"][0]["name"] != "done":
-                            push_ui_message(
-                                "agent_execution",
-                                {
-                                    "agent": "create_landing",
-                                    "node": message["tool_calls"][0]["name"],
-                                    "tool_call_id": runtime.tool_call_id,
-                                },
-                            )
+        async with client_session(runtime.config) as client:
+            if not thread_id:
+                thread = await client.threads.create()
+                thread_id = thread["thread_id"]
+            push_ui_message(
+                "agent_execution",
+                {
+                    "agent": "create_landing",
+                    "node": "__start__",
+                    "tool_call_id": runtime.tool_call_id,
+                },
+            )
+            async for chunk in client.runs.stream(
+                thread_id=thread_id,
+                if_not_exists="create",
+                assistant_id="landing",
+                input=input_data,
+                stream_mode=["values", "updates"],
+                on_disconnect="cancel",
+            ):
+                if chunk.event == "values":
+                    result_state = chunk.data
+                elif chunk.event == "updates":
+                    if "agent" in chunk.data:
+                        message = chunk.data["agent"]["agent_messages"]
+                        if message["tool_calls"]:
+                            if message["tool_calls"][0]["name"] != "done":
+                                push_ui_message(
+                                    "agent_execution",
+                                    {
+                                        "agent": "create_landing",
+                                        "node": message["tool_calls"][0]["name"],
+                                        "tool_call_id": runtime.tool_call_id,
+                                    },
+                                )
     html_page = FileResponse.model_validate(result_state["html"])
     message = (
         f"В результате выполнения была сгенерирована HTML страница {html_page.sandbox_path}."
