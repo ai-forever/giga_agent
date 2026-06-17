@@ -21,7 +21,6 @@ cd giga-agent-demo
 uv venv --python python3.12 .venv
 source .venv/bin/activate
 uv pip install "giga-agent[jupyter]==0.1.9"
-export GIGA_AGENT_SECRET_KEY="$(openssl rand -hex 32)"
 giga_agent dev
 ```
 
@@ -31,7 +30,7 @@ giga_agent dev
 http://localhost:9090
 ```
 
-Первый запуск может занять заметное время: команда загружает зависимости, проверяет миграции и поднимает сервер разработки.
+Первый запуск может занять заметное время: команда загружает зависимости, подготавливает локальный секретный ключ, проверяет миграции и поднимает сервер разработки.
 
 ## Первый вход
 
