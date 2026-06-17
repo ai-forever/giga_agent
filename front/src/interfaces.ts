@@ -24,9 +24,28 @@ type BagTemplate = {
   UpdateType?: unknown;
 };
 
+export interface QuestionOption {
+  id: string;
+  text: string;
+}
+
+export interface Question {
+  id: string;
+  text: string;
+  type: "single" | "multi";
+  options: QuestionOption[];
+}
+
+export interface QuestionAnswer {
+  question_id: string;
+  selected: string[];
+  other_text: string;
+}
+
 export interface GraphInterrupt {
-  type: "approve" | "comment" | "tool_call";
+  type: "approve" | "comment" | "tool_call" | "questions";
   tools?: ToolCall[];
+  questions?: Question[];
 }
 
 export interface GraphTemplate extends BagTemplate {

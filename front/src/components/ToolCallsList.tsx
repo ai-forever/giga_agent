@@ -302,6 +302,7 @@ const TOOL_LABELS: Record<string, string> = {
   create_meme: "Создаёт мем",
   podcast_generate: "Создаёт подкаст",
   multi_tool_use: "Выполняет несколько действий",
+  ask_questions: "Уточняющие вопросы",
 };
 
 const getHost = (url: string): string => {

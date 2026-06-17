@@ -3,6 +3,7 @@ from giga_agent.core.module import BaseModule
 from giga_agent.memory.module import MemoryModule
 from giga_agent.modules.analyze_images import AnalyzeImagesModule
 from giga_agent.modules.auth.module import AuthModule
+from giga_agent.modules.clarify import ClarifyModule
 from giga_agent.modules.deep_research import DeepResearchModule
 from giga_agent.modules.github import GitHubModule
 from giga_agent.modules.image import ImageModule
@@ -22,6 +23,7 @@ class GigaAgent(BaseAgent):
     def get_modules(self) -> list[BaseModule]:
         return [
             AuthModule(),
+            ClarifyModule(),
             ReplModule(),
             ImageModule(),
             AnalyzeImagesModule(),
