@@ -1,5 +1,7 @@
 import uuid
 from datetime import datetime
+
+from cashews import cache
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     DateTime,
@@ -77,6 +79,58 @@ class ProjectRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def cache_key(project_id: uuid.UUID) -> str:
+        return f"project:ctx:{project_id}"
+
+    @staticmethod
+    async def get_from_cache(project_id: uuid.UUID) -> ProjectResponse | None:
+        cached = await cache.get(ProjectRepository.cache_key(project_id))
+        if cached is None:
+            return None
+        return ProjectResponse.model_validate(cached)
+
+    @staticmethod
+    async def invalidate_cache(project_id: uuid.UUID) -> None:
+        await cache.delete(ProjectRepository.cache_key(project_id))
+
+    async def get_by_id_response(
+        self,
+        project_id: uuid.UUID,
+        *,
+        use_cache: bool = True,
+    ) -> ProjectResponse | None:
+        if use_cache:
+            cached = await self.get_from_cache(project_id)
+            if cached is not None:
+                return cached
+
+        project = await self.get_by_id(project_id)
+        if project is None:
+            return None
+
+        response = ProjectResponse.model_validate(project)
+        await cache.set(
+            self.cache_key(project_id),
+            response.model_dump(mode="json"),
+            expire="5m",
+        )
+        return response
+
+    @classmethod
+    async def get_cached_or_db_for_owner(
+        cls,
+        project_id: uuid.UUID,
+        owner_id: uuid.UUID,
+        *,
+        session: AsyncSession,
+    ) -> ProjectResponse | None:
+        """Resolve a project for ``owner_id``, serving from cashews when warm."""
+        response = await cls(session).get_by_id_response(project_id)
+        if response is None or response.owner_id != owner_id:
+            return None
+        return response
+
     async def get_by_id(self, project_id: uuid.UUID) -> Project | None:
         result = await self.db.execute(select(Project).where(Project.id == project_id))
         return result.scalar_one_or_none()
@@ -137,11 +191,14 @@ class ProjectRepository:
                 setattr(project, key, value)
         await self.db.commit()
         await self.db.refresh(project)
+        await self.invalidate_cache(project.id)
         return project
 
     async def delete(self, project: Project) -> None:
+        project_id = project.id
         await self.db.delete(project)
         await self.db.commit()
+        await self.invalidate_cache(project_id)
 
     async def delete_by_owner(self, owner_id: uuid.UUID) -> int:
         result = await self.db.execute(

@@ -48,8 +48,9 @@ class ProjectsModule(BaseModule):
         try:
             factory = await get_session_factory()
             async with factory() as session:
-                repo = ProjectRepository(session)
-                project = await repo.get_for_owner(project_id, user.id)
+                project = await ProjectRepository.get_cached_or_db_for_owner(
+                    project_id, user.id, session=session
+                )
         except Exception:
             logger.exception("ProjectsModule.get_instructions: lookup failed")
             return None

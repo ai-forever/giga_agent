@@ -1101,11 +1101,13 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 {threadsError}
               </div>
             )}
-            {!threadsLoading && !threadsError && visibleThreads.length === 0 && (
-              <div className="px-2 py-1 text-sm text-muted-foreground">
-                Нет чатов
-              </div>
-            )}
+            {!threadsLoading &&
+              !threadsError &&
+              visibleThreads.length === 0 && (
+                <div className="px-2 py-1 text-sm text-muted-foreground">
+                  Нет чатов
+                </div>
+              )}
             <div className="flex-1 min-h-0 overflow-auto">
               {threadsLoading && visibleThreads.length === 0 ? (
                 <div className="px-2 py-2 space-y-2">

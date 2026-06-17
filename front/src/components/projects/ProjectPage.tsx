@@ -25,12 +25,7 @@ import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
 
-import {
-  deleteProject,
-  getProject,
-  Project,
-  updateProject,
-} from "./api";
+import { deleteProject, getProject, Project, updateProject } from "./api";
 import KnowledgeSection from "./KnowledgeSection";
 
 const errorDetail = (e: unknown, fallback: string): string => {
