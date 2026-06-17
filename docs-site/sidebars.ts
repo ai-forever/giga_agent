@@ -15,7 +15,7 @@ const sidebars: SidebarsConfig = {
         'user-guide/chat',
         'user-guide/capabilities',
         'user-guide/files-and-artifacts',
-        'user-guide/tools-and-autonomy',
+        'user-guide/tools',
         'user-guide/rag',
         'user-guide/memory',
         'user-guide/images',
