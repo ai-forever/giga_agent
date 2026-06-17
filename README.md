@@ -11,6 +11,12 @@
 [English](https://www.zdoc.app/en/ai-forever/giga_agent) | 
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
 
+<p align="center">
+  <a href="https://trashchenkov.github.io/giga_agent/">
+    <img src="https://img.shields.io/badge/%F0%9F%93%96%20Документация-online-dc2626?style=for-the-badge&logo=docusaurus&logoColor=white" alt="Документация GigaAgent">
+  </a>
+</p>
+
 **GigaAgent может решать самые разные задачи, используя более 30 встроенных инструментов и субагентов.**
 
 [![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/ai-forever/giga_agent/tree/main)
@@ -102,7 +108,7 @@ GigaAgent умеет:
 
 ### 🔧 Встроенные модули
 
-GigaAgent включает **13 готовых модулей** для разных задач:
+GigaAgent поставляет **13 модулей** для разных задач. По умолчанию граф агента подключает **12** из них — модуль `frontend_mcp` поставляется в пакете, но не регистрируется в графе по умолчанию (MCP-инструменты приходят из состояния диалога, см. таблицу ниже):
 
 
 | Модуль             | ID                 | Описание                                                                         |
@@ -111,7 +117,7 @@ GigaAgent включает **13 готовых модулей** для разн�
 | **REPL**           | `repl`             | Выполнение Python и shell команд в sandbox                                       |
 | **Image**          | `image`            | Генерация изображений (GigaChat, FusionBrain, OpenAI)                            |
 | **Analyze Images** | `analyze_images`   | Анализ изображений через multimodal LLM                                          |
-| **Search**         | `search`           | Веб-поиск через                                                         |
+| **Search**         | `search`           | Веб-поиск через Tavily                                                            |
 | **Scraper**        | `scraper`          | Извлечение контента с веб-страниц (Jina AI Reader)                               |
 | **RAG**            | `rag`              | Retrieval Augmented Generation с векторным поиском                               |
 | **GitHub**         | `github`           | Интеграция с GitHub API                                                          |
@@ -466,6 +472,7 @@ Runtime компоненты регистрируются динамически
 
 ## Дополнительные материалы
 
+- 📖 Полная документация: <https://trashchenkov.github.io/giga_agent/>
 - Субагенты: [SUBAGENTS.md](SUBAGENTS.md)
 - Инструменты: [TOOLS.md](TOOLS.md)
 - Observability для локального запуска: [docs/configuration/observability-local.md](docs/configuration/observability-local.md)
