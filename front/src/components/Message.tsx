@@ -396,6 +396,7 @@ const Message: React.FC<MessageProps> = ({
   };
 
   const isCurrentInterruptMessage =
+    !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
     ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
