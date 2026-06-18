@@ -53,7 +53,7 @@ import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
 import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
@@ -146,6 +146,7 @@ interface InputAreaProps {
 }
 
 const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
+  const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
   const { project: threadProject } = useThreadProject(threadId);
