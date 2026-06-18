@@ -27,6 +27,10 @@ import {
   API_AGENT_PREFIX,
   BACKEND_STT_ENABLED,
   BROWSER_USE_NAME,
+  PROMPT_SUGGESTIONS_ENABLED,
+  PROMPT_TEMPLATE_TOPICS,
+  STARTER_PROMPT_SUGGESTIONS_ENABLED,
+  STARTER_RECOMMENDATIONS_ENABLED,
 } from "../config.ts";
 import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
@@ -49,7 +53,7 @@ import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
 import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
@@ -69,6 +73,11 @@ import {
 } from "@/components/ui/tooltip";
 import ModelPicker from "./ModelPicker";
 import TokenUsageIndicator from "./TokenUsageIndicator";
+import { useStarterRecommendations } from "@/hooks/useThreadSuggestions";
+import {
+  getPromptSuggestionTitle,
+  type PromptSuggestionScenario,
+} from "@/types/prompt-suggestions";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
@@ -130,10 +139,13 @@ const resolveSttSource = (): SttSource => {
 
 interface InputAreaProps {
   thread?: UseStream<GraphState, GraphTemplate>;
+  prefillPayload?: {
+    suggestion: PromptSuggestionScenario;
+    nonce: number;
+  } | null;
 }
 
-const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
-  const navigate = useNavigate();
+const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const { threadId } = useParams<{ threadId?: string }>();
   const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
   const { project: threadProject } = useThreadProject(threadId);
@@ -153,6 +165,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const [deepResearchForced, setDeepResearchForced] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const sttSource = useMemo<SttSource>(() => resolveSttSource(), []);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -172,6 +185,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     collectionsLoading,
     activateCollection,
     deactivateCollection,
+    deactivateAllCollections,
   } = useRagContext();
   const { settings } = useSettings();
   const {
@@ -179,6 +193,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     openMcpModal,
     enabledModules,
     toggleModule,
+    setModulesState,
     availableModules,
   } = useUserInfo();
   const {
@@ -210,6 +225,27 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
 
   const selectedCount = Object.keys(selected).length;
   const branches = useBranches();
+  const isEmptyThread = (thread?.messages?.length ?? 0) === 0;
+  const showStarterPromptButtons =
+    PROMPT_SUGGESTIONS_ENABLED &&
+    STARTER_PROMPT_SUGGESTIONS_ENABLED &&
+    isEmptyThread &&
+    !thread?.isLoading &&
+    !thread?.interrupt;
+  const {
+    suggestions: recommendationPrompts,
+    isLoading: recommendationsLoading,
+    loadRecommendations,
+  } = useStarterRecommendations(
+    PROMPT_SUGGESTIONS_ENABLED && STARTER_RECOMMENDATIONS_ENABLED,
+  );
+  const activeStarterTopic = useMemo(
+    () =>
+      PROMPT_TEMPLATE_TOPICS.find((topic) => topic.id === activeTopicId) ??
+      null,
+    [activeTopicId],
+  );
+  const isRecommendationsTab = activeTopicId === "recommendations";
 
   const isUploading = uploads.some((u) => u.progress < 100 && !u.error);
   const handleSendMessage = useCallback(
@@ -326,6 +362,110 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   useEffect(() => {
     autoResize();
   }, [message, isMobileDevice]);
+
+  const applySuggestion = useCallback(
+    async (
+      suggestion: PromptSuggestionScenario,
+      options?: { fromStartSuggestions?: boolean; isRecommendation?: boolean },
+    ) => {
+      const trimmed = suggestion.text.trim();
+      if (!trimmed) return;
+
+      const shouldClear =
+        options?.fromStartSuggestions && !options?.isRecommendation;
+
+      if (shouldClear) {
+        setDeepResearchForced(false);
+        clearSelectedSkills();
+        deactivateAllCollections();
+      }
+
+      if (suggestion.deepResearchForced !== undefined) {
+        setDeepResearchForced(suggestion.deepResearchForced);
+      }
+
+      if (suggestion.skills) {
+        if (!shouldClear) {
+          clearSelectedSkills();
+        }
+        suggestion.skills.forEach((name) => toggleSkill(name, true));
+      }
+
+      if (suggestion.ragMode) {
+        let availableCollections = collections;
+        if (availableCollections.length === 0 && !initialSearchExecuted) {
+          await initialFetch();
+          availableCollections = await getCollections();
+        }
+        if (suggestion.ragMode === "all") {
+          availableCollections.forEach((collection) =>
+            activateCollection(collection.uuid),
+          );
+        } else {
+          availableCollections.forEach((collection) =>
+            deactivateCollection(collection.uuid),
+          );
+        }
+      }
+
+      setMessage(trimmed);
+      requestAnimationFrame(() => {
+        const el = textRef.current;
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(trimmed.length, trimmed.length);
+        } catch {
+          /* selection may fail if unmounted */
+        }
+      });
+
+      if (shouldClear) {
+        const moduleUpdates: Record<string, boolean> = {};
+        availableModules.forEach((mod) => {
+          moduleUpdates[mod.id] = false;
+        });
+        if (suggestion.modules) {
+          Object.entries(suggestion.modules).forEach(([moduleId, enabled]) => {
+            moduleUpdates[moduleId] = enabled;
+          });
+        }
+        void setModulesState(moduleUpdates);
+      } else {
+        if (suggestion.modules) {
+          void Promise.all(
+            Object.entries(suggestion.modules).map(([moduleId, enabled]) =>
+              toggleModule(moduleId, enabled),
+            ),
+          );
+        }
+      }
+    },
+    [
+      activateCollection,
+      clearSelectedSkills,
+      collections,
+      deactivateCollection,
+      deactivateAllCollections,
+      getCollections,
+      initialFetch,
+      initialSearchExecuted,
+      toggleModule,
+      setModulesState,
+      availableModules,
+      toggleSkill,
+    ],
+  );
+
+  useEffect(() => {
+    if (!prefillPayload?.suggestion) return;
+    void applySuggestion(prefillPayload.suggestion);
+  }, [applySuggestion, prefillPayload?.nonce, prefillPayload?.suggestion]);
+
+  useEffect(() => {
+    // A newly opened chat should start with all starter tabs collapsed.
+    setActiveTopicId(null);
+  }, [threadId]);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -1201,6 +1341,107 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </Overlay>
         )}
       </div>
+      {showStarterPromptButtons && (
+        <div className="max-w-[880px] mx-auto mt-2 mb-1 print:hidden">
+          <div className="flex flex-wrap items-center gap-2">
+            {STARTER_RECOMMENDATIONS_ENABLED && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTopicId("recommendations");
+                  if (recommendationPrompts.length === 0) {
+                    void loadRecommendations(false);
+                  }
+                }}
+                className={[
+                  "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors cursor-pointer",
+                  isRecommendationsTab
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border bg-muted/40 text-foreground hover:bg-muted",
+                ].join(" ")}
+              >
+                <LucideIcons.Sparkle className="size-3.5 shrink-0" />
+                Рекомендации
+              </button>
+            )}
+            {PROMPT_TEMPLATE_TOPICS.map((topic) => (
+              <button
+                key={topic.id}
+                type="button"
+                onClick={() => setActiveTopicId(topic.id)}
+                className={[
+                  "inline-flex items-center rounded-full border px-3 py-1.5 text-xs transition-colors cursor-pointer",
+                  activeTopicId === topic.id
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border bg-muted/40 text-foreground hover:bg-muted",
+                ].join(" ")}
+              >
+                {topic.label}
+              </button>
+            ))}
+          </div>
+
+          {(activeStarterTopic || isRecommendationsTab) && (
+            <div className="mt-2 rounded-lg border border-border bg-card p-2">
+              {activeStarterTopic &&
+                activeStarterTopic.prompts.map((prompt, idx) => (
+                  <button
+                    key={`${prompt.text}-${idx}`}
+                    type="button"
+                    onClick={() =>
+                      void applySuggestion(prompt, {
+                        fromStartSuggestions: true,
+                        isRecommendation: false,
+                      })
+                    }
+                    className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
+                  >
+                    {getPromptSuggestionTitle(prompt)}
+                  </button>
+                ))}
+
+              {isRecommendationsTab &&
+                (recommendationsLoading ? (
+                  <div className="px-2 py-1.5 space-y-2">
+                    <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
+                    <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
+                    <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
+                  </div>
+                ) : recommendationPrompts.length > 0 ? (
+                  recommendationPrompts.map((prompt, idx) => (
+                    <button
+                      key={`${prompt.text}-${idx}`}
+                      type="button"
+                      onClick={() =>
+                        void applySuggestion(
+                          {
+                            text: prompt.text,
+                            title: prompt.title,
+                          },
+                          {
+                            fromStartSuggestions: true,
+                            isRecommendation: true,
+                          },
+                        )
+                      }
+                      className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
+                    >
+                      {getPromptSuggestionTitle(prompt)}
+                    </button>
+                  ))
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void loadRecommendations(true)}
+                    className="w-full rounded-md px-2 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+                  >
+                    Обновить рекомендации
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

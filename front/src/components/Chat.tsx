@@ -16,6 +16,7 @@ import {
   suppressPhantomBreakpointInterrupt,
 } from "@/lib/thread-history";
 import { BranchesProvider } from "@/hooks/useBranches";
+import type { PromptSuggestionScenario } from "@/types/prompt-suggestions";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -85,6 +86,10 @@ const Chat: React.FC<ChatProps> = ({
   );
   const firstSroll = useRef<boolean>(false);
   const [showScrollBtn, setShowScrollBtn] = useState<boolean>(false);
+  const [prefillPayload, setPrefillPayload] = useState<{
+    suggestion: PromptSuggestionScenario;
+    nonce: number;
+  } | null>(null);
   const stableMessages = thread.messages;
   // @ts-ignore
   globalThis.messages = thread.messages;
@@ -456,7 +461,11 @@ const Chat: React.FC<ChatProps> = ({
                 <MessageList
                   messages={stableMessages ?? []}
                   thread={thread}
+                  threadId={threadId}
                   maybeAutoScroll={maybeAutoScroll}
+                  onSelectSuggestion={(suggestion) =>
+                    setPrefillPayload({ suggestion, nonce: Date.now() })
+                  }
                 />
               </motion.div>
             )}
@@ -479,6 +488,7 @@ const Chat: React.FC<ChatProps> = ({
           <InputArea
             // @ts-ignore
             thread={thread}
+            prefillPayload={prefillPayload}
           />
           <div ref={bottomSentinelRef} style={{ height: 1 }} />
         </div>
