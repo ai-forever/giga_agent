@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from "react";
 import Message from "./Message.tsx";
 import AgentRun from "./AgentRun.tsx";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
-import { Loader2 } from "lucide-react";
+import { motion } from "framer-motion";
 import WellcomeMessage from "./wellcome-message.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
@@ -177,10 +177,20 @@ const MessageList: React.FC<MessageListProps> = ({
   const lastThreadIdRef = useRef<string | null | undefined>(undefined);
   const streamThreadId = (thread as any)?.threadId as string | null | undefined;
 
+  // Плавное появление (blur→clear) подсказок при генерации. Решение об
+  // анимации вычисляем синхронно в рендере (через ref), чтобы оно было готово
+  // на момент маунта motion-блока и не зависело от порядка эффектов.
+  const followUpsLoadStartRef = useRef<number | null>(null);
+  const followUpsResolvedRef = useRef<boolean>(false);
+  const followUpsAnimateRef = useRef<boolean>(false);
+
   if (lastThreadIdRef.current !== streamThreadId) {
     lastThreadIdRef.current = streamThreadId;
     historicalRunKeysRef.current = new Set();
     sessionStartedRef.current = false;
+    followUpsLoadStartRef.current = null;
+    followUpsResolvedRef.current = false;
+    followUpsAnimateRef.current = false;
   }
 
   if (thread?.isLoading) sessionStartedRef.current = true;
@@ -189,6 +199,24 @@ const MessageList: React.FC<MessageListProps> = ({
     historicalRunKeysRef.current = new Set(
       items.filter((i) => i.kind === "run").map((i) => (i as any).key),
     );
+  }
+
+  // Засекаем старт генерации; когда подсказки приехали — решаем, анимировать
+  // ли. Анимацию пропускаем, если это первая загрузка страницы (сессия ещё не
+  // началась) и подсказки приехали быстрее 2с — тогда они появляются вместе со
+  // страницей и не должны перетягивать внимание.
+  if (isFollowUpsLoading) {
+    followUpsResolvedRef.current = false;
+    if (followUpsLoadStartRef.current === null) {
+      followUpsLoadStartRef.current = Date.now();
+    }
+  } else if (followUpSuggestions.length > 0 && !followUpsResolvedRef.current) {
+    followUpsResolvedRef.current = true;
+    const start = followUpsLoadStartRef.current;
+    const elapsed = start != null ? Date.now() - start : 0;
+    const isFirstLoadFast = !sessionStartedRef.current && elapsed < 2000;
+    followUpsAnimateRef.current = !isFirstLoadFast;
+    followUpsLoadStartRef.current = null;
   }
 
   return (
@@ -250,31 +278,34 @@ const MessageList: React.FC<MessageListProps> = ({
             thread={thread}
             resultsById={resultsById}
             isLastAi={item.message.id === lastAiId}
+            isLast={idx === items.length - 1}
             hideToolCalls={item.hideToolCalls}
           />
         );
       })}
-      {canShowFollowUps && (
-        <div className="px-[34px] py-2">
-          {isFollowUpsLoading ? (
-            <div className="inline-flex items-center gap-2 text-sm text-muted-foreground animate-pulse">
-              <Loader2 className="size-4 animate-spin" />
-              Генерируем подсказки...
-            </div>
-          ) : followUpSuggestions.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {followUpSuggestions.map((item, idx) => (
-                <button
-                  key={`${item.text}-${idx}`}
-                  type="button"
-                  onClick={() => onSelectSuggestion?.(item)}
-                  className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/90 transition-colors hover:bg-muted cursor-pointer"
-                >
-                  {getPromptSuggestionTitle(item)}
-                </button>
-              ))}
-            </div>
-          ) : null}
+      {canShowFollowUps && followUpSuggestions.length > 0 && (
+        <div className="px-[20px]">
+          <motion.div
+            className="flex flex-wrap items-center gap-2"
+            initial={
+              followUpsAnimateRef.current
+                ? { opacity: 0, filter: "blur(8px)" }
+                : false
+            }
+            animate={{ opacity: 1, filter: "blur(0px)" }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+          >
+            {followUpSuggestions.map((item, idx) => (
+              <button
+                key={`${item.text}-${idx}`}
+                type="button"
+                onClick={() => onSelectSuggestion?.(item)}
+                className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/90 transition-colors hover:bg-muted cursor-pointer"
+              >
+                {getPromptSuggestionTitle(item)}
+              </button>
+            ))}
+          </motion.div>
         </div>
       )}
       <ChatError thread={thread} />

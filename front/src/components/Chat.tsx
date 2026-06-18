@@ -136,6 +136,37 @@ const Chat: React.FC<ChatProps> = ({
   onRequestReloadRef.current = onRequestReload;
   // Последний ран, который мы уже учли (стримили / приджойнились / он в state).
   const lastSeenRunIdRef = useRef<string | null>(null);
+  const localStreamRef = useRef<{
+    wasLoading: boolean;
+    finishedAt: number;
+    messagesLength: number;
+    lastMessageId: string | null;
+  }>({
+    wasLoading: false,
+    finishedAt: 0,
+    messagesLength: 0,
+    lastMessageId: null,
+  });
+
+  useEffect(() => {
+    const isLoading = Boolean(thread.isLoading);
+    const lastMessage = stableMessages.at(-1) as any;
+    if (localStreamRef.current.wasLoading && !isLoading) {
+      localStreamRef.current = {
+        wasLoading: false,
+        finishedAt: Date.now(),
+        messagesLength: stableMessages.length,
+        lastMessageId: lastMessage?.id ?? null,
+      };
+      return;
+    }
+
+    localStreamRef.current = {
+      ...localStreamRef.current,
+      wasLoading: isLoading,
+    };
+  }, [thread.isLoading, stableMessages]);
+
   useEffect(() => {
     if (!threadId) return;
     lastSeenRunIdRef.current = null;
@@ -185,6 +216,21 @@ const Chat: React.FC<ChatProps> = ({
           ? new Date(latest.updated_at).getTime()
           : 0;
         if (finishedAt && Date.now() - finishedAt < REPLAY_WINDOW_MS) {
+          const localStream = localStreamRef.current;
+          const currentLastMessageId =
+            ((threadRef.current.messages?.at(-1) as any)?.id as
+              | string
+              | undefined) ?? null;
+          const isLocalStreamReplay =
+            localStream.finishedAt > 0 &&
+            Math.abs(localStream.finishedAt - finishedAt) < 15000 &&
+            localStream.messagesLength === threadRef.current.messages.length &&
+            localStream.lastMessageId === currentLastMessageId;
+          // The local stream already merged this run into state; replaying it
+          // would only toggle SDK loading state and rerender the message list.
+          if (isLocalStreamReplay) {
+            return;
+          }
           // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
           threadRef.current.joinStream(latest.run_id);
         } else {
