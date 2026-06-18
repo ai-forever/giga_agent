@@ -99,6 +99,7 @@ class TelegramMessageHandlers:
         logger.info("Telegram message from chat %s: %s", chat_id, text[:100])
         request_start = datetime.now(timezone.utc)
 
+        client = None
         try:
             session_factory = await get_session_factory()
 
@@ -339,6 +340,9 @@ class TelegramMessageHandlers:
                     )
                 except Exception:
                     pass
+        finally:
+            if client is not None:
+                await client.aclose()
 
 
 def _has_supported_attachment(message: tg_types.Message) -> bool:

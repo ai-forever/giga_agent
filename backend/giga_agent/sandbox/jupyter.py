@@ -89,6 +89,14 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             pass
         return False
 
+    async def _before_kernel_create(self, session: aiohttp.ClientSession) -> None:
+        """Hook invoked right before a brand new kernel is created."""
+        del session
+
+    async def _on_kernel_active(self, kernel_id: str) -> None:
+        """Hook invoked whenever a kernel is created or reused."""
+        del kernel_id
+
     async def _ensure_kernel(self) -> None:
         async with aiohttp.ClientSession(
             **self._get_client_session_kwargs()
@@ -101,11 +109,13 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                         headers=self._get_headers(),
                     ) as r:
                         if r.status == 200:
+                            await self._on_kernel_active(self._kernel_id)
                             return
                 except Exception:
                     pass
 
             # Create new kernel
+            await self._before_kernel_create(session)
             payload = self._get_kernel_request_payload()
             async with session.post(
                 f"{self.base_url}/api/kernels",
@@ -115,6 +125,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                 r.raise_for_status()
                 data = await r.json()
                 self._kernel_id = data["id"]
+            await self._on_kernel_active(self._kernel_id)
 
     async def run_code(
         self,

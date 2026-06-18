@@ -362,6 +362,27 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     def _get_kernel_request_payload(self) -> dict[str, Any] | None:
         return {"name": LOCAL_JUPYTER_KERNEL_NAME}
 
+    async def _before_kernel_create(self, session: Any) -> None:
+        del session
+        if self.owner_id is None:
+            return
+        limit = get_settings().giga_agent_local_jupyter_max_kernels_per_user
+        if limit <= 0:
+            return
+        await get_local_jupyter_server_manager().enforce_kernel_limit(
+            owner_id=self.owner_id,
+            limit=limit,
+            base_url=self.base_url,
+            token=self._token,
+        )
+
+    async def _on_kernel_active(self, kernel_id: str) -> None:
+        if self.owner_id is None:
+            return
+        get_local_jupyter_server_manager().note_kernel_use(
+            self.owner_id, kernel_id
+        )
+
     async def run_code(
         self,
         code: str,

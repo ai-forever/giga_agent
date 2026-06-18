@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Minus, Check, Loader, X } from "lucide-react";
+import { Plus, Minus, Ban, Check, Loader, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -70,6 +70,9 @@ const DeepResearchToolCall: React.FC<{
   onOpenAttachment: (att: any) => void;
 }> = ({ toolCall, resultMessage, isStreaming, thread, onOpenAttachment }) => {
   const inFlight = isStreaming && !resultMessage;
+  const isStopped =
+    !!(resultMessage?.additional_kwargs as any)?.stopped_by_user ||
+    (!resultMessage && !inFlight && !thread?.interrupt);
   const attachments: any[] =
     (resultMessage?.additional_kwargs?.tool_attachments as any[]) || [];
 
@@ -131,11 +134,17 @@ const DeepResearchToolCall: React.FC<{
             size={14}
             className="shrink-0 animate-spin text-muted-foreground"
           />
+        ) : isStopped ? (
+          <Ban size={14} className="shrink-0 text-muted-foreground" />
         ) : (
           <Check size={14} className="shrink-0 text-emerald-500" />
         )}
         <span className="shrink-0 whitespace-nowrap font-medium text-foreground">
-          {inFlight ? "Глубокое исследование" : "Исследование завершено"}
+          {inFlight
+            ? "Глубокое исследование"
+            : isStopped
+              ? "Исследование остановлено"
+              : "Исследование завершено"}
         </span>
         {topic && (
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -686,6 +695,13 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
   const hasResult = !!resultMessage;
   const isError = hasResult && (resultMessage as any)?.status === "error";
   const inFlight = isStreaming && !hasResult;
+  // Остановлено пользователем: либо бэк уже вставил стаб с маркером, либо
+  // вызов остался без результата после стопа (ран больше не стримится).
+  // При активном interrupt вызов без результата ждёт approve, а не отменён.
+  const isStopped = !!(resultMessage?.additional_kwargs as any)
+    ?.stopped_by_user;
+  const isCancelled =
+    isStopped || (!hasResult && !inFlight && !thread?.interrupt);
   const toolDisplay = getToolDisplay(toolCall);
 
   const attachments: any[] =
@@ -789,6 +805,8 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
         <span className="ml-2 flex h-5 w-5 shrink-0 items-center justify-center">
           {inFlight ? (
             <Loader size={14} className="animate-spin text-muted-foreground" />
+          ) : isCancelled ? (
+            <Ban size={14} className="text-muted-foreground" />
           ) : isError ? (
             <X size={14} className="text-rose-500" />
           ) : hasResult ? (
@@ -844,7 +862,7 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
             {renderArgsBlock(toolCall)}
           </div>
 
-          {hasResult && (
+          {hasResult && !isStopped && (
             <div>
               <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                 результат
@@ -884,6 +902,11 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
       const resultMessage = resultsById[tc.id];
       const resultId = resultMessage?.id ?? tc.id;
       if (!resultMessage || notifiedDeepResearchIdsRef.current.has(resultId)) {
+        continue;
+      }
+      // Стаб «остановлено пользователем» — не повод слать нотификацию.
+      if ((resultMessage.additional_kwargs as any)?.stopped_by_user) {
+        notifiedDeepResearchIdsRef.current.add(resultId);
         continue;
       }
       notifiedDeepResearchIdsRef.current.add(resultId);

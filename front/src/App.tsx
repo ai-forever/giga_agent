@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./components/Chat";
 import { SettingsProvider, useSettings } from "./components/Settings.tsx";
 import {
@@ -76,7 +76,7 @@ const InnerApp: React.FC = () => {
     // key здесь, <Chat> успевает перемонтироваться, пока маршрут ещё
     // /threads/:id, и новый useStream грузит state предыдущего треда.
     if (currentThreadRef.current) {
-      currentThreadRef.current.stop();
+      // currentThreadRef.current.stop();
     }
   }, []);
 

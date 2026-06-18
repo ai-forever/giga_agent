@@ -27,7 +27,7 @@ from giga_agent.modules.deep_research.nodes.reflect import (
 )
 from giga_agent.modules.deep_research.nodes.search import search_node
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 
 
 workflow = StateGraph(DeepResearchState, ConfigSchema)
@@ -76,52 +76,52 @@ async def run_deep_research(
         max_iterations: Максимум итераций цикла search→read→reflect. По умолчанию 3.
         thread_id: Предыдущий thread_id, если пользователь хочет продолжить исследование.
     """
-    client = get_client(runtime.config)
-    if not thread_id:
-        thread = await client.threads.create()
-        thread_id = thread["thread_id"]
-
     budget = default_budget()
     if max_iterations is not None:
         budget["max_iterations"] = int(max_iterations)
 
-    push_ui_message(
-        "agent_execution",
-        {
-            "agent": "run_deep_research",
-            "node": "__start__",
-            "tool_call_id": runtime.tool_call_id,
-        },
-    )
-
     result_state: dict = {}
-    async for chunk in client.runs.stream(
-        thread_id=thread_id,
-        if_not_exists="create",
-        assistant_id="deep_research",
-        input={
-            "task": research_topic,
-            "iteration": 0,
-            "budget": budget,
-        },
-        stream_mode=["values", "updates"],
-        on_disconnect="cancel",
-    ):
-        if chunk.event == "values":
-            result_state = chunk.data
-        elif chunk.event == "updates":
-            for node_name, node_data in chunk.data.items():
-                push_ui_message(
-                    "agent_execution",
-                    {
-                        "agent": "run_deep_research",
-                        "node": node_name,
-                        "tool_call_id": runtime.tool_call_id,
-                        "plan": (node_data or {}).get("plan"),
-                        "sources": (node_data or {}).get("sources"),
-                        "iteration": (node_data or {}).get("iteration"),
-                    },
-                )
+    async with client_session(runtime.config) as client:
+        if not thread_id:
+            thread = await client.threads.create()
+            thread_id = thread["thread_id"]
+
+        push_ui_message(
+            "agent_execution",
+            {
+                "agent": "run_deep_research",
+                "node": "__start__",
+                "tool_call_id": runtime.tool_call_id,
+            },
+        )
+
+        async for chunk in client.runs.stream(
+            thread_id=thread_id,
+            if_not_exists="create",
+            assistant_id="deep_research",
+            input={
+                "task": research_topic,
+                "iteration": 0,
+                "budget": budget,
+            },
+            stream_mode=["values", "updates"],
+            on_disconnect="cancel",
+        ):
+            if chunk.event == "values":
+                result_state = chunk.data
+            elif chunk.event == "updates":
+                for node_name, node_data in chunk.data.items():
+                    push_ui_message(
+                        "agent_execution",
+                        {
+                            "agent": "run_deep_research",
+                            "node": node_name,
+                            "tool_call_id": runtime.tool_call_id,
+                            "plan": (node_data or {}).get("plan"),
+                            "sources": (node_data or {}).get("sources"),
+                            "iteration": (node_data or {}).get("iteration"),
+                        },
+                    )
 
     report_raw = result_state.get("report")
     if not report_raw:

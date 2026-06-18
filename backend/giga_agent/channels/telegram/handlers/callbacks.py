@@ -54,6 +54,7 @@ class TelegramCallbackHandlers:
         user_id = self.bot_row.user_id
         request_start = datetime.now(timezone.utc)
 
+        client = None
         try:
             session_factory = await get_session_factory()
             await self.access_service.register_contact(message)
@@ -131,3 +132,6 @@ class TelegramCallbackHandlers:
                 await callback.answer("Не удалось обработать нажатие", show_alert=True)
             except Exception:
                 pass
+        finally:
+            if client is not None:
+                await client.aclose()

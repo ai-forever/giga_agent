@@ -18,7 +18,7 @@ from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
-from giga_agent.utils.langgraph_sdk import get_client, get_user_id_from_config
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 from giga_agent.utils.thread_metadata import (
     get_thread_metadata,
     update_thread_metadata,

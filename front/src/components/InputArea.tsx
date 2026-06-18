@@ -17,6 +17,7 @@ import {
   Paperclip,
   Plus,
   Send,
+  Square,
   Wrench,
   X,
 } from "lucide-react";
@@ -161,8 +162,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const textRef = useRef<HTMLTextAreaElement>(null);
   const { uploads, uploadFiles, removeUpload, resetUploads } = useFileUpload();
   const { selected, clear } = useSelectedAttachments();
-  const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [deepResearchForced, setDeepResearchForced] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
@@ -762,33 +763,25 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     [mcpTools, setMessage, handleContinueThread, message, thread?.interrupt],
   );
 
+  // Сохранение частичного AI-ответа живёт в onStop у useStream (Chat.tsx):
+  // только там доступны финальные values стрима — любой снимок/реф на этой
+  // стороне отстаёт от экрана на последние чанки.
+  // Синхронный гард от даблклика: setIsStopping применяется только на
+  // следующем рендере, и два быстрых клика могут успеть пройти оба.
+  const stopRequestedRef = useRef(false);
+  const handleStop = useCallback(() => {
+    if (isStopping || stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
+    setIsStopping(true);
+    void thread?.stop();
+  }, [isStopping, thread]);
+
   useEffect(() => {
-    const canAutoApprove =
-      !!thread?.interrupt &&
-      ["approve", "tool_call"].includes(thread?.interrupt.value?.type ?? "") &&
-      autoApprove;
-
-    const interruptKey = thread?.interrupt?.value;
-
-    if (!canAutoApprove) {
-      autoApproveLockRef.current = null;
-      return;
+    if (!thread?.isLoading) {
+      setIsStopping(false);
+      stopRequestedRef.current = false;
     }
-
-    if (autoApproveLockRef.current === interruptKey) return;
-
-    if (thread?.isLoading || isMCPLoading) return;
-
-    autoApproveLockRef.current = interruptKey;
-    void handleContinue("approve");
-  }, [
-    thread?.interrupt,
-    thread?.interrupt?.value,
-    thread?.isLoading,
-    isMCPLoading,
-    autoApprove,
-    handleContinue,
-  ]);
+  }, [thread?.isLoading]);
 
   const handleSend = () => {
     if (!message.trim() && uploads.length === 0) return;
@@ -893,6 +886,9 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     };
   }, [uploadFiles, isBusy]);
 
+  const showStopButton =
+    !!thread?.isLoading && !thread?.interrupt && !isMCPLoading;
+
   const showMicButton =
     sttSource !== null &&
     !isRecording &&
@@ -941,6 +937,17 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
           className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center outline-hidden"
         >
           <Loader2 className="animate-spin" />
+        </button>
+      ) : showStopButton ? (
+        <button
+          type="button"
+          onClick={handleStop}
+          disabled={isStopping}
+          title="Остановить"
+          aria-label="Остановить"
+          className="w-7 h-7 p-0 rounded-full bg-foreground text-background flex items-center justify-center transition-colors cursor-pointer outline-hidden hover:bg-foreground/85 disabled:opacity-67"
+        >
+          <Square className="fill-current size-3" />
         </button>
       ) : showMicButton ? (
         <button

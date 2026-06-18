@@ -8,6 +8,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
+import { Client } from "@langchain/langgraph-sdk";
+import { persistStoppedAiMessage } from "@/lib/stopped-message.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
@@ -45,7 +47,7 @@ const Chat: React.FC<ChatProps> = ({
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
     fetchStateHistory: false,
-    throttle: 75,
+    throttle: 10,
     apiKey: token,
     defaultHeaders: {
       Authorization: `Bearer ${token}`,
@@ -66,6 +68,39 @@ const Chat: React.FC<ChatProps> = ({
     },
     onCheckpointEvent: (data) => {
       checkpointEventRef.current?.(data);
+    },
+    // После стопа в values может остаться interrupt отменённого рана —
+    // гасим его, чтобы не показывался approve-UI (mutate мержит поверхностно,
+    // поэтому пустой массив, а не удаление ключа).
+    // Заодно помечаем AI-сообщения rendered: «печатная машинка» в Message.tsx
+    // допечатывает буфер с задержками и без этого продолжает «стримить» текст
+    // после остановки; rendered заставляет дорисовать хвост мгновенно.
+    onStop: ({ mutate }) => {
+      mutate((prev) => {
+        const messages = (prev.messages ?? []).map((m) =>
+          m.type === "ai" &&
+          !(m.additional_kwargs as Record<string, unknown> | undefined)
+            ?.rendered
+            ? {
+                ...m,
+                additional_kwargs: { ...m.additional_kwargs, rendered: true },
+              }
+            : m,
+        );
+        // Частичный AI-ответ сохраняем именно отсюда: prev — самые свежие
+        // values стрима (то, что на экране); снимок в обработчике клика
+        // отстаёт на чанки, прилетевшие за время отмены. Вызов идемпотентен:
+        // persistStoppedAiMessage не пишет, если сообщение уже в чекпоинте.
+        const tail = messages.at(-1);
+        if (tail?.type === "ai" && threadId) {
+          void persistStoppedAiMessage(
+            threadRef.current.client as unknown as Client,
+            threadId,
+            tail,
+          );
+        }
+        return { ...prev, __interrupt__: [], messages };
+      });
     },
   }) as unknown as UseStream<GraphState>;
   hideThrowingThreadGetters(thread);
@@ -312,6 +347,18 @@ const Chat: React.FC<ChatProps> = ({
 
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
+
+  // Конец рана (стрим закрылся): aegra финализирует тред в idle до закрытия
+  // SSE (run_executor: finalize_run → _signal_end_event), поэтому сразу
+  // обновляем сайдбар — индикатор активного треда гаснет, не дожидаясь
+  // 20-секундного поллинга.
+  const prevRunActiveRef = useRef(thread.isLoading);
+  useEffect(() => {
+    if (prevRunActiveRef.current && !thread.isLoading) {
+      refreshThreads();
+    }
+    prevRunActiveRef.current = thread.isLoading;
+  }, [thread.isLoading]);
 
   useEffect(() => {
     if (previousThreadLoadingRef.current && !isThreadLoading) {

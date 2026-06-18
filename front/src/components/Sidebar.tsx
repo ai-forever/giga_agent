@@ -1129,6 +1129,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                     const isUnseen =
                       typeof updatedAt === "string" &&
                       (seenAt === undefined || updatedAt > seenAt);
+                    const isBusy = status === "busy";
                     const needsInput =
                       !isActive && status === "interrupted" && isUnseen;
                     const hasUpdate = !isActive && !needsInput && isUnseen;
@@ -1160,21 +1161,31 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                             />
                           </span>
                         )}
-                        {(needsInput || hasUpdate) && (
+                        {isBusy ? (
                           <span
                             className="shrink-0 flex items-center justify-center"
-                            title={indicatorTitle}
-                            aria-label={indicatorTitle}
+                            title="Тред выполняется"
+                            aria-label="Тред выполняется"
                           >
-                            <span
-                              className={[
-                                "inline-block h-2 w-2 rounded-full",
-                                needsInput
-                                  ? "bg-amber-500 animate-pulse"
-                                  : "bg-sky-500",
-                              ].join(" ")}
-                            />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-500" />
                           </span>
+                        ) : (
+                          (needsInput || hasUpdate) && (
+                            <span
+                              className="shrink-0 flex items-center justify-center"
+                              title={indicatorTitle}
+                              aria-label={indicatorTitle}
+                            >
+                              <span
+                                className={[
+                                  "inline-block h-2 w-2 rounded-full",
+                                  needsInput
+                                    ? "bg-amber-500 animate-pulse"
+                                    : "bg-sky-500",
+                                ].join(" ")}
+                              />
+                            </span>
+                          )
                         )}
                         <span
                           className={[

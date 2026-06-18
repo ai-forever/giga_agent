@@ -73,7 +73,7 @@ if TYPE_CHECKING:
 
     from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.core.agent.utils import merge_state
+from giga_agent.core.agent.utils import merge_state, reduce_updates
 
 logger = get_logger(__name__)
 
@@ -775,6 +775,7 @@ def create_graph(
             resolver = await RuntimeResolver.create(config)
             resolver.inject(config)
 
+            updates: list[dict[str, Any]] = []
             for m in middleware:
                 if getattr(m.__class__, callback_type) is not getattr(
                     AgentMiddleware, callback_type
@@ -786,12 +787,15 @@ def create_graph(
                         else None
                     )
                     if async_callback is not None:
-                        state = merge_state(
-                            state,
-                            await async_callback(state, runtime, config),
-                            AgentState,
-                        )
-            return state
+                        update = await async_callback(state, runtime, config)
+                        if update:
+                            updates.append(update)
+                            state = merge_state(state, update, AgentState)
+            # Return only the accumulated deltas: returning the full merged
+            # state would put existing message ids back on their old channel
+            # positions and a RemoveMessage would never reach the channel,
+            # which breaks the dangling tool_calls repair reordering.
+            return reduce_updates(updates, AgentState)
 
         return callback_node
 
