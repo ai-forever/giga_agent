@@ -1,10 +1,9 @@
-name: Check docs match PyPI package
+name: Check docs contracts
 
-# Документация в docs-site/ описывает конкретную версию giga-agent из PyPI
-# (docs-site/docs-version.json), а не текущий код репозитория. Этот workflow
-# скачивает именно эту версию пакета и сверяет с ней ключевые утверждения
-# документации. Падение означает: пора обновлять документацию под новый релиз
-# либо в документацию закралась ошибка.
+# Документация хранит две линии: стабильную версию giga-agent из PyPI
+# (docs-site/docs-version.json) и текущую версию main через переключатель версий
+# Docusaurus. Этот workflow сверяет стабильные страницы с PyPI, current/main
+# страницы с исходниками репозитория, матрицу RU/EN и docs-only ограничения.
 
 on:
   push:
@@ -12,10 +11,12 @@ on:
     paths:
       - 'docs-site/**'
       - '.github/workflows/check-docs-version.yml'
+      - '.github/workflows/deploy-docs.yml'
   pull_request:
     paths:
       - 'docs-site/**'
       - '.github/workflows/check-docs-version.yml'
+      - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
 jobs:
@@ -24,11 +25,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Install docs dependencies
+        working-directory: docs-site
+        run: npm ci
+
+      - name: Typecheck docs site
+        working-directory: docs-site
+        run: npm run typecheck
 
       - name: Read documented version
         id: ver
@@ -46,3 +64,15 @@ jobs:
 
       - name: Check docs contract against package
         run: python docs-site/scripts/check_pypi_contract.py _pkg/ext
+
+      - name: Check current/main docs contract against repository
+        run: python docs-site/scripts/check_current_contract.py .
+
+      - name: Check RU/EN and stable/current docs matrix
+        run: python docs-site/scripts/check_docs_matrix.py docs-site
+
+      - name: Check docs language quality
+        run: python docs-site/scripts/check_docs_quality.py docs-site
+
+      - name: Check non-goals and Pages workflow
+        run: python docs-site/scripts/check_non_goals.py .

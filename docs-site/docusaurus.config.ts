@@ -35,7 +35,11 @@ const config: Config = {
 
   i18n: {
     defaultLocale: 'ru',
-    locales: ['ru'],
+    locales: ['ru', 'en'],
+    localeConfigs: {
+      ru: {label: 'Русский', htmlLang: 'ru'},
+      en: {label: 'English', htmlLang: 'en'},
+    },
   },
 
   presets: [
@@ -45,6 +49,18 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl: 'https://github.com/trashchenkov/giga_agent/tree/main/docs-site/',
+          lastVersion: '0.1.9',
+          versions: {
+            current: {
+              label: 'main',
+              path: 'next',
+              banner: 'unreleased',
+            },
+            '0.1.9': {
+              label: '0.1.9 (PyPI)',
+              banner: 'none',
+            },
+          },
         },
         blog: false,
         theme: {
@@ -58,7 +74,7 @@ const config: Config = {
     image: 'img/giga-agent-icon.png',
     announcementBar: {
       id: `docs-version-${DOCS_VERSION}`,
-      content: `Эта документация соответствует пакету <b>giga-agent ${DOCS_VERSION}</b> из PyPI. Код в репозитории может уходить вперёд релиза.`,
+      content: `По умолчанию открыта стабильная документация <b>giga-agent ${DOCS_VERSION}</b> из PyPI. Актуальная документация репозитория доступна через переключатель версий.`,
       backgroundColor: '#1f2937',
       textColor: '#ffffff',
       isCloseable: true,
@@ -83,6 +99,12 @@ const config: Config = {
         {to: '/docs/user-guide/chat', label: 'Пользователю', position: 'left'},
         {to: '/docs/developer/architecture', label: 'Разработчикам', position: 'left'},
         {to: '/docs/operations/configuration', label: 'Эксплуатация', position: 'left'},
+        {
+          type: 'docsVersionDropdown',
+          position: 'right',
+          dropdownActiveClassDisabled: true,
+        },
+        {type: 'localeDropdown', position: 'right'},
         {
           href: 'https://github.com/trashchenkov/giga_agent',
           label: 'GitHub',

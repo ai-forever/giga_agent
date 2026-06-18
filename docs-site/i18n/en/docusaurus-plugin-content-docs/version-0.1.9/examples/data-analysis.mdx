@@ -1,0 +1,24 @@
+import ScreenshotCarousel from '@site/src/components/ScreenshotCarousel';
+
+# Table and Excel analysis
+
+This scenario shows a user uploading a CSV or XLSX file and asking GigaAgent to build summaries, tables, and charts through Python tools.
+
+## Requirements
+
+- Running GigaAgent.
+- Configured language model connector.
+- Available REPL/Python sandbox.
+- A CSV or XLSX file without secrets or personal data.
+
+## Prompt example
+
+```text
+I uploaded an Excel file with sales. Analyze it: count rows and columns, find top regions by revenue, build top-5 categories, and give three practical conclusions.
+```
+
+## Expected result
+
+The agent should inspect the file structure, show used columns, build a summary table, return one or more charts, and finish with concise business conclusions.
+
+<ScreenshotCarousel items={[{src:'/img/examples/data-analysis/excel-questions.png',title:'Excel questions',caption:'Historical run with questions to an uploaded spreadsheet.'},{src:'/img/examples/data-analysis/excel-breakdown.png',title:'Summaries and groups',caption:'Example tabular answer after data analysis.'},{src:'/img/examples/data-analysis/sp500-chart.png',title:'CSV chart',caption:'Short scenario with CSV upload and chart generation.'}]} />

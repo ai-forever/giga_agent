@@ -11,7 +11,13 @@
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "check:stable": "python3 scripts/check_pypi_contract.py ../_pkg/ext",
+    "check:current": "python3 scripts/check_current_contract.py ..",
+    "check:matrix": "python3 scripts/check_docs_matrix.py .",
+    "check:quality": "python3 scripts/check_docs_quality.py .",
+    "check:non-goals": "python3 scripts/check_non_goals.py ..",
+    "check:docs": "npm run typecheck && npm run check:current && npm run check:matrix && npm run check:quality && npm run check:non-goals"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.1",

@@ -1,0 +1,24 @@
+import ScreenshotCarousel from '@site/src/components/ScreenshotCarousel';
+
+# Photo to Lean Canvas
+
+This multimodal scenario turns a product image into structured business hypotheses.
+
+## Requirements
+
+- Running GigaAgent.
+- Configured language model connector.
+- Vision-capable model or image analysis runtime.
+- An image that the user is allowed to use.
+
+## Prompt example
+
+```text
+I uploaded a product photo. Analyze it and create a Lean Canvas: product, audience, pains, channels, and risks.
+```
+
+## Expected result
+
+The answer should separate visible observations from assumptions, then provide a Lean Canvas table and validation hypotheses.
+
+<ScreenshotCarousel items={[{src:'/img/examples/image-to-business-canvas/lean-canvas-table.png',title:'Lean Canvas from image',caption:'Historical structured output after image analysis.'},{src:'/img/examples/image-to-business-canvas/lean-canvas-notes.png',title:'Hypotheses and next steps',caption:'Follow-up business recommendations.'}]} />

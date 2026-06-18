@@ -1,11 +1,11 @@
 ---
 title: "Архитектура"
-description: "Как устроены серверная часть, веб-интерфейс, граф выполнения, модули и программный интерфейс GigaAgent 0.1.9."
+description: "Как устроены серверная часть, веб-интерфейс, граф выполнения, модули и программный интерфейс GigaAgent в текущей ветке main."
 ---
 
 # Архитектура
 
-GigaAgent `0.1.9` состоит из серверной части на FastAPI, графа выполнения LangGraph, модульной системы и встроенного веб-интерфейса React.
+GigaAgent из текущей ветки `main` состоит из серверной части на FastAPI, графа выполнения LangGraph, модульной системы и встроенного веб-интерфейса React.
 
 ## Слои
 
@@ -65,7 +65,7 @@ GigaAgent `0.1.9` состоит из серверной части на FastAPI
 giga_agent.agents.run:graph:app
 ```
 
-Версия `0.1.9` регистрирует основной граф `giga_agent` и подграфы субагентов совместимости: `landing`, `presentation`, `meme`, `lean_canvas`, `podcast`.
+Текущая ветка `main` регистрирует основной граф `giga_agent`, подграф `deep_research` из `DeepResearchModule` и подграфы субагентов совместимости: `landing`, `presentation`, `meme`, `lean_canvas`, `podcast`.
 
 ## Внутренние и внешние маршруты
 
@@ -76,7 +76,8 @@ giga_agent.agents.run:graph:app
 | Получить токен | `/agent/auth/token` | `/api/agent/auth/token` |
 | Файлы | `/agent/files` | `/api/agent/files` |
 | Коллекции RAG | `/agent/rag/collections` | `/api/agent/rag/collections` |
-| Память Mem0 | `/agent/mem_zero_memory/memories` | `/api/agent/mem_zero_memory/memories` |
+| Память | `/agent/memory/...` | `/api/agent/memory/...` |
+| Навыки агента | `/agent/skills/...` | `/api/agent/skills/...` |
 
 ## Связь с веб-интерфейсом
 

@@ -1,0 +1,24 @@
+import ScreenshotCarousel from '@site/src/components/ScreenshotCarousel';
+
+# Presentation work
+
+This scenario shows GigaAgent reviewing a presentation, suggesting a better structure, and creating an updated `.pptx` artifact with Python tools.
+
+## Requirements
+
+- Running GigaAgent.
+- Configured language model connector.
+- REPL/Python sandbox with presentation libraries such as `python-pptx`.
+- Source presentation without confidential data.
+
+## Prompt example
+
+```text
+I uploaded a product presentation. Improve it for an external demo: review the structure, propose a new slide order, strengthen the value proposition, create an updated PPTX, and list the changes.
+```
+
+## Expected result
+
+Expect a short audit, a change list, an updated `.pptx` artifact, and manual review recommendations.
+
+<ScreenshotCarousel items={[{src:'/img/examples/presentations/presentation-brief.png',title:'Presentation request',caption:'Historical run with source PPTX analysis.'},{src:'/img/examples/presentations/presentation-final-plan.png',title:'Improvement plan',caption:'Summary of changes and next steps.'}]} />

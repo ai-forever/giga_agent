@@ -1,11 +1,11 @@
 ---
 title: "Конфигурация"
-description: "Переменные окружения и значения по умолчанию для GigaAgent 0.1.9."
+description: "Переменные окружения и значения по умолчанию для GigaAgent в текущей ветке main."
 ---
 
 # Конфигурация
 
-Эта страница описывает основные переменные окружения пакета `giga-agent==0.1.9`. Названия переменных оставлены без перевода, потому что они используются в командах и файлах окружения.
+Эта страница описывает основные переменные окружения текущей ветки `main`. Названия переменных оставлены без перевода, потому что они используются в командах и файлах окружения.
 
 ## Базовые настройки
 
@@ -17,6 +17,7 @@ description: "Переменные окружения и значения по �
 | `GIGA_AGENT_UI` | `true` | Включает отдачу веб-интерфейса серверной частью. |
 | `GIGA_AGENT_UI_PREFIX` | пусто | Префикс веб-интерфейса, если он размещается не в корне. |
 | `GIGA_AGENT_RUNTIME` | `local` | Режим выполнения. |
+| `GIGA_AGENT_RUNTIME_LOCAL` | `false` | Признак локального режима для рабочей конфигурации интерфейса. |
 | `GIGA_AGENT_DATABASE_URL` | пусто | Адрес базы данных SQLAlchemy; без переопределения используется локальная SQLite-база. |
 | `GIGA_AGENT_PROJECT_ROOT` | `cwd/.giga_agent` | Рабочий каталог данных GigaAgent. |
 | `GIGA_AGENT_HOST_PROJECT_PATH` | пусто | Путь на машине для сценариев с локальной изолированной средой. |
@@ -33,19 +34,21 @@ description: "Переменные окружения и значения по �
 | Переменная | Значение по умолчанию | Назначение |
 |---|---:|---|
 | `GIGA_AGENT_TOOL_MAX_SIZE` | `25000` | Максимальный размер результата инструмента. |
+| `GIGA_AGENT_ENABLE_THINK_TOOL` | `true` | Включает служебный инструмент `think`, если выбранный провайдер разрешён. |
+| `GIGA_AGENT_ENABLE_MULTI_TOOL_USE` | `true` | Включает параллельное использование инструментов, если выбранный провайдер разрешён. |
 | `GIGA_AGENT_GIGACHAT_FROM_ENV` | `false` | Разрешает брать параметры GigaChat из окружения. |
 | `GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN` | `false` | Управляет кэшированием токена GigaChat. |
 
-## RAG и поиск
+## RAG, память и поиск
 
 | Переменная | Значение по умолчанию | Назначение |
 |---|---:|---|
 | `GIGA_AGENT_SCRAPER_JINA_BASE_URL` | `https://r.jina.ai/` | Базовый адрес сервиса чтения веб-страниц. |
-| `GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY` | `8` | Общий предел параллельных запросов чтения. |
+| `GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY` | `3` | Общий предел параллельных запросов чтения. |
 | `GIGA_AGENT_SCRAPER_DISABLED` | `false` | Отключает инструмент чтения веб-страниц. |
 | `QDRANT_URL` | внешний параметр | Адрес Qdrant для RAG и памяти. |
 | `GIGA_AGENT_QDRANT_POOL_SIZE` | пусто | Размер пула клиента Qdrant. |
-| `GIGA_AGENT_MEM0_QDRANT_ENSURE_CACHE` | `true` | Настройка кэша для памяти Mem0 и Qdrant. |
+| `GIGA_AGENT_MEM0_QDRANT_ENSURE_CACHE` | `true` | Настройка кэша для памяти и Qdrant. |
 
 ## Изолированная среда
 
@@ -53,13 +56,18 @@ description: "Переменные окружения и значения по �
 |---|---:|
 | `GIGA_AGENT_LOCAL_SANDBOX_ENABLED` | `true` |
 | `GIGA_AGENT_LOCAL_DOCKER_IMAGE` | `mikelarg/code-interpreter:0.0.5` |
-| `GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB` | `512` |
+| `GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB` | `2048` |
 | `GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB` | `512` |
-| `GIGA_AGENT_LOCAL_DOCKER_VCPU` | `0.3` |
+| `GIGA_AGENT_LOCAL_DOCKER_VCPU` | `1.0` |
 | `GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT` | `256` |
+| `GIGA_AGENT_LOCAL_DOCKER_SHM_SIZE_MB` | `128` |
 | `GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES` | `3` |
+| `GIGA_AGENT_LOCAL_DOCKER_READONLY_ROOTFS` | `false` |
 | `GIGA_AGENT_LOCAL_JUPYTER_STARTUP_TIMEOUT_SEC` | `20` |
 | `GIGA_AGENT_LOCAL_JUPYTER_GRACEFUL_SHUTDOWN_TIMEOUT_SEC` | `5` |
+| `GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_DEFAULT` | `false` |
+| `GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND` | `auto` |
+| `GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE` | `host` |
 
 Подробнее см. [Изолированная среда и безопасность](./sandbox-security.md).
 

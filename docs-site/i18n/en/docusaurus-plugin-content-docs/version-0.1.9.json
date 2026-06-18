@@ -1,0 +1,26 @@
+{
+  "version.label": {
+    "message": "0.1.9 (PyPI)",
+    "description": "The label for version 0.1.9"
+  },
+  "sidebar.docs.category.Быстрый старт": {
+    "message": "Quickstart",
+    "description": "The label for category 'Быстрый старт' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Примеры": {
+    "message": "Examples",
+    "description": "The label for category 'Примеры' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Руководство пользователя": {
+    "message": "User guide",
+    "description": "The label for category 'Руководство пользователя' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Разработчикам": {
+    "message": "Developers",
+    "description": "The label for category 'Разработчикам' in sidebar 'docs'"
+  },
+  "sidebar.docs.category.Эксплуатация": {
+    "message": "Operations",
+    "description": "The label for category 'Эксплуатация' in sidebar 'docs'"
+  }
+}

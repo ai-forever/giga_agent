@@ -1,0 +1,34 @@
+{
+  "title": {
+    "message": "GigaAgent",
+    "description": "The title in the navbar"
+  },
+  "logo.alt": {
+    "message": "GigaAgent",
+    "description": "The alt text of navbar logo"
+  },
+  "item.label.Документация": {
+    "message": "Docs",
+    "description": "Navbar item with label Документация"
+  },
+  "item.label.Быстрый старт": {
+    "message": "Quickstart",
+    "description": "Navbar item with label Быстрый старт"
+  },
+  "item.label.Пользователю": {
+    "message": "User guide",
+    "description": "Navbar item with label Пользователю"
+  },
+  "item.label.Разработчикам": {
+    "message": "Developers",
+    "description": "Navbar item with label Разработчикам"
+  },
+  "item.label.Эксплуатация": {
+    "message": "Operations",
+    "description": "Navbar item with label Эксплуатация"
+  },
+  "item.label.GitHub": {
+    "message": "GitHub",
+    "description": "Navbar item with label GitHub"
+  }
+}

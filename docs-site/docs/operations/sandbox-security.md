@@ -11,7 +11,7 @@ GigaAgent может выполнять код и команды через из
 
 ## Поддерживаемые варианты
 
-В версии `0.1.9` есть реализации для:
+В текущей ветке `main` есть реализации для:
 
 - локального Docker;
 - локального Jupyter;
@@ -28,9 +28,9 @@ GigaAgent может выполнять код и команды через из
 |---|---:|
 | `GIGA_AGENT_LOCAL_SANDBOX_ENABLED` | `true` |
 | `GIGA_AGENT_LOCAL_DOCKER_IMAGE` | `mikelarg/code-interpreter:0.0.5` |
-| `GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB` | `512` |
+| `GIGA_AGENT_LOCAL_DOCKER_MEMORY_LIMIT_MB` | `2048` |
 | `GIGA_AGENT_LOCAL_DOCKER_MEMORY_RESERVATION_MB` | `512` |
-| `GIGA_AGENT_LOCAL_DOCKER_VCPU` | `0.3` |
+| `GIGA_AGENT_LOCAL_DOCKER_VCPU` | `1.0` |
 | `GIGA_AGENT_LOCAL_DOCKER_PIDS_LIMIT` | `256` |
 | `GIGA_AGENT_LOCAL_DOCKER_SHM_SIZE_MB` | `128` |
 | `GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES` | `3` |
@@ -50,8 +50,11 @@ GigaAgent может выполнять код и команды через из
 | `GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH` | пусто |
 | `GIGA_AGENT_LOCAL_JUPYTER_RUNTIME_DIR` | пусто |
 | `GIGA_AGENT_LOCAL_JUPYTER_PYTHON_EXECUTABLE` | пусто |
+| `GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_DEFAULT` | `false` |
+| `GIGA_AGENT_LOCAL_JUPYTER_SECURE_EXEC_BACKEND` | `auto` |
+| `GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE` | `host` |
 
-Jupyter-среда устанавливается через дополнительный набор зависимостей `giga-agent[jupyter]`.
+Jupyter-среда устанавливается через дополнительный набор зависимостей `backend[jupyter]` при работе из репозитория.
 
 ## Очистка сред
 

@@ -1,27 +1,33 @@
 ---
 title: "Субагенты"
-description: "Субагенты совместимости и зарегистрированные подграфы GigaAgent 0.1.9."
+description: "Субагенты совместимости, глубокое исследование и зарегистрированные подграфы GigaAgent в текущей ветке main."
 ---
 
 # Субагенты
 
-В версии `0.1.9` субагенты находятся в модуле `giga_agent.modules.subagents_legacy`. Это модуль совместимости: он сохраняет существующие сценарии субагентов и их подграфы.
+В текущей ветке `main` есть два связанных механизма подграфов:
+
+- `DeepResearchModule` регистрирует подграф `deep_research` для глубокого исследования;
+- `SubAgentLegacyModule` хранит субагенты совместимости из `giga_agent.modules.subagents_legacy`.
 
 ## Зарегистрированные подграфы
 
-`SubAgentLegacyModule.get_subgraphs()` регистрирует:
+| Идентификатор | Источник | Точка входа |
+|---|---|---|
+| `deep_research` | `DeepResearchModule` | `giga_agent.modules.deep_research.graph:graph` |
+| `landing` | `SubAgentLegacyModule` | `giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph` |
+| `presentation` | `SubAgentLegacyModule` | `giga_agent.modules.subagents_legacy.agents.presentation_agent.graph:graph` |
+| `meme` | `SubAgentLegacyModule` | `giga_agent.modules.subagents_legacy.agents.meme_agent.graph:graph` |
+| `lean_canvas` | `SubAgentLegacyModule` | `giga_agent.modules.subagents_legacy.agents.lean_canvas:app` |
+| `podcast` | `SubAgentLegacyModule` | `giga_agent.modules.subagents_legacy.agents.podcast.graph:graph` |
 
-| Идентификатор | Точка входа |
-|---|---|
-| `landing` | `giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph` |
-| `presentation` | `giga_agent.modules.subagents_legacy.agents.presentation_agent.graph:graph` |
-| `meme` | `giga_agent.modules.subagents_legacy.agents.meme_agent.graph:graph` |
-| `lean_canvas` | `giga_agent.modules.subagents_legacy.agents.lean_canvas:app` |
-| `podcast` | `giga_agent.modules.subagents_legacy.agents.podcast.graph:graph` |
+## Инструменты `DeepResearchModule`
 
-## Инструменты модуля
+`run_deep_research` доступен, если у пользователя выбраны языковая модель и поисковый провайдер. Инструмент подходит для сложных вопросов, где нужен план исследования, поиск по нескольким источникам, чтение и итоговый отчёт с цитированием источников.
 
-Инструменты из `_get_tools()` становятся доступны при выполнении условий:
+## Инструменты модуля совместимости
+
+Инструменты из `_get_tools()` в `SubAgentLegacyModule` становятся доступны при выполнении условий:
 
 - `lean_canvas` — если есть языковая модель;
 - `city_explore` — если есть токен 2ГИС и выполнение идёт не из командной строки;
