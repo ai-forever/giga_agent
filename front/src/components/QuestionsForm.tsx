@@ -1,5 +1,11 @@
 import React, { useCallback, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Send, SkipForward } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Send,
+  SkipForward,
+} from "lucide-react";
 import type { Question, QuestionAnswer } from "../interfaces";
 
 interface AnswerState {
@@ -202,9 +208,7 @@ const QuestionsForm: React.FC<QuestionsFormProps> = ({
                   isSelected
                     ? "bg-primary/10 ring-1 ring-primary/30"
                     : "hover:bg-muted/40",
-                  isDisabled
-                    ? "opacity-60 cursor-default"
-                    : "cursor-pointer",
+                  isDisabled ? "opacity-60 cursor-default" : "cursor-pointer",
                 ].join(" ")}
               >
                 <Indicator type={question.type} checked={isSelected} />
@@ -229,9 +233,7 @@ const QuestionsForm: React.FC<QuestionsFormProps> = ({
               answer.otherSelected
                 ? "bg-primary/10 ring-1 ring-primary/30"
                 : "hover:bg-muted/40",
-              isDisabled
-                ? "opacity-60 cursor-default"
-                : "cursor-pointer",
+              isDisabled ? "opacity-60 cursor-default" : "cursor-pointer",
             ].join(" ")}
           >
             <Indicator type={question.type} checked={answer.otherSelected} />
