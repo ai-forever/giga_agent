@@ -64,7 +64,7 @@ export default function Home(): ReactNode {
         <div className="container">
           <img
             className={styles.heroLogo}
-            src={useBaseUrl('/img/giga-agent-logo-on-dark.png')}
+            src={useBaseUrl('/img/giga-agent-logo.svg')}
             alt="GigaAgent"
           />
           <Heading as="h1" className="hero__title">
