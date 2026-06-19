@@ -5,7 +5,7 @@ description: "Active modules and the BaseModule contract."
 
 # Modules
 
-:::info Current documentation
+:::info[Current documentation]
 This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
 :::
 

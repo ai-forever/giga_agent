@@ -14,6 +14,10 @@ ALLOWED_PREFIXES = (
 )
 FORBIDDEN_PREFIXES = ("backend/", "front/")
 FORBIDDEN_EXACT = {"README.md"}
+# Untracked build/download artifacts created by the docs-contracts workflow
+# (e.g. the `giga-agent` wheel extracted into `_pkg/` for the PyPI contract
+# check). They are not part of the change set and must not fail the scope guard.
+IGNORED_UNTRACKED_PREFIXES = ("_pkg/",)
 FORBIDDEN_MEDIA_PARTS = ("docs-site/static/img/examples/", "docs/images/examples/")
 
 
@@ -25,10 +29,29 @@ def fail(errors: list[str]) -> None:
     sys.exit(1)
 
 
+def base_ref(repo: pathlib.Path) -> str:
+    """Pick an existing base ref for the diff.
+
+    On a pull-request checkout the local `main` branch usually does not exist
+    (only `origin/main`), so prefer the remote-tracking ref and fall back to
+    the local branch for pushes/local runs.
+    """
+    for candidate in ("origin/main", "main"):
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", candidate],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return candidate
+    return "main"
+
+
 def changed_files(repo: pathlib.Path) -> list[str]:
     try:
         out = subprocess.check_output(
-            ["git", "diff", "--name-only", "main...HEAD"], cwd=repo, text=True
+            ["git", "diff", "--name-only", f"{base_ref(repo)}...HEAD"], cwd=repo, text=True
         )
         files = [line.strip() for line in out.splitlines() if line.strip()]
         # Include unstaged/staged files for local verification before commit.
@@ -41,6 +64,8 @@ def changed_files(repo: pathlib.Path) -> list[str]:
             path = line[3:].strip()
             if " -> " in path:
                 path = path.split(" -> ", 1)[1]
+            if path.startswith(IGNORED_UNTRACKED_PREFIXES):
+                continue
             if path and path not in files:
                 files.append(path)
         return files

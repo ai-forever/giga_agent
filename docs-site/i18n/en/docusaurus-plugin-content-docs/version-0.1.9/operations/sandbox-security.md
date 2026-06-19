@@ -5,7 +5,7 @@ description: "Trust boundaries for code and command execution in GigaAgent 0.1.9
 
 # Sandbox and security
 
-:::info Stable PyPI documentation
+:::info[Stable PyPI documentation]
 This page describes the published PyPI package `giga-agent==0.1.9`. For the repository state, switch to version **main**.
 :::
 

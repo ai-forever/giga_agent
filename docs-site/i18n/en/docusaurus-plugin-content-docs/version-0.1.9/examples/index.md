@@ -7,7 +7,7 @@ description: "Apply GigaAgent to typical tasks."
 
 This section shows how to use GigaAgent for files, charts, RAG, VK, images, and artifacts.
 
-:::info Historical screenshots
+:::info[Historical screenshots]
 Some pages include screenshots from older sanitized runs. They illustrate a similar result; they are not exact logs or promises about the current UI.
 :::
 

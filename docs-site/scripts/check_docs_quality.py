@@ -15,6 +15,13 @@ CONTRACT_DRIFT_RE = re.compile(
     re.I,
 )
 CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]{3,}")
+# Docusaurus 3 (micromark remark-directive) распознаёт заголовок admonition только
+# в скобочной форме `:::info[Заголовок]`. Форма через пробел `:::info Заголовок`
+# не парсится как директива и выводится как сырой текст на странице.
+ADMONITION_BAD_TITLE_RE = re.compile(
+    r"^:::(?:secondary|info|success|danger|note|tip|warning|important|caution)[ \t]+(?!\[)\S",
+    re.M,
+)
 GLOSSARY_RE = re.compile(r"\b(workflow|build|deploy|current-main|upcoming|runtime|sandbox|tools|frontend|backend|legacy)\b", re.I)
 FENCED_BLOCK_RE = re.compile(r"```.*?```", re.S)
 MARKDOWN_LINK_TARGET_RE = re.compile(r"\]\([^)]+\)")
@@ -101,6 +108,12 @@ def main() -> None:
             if str(rel).startswith("i18n/en/") and CYRILLIC_RE.search(text):
                 errors.append(f"Cyrillic prose remains in English locale file {rel}")
             if path.suffix in {".md", ".mdx"}:
+                for m in ADMONITION_BAD_TITLE_RE.finditer(text):
+                    line_no = text.count("\n", 0, m.start()) + 1
+                    errors.append(
+                        f"admonition title without brackets in {rel}:{line_no} "
+                        f"(use ':::type[Title]', not ':::type Title')"
+                    )
                 for link in MARKDOWN_LINK_RE.finditer(text):
                     target = link.group(1)
                     if is_local_docs_link(target) and not local_link_exists(path, target):
