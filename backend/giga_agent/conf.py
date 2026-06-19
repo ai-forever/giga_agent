@@ -97,6 +97,12 @@ class Settings(BaseSettings):
         None, alias="GIGA_AGENT_LANGGRAPH_API_URL"
     )
 
+    # Максимум одновременных активных (busy) тредов графа giga_agent на
+    # пользователя; <= 0 — лимит выключен.
+    giga_agent_max_active_threads_per_user: int = Field(
+        5, alias="GIGA_AGENT_MAX_ACTIVE_THREADS_PER_USER"
+    )
+
     giga_agent_langgraph_dev_uvicorn_app: str | None = Field(
         None, alias="GIGA_AGENT_LANGGRAPH_DEV_UVICORN_APP"
     )
@@ -202,6 +208,15 @@ class Settings(BaseSettings):
     )
     giga_agent_local_jupyter_network_mode: str = Field(
         "host", alias="GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE"
+    )
+    giga_agent_local_jupyter_max_kernels_per_user: int = Field(
+        5,
+        alias="GIGA_AGENT_LOCAL_JUPYTER_MAX_KERNELS_PER_USER",
+        description=(
+            "Maximum number of simultaneous local Jupyter kernels per user. "
+            "When the limit is reached the least-recently-used kernel of the "
+            "owner is evicted before a new one is created. 0 disables the limit."
+        ),
     )
 
     giga_agent_qdrant_pool_size: int | None = Field(

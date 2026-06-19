@@ -200,3 +200,54 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
             kind="local_jupyter",
             pid=13579,
         )
+
+    async def test_enforce_kernel_limit_evicts_lru_kernel(self):
+        manager = LocalJupyterServerManager()
+        manager.note_kernel_use("user-a", "k1")
+        manager.note_kernel_use("user-a", "k2")
+        # Reusing k1 makes it most-recently-used, so k2 is now the LRU.
+        manager.note_kernel_use("user-a", "k1")
+        deleted: list[str] = []
+        manager._delete_kernel = AsyncMock(  # type: ignore[method-assign]
+            side_effect=lambda *_a, **_k: deleted.append(_a[2])
+        )
+
+        await manager.enforce_kernel_limit(
+            owner_id="user-a",
+            limit=2,
+            base_url="http://127.0.0.1:8888",
+            token="token",
+        )
+
+        self.assertEqual(deleted, ["k2"])
+        self.assertEqual(list(manager._owner_kernels["user-a"].keys()), ["k1"])
+
+    async def test_enforce_kernel_limit_is_scoped_per_owner(self):
+        manager = LocalJupyterServerManager()
+        manager.note_kernel_use("user-a", "k1")
+        manager.note_kernel_use("user-b", "k2")
+        manager._delete_kernel = AsyncMock()  # type: ignore[method-assign]
+
+        await manager.enforce_kernel_limit(
+            owner_id="user-a",
+            limit=2,
+            base_url="http://127.0.0.1:8888",
+            token="token",
+        )
+
+        manager._delete_kernel.assert_not_awaited()
+
+    async def test_enforce_kernel_limit_noop_when_disabled(self):
+        manager = LocalJupyterServerManager()
+        manager.note_kernel_use("user-a", "k1")
+        manager.note_kernel_use("user-a", "k2")
+        manager._delete_kernel = AsyncMock()  # type: ignore[method-assign]
+
+        await manager.enforce_kernel_limit(
+            owner_id="user-a",
+            limit=0,
+            base_url="http://127.0.0.1:8888",
+            token="token",
+        )
+
+        manager._delete_kernel.assert_not_awaited()

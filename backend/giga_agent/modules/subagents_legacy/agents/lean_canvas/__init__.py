@@ -25,7 +25,7 @@ from giga_agent.modules.subagents_legacy.uploads import (
     resolve_upload_prefix,
     upload_files_for_runtime_user,
 )
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 
 
 class LeanGraphState(TypedDict):
@@ -546,43 +546,43 @@ async def lean_canvas(
             },
         )
     else:
-        client = get_client(runtime.config)
-        thread = await client.threads.create()
-        thread_id = thread["thread_id"]
-        push_ui_message(
-            "agent_execution",
-            {
-                "agent": "lean_canvas",
-                "node": "__start__",
-                "tool_call_id": runtime.tool_call_id,
-            },
-        )
         state = {}
-        async for chunk in client.runs.stream(
-            thread_id=thread_id,
-            assistant_id="lean_canvas",
-            input={"main_task": theme},
-            stream_mode=["values", "updates"],
-            on_disconnect="cancel",
-            config={
-                "configurable": {
-                    "thread_id": thread_id,
-                    "need_interrupt": False,
-                    "skip_search": not resolver.has_search_engine,
+        async with client_session(runtime.config) as client:
+            thread = await client.threads.create()
+            thread_id = thread["thread_id"]
+            push_ui_message(
+                "agent_execution",
+                {
+                    "agent": "lean_canvas",
+                    "node": "__start__",
+                    "tool_call_id": runtime.tool_call_id,
                 },
-            },
-        ):
-            if chunk.event == "values":
-                state = chunk.data
-            elif chunk.event == "updates":
-                push_ui_message(
-                    "agent_execution",
-                    {
-                        "agent": "lean_canvas",
-                        "node": list(chunk.data.keys())[0],
-                        "tool_call_id": runtime.tool_call_id,
+            )
+            async for chunk in client.runs.stream(
+                thread_id=thread_id,
+                assistant_id="lean_canvas",
+                input={"main_task": theme},
+                stream_mode=["values", "updates"],
+                on_disconnect="cancel",
+                config={
+                    "configurable": {
+                        "thread_id": thread_id,
+                        "need_interrupt": False,
+                        "skip_search": not resolver.has_search_engine,
                     },
-                )
+                },
+            ):
+                if chunk.event == "values":
+                    state = chunk.data
+                elif chunk.event == "updates":
+                    push_ui_message(
+                        "agent_execution",
+                        {
+                            "agent": "lean_canvas",
+                            "node": list(chunk.data.keys())[0],
+                            "tool_call_id": runtime.tool_call_id,
+                        },
+                    )
     html = lean_canvas_to_html(state)
     text = lean_canvas_to_text(state)
     prefix = resolve_upload_prefix(runtime)

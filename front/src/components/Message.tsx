@@ -32,7 +32,6 @@ import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { BROWSER_USE_NAME } from "@/config.ts";
-import { useSettings } from "./Settings.tsx";
 
 function getMessageText(message: Message_): string {
   if (Array.isArray(message.content)) {
@@ -61,6 +60,8 @@ interface MessageProps {
   thread?: UseStream<GraphState, GraphTemplate>;
   resultsById?: Record<string, Message_>;
   isLastAi?: boolean;
+  // Последнее сообщение в треде — у него убираем нижний отступ.
+  isLast?: boolean;
   // Когда true — рендер AI-с-tool_calls без своей рамки/фона/паддингов
   // (используется внутри AgentRun, чтобы избежать вложенных карточек).
   noContainer?: boolean;
@@ -202,6 +203,8 @@ const Message: React.FC<MessageProps> = ({
   writeMessage = false,
   resultsById,
   isLastAi = false,
+  // @ts-ignore
+  isLast = false,
   noContainer = false,
   hideActions = false,
   hideToolCalls = false,
@@ -216,7 +219,6 @@ const Message: React.FC<MessageProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
-  const { settings } = useSettings();
 
   const handleExport = async (format: ExportFormat) => {
     if (!thread || isExporting) return;
@@ -390,7 +392,6 @@ const Message: React.FC<MessageProps> = ({
   };
 
   const isCurrentInterruptMessage =
-    !settings.autoApprove &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
     ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
@@ -750,6 +751,7 @@ export default React.memo(
     prev.thread === next.thread &&
     prev.resultsById === next.resultsById &&
     prev.isLastAi === next.isLastAi &&
+    prev.isLast === next.isLast &&
     prev.noContainer === next.noContainer &&
     prev.hideActions === next.hideActions &&
     prev.hideToolCalls === next.hideToolCalls &&

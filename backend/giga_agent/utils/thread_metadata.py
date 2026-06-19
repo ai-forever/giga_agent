@@ -20,7 +20,7 @@ from langchain_core.runnables import RunnableConfig
 
 from giga_agent.core.cache import setup_cache
 from giga_agent.core.logging import get_logger
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 
 logger = get_logger(__name__)
 
@@ -61,7 +61,8 @@ async def get_thread_metadata(
         return cached
 
     try:
-        thread = await get_client(config).threads.get(thread_id)
+        async with client_session(config) as client:
+            thread = await client.threads.get(thread_id)
         meta = (thread or {}).get("metadata") or {}
     except Exception as exc:
         logger.debug("thread_metadata_fetch_failed", thread_id=thread_id, error=str(exc))
@@ -79,7 +80,8 @@ async def update_thread_metadata(
         return {}
 
     cache = _cache()
-    thread = await get_client(config).threads.update(thread_id, metadata=updates)
+    async with client_session(config) as client:
+        thread = await client.threads.update(thread_id, metadata=updates)
     meta = (thread or {}).get("metadata") or {}
     # client.threads.update merges and returns the full metadata; fall back to a
     # local merge if the server response omits it.

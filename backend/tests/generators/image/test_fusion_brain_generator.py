@@ -11,7 +11,10 @@ class FusionBrainImageGenTests(unittest.IsolatedAsyncioTestCase):
         await gen.init()
         gen._api.generate_and_get_image = AsyncMock(return_value=["image-b64"])
 
-        result = await gen.generate_image("prompt", None, None)
+        try:
+            result = await gen.generate_image("prompt", None, None)
+        finally:
+            await gen.cleanup()
 
         self.assertEqual(result, "image-b64")
         gen._api.generate_and_get_image.assert_awaited_once_with(
@@ -19,3 +22,18 @@ class FusionBrainImageGenTests(unittest.IsolatedAsyncioTestCase):
             width=DEFAULT_WIDTH,
             height=DEFAULT_HEIGHT,
         )
+
+    async def test_cleanup_closes_client(self):
+        gen = FusionBrainImageGen(api_key="key", secret_key="secret")
+        await gen.init()
+        client = gen._api.client
+        self.assertFalse(client.is_closed)
+
+        await gen.cleanup()
+
+        self.assertTrue(client.is_closed)
+
+    async def test_cleanup_is_safe_without_init(self):
+        gen = FusionBrainImageGen(api_key="key", secret_key="secret")
+        # cleanup should not raise even if init was never called
+        await gen.cleanup()

@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import IO, Any
@@ -54,6 +55,10 @@ class LocalJupyterServerManager:
         self._proc: subprocess.Popen[bytes] | None = None
         self._handle: LocalJupyterHandle | None = None
         self._log_handle: IO[bytes] | None = None
+        # owner_id -> ordered {kernel_id: None}; insertion order is LRU order
+        # (oldest first). Touched on every create/reuse via note_kernel_use.
+        self._owner_kernels: dict[str, OrderedDict[str, None]] = {}
+        self._kernel_lock = asyncio.Lock()
 
     async def ensure_started(
         self,
@@ -124,6 +129,63 @@ class LocalJupyterServerManager:
                 await self._clear_state_unlocked(pid=pid)
             else:
                 self._unregister_supervised_process(pid)
+
+    def note_kernel_use(self, owner_id: Any, kernel_id: str) -> None:
+        """Record that ``kernel_id`` belongs to ``owner_id`` and mark it as the
+        most-recently-used kernel of that owner."""
+        if owner_id is None or not kernel_id:
+            return
+        key = str(owner_id)
+        kernels = self._owner_kernels.setdefault(key, OrderedDict())
+        kernels[kernel_id] = None
+        kernels.move_to_end(kernel_id)
+
+    async def enforce_kernel_limit(
+        self,
+        *,
+        owner_id: Any,
+        limit: int,
+        base_url: str,
+        token: str,
+    ) -> None:
+        """Evict least-recently-used kernels of ``owner_id`` until creating one
+        more would stay within ``limit``. No-op when ``limit`` <= 0."""
+        if owner_id is None or limit <= 0:
+            return
+        key = str(owner_id)
+        async with self._kernel_lock:
+            kernels = self._owner_kernels.get(key)
+            if not kernels:
+                return
+            while len(kernels) >= limit:
+                evicted_id, _ = next(iter(kernels.items()))
+                kernels.pop(evicted_id, None)
+                await self._delete_kernel(base_url, token, evicted_id)
+            if not kernels:
+                self._owner_kernels.pop(key, None)
+
+    async def _delete_kernel(
+        self, base_url: str, token: str, kernel_id: str
+    ) -> None:
+        headers = {"Authorization": f"token {token}"}
+        try:
+            timeout = aiohttp.ClientTimeout(total=5)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.delete(
+                    f"{base_url}/api/kernels/{kernel_id}",
+                    headers=headers,
+                ) as response:
+                    # 404 means the kernel is already gone — treat as success.
+                    if response.status not in (200, 202, 204, 404):
+                        logger.warning(
+                            "Failed to evict local Jupyter kernel %s (status %s)",
+                            kernel_id,
+                            response.status,
+                        )
+        except Exception:
+            logger.warning(
+                "Error while evicting local Jupyter kernel %s", kernel_id
+            )
 
     async def _get_active_handle(self) -> LocalJupyterHandle | None:
         candidates: list[LocalJupyterHandle] = []
@@ -330,6 +392,7 @@ class LocalJupyterServerManager:
             cleanup_pid = self._handle.pid
         self._handle = None
         self._proc = None
+        self._owner_kernels.clear()
         self._remove_metadata_file()
         if cleanup_pid is not None:
             self._unregister_supervised_process(cleanup_pid)

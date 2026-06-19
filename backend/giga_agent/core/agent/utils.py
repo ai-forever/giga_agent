@@ -31,6 +31,29 @@ def _collect_typed_dict_hints(state_type: TypedDictType) -> dict[str, Any]:
     return hints
 
 
+def reduce_updates(updates: list[dict], state_type: TypedDictType) -> dict:
+    """Fold middleware deltas into a single delta for the graph channel.
+
+    Unlike merge_state, `messages` lists are concatenated as-is: running
+    add_messages between two deltas would drop RemoveMessage entries whose
+    targets live in the channel, not in the previous delta.
+    """
+    if not updates:
+        return {}
+    hints = _collect_typed_dict_hints(state_type)
+    result: dict = {}
+    for update in updates:
+        for key, value in update.items():
+            if key not in result:
+                result[key] = value
+            elif key == "messages":
+                result[key] = list(result[key]) + list(value)
+            else:
+                reducer = _extract_reducer(hints[key]) if key in hints else None
+                result[key] = reducer(result[key], value) if reducer else value
+    return result
+
+
 def merge_state(a: dict, b: dict, state_type: TypedDictType) -> dict:
     if b is None:
         return a

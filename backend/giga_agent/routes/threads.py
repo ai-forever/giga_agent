@@ -18,8 +18,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from giga_agent.conf import get_settings
+from giga_agent.core.db import get_session
 from giga_agent.core.logging import get_logger
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import (
@@ -27,7 +28,11 @@ from giga_agent.modules.auth.api import (
     get_current_active_user,
     oauth2_scheme,
 )
-from giga_agent.utils.langgraph_sdk import get_client as get_langgraph_client
+from giga_agent.services.prompt_suggestions import (
+    get_follow_up_suggestions,
+    get_starter_suggestions,
+)
+from giga_agent.utils.langgraph_sdk import client_session
 from giga_agent.utils.thread_metadata import update_thread_metadata
 
 logger = get_logger(__name__)
@@ -64,6 +69,13 @@ class ThreadAutoApproveRequest(BaseModel):
 
 class ThreadAutoApproveResponse(BaseModel):
     auto_approve: bool
+
+
+class PromptSuggestionsResponse(BaseModel):
+    suggestions: list[str]
+    cached: bool = False
+    based_on_pairs: int = 0
+    source_thread_count: int = 0
 
 
 def _langgraph_config(token: str) -> dict[str, Any]:
@@ -110,9 +122,10 @@ async def get_thread_history_compact(
         },
     }
     try:
-        states = await get_langgraph_client(langgraph_config).threads.get_history(
-            thread_id, limit=limit, before=before
-        )
+        async with client_session(langgraph_config) as client:
+            states = await client.threads.get_history(
+                thread_id, limit=limit, before=before
+            )
     except Exception as exc:
         logger.warning(
             "compact_history_fetch_failed", thread_id=thread_id, error=str(exc)
@@ -193,3 +206,85 @@ async def set_thread_auto_approve(
         ) from exc
 
     return ThreadAutoApproveResponse(auto_approve=bool(body.auto_approve))
+
+
+@router.get("/starter-suggestions", response_model=PromptSuggestionsResponse)
+async def get_starter_prompt_suggestions(
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    token: Annotated[str | None, Depends(_bearer_token)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    count: int = 5,
+    limit_threads: int = 5,
+    refresh: bool = False,
+) -> PromptSuggestionsResponse:
+    if token is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Could not validate credentials",
+        )
+
+    try:
+        result = await get_starter_suggestions(
+            token=token,
+            user=current_user,
+            db=db,
+            count=count,
+            limit_threads=limit_threads,
+            refresh=refresh,
+        )
+    except Exception as exc:
+        logger.warning("starter_suggestions_failed", error=str(exc))
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Failed to generate starter suggestions"
+        ) from exc
+
+    return PromptSuggestionsResponse(
+        suggestions=result.suggestions,
+        cached=result.cached,
+        based_on_pairs=result.based_on_pairs,
+        source_thread_count=result.source_thread_count,
+    )
+
+
+@router.get(
+    "/{thread_id}/follow-up-suggestions", response_model=PromptSuggestionsResponse
+)
+async def get_follow_up_prompt_suggestions(
+    thread_id: str,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    token: Annotated[str | None, Depends(_bearer_token)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    pairs: int = 5,
+    count: int = 3,
+    refresh: bool = False,
+) -> PromptSuggestionsResponse:
+    if token is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "Could not validate credentials",
+        )
+
+    try:
+        result = await get_follow_up_suggestions(
+            token=token,
+            thread_id=thread_id,
+            user=current_user,
+            db=db,
+            count=count,
+            pairs_limit=pairs,
+            refresh=refresh,
+        )
+    except Exception as exc:
+        logger.warning(
+            "follow_up_suggestions_failed", thread_id=thread_id, error=str(exc)
+        )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Failed to generate follow-up suggestions"
+        ) from exc
+
+    return PromptSuggestionsResponse(
+        suggestions=result.suggestions,
+        cached=result.cached,
+        based_on_pairs=result.based_on_pairs,
+        source_thread_count=result.source_thread_count,
+    )

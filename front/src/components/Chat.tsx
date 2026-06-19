@@ -8,6 +8,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
+import { Client } from "@langchain/langgraph-sdk";
+import { persistStoppedAiMessage } from "@/lib/stopped-message.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
@@ -16,6 +18,7 @@ import {
   suppressPhantomBreakpointInterrupt,
 } from "@/lib/thread-history";
 import { BranchesProvider } from "@/hooks/useBranches";
+import type { PromptSuggestionScenario } from "@/types/prompt-suggestions";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
@@ -44,7 +47,7 @@ const Chat: React.FC<ChatProps> = ({
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
     fetchStateHistory: false,
-    throttle: 75,
+    throttle: 10,
     apiKey: token,
     defaultHeaders: {
       Authorization: `Bearer ${token}`,
@@ -66,6 +69,39 @@ const Chat: React.FC<ChatProps> = ({
     onCheckpointEvent: (data) => {
       checkpointEventRef.current?.(data);
     },
+    // После стопа в values может остаться interrupt отменённого рана —
+    // гасим его, чтобы не показывался approve-UI (mutate мержит поверхностно,
+    // поэтому пустой массив, а не удаление ключа).
+    // Заодно помечаем AI-сообщения rendered: «печатная машинка» в Message.tsx
+    // допечатывает буфер с задержками и без этого продолжает «стримить» текст
+    // после остановки; rendered заставляет дорисовать хвост мгновенно.
+    onStop: ({ mutate }) => {
+      mutate((prev) => {
+        const messages = (prev.messages ?? []).map((m) =>
+          m.type === "ai" &&
+          !(m.additional_kwargs as Record<string, unknown> | undefined)
+            ?.rendered
+            ? {
+                ...m,
+                additional_kwargs: { ...m.additional_kwargs, rendered: true },
+              }
+            : m,
+        );
+        // Частичный AI-ответ сохраняем именно отсюда: prev — самые свежие
+        // values стрима (то, что на экране); снимок в обработчике клика
+        // отстаёт на чанки, прилетевшие за время отмены. Вызов идемпотентен:
+        // persistStoppedAiMessage не пишет, если сообщение уже в чекпоинте.
+        const tail = messages.at(-1);
+        if (tail?.type === "ai" && threadId) {
+          void persistStoppedAiMessage(
+            threadRef.current.client as unknown as Client,
+            threadId,
+            tail,
+          );
+        }
+        return { ...prev, __interrupt__: [], messages };
+      });
+    },
   }) as unknown as UseStream<GraphState>;
   hideThrowingThreadGetters(thread);
   suppressPhantomBreakpointInterrupt(thread);
@@ -85,6 +121,10 @@ const Chat: React.FC<ChatProps> = ({
   );
   const firstSroll = useRef<boolean>(false);
   const [showScrollBtn, setShowScrollBtn] = useState<boolean>(false);
+  const [prefillPayload, setPrefillPayload] = useState<{
+    suggestion: PromptSuggestionScenario;
+    nonce: number;
+  } | null>(null);
   const stableMessages = thread.messages;
   // @ts-ignore
   globalThis.messages = thread.messages;
@@ -131,6 +171,37 @@ const Chat: React.FC<ChatProps> = ({
   onRequestReloadRef.current = onRequestReload;
   // Последний ран, который мы уже учли (стримили / приджойнились / он в state).
   const lastSeenRunIdRef = useRef<string | null>(null);
+  const localStreamRef = useRef<{
+    wasLoading: boolean;
+    finishedAt: number;
+    messagesLength: number;
+    lastMessageId: string | null;
+  }>({
+    wasLoading: false,
+    finishedAt: 0,
+    messagesLength: 0,
+    lastMessageId: null,
+  });
+
+  useEffect(() => {
+    const isLoading = Boolean(thread.isLoading);
+    const lastMessage = stableMessages.at(-1) as any;
+    if (localStreamRef.current.wasLoading && !isLoading) {
+      localStreamRef.current = {
+        wasLoading: false,
+        finishedAt: Date.now(),
+        messagesLength: stableMessages.length,
+        lastMessageId: lastMessage?.id ?? null,
+      };
+      return;
+    }
+
+    localStreamRef.current = {
+      ...localStreamRef.current,
+      wasLoading: isLoading,
+    };
+  }, [thread.isLoading, stableMessages]);
+
   useEffect(() => {
     if (!threadId) return;
     lastSeenRunIdRef.current = null;
@@ -180,6 +251,21 @@ const Chat: React.FC<ChatProps> = ({
           ? new Date(latest.updated_at).getTime()
           : 0;
         if (finishedAt && Date.now() - finishedAt < REPLAY_WINDOW_MS) {
+          const localStream = localStreamRef.current;
+          const currentLastMessageId =
+            ((threadRef.current.messages?.at(-1) as any)?.id as
+              | string
+              | undefined) ?? null;
+          const isLocalStreamReplay =
+            localStream.finishedAt > 0 &&
+            Math.abs(localStream.finishedAt - finishedAt) < 15000 &&
+            localStream.messagesLength === threadRef.current.messages.length &&
+            localStream.lastMessageId === currentLastMessageId;
+          // The local stream already merged this run into state; replaying it
+          // would only toggle SDK loading state and rerender the message list.
+          if (isLocalStreamReplay) {
+            return;
+          }
           // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
           threadRef.current.joinStream(latest.run_id);
         } else {
@@ -261,6 +347,18 @@ const Chat: React.FC<ChatProps> = ({
 
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
+
+  // Конец рана (стрим закрылся): aegra финализирует тред в idle до закрытия
+  // SSE (run_executor: finalize_run → _signal_end_event), поэтому сразу
+  // обновляем сайдбар — индикатор активного треда гаснет, не дожидаясь
+  // 20-секундного поллинга.
+  const prevRunActiveRef = useRef(thread.isLoading);
+  useEffect(() => {
+    if (prevRunActiveRef.current && !thread.isLoading) {
+      refreshThreads();
+    }
+    prevRunActiveRef.current = thread.isLoading;
+  }, [thread.isLoading]);
 
   useEffect(() => {
     if (previousThreadLoadingRef.current && !isThreadLoading) {
@@ -456,7 +554,11 @@ const Chat: React.FC<ChatProps> = ({
                 <MessageList
                   messages={stableMessages ?? []}
                   thread={thread}
+                  threadId={threadId}
                   maybeAutoScroll={maybeAutoScroll}
+                  onSelectSuggestion={(suggestion) =>
+                    setPrefillPayload({ suggestion, nonce: Date.now() })
+                  }
                 />
               </motion.div>
             )}
@@ -479,6 +581,7 @@ const Chat: React.FC<ChatProps> = ({
           <InputArea
             // @ts-ignore
             thread={thread}
+            prefillPayload={prefillPayload}
           />
           <div ref={bottomSentinelRef} style={{ height: 1 }} />
         </div>

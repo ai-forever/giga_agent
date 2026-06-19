@@ -2,19 +2,28 @@ import React, { useMemo, useRef } from "react";
 import Message from "./Message.tsx";
 import AgentRun from "./AgentRun.tsx";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
+import { motion } from "framer-motion";
 import WellcomeMessage from "./wellcome-message.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "../interfaces.ts";
 import ChatError from "./ChatError.tsx";
+import { FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED } from "@/config";
 import { useBranches } from "@/hooks/useBranches";
+import { useFollowUpSuggestions } from "@/hooks/useThreadSuggestions";
+import {
+  getPromptSuggestionTitle,
+  type PromptSuggestionScenario,
+} from "@/types/prompt-suggestions";
 
 interface MessageListProps {
   messages: Message_[];
   thread?: UseStream<GraphState>;
+  threadId?: string;
   children?: React.ReactNode;
   notShowWelcomeMessage?: boolean;
   maybeAutoScroll: () => void;
+  onSelectSuggestion?: (suggestion: PromptSuggestionScenario) => void;
 }
 
 const THINK_TOOL_NAME = "think";
@@ -56,9 +65,11 @@ type RenderItem =
 const MessageList: React.FC<MessageListProps> = ({
   messages: messagesProp,
   thread,
+  threadId: routeThreadId,
   children,
   notShowWelcomeMessage,
   maybeAutoScroll,
+  onSelectSuggestion,
 }) => {
   const branches = useBranches();
   // When viewing a non-head branch, render that branch's messages instead of
@@ -136,6 +147,22 @@ const MessageList: React.FC<MessageListProps> = ({
     }
     return null;
   }, [renderable]);
+  const activeThreadId =
+    routeThreadId ??
+    ((thread as any)?.threadId as string | undefined) ??
+    undefined;
+  const canShowFollowUps =
+    FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED &&
+    Boolean(activeThreadId) &&
+    Boolean(lastAiId) &&
+    !thread?.isLoading &&
+    !branches.isViewingNonHead;
+  const { suggestions: followUpSuggestions, isLoading: isFollowUpsLoading } =
+    useFollowUpSuggestions({
+      threadId: activeThreadId,
+      messages: renderable,
+      enabled: canShowFollowUps,
+    });
 
   // "Историческими" считаются все руны, которые УЖЕ есть в треде до того, как
   // пользователь впервые что-то отправил (т.е. до того, как мы увидели
@@ -148,12 +175,22 @@ const MessageList: React.FC<MessageListProps> = ({
   const historicalRunKeysRef = useRef<Set<string>>(new Set());
   const sessionStartedRef = useRef<boolean>(false);
   const lastThreadIdRef = useRef<string | null | undefined>(undefined);
-  const threadId = (thread as any)?.threadId as string | null | undefined;
+  const streamThreadId = (thread as any)?.threadId as string | null | undefined;
 
-  if (lastThreadIdRef.current !== threadId) {
-    lastThreadIdRef.current = threadId;
+  // Плавное появление (blur→clear) подсказок при генерации. Решение об
+  // анимации вычисляем синхронно в рендере (через ref), чтобы оно было готово
+  // на момент маунта motion-блока и не зависело от порядка эффектов.
+  const followUpsLoadStartRef = useRef<number | null>(null);
+  const followUpsResolvedRef = useRef<boolean>(false);
+  const followUpsAnimateRef = useRef<boolean>(false);
+
+  if (lastThreadIdRef.current !== streamThreadId) {
+    lastThreadIdRef.current = streamThreadId;
     historicalRunKeysRef.current = new Set();
     sessionStartedRef.current = false;
+    followUpsLoadStartRef.current = null;
+    followUpsResolvedRef.current = false;
+    followUpsAnimateRef.current = false;
   }
 
   if (thread?.isLoading) sessionStartedRef.current = true;
@@ -162,6 +199,24 @@ const MessageList: React.FC<MessageListProps> = ({
     historicalRunKeysRef.current = new Set(
       items.filter((i) => i.kind === "run").map((i) => (i as any).key),
     );
+  }
+
+  // Засекаем старт генерации; когда подсказки приехали — решаем, анимировать
+  // ли. Анимацию пропускаем, если это первая загрузка страницы (сессия ещё не
+  // началась) и подсказки приехали быстрее 2с — тогда они появляются вместе со
+  // страницей и не должны перетягивать внимание.
+  if (isFollowUpsLoading) {
+    followUpsResolvedRef.current = false;
+    if (followUpsLoadStartRef.current === null) {
+      followUpsLoadStartRef.current = Date.now();
+    }
+  } else if (followUpSuggestions.length > 0 && !followUpsResolvedRef.current) {
+    followUpsResolvedRef.current = true;
+    const start = followUpsLoadStartRef.current;
+    const elapsed = start != null ? Date.now() - start : 0;
+    const isFirstLoadFast = !sessionStartedRef.current && elapsed < 2000;
+    followUpsAnimateRef.current = !isFirstLoadFast;
+    followUpsLoadStartRef.current = null;
   }
 
   return (
@@ -223,10 +278,36 @@ const MessageList: React.FC<MessageListProps> = ({
             thread={thread}
             resultsById={resultsById}
             isLastAi={item.message.id === lastAiId}
+            isLast={idx === items.length - 1}
             hideToolCalls={item.hideToolCalls}
           />
         );
       })}
+      {canShowFollowUps && followUpSuggestions.length > 0 && (
+        <div className="px-[20px]">
+          <motion.div
+            className="flex flex-wrap items-center gap-2"
+            initial={
+              followUpsAnimateRef.current
+                ? { opacity: 0, filter: "blur(8px)" }
+                : false
+            }
+            animate={{ opacity: 1, filter: "blur(0px)" }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+          >
+            {followUpSuggestions.map((item, idx) => (
+              <button
+                key={`${item.text}-${idx}`}
+                type="button"
+                onClick={() => onSelectSuggestion?.(item)}
+                className="rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs text-foreground/90 transition-colors hover:bg-muted cursor-pointer"
+              >
+                {getPromptSuggestionTitle(item)}
+              </button>
+            ))}
+          </motion.div>
+        </div>
+      )}
       <ChatError thread={thread} />
       <ThinkingIndicator messages={messages} thread={thread} />
     </div>

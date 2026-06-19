@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
 from giga_agent.conf import get_settings
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 
 warnings.filterwarnings(
     "ignore",
@@ -262,29 +262,29 @@ async def podcast_generate(
                 "tool_call_id": runtime.tool_call_id,
             },
         )
-        client = get_client(runtime.config)
-        thread = await client.threads.create()
-        thread_id = thread["thread_id"]
         state = {}
-        async for chunk in client.runs.stream(
-            thread_id=thread_id,
-            assistant_id="podcast",
-            input=input_,
-            stream_mode=["values", "updates"],
-            on_disconnect="cancel",
-            config=conf,
-        ):
-            if chunk.event == "values":
-                state = chunk.data
-            elif chunk.event == "updates":
-                push_ui_message(
-                    "agent_execution",
-                    {
-                        "agent": "podcast_generate",
-                        "node": list(chunk.data.keys())[0],
-                        "tool_call_id": runtime.tool_call_id,
-                    },
-                )
+        async with client_session(runtime.config) as client:
+            thread = await client.threads.create()
+            thread_id = thread["thread_id"]
+            async for chunk in client.runs.stream(
+                thread_id=thread_id,
+                assistant_id="podcast",
+                input=input_,
+                stream_mode=["values", "updates"],
+                on_disconnect="cancel",
+                config=conf,
+            ):
+                if chunk.event == "values":
+                    state = chunk.data
+                elif chunk.event == "updates":
+                    push_ui_message(
+                        "agent_execution",
+                        {
+                            "agent": "podcast_generate",
+                            "node": list(chunk.data.keys())[0],
+                            "tool_call_id": runtime.tool_call_id,
+                        },
+                    )
     audio = FileResponse.model_validate(state.get("audio"))
     return build_tool_message(
         runtime,

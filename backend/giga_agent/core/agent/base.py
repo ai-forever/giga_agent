@@ -33,6 +33,7 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.migrations import apply_migrations
 from giga_agent.core.module import BaseModule
+from giga_agent.middlewares.repair_messages import RepairMessagesMiddleware
 from giga_agent.middlewares.thread_title import ThreadTitleMiddleware
 from giga_agent.middlewares.tool_result import ToolResultMiddleware
 from giga_agent.models.users import UserShort
@@ -213,6 +214,7 @@ class BaseAgent(BaseModel):
         # Собираем middleware из модулей
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
+            RepairMessagesMiddleware(),
             ThreadTitleMiddleware(),
             ToolResultMiddleware(),
             *module_middlewares,

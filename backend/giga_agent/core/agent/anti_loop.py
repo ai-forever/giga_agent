@@ -26,15 +26,15 @@ from langchain_core.messages import (
 )
 
 # A: identical (name + args) signature seen this many times in the turn.
-DUPLICATE_CALL_THRESHOLD = 3
+DUPLICATE_CALL_THRESHOLD = 4
 # B: an oscillating block must repeat at least this many times. Kept below
 # DUPLICATE_CALL_THRESHOLD so an A->B->A->B cycle is caught before any single
 # call hits the duplicate threshold.
 OSCILLATION_MIN_REPEATS = 2
 # ...and we look for cycles no longer than this many AI steps.
-OSCILLATION_MAX_PERIOD = 3
+OSCILLATION_MAX_PERIOD = 5
 # C: max tool rounds (AI messages with tool calls) since the last user message.
-STEP_BUDGET_PER_TURN = 40
+STEP_BUDGET_PER_TURN = 100
 # D: consecutive errored tool results before we give up retrying.
 ERROR_STREAK_THRESHOLD = 4
 

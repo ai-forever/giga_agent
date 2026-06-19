@@ -70,6 +70,11 @@ class GigaChatImageGen(BaseImageGenerator):
         )
         await super().init()
 
+    async def cleanup(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
     @classmethod
     def supported_connector_types(cls) -> list[str]:
         return ["gigachat"]

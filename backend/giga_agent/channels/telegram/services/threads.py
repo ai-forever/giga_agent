@@ -70,7 +70,10 @@ class TelegramThreadService:
         try:
             token = self.create_token()
             client = self.create_client(token)
-            await self.stop_thread_runs(client, thread_id)
+            try:
+                await self.stop_thread_runs(client, thread_id)
+            finally:
+                await client.aclose()
         except Exception:
             logger.warning(
                 "Failed to stop active runs for thread %s",

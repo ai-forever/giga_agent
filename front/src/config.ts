@@ -1,6 +1,15 @@
+import { PromptSuggestionScenario } from "@/types/prompt-suggestions";
+
 interface RuntimeSttConfig {
   enabled: boolean;
   runtime: "salute" | null;
+}
+
+interface RuntimePromptSuggestionsConfig {
+  enabled?: boolean;
+  starterEnabled?: boolean;
+  recommendationsEnabled?: boolean;
+  followUpEnabled?: boolean;
 }
 
 interface RuntimeConfig {
@@ -11,6 +20,7 @@ interface RuntimeConfig {
   runtimeLocal?: boolean;
   skipOnboarding?: boolean;
   stt?: RuntimeSttConfig;
+  promptSuggestions?: RuntimePromptSuggestionsConfig;
 }
 
 declare global {
@@ -108,6 +118,172 @@ export const API_AGENT_PREFIX = `${API_BASE_URL}/agent`;
 export const RUNTIME_LOCAL = runtimeConfig.runtimeLocal === true;
 export const SKIP_ONBOARDING = runtimeConfig.skipOnboarding === true;
 export const BACKEND_STT_ENABLED = runtimeConfig.stt?.enabled === true;
+export const PROMPT_SUGGESTIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.enabled ?? true;
+// TODO: Включить как поправим логику включения / выключения модулей
+export const STARTER_PROMPT_SUGGESTIONS_ENABLED = false;
+export const STARTER_RECOMMENDATIONS_ENABLED = false;
+export const FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.followUpEnabled ?? true;
+
+export interface PromptTemplateTopic {
+  id: string;
+  label: string;
+  prompts: PromptSuggestionScenario[];
+}
+
+export const PROMPT_TEMPLATE_TOPICS: PromptTemplateTopic[] = [
+  {
+    id: "data_code",
+    label: "Анализ данных и код",
+    prompts: [
+      {
+        title: "Анализ датасета",
+        text: "Напиши Python-скрипт для анализа загруженного CSV-файла: найди аномалии, построй график распределения и выведи основные метрики",
+        modules: { repl: true },
+      },
+      {
+        title: "Создание тестовых данных",
+        text: "Создай тестовый датасет для решения задачи классификации проблем пользователей из заявок техподдержки. Начни с 5 семплов",
+        modules: { repl: true },
+      },
+      {
+        title: "Работа с API и графики",
+        text: "Напиши код, который запросит исторические данные о курсе валют через публичное API, проанализирует тренд и построит красивый график изменения цены",
+        modules: { repl: true },
+      },
+    ],
+  },
+  {
+    id: "content",
+    label: "Создание контента",
+    prompts: [
+      {
+        title: "Создание лендинга",
+        text: "Сгенерируй лендинг для нового фитнес-приложения: продумай структуру из 4 блоков (Hero, Преимущества, Отзывы, CTA), напиши продающие тексты и создай HTML/Tailwind код",
+        modules: { subagents_legacy: true },
+      },
+      {
+        title: "Презентация продукта",
+        text: "Сделай презентацию-дайджест по новостям в ИИ-сфере за последний месяц. Сгенерируй изображения для каждого слайда",
+        modules: { subagents_legacy: true, image: true },
+      },
+      {
+        title: "Подкаст и мемы",
+        text: "Сгенерируй сценарий короткого подкаста про удаленную работу и сделай смешной мем на эту тему",
+        modules: { subagents_legacy: true, image: true },
+      },
+    ],
+  },
+  {
+    id: "research",
+    label: "Исследования и поиск",
+    prompts: [
+      {
+        title: "Глубокое исследование",
+        text: "Найди статьи о подробностях архитектуры Deepseek-V4. Сделай выжимку и объясни простыми словами, добавляя иллюстрации к объяснениям. Оформи в виде отчета",
+        deepResearchForced: true,
+        modules: { search: true, scraper: true },
+      },
+      {
+        title: "Анализ конкурентов",
+        text: "Найди в интернете 3 главных конкурентов Notion, сравни их тарифные планы и ключевые фичи в виде таблицы",
+        modules: { search: true, scraper: true },
+      },
+      {
+        title: "Поиск по базе знаний",
+        text: "Найди в базе знаний все документы, связанные с онбордингом новых сотрудников, и составь из них единый чеклист",
+        ragMode: "all",
+        modules: { rag: true },
+      },
+    ],
+  },
+  {
+    id: "business",
+    label: "Бизнес и продукты",
+    prompts: [
+      {
+        title: "Бизнес-модель (Lean Canvas)",
+        text: "Составь Lean Canvas для стартапа: сервис доставки еды по подписке для веганов. Опиши сегменты, проблему и решение",
+        modules: { subagents_legacy: true },
+      },
+      {
+        title: "Анализ рынка",
+        text: "Проведи анализ рынка онлайн-образования: выдели основные тренды, барьеры для входа и потенциальные ниши",
+        modules: { search: true, scraper: true },
+      },
+      {
+        title: "Стратегия выхода на рынок",
+        text: "Подготовь план запуска (Go-to-Market) для нового Telegram-бота по изучению английского: определи целевую аудиторию, выбери 3 канала привлечения и распиши шаги на первый месяц",
+        modules: { search: true },
+      },
+    ],
+  },
+  {
+    id: "integrations",
+    label: "Интеграции",
+    prompts: [
+      {
+        title: "Анализ GitHub PR",
+        text: "Получи список последних Pull Requests в репозитории, проанализируй изменения и напиши краткий Changelog",
+        modules: { github: true },
+      },
+      {
+        title: "Анализ соцсетей",
+        text: "Собери последние комментарии к популярному посту в VK, проанализируй тональность и выдели главные жалобы",
+        modules: { vk: true },
+      },
+      {
+        title: "Погода и планирование",
+        text: "Узнай прогноз погоды в Москве на выходные и предложи 3 варианта активного отдыха на улице",
+        modules: { weather: true },
+      },
+    ],
+  },
+];
+
+export const STATIC_STARTER_RECOMMENDATIONS: PromptSuggestionScenario[] = [
+  {
+    title: "Глубокое исследование темы",
+    text: "Запусти глубокое исследование (Deep Research) по теме 'Тренды AI в 2026 году': собери источники и сделай выжимку",
+    deepResearchForced: true,
+  },
+  {
+    title: "Создание лендинга",
+    text: "Сгенерируй код лендинга для нового продукта, включая тексты и структуру страницы",
+    skills: ["create_landing"],
+  },
+  {
+    title: "Анализ данных (Python)",
+    text: "Напиши и выполни Python-скрипт для генерации тестового датасета и построй по нему график",
+    modules: { repl: true },
+  },
+  {
+    title: "Бизнес-модель стартапа",
+    text: "Составь Lean Canvas для нового мобильного приложения: опиши проблему, решение и целевую аудиторию",
+    skills: ["lean_canvas"],
+  },
+  {
+    title: "Анализ комментариев VK",
+    text: "Собери последние комментарии из паблика VK и сделай саммари основных тем, которые обсуждают пользователи",
+    modules: { vk: true },
+  },
+  {
+    title: "Генерация презентации",
+    text: "Создай презентацию на 5 слайдов с изображениями для питчинга нового проекта инвесторам",
+    skills: ["generate_presentation"],
+  },
+  {
+    title: "Анализ GitHub репозитория",
+    text: "Получи информацию о последних Pull Requests в репозитории и составь список изменений (Changelog)",
+    modules: { github: true },
+  },
+  {
+    title: "Создание подкаста",
+    text: "Напиши сценарий для короткого подкаста на тему 'Как нейросети меняют работу программистов'",
+    skills: ["podcast_generate"],
+  },
+];
 
 export const TOOL_MAP = {
   lean_canvas: "Агент по созданию Lean Canvas",

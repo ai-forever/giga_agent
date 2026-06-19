@@ -37,6 +37,7 @@ type UserInfoContextType = {
   closeContextModal: () => void;
   enabledModules: Record<string, boolean>;
   toggleModule: (moduleId: string, enabled: boolean) => Promise<void>;
+  setModulesState: (updates: Record<string, boolean>) => Promise<void>;
   availableModules: ModuleInfo[];
   refreshModules: () => void;
 };
@@ -104,13 +105,20 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
     }, {});
   }, [availableModules, localDisabled]);
 
-  const toggleModule = useCallback(
-    async (moduleId: string, enabled: boolean) => {
+  const setModulesState = useCallback(
+    async (updates: Record<string, boolean>) => {
       if (!token) return;
       const prev = localDisabled;
-      const next = enabled
-        ? prev.filter((x) => x !== moduleId)
-        : Array.from(new Set([...prev, moduleId]));
+      const nextSet = new Set(prev);
+      Object.entries(updates).forEach(([moduleId, enabled]) => {
+        if (enabled) {
+          nextSet.delete(moduleId);
+        } else {
+          nextSet.add(moduleId);
+        }
+      });
+      const next = Array.from(nextSet);
+
       setLocalDisabled(next); // optimistic
       try {
         const resp = await fetch(`${API_AGENT_PREFIX}/auth/users/me`, {
@@ -124,11 +132,17 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
         if (!resp.ok) throw new Error(`PATCH failed: ${resp.status}`);
         await refreshUser();
       } catch {
-        // Откатываем оптимистичное обновление при ошибке.
         setLocalDisabled(prev);
       }
     },
     [localDisabled, token, refreshUser],
+  );
+
+  const toggleModule = useCallback(
+    async (moduleId: string, enabled: boolean) => {
+      return setModulesState({ [moduleId]: enabled });
+    },
+    [setModulesState],
   );
 
   return (
@@ -142,6 +156,7 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
         closeContextModal,
         enabledModules,
         toggleModule,
+        setModulesState,
         availableModules,
         refreshModules,
       }}

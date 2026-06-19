@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./components/Chat";
 import { SettingsProvider, useSettings } from "./components/Settings.tsx";
 import {
@@ -24,6 +24,7 @@ import { ThemeProvider } from "@/components/providers/theme.tsx";
 import { ConfirmProvider } from "@/components/providers/confirm.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
+import ProjectPage from "@/components/projects/ProjectPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
@@ -75,7 +76,7 @@ const InnerApp: React.FC = () => {
     // key здесь, <Chat> успевает перемонтироваться, пока маршрут ещё
     // /threads/:id, и новый useStream грузит state предыдущего треда.
     if (currentThreadRef.current) {
-      currentThreadRef.current.stop();
+      // currentThreadRef.current.stop();
     }
   }, []);
 
@@ -149,6 +150,7 @@ const AppRoutes: React.FC<{
         <Route path="/oauth/callback" element={<OAuthCallback />} />
         <Route path="/rag" element={<RAGInterface />} />
         <Route path="/memories" element={<MemoriesPage />} />
+        <Route path="/projects/:projectId" element={<ProjectPage />} />
         <Route path="/demo/settings" element={<DemoSettings />} />
         <Route
           path="/settings"
