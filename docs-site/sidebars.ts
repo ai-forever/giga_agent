@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
       label: 'Руководство пользователя',
       items: [
         'user-guide/chat',
+        'user-guide/projects',
         'user-guide/capabilities',
         'user-guide/files-and-artifacts',
         'user-guide/tools',

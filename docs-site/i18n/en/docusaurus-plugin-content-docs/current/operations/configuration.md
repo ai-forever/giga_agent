@@ -27,3 +27,10 @@ Environment variable names are kept as code because they are used in commands an
 ## Tools and providers
 
 `GIGA_AGENT_TOOL_MAX_SIZE`, `GIGA_AGENT_ENABLE_THINK_TOOL`, `GIGA_AGENT_ENABLE_MULTI_TOOL_USE`, `GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY`, and `GIGA_AGENT_QDRANT_POOL_SIZE` control tool output, service tools, scraping, and vector storage behavior.
+
+## Per-user limits
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `GIGA_AGENT_MAX_ACTIVE_THREADS_PER_USER` | `5` | Maximum number of simultaneously active (busy) graph chats per user. `0` or less disables the limit. |
+| `GIGA_AGENT_LOCAL_JUPYTER_MAX_KERNELS_PER_USER` | `5` | Maximum number of simultaneous local Jupyter kernels per user. When the limit is reached, the owner's least-recently-used kernel is evicted before a new one is created. `0` disables the limit. |
