@@ -5,7 +5,7 @@ description: "Compatibility subgraphs in GigaAgent 0.1.9."
 
 # Subagents
 
-:::info Stable PyPI documentation
+:::info[Stable PyPI documentation]
 This page describes the published PyPI package `giga-agent==0.1.9`. For the repository state, switch to version **main**.
 :::
 
