@@ -17,6 +17,8 @@ Important fields and methods include `id`, `label`, `description`, `icon`, `get_
 
 ## Active modules in current main
 
-`giga_agent dev` loads 15 modules: `AuthModule`, `ReplModule`, `ImageModule`, `AnalyzeImagesModule`, `IOModule`, `ScraperModule`, `SearchModule`, `RagModule`, `MemoryModule`, `SkillsModule`, `GitHubModule`, `VKModule`, `WeatherModule`, `DeepResearchModule`, and `SubAgentLegacyModule`.
+`giga_agent dev` loads 16 modules: `AuthModule`, `ReplModule`, `ImageModule`, `AnalyzeImagesModule`, `IOModule`, `ProjectsModule`, `ScraperModule`, `SearchModule`, `RagModule`, `MemoryModule`, `SkillsModule`, `GitHubModule`, `VKModule`, `WeatherModule`, `DeepResearchModule`, and `SubAgentLegacyModule`.
+
+`ProjectsModule` exposes the [projects](../user-guide/projects.md) CRUD API and injects per-project instructions into the system prompt.
 
 Routes returned by a module are mounted under `/agent/{module.id}`, or externally under `/api/agent/{module.id}` when using `giga_agent dev`.

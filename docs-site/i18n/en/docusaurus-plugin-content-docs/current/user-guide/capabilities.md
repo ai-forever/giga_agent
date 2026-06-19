@@ -12,6 +12,7 @@ GigaAgent combines a base UI with optional capabilities. Most useful scenarios n
 | Sign in to the UI | Yes | Nothing for local setup. |
 | Chat | No | Connector and language model. |
 | Streaming output | Yes, after model selection | Language model. |
+| [Projects](./projects.md) | Yes | Nothing for project instructions; embeddings for the project knowledge base. |
 | File upload | Yes | User permissions; processing may need tools or a model. |
 | RAG | No | Embeddings and vector store. |
 | Memory | No | User embeddings and vector store. |
