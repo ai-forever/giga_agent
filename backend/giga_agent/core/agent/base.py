@@ -306,7 +306,11 @@ class BaseAgent(BaseModel):
         except TypeError:
             user_fingerprint = id(user)
 
-        cache_key = (user_id, user_fingerprint)
+        is_channel = False
+        if isinstance(config, dict):
+            metadata = config.get("metadata") or {}
+            is_channel = bool(metadata.get("is_channel"))
+        cache_key = (user_id, user_fingerprint, is_channel)
         cached = self._tools_cache.get(cache_key)
         if cached is not None:
             return cached

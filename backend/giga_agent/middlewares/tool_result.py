@@ -474,7 +474,7 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
-        if all(action.get("name") == "think" for action in actions):
+        if all(action.get("name") in {"think", "ask_questions"} for action in actions):
             return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]

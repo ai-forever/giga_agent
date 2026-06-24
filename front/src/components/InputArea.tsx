@@ -807,7 +807,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
         if (thread?.interrupt) {
-          void handleContinue(message ? "comment" : "approve");
+          if (thread.interrupt.value?.type === "questions") {
+            if (message) void handleContinue("comment");
+          } else {
+            void handleContinue(message ? "comment" : "approve");
+          }
         } else {
           handleSend();
         }
@@ -1006,9 +1010,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
             <textarea
               data-onboarding="chat-input"
               placeholder={
-                thread?.interrupt
-                  ? "Принять / Отменить с комментарием…"
-                  : "Введите вашу задачу…"
+                thread?.interrupt?.value?.type === "questions"
+                  ? "Ответьте на вопросы выше или введите комментарий…"
+                  : thread?.interrupt
+                    ? "Принять / Отменить с комментарием…"
+                    : "Введите вашу задачу…"
               }
               ref={textRef}
               rows={1}

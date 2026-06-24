@@ -144,6 +144,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
   }, [allToolCalls, durationStartMessage, getMeta]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const frozenDurationRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!inFlight) return;
@@ -151,6 +152,14 @@ const AgentRun: React.FC<AgentRunProps> = ({
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [inFlight]);
+
+  // Freeze the live timer value when inFlight transitions to false, so it can
+  // be used as a fallback if the static duration calculation has no data.
+  useEffect(() => {
+    if (inFlight && durationStartMs != null) {
+      frozenDurationRef.current = formatDuration(Date.now() - durationStartMs);
+    }
+  });
 
   const duration: string | null = useMemo(() => {
     if (inFlight) {
@@ -170,7 +179,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
       return formatDuration(diff);
     };
 
-    return (
+    const staticResult =
       formatPair(durationStartMs, getCreatedAt(getMeta, durationEndMessage)) ??
       formatPair(
         getLcRunCreatedAt(firstToolCall?.message),
@@ -183,9 +192,9 @@ const AgentRun: React.FC<AgentRunProps> = ({
       formatPair(
         getCreatedAt(getMeta, firstToolCall?.message),
         getCreatedAt(getMeta, lastToolCall?.message),
-        { allowZero: true },
-      )
-    );
+      );
+
+    return staticResult ?? frozenDurationRef.current;
   }, [
     allToolCalls,
     durationEndMessage,

@@ -32,6 +32,9 @@ import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
 import { BROWSER_USE_NAME } from "@/config.ts";
+import { useSettings } from "./Settings.tsx";
+import QuestionsForm from "./QuestionsForm.tsx";
+import type { QuestionAnswer } from "../interfaces.ts";
 
 function getMessageText(message: Message_): string {
   if (Array.isArray(message.content)) {
@@ -216,6 +219,7 @@ const Message: React.FC<MessageProps> = ({
   const [edit, setEdit] = useState<boolean>(false);
   const [showEdit, setShowEdit] = useState<boolean>(false);
   const [isApprovalLoading, setIsApprovalLoading] = useState(false);
+  const [questionsHandled, setQuestionsHandled] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
@@ -392,6 +396,7 @@ const Message: React.FC<MessageProps> = ({
   };
 
   const isCurrentInterruptMessage =
+    !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
     ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
@@ -451,6 +456,39 @@ const Message: React.FC<MessageProps> = ({
         thread?.messages.at(-1).tool_calls?.[0]?.name === BROWSER_USE_NAME
           ? "cancel"
           : "continue",
+    });
+  };
+
+  const isQuestionsInterrupt =
+    message.type === "ai" &&
+    !!thread?.interrupt?.value &&
+    thread.interrupt.value.type === "questions" &&
+    !!thread.interrupt.value.questions?.length &&
+    thread?.messages.at(-1)?.id === message.id;
+
+  const handleQuestionsSubmit = (answers: QuestionAnswer[]) => {
+    setQuestionsHandled(true);
+    thread?.submit(undefined, {
+      command: {
+        resume: {
+          type: "questions",
+          answers,
+        },
+      },
+      onDisconnect: "continue",
+    });
+  };
+
+  const handleQuestionsSkip = () => {
+    setQuestionsHandled(true);
+    thread?.submit(undefined, {
+      command: {
+        resume: {
+          type: "comment",
+          message: "",
+        },
+      },
+      onDisconnect: "continue",
     });
   };
 
@@ -657,6 +695,17 @@ const Message: React.FC<MessageProps> = ({
               </AnimatePresence>
             </motion.div>
           )}
+          {isQuestionsInterrupt &&
+            !questionsHandled &&
+            !hideToolCalls &&
+            !thread?.isLoading &&
+            thread?.interrupt?.value?.questions && (
+              <QuestionsForm
+                questions={thread.interrupt.value.questions}
+                onSubmit={handleQuestionsSubmit}
+                onSkip={handleQuestionsSkip}
+              />
+            )}
           {
             //@ts-ignore
             message.additional_kwargs &&
