@@ -7,8 +7,14 @@ import React, {
   useMemo,
   useState,
 } from "react";
-import McpServerModal, { MCPTool } from "@/components/mcp/mcp-modal.tsx";
+import { type MCPTool } from "@/components/mcp/mcp-modal.tsx";
 import ContextModal from "@/components/modals/context-modal.tsx";
+import ConnectorsDirectoryModal from "@/components/mcp/connectors/directory-modal.tsx";
+import ConnectorsManageModal from "@/components/mcp/connectors/manage-modal.tsx";
+import {
+  useConnectors,
+  type UseConnectorsResult,
+} from "@/components/mcp/connectors/use-connectors.ts";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
 
@@ -31,8 +37,9 @@ const readDisabledFromUser = (user: unknown): string[] => {
 type UserInfoContextType = {
   mcpTools: MCPTool[];
   setMcpTools: React.Dispatch<React.SetStateAction<MCPTool[]>>;
-  openMcpModal: () => void;
-  closeMcpModal: () => void;
+  connectors: UseConnectorsResult;
+  openConnectorsDirectory: () => void;
+  openConnectorsManage: () => void;
   openContextModal: () => void;
   closeContextModal: () => void;
   enabledModules: Record<string, boolean>;
@@ -46,7 +53,9 @@ const UserInfoContext = createContext<UserInfoContextType | null>(null);
 
 export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
-  const [mcpModalOpen, setMcpModalOpen] = useState(false);
+  const connectors = useConnectors();
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [contextModalOpen, setContextModalOpen] = useState(false);
   const [availableModules, setAvailableModules] = useState<ModuleInfo[]>([]);
   const { token, user, refreshUser } = useAuth();
@@ -81,13 +90,13 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
     void refreshModules();
   }, [refreshModules]);
 
-  const openMcpModal = useCallback(() => {
-    setMcpModalOpen(true);
-  }, [setMcpModalOpen]);
+  const openConnectorsDirectory = useCallback(() => {
+    setDirectoryOpen(true);
+  }, []);
 
-  const closeMcpModal = useCallback(() => {
-    setMcpModalOpen(false);
-  }, [setMcpModalOpen]);
+  const openConnectorsManage = useCallback(() => {
+    setManageOpen(true);
+  }, []);
 
   const openContextModal = useCallback(() => {
     setContextModalOpen(true);
@@ -150,8 +159,9 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
       value={{
         mcpTools,
         setMcpTools,
-        openMcpModal,
-        closeMcpModal,
+        connectors,
+        openConnectorsDirectory,
+        openConnectorsManage,
         openContextModal,
         closeContextModal,
         enabledModules,
@@ -162,10 +172,23 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
       }}
     >
       {children}
-      <McpServerModal
-        isOpen={mcpModalOpen}
-        onClose={closeMcpModal}
-        onToolsUpdate={setMcpTools}
+      <ConnectorsDirectoryModal
+        isOpen={directoryOpen}
+        onClose={() => setDirectoryOpen(false)}
+        api={connectors}
+        onManage={() => {
+          setDirectoryOpen(false);
+          setManageOpen(true);
+        }}
+      />
+      <ConnectorsManageModal
+        isOpen={manageOpen}
+        onClose={() => setManageOpen(false)}
+        api={connectors}
+        onAdd={() => {
+          setManageOpen(false);
+          setDirectoryOpen(true);
+        }}
       />
       <ContextModal isOpen={contextModalOpen} onClose={closeContextModal} />
     </UserInfoContext.Provider>

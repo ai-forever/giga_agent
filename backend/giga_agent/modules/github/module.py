@@ -29,13 +29,30 @@ class GitHubModule(BaseModule):
     description: str = "Работа с репозиториями, issues и pull requests"
     icon: str = "Github"
 
+    def get_providers(self, **kwargs: Any):
+        _ = kwargs
+        from giga_agent.core.integrations.registry import (
+            GITHUB_PROVIDER_KEY,
+            get_static_provider,
+        )
+
+        provider = get_static_provider(GITHUB_PROVIDER_KEY)
+        return [provider] if provider is not None else []
+
     async def is_enabled(
         self, user: UserShort | None, *, config=None, **kwargs: Any
     ) -> bool:
         _ = config, kwargs
-        return _has_secret(user, GITHUB_SECRET_KEY)
+        if user is None:
+            return False
+        # Connected via the integrations store, or a legacy user.secrets PAT.
+        if _has_secret(user, GITHUB_SECRET_KEY):
+            return True
+        return await self.providers_connected(user)
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
+        # Kept for backward compatibility: existing users may still hold the PAT
+        # in user.secrets. New connections go through the integrations panel.
         _ = kwargs
         return [
             {
@@ -49,7 +66,7 @@ class GitHubModule(BaseModule):
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
-        if not _has_secret(user, GITHUB_SECRET_KEY):
+        if not await self.is_enabled(user):
             return []
         from giga_agent.modules.github.tools import (
             get_pull_request,

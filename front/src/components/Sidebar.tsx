@@ -296,7 +296,12 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     loadMoreControllerRef.current?.abort();
     loadMoreControllerRef.current = null;
     setThreadsLoadingMore(false);
-    setThreadsLoading(true);
+    // Only surface the loading state on the very first load for this graph.
+    // Subsequent refreshes (polling, refresh events) happen silently in the
+    // background so the list doesn't blink.
+    if (!hasLoadedThreadsOnceRef.current) {
+      setThreadsLoading(true);
+    }
     setThreadsError(null);
     setThreadsMoreError(null);
 

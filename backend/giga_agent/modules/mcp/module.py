@@ -3,19 +3,21 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from langchain_core.tools import BaseTool
-
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.module import BaseModule
 from giga_agent.models.mcp_server import McpServer, McpServerRepository
-from giga_agent.modules.mcp.local_config import load_local_servers
-from giga_agent.modules.mcp.tools import mcp_call_tool, mcp_get_info
+from giga_agent.modules.mcp.local_config import (
+    disabled_local_names,
+    load_local_servers,
+)
+from giga_agent.modules.mcp.resolved import disambiguate_names, resolve_db_server
+from giga_agent.modules.mcp.source import McpToolSource
 
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
     from giga_agent.core.agent.base import BaseAgent
-    from giga_agent.core.agent.types import AgentState
+    from giga_agent.core.agent.connectors.sources import ToolSource
     from giga_agent.models.users import UserShort
 
 
@@ -50,45 +52,33 @@ class McpModule(BaseModule):
             return False
         return len(await _active_servers(user.id)) > 0
 
-    async def _get_tools(
+    async def get_tool_sources(
         self,
         user: "UserShort | None",
         agent: "BaseAgent",
         *,
         config=None,
         **kwargs: Any,
-    ) -> List[BaseTool]:
+    ) -> "List[ToolSource]":
+        """Один :class:`McpToolSource` на каждый доступный сервер (DB + local).
+
+        MCP «тулы» — не `BaseTool`, поэтому доставка не через дефолтный
+        `lazy_tools`-путь, а через собственный источник.
+        """
         _ = agent, config, kwargs
         if user is None:
             return []
-        if not await _active_servers(user.id):
-            return []
-        return [mcp_get_info, mcp_call_tool]
-
-    async def get_instructions(
-        self,
-        user: "UserShort | None",
-        agent: "BaseAgent",
-        state: Optional["AgentState"] = None,
-        config=None,
-        **kwargs: Any,
-    ) -> str | None:
-        _ = agent, state, config, kwargs
-        if user is None:
-            return None
-        lines = []
-        for server in await _active_servers(user.id):
-            label = server.name or str(server.id)
-            lines.append(f"- {label} ({server.url})" if server.url else f"- {label}")
-        for local in load_local_servers().values():
-            target = local.url or local.command or ""
-            lines.append(f"- {local.name} (local, {target})" if target else f"- {local.name} (local)")
-        if not lines:
-            return None
-        listing = "\n".join(lines)
-        return (
-            "Доступные MCP-серверы:\n"
-            f"{listing}\n"
-            "Чтобы узнать инструменты сервера, вызови mcp_get_info('<имя сервера>'). "
-            "Затем вызывай инструмент через mcp_call_tool('<имя сервера>', '<инструмент>', params='<JSON>')."
+        factory = await get_session_factory()
+        async with factory() as session:
+            db_servers = await McpServerRepository(session).get_readable_for_user(
+                user.id, only_active=True
+            )
+        resolved = [resolve_db_server(s) for s in db_servers]
+        disabled = disabled_local_names(user.settings)
+        resolved.extend(
+            s for s in load_local_servers().values() if s.name not in disabled
         )
+        # Same-host servers (the URL-derived fallback name) would otherwise share
+        # a connector name; make names unique so the model can address each one.
+        disambiguate_names(resolved)
+        return [McpToolSource(s) for s in resolved]

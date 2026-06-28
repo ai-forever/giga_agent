@@ -20,17 +20,19 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     String,
-    Text,
     Uuid,
-    UniqueConstraint,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.core.db import JSON_VARIANT, Base
 from giga_agent.models._acl import ACLResourceRepositoryMixin
+from giga_agent.models.oauth_connection import (
+    OAuthConnectionRepository,
+    mcp_provider_key,
+)
 from giga_agent.models.resource_permission import (
     ResourcePermissionRepository,
     ResourcePermissionsPayload,
@@ -57,56 +59,9 @@ class McpServer(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     auth_type: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
-    # Plaintext secrets, consistent with other connectors (decision #6).
-    # bearer  -> {"header_name", "scheme", "token"}
-    # oauth2  -> {"scope", "authorization_server", "client_id", "client_secret", "use_dcr"}
     settings: Mapped[dict] = mapped_column(JSON_VARIANT(), default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_local: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
-    )
-
-
-class McpOAuthToken(Base):
-    """Per-user OAuth tokens + DCR client creds for an MCP server.
-
-    Never serialized into any API response.
-    """
-
-    __tablename__ = "core_mcp_oauth_tokens"
-    __table_args__ = (
-        UniqueConstraint("user_id", "server_id", name="uq_mcp_oauth_user_server"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, primary_key=True, index=True, default=uuid.uuid4
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
-    server_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid,
-        ForeignKey(
-            "core_mcp_servers.id",
-            name="fk_core_mcp_oauth_tokens_server_id",
-            ondelete="CASCADE",
-        ),
-        nullable=False,
-        index=True,
-    )
-    # Nullable: a row may hold only DCR client creds during the auth flow,
-    # before any access token has been issued.
-    access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    token_type: Mapped[str | None] = mapped_column(String(64), default="Bearer")
-    scope: Mapped[str | None] = mapped_column(Text, nullable=True)
-    client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    client_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -323,6 +278,11 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
             resource_id=server_id,
             no_commit=True,
         )
+        # The OAuth connection no longer has an FK to this server (it is keyed by
+        # a free-form provider_key), so cascade-delete its tokens explicitly.
+        await OAuthConnectionRepository(self.db).delete_for_provider_prefix(
+            mcp_provider_key(server_id)
+        )
         await self.db.delete(server)
         await self.db.commit()
         await self.invalidate_tools_cache(server_id)
@@ -352,53 +312,3 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
             created_at=server.created_at,
             updated_at=server.updated_at,
         )
-
-
-class McpOAuthTokenRepository:
-    """Plain (non-ACL) repository for per-user MCP OAuth tokens."""
-
-    def __init__(self, db: AsyncSession):
-        self.db = db
-
-    async def get(
-        self, user_id: uuid.UUID, server_id: uuid.UUID
-    ) -> McpOAuthToken | None:
-        result = await self.db.execute(
-            select(McpOAuthToken).where(
-                McpOAuthToken.user_id == user_id,
-                McpOAuthToken.server_id == server_id,
-            )
-        )
-        return result.scalar_one_or_none()
-
-    async def upsert(
-        self,
-        *,
-        user_id: uuid.UUID,
-        server_id: uuid.UUID,
-        **fields: Any,
-    ) -> McpOAuthToken:
-        token = await self.get(user_id, server_id)
-        if token is None:
-            token = McpOAuthToken(user_id=user_id, server_id=server_id)
-            self.db.add(token)
-        for key, value in fields.items():
-            if hasattr(token, key):
-                setattr(token, key, value)
-        await self.db.commit()
-        await self.db.refresh(token)
-        return token
-
-    async def delete(self, user_id: uuid.UUID, server_id: uuid.UUID) -> None:
-        token = await self.get(user_id, server_id)
-        if token is not None:
-            await self.db.delete(token)
-            await self.db.commit()
-
-    async def delete_for_server(self, server_id: uuid.UUID) -> None:
-        result = await self.db.execute(
-            select(McpOAuthToken).where(McpOAuthToken.server_id == server_id)
-        )
-        for token in result.scalars().all():
-            await self.db.delete(token)
-        await self.db.commit()

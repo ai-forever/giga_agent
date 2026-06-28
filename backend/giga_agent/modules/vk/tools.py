@@ -43,11 +43,36 @@ async def _get_current_user(runtime: ToolRuntime) -> UserShort:
 
 
 async def _get_vk_token(runtime: ToolRuntime) -> str:
+    """Resolve a VK token, preferring the integrations store.
+
+    Falls back to a legacy ``user.secrets`` token and opportunistically migrates
+    it into the integrations store so future calls use the unified path.
+    """
+    from giga_agent.core.integrations.errors import ReauthRequired
+    from giga_agent.core.integrations.registry import get_static_provider
+    from giga_agent.core.integrations.service import get_access_token
+    from giga_agent.modules.vk.provider import VK_PROVIDER_KEY
+
     user = await _get_current_user(runtime)
-    token = _get_user_secret(user, VK_SECRET_KEY)
-    if token is None:
-        raise ValueError(f"Missing required user secret: {VK_SECRET_KEY}")
-    return token
+    try:
+        return await get_access_token(user.id, VK_PROVIDER_KEY)
+    except ReauthRequired:
+        pass
+
+    legacy = _get_user_secret(user, VK_SECRET_KEY)
+    if legacy is None:
+        raise ValueError(
+            "Нет токена VK. Скажи пользователю подключить VK в коннекторах."
+        )
+    provider = get_static_provider(VK_PROVIDER_KEY)
+    if provider is not None:
+        try:
+            await provider.store_manual_token(
+                user_id=user.id, fields={"token": legacy}
+            )
+        except Exception:  # noqa: BLE001
+            pass
+    return legacy
 
 
 @tool

@@ -3,41 +3,36 @@
 The callback is hosted by the backend; the frontend only opens a popup at
 ``/agent/mcp/servers/{id}/oauth/start`` and listens for the ``mcp_auth_callback``
 postMessage emitted by the callback page.
+
+Tokens are stored in the shared connection store (``core_oauth_connections``,
+keyed by ``mcp:<server_id>``); the OAuth machinery itself lives in
+``giga_agent.core.integrations``.
 """
 
 from __future__ import annotations
 
 import json
-import secrets
 import traceback
 import uuid
-from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from cashews import cache
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
-from mcp.client.auth import PKCEParameters
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
 from giga_agent.core.logging import get_logger
-from giga_agent.models.mcp_server import McpOAuthTokenRepository, McpServerRepository
+from giga_agent.models.mcp_server import McpServerRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.modules.mcp import oauth_flow
-from giga_agent.modules.mcp.token_storage import callback_url, resolve_base_url
+from giga_agent.core.integrations import state
+from giga_agent.core.integrations.mcp_provider import McpServerProvider
+from giga_agent.core.integrations.token_storage import resolve_base_url
 from giga_agent.routes._shared.access import fetch_resource_with_read_and_edit
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/servers", tags=["mcp"])
-
-_STATE_TTL = "10m"
-
-
-def _state_key(state: str) -> str:
-    return f"mcp:oauth:state:{state}"
 
 
 def _callback_html(success: bool, error: str | None = None) -> HTMLResponse:
@@ -79,76 +74,20 @@ async def oauth_start(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="OAuth is not configured (set GIGA_AGENT_BASE_URL)",
         )
-    redirect_uri = callback_url(base_url)
-    settings = server.settings or {}
-    scope = settings.get("scope")
 
     try:
-        info = await oauth_flow.discover_auth_server(server.url)
+        auth_url = await McpServerProvider(server).authorization_url(
+            user_id=current_user.id, db=db, base_url=base_url
+        )
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"OAuth discovery failed: {exc}",
+            detail=f"OAuth start failed: {exc}",
         ) from exc
 
-    token_repo = McpOAuthTokenRepository(db)
-    client_id = settings.get("client_id")
-    client_secret = settings.get("client_secret")
-    if not client_id:
-        if not settings.get("use_dcr", True):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="No client_id configured and dynamic registration is disabled",
-            )
-        try:
-            client_info = await oauth_flow.register_client(
-                server_url=server.url,
-                registration_endpoint=info.registration_endpoint,
-                redirect_uri=redirect_uri,
-                scope=scope,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Dynamic client registration failed: {exc}",
-            ) from exc
-        client_id = client_info.client_id
-        client_secret = client_info.client_secret
-        await token_repo.upsert(
-            user_id=current_user.id,
-            server_id=server.id,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
-
-    pkce = PKCEParameters.generate()
-    state = secrets.token_urlsafe(32)
-    await cache.set(
-        _state_key(state),
-        {
-            "user_id": str(current_user.id),
-            "server_id": str(server.id),
-            "server_url": server.url,
-            "code_verifier": pkce.code_verifier,
-            "token_endpoint": info.token_endpoint,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "redirect_uri": redirect_uri,
-            "scope": scope,
-        },
-        expire=_STATE_TTL,
-    )
-
-    auth_url = oauth_flow.build_authorization_url(
-        authorization_endpoint=info.authorization_endpoint,
-        client_id=client_id,
-        redirect_uri=redirect_uri,
-        state=state,
-        code_challenge=pkce.code_challenge,
-        scope=scope,
-        server_url=server.url,
-    )
     # Returned as JSON (not a redirect) so the SPA can open the provider URL in a
     # popup directly — a popup navigation cannot carry the bearer auth header.
     return {"authorization_url": auth_url}
@@ -158,51 +97,26 @@ async def oauth_start(
 async def oauth_callback(
     db: Annotated[AsyncSession, Depends(get_session)],
     code: str | None = Query(default=None),
-    state: str | None = Query(default=None),
+    state_param: str | None = Query(default=None, alias="state"),
     error: str | None = Query(default=None),
 ):
     if error:
         return _callback_html(False, error=error)
-    if not code or not state:
+    if not code or not state_param:
         return _callback_html(False, error="missing code/state")
 
-    data = await cache.get(_state_key(state))
+    data = await state.pop_oauth_state(
+        namespace=state.MCP_STATE_NS, state=state_param
+    )
     if not data:
         return _callback_html(False, error="invalid or expired state")
-    await cache.delete(_state_key(state))
 
     try:
-        token = await oauth_flow.exchange_code(
-            token_endpoint=data["token_endpoint"],
-            code=code,
-            code_verifier=data["code_verifier"],
-            redirect_uri=data["redirect_uri"],
-            client_id=data["client_id"],
-            client_secret=data.get("client_secret"),
-            server_url=data["server_url"],
-        )
+        await state.finalize_oauth(db, data, code)
     except Exception as exc:  # noqa: BLE001
         logger.warning("MCP OAuth token exchange failed: %s", exc)
         return _callback_html(False, error="token exchange failed")
 
-    expires_at = None
-    if token.expires_in is not None:
-        expires_at = datetime.fromtimestamp(
-            datetime.now(timezone.utc).timestamp() + token.expires_in,
-            tz=timezone.utc,
-        )
-
-    server_id = uuid.UUID(data["server_id"])
-    await McpOAuthTokenRepository(db).upsert(
-        user_id=uuid.UUID(data["user_id"]),
-        server_id=server_id,
-        access_token=token.access_token,
-        refresh_token=token.refresh_token,
-        expires_at=expires_at,
-        token_type=token.token_type or "Bearer",
-        scope=token.scope or data.get("scope"),
-        client_id=data["client_id"],
-        client_secret=data.get("client_secret"),
-    )
+    server_id = uuid.UUID(data["provider_key"][len("mcp:"):])
     await McpServerRepository.invalidate_tools_cache(server_id)
     return _callback_html(True)

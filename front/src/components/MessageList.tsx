@@ -58,6 +58,25 @@ const stripThinkingTags = (text: string): string =>
 const hasContentOutsideThinking = (m: Message_): boolean =>
   m.type === "ai" && stripThinkingTags(getMessageText(m)).length > 0;
 
+// Interactive MCP-app widgets produced by a run's tool calls. They render at the
+// top of the AI message that follows the run (not inside the collapsible run).
+const collectMcpUiWidgets = (
+  aiMessages: Message_[],
+  resultsById: Record<string, Message_>,
+): any[] => {
+  const out: any[] = [];
+  for (const m of aiMessages) {
+    for (const c of ((m as any).tool_calls ?? []) as Array<{ id?: string }>) {
+      const result = c.id ? resultsById[c.id] : undefined;
+      const atts = (result?.additional_kwargs?.tool_attachments as any[]) ?? [];
+      for (const a of atts) {
+        if (a?.file_type === "mcp_ui" && a?.resource_uri) out.push(a);
+      }
+    }
+  }
+  return out;
+};
+
 type RenderItem =
   | { kind: "single"; message: Message_; hideToolCalls?: boolean }
   | { kind: "run"; aiMessages: Message_[]; key: string };
@@ -140,6 +159,23 @@ const MessageList: React.FC<MessageListProps> = ({
     flush();
     return out;
   }, [renderable]);
+
+  // Map an AI message id → MCP-app widgets from the run that precedes it, so the
+  // widget renders above that message's text. Memoized for stable references.
+  const leadingWidgetsByAiId = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== "single" || it.message.type !== "ai" || !it.message.id) {
+        continue;
+      }
+      const prev = items[i - 1];
+      if (prev?.kind !== "run") continue;
+      const widgets = collectMcpUiWidgets(prev.aiMessages, resultsById);
+      if (widgets.length) map.set(it.message.id, widgets);
+    }
+    return map;
+  }, [items, resultsById]);
 
   const lastAiId = useMemo(() => {
     for (let i = renderable.length - 1; i >= 0; i--) {
@@ -280,6 +316,11 @@ const MessageList: React.FC<MessageListProps> = ({
             isLastAi={item.message.id === lastAiId}
             isLast={idx === items.length - 1}
             hideToolCalls={item.hideToolCalls}
+            leadingWidgets={
+              item.message.id
+                ? leadingWidgetsByAiId.get(item.message.id)
+                : undefined
+            }
           />
         );
       })}

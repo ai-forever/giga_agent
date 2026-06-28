@@ -1,9 +1,12 @@
-"""OAuth2 discovery / DCR / token-exchange helpers for the MCP routes.
+"""OAuth2 discovery / DCR / token-exchange helpers.
 
 Reuses the mcp SDK building blocks (RFC 8414 / 9728 discovery, RFC 7591 dynamic
 client registration) and performs the authorization-code + PKCE exchange. Used
-by the out-of-band OAuth routes (``api/oauth.py``); the call-time refresh path
-uses :class:`OAuthClientProvider` instead (see ``oauth_provider.py``).
+by the out-of-band OAuth routes (``integrations/api.py``) for both MCP servers
+(dynamic discovery + DCR) and static providers (Yandex, Google, ...).
+
+The ``resource`` parameter (RFC 8707) is MCP-specific: pass ``server_url`` for
+MCP servers, omit it for static providers.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ class AuthServerInfo:
     token_endpoint: str
     registration_endpoint: str | None
     scopes_supported: list[str] | None
+    token_endpoint_auth_methods_supported: list[str] | None = None
 
 
 async def discover_auth_server(server_url: str) -> AuthServerInfo:
@@ -73,9 +77,31 @@ async def discover_auth_server(server_url: str) -> AuthServerInfo:
                         else None
                     ),
                     scopes_supported=metadata.scopes_supported,
+                    token_endpoint_auth_methods_supported=(
+                        metadata.token_endpoint_auth_methods_supported
+                    ),
                 )
 
     raise ValueError("Could not discover OAuth authorization server metadata")
+
+
+def _pick_token_endpoint_auth_method(supported: list[str] | None) -> str:
+    """Choose a DCR ``token_endpoint_auth_method`` from the AS metadata.
+
+    Prefer a public client (``none`` + PKCE) when the server allows it — some
+    servers (e.g. Arcade) accept *only* public clients and reject
+    ``client_secret_post`` with ``invalid_client_metadata``. When the server
+    doesn't advertise its supported methods, keep the historical default
+    (``client_secret_post``) so existing confidential-client servers don't
+    regress.
+    """
+    if not supported:
+        return "client_secret_post"
+    if "none" in supported:
+        return "none"
+    if "client_secret_post" in supported:
+        return "client_secret_post"
+    return supported[0]
 
 
 async def register_client(
@@ -84,6 +110,7 @@ async def register_client(
     registration_endpoint: str | None,
     redirect_uri: str,
     scope: str | None,
+    token_endpoint_auth_methods: list[str] | None = None,
 ) -> OAuthClientInformationFull:
     """Perform Dynamic Client Registration (RFC 7591).
 
@@ -92,6 +119,10 @@ async def register_client(
     registration endpoint when passed ``None`` and instead targets
     ``<base>/register``, which is wrong for servers whose endpoint lives at a
     different path (e.g. Bitrix24's ``/oauth/register/mcp/``).
+
+    ``token_endpoint_auth_methods`` is the AS metadata's
+    ``token_endpoint_auth_methods_supported`` — used to register as a public
+    (PKCE) client when the server requires it.
     """
     if not registration_endpoint:
         raise ValueError("Authorization server does not support dynamic registration")
@@ -100,7 +131,9 @@ async def register_client(
         "redirect_uris": [redirect_uri],
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
-        "token_endpoint_auth_method": "client_secret_post",
+        "token_endpoint_auth_method": _pick_token_endpoint_auth_method(
+            token_endpoint_auth_methods
+        ),
         "client_name": "GigaAgent",
     }
     if scope:
@@ -123,7 +156,10 @@ def build_authorization_url(
     state: str,
     code_challenge: str,
     scope: str | None,
-    server_url: str,
+    server_url: str | None = None,
+    access_type: str | None = "offline",
+    prompt: str | None = "consent",
+    extra_params: dict[str, str] | None = None,
 ) -> str:
     params = {
         "response_type": "code",
@@ -132,10 +168,22 @@ def build_authorization_url(
         "state": state,
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
-        "resource": resource_url_from_server_url(server_url),
     }
+    # RFC 8707 resource indicator — only for MCP servers (a concrete resource).
+    if server_url:
+        params["resource"] = resource_url_from_server_url(server_url)
     if scope:
         params["scope"] = scope
+    # Request a refresh token. ``access_type=offline`` is Google-specific and
+    # ignored by other providers; ``prompt=consent`` forces re-consent so the
+    # refresh token is re-issued on every re-authorization (Google only returns
+    # it when consent is shown). Both are unknown-param-safe for non-Google AS.
+    if access_type:
+        params["access_type"] = access_type
+    if prompt:
+        params["prompt"] = prompt
+    if extra_params:
+        params.update(extra_params)
     sep = "&" if "?" in authorization_endpoint else "?"
     return f"{authorization_endpoint}{sep}{urlencode(params)}"
 
@@ -148,7 +196,7 @@ async def exchange_code(
     redirect_uri: str,
     client_id: str,
     client_secret: str | None,
-    server_url: str,
+    server_url: str | None = None,
 ) -> OAuthToken:
     data = {
         "grant_type": "authorization_code",
@@ -156,8 +204,9 @@ async def exchange_code(
         "redirect_uri": redirect_uri,
         "client_id": client_id,
         "code_verifier": code_verifier,
-        "resource": resource_url_from_server_url(server_url),
     }
+    if server_url:
+        data["resource"] = resource_url_from_server_url(server_url)
     if client_secret:
         data["client_secret"] = client_secret
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
@@ -168,4 +217,55 @@ async def exchange_code(
         )
     if resp.status_code >= 400:
         raise ValueError(f"Token exchange failed ({resp.status_code}): {resp.text}")
+    return OAuthToken.model_validate(resp.json())
+
+
+class RefreshError(Exception):
+    """Refresh failed. ``permanent`` is True for 4xx (invalid_grant → reauth)."""
+
+    def __init__(self, message: str, *, permanent: bool) -> None:
+        self.permanent = permanent
+        super().__init__(message)
+
+
+async def refresh_access_token(
+    *,
+    token_endpoint: str,
+    refresh_token: str,
+    client_id: str,
+    client_secret: str | None,
+    scope: str | None = None,
+) -> OAuthToken:
+    """Exchange a refresh token for a new access token (static providers).
+
+    Raises :class:`RefreshError` with ``permanent=True`` on a 4xx response
+    (e.g. ``invalid_grant`` — the refresh token is expired/revoked), and
+    ``permanent=False`` on transient/5xx/network failures.
+    """
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+    }
+    if client_secret:
+        data["client_secret"] = client_secret
+    if scope:
+        data["scope"] = scope
+    try:
+        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+            resp = await client.post(
+                token_endpoint,
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+    except httpx.HTTPError as exc:
+        raise RefreshError(f"refresh request failed: {exc}", permanent=False) from exc
+    if 400 <= resp.status_code < 500:
+        raise RefreshError(
+            f"refresh rejected ({resp.status_code}): {resp.text}", permanent=True
+        )
+    if resp.status_code >= 500:
+        raise RefreshError(
+            f"refresh server error ({resp.status_code})", permanent=False
+        )
     return OAuthToken.model_validate(resp.json())

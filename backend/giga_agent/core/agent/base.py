@@ -173,6 +173,10 @@ class BaseAgent(BaseModel):
                 from giga_agent.vectorstores.qdrant import shutdown_qdrant_client
 
                 await shutdown_qdrant_client()
+                # Close any warm MCP sessions held by the embedded pool.
+                from giga_agent.modules.mcp.pool import shutdown_pool
+
+                await shutdown_pool()
 
         self._app = FastAPI(lifespan=_lifespan)
         self._app.state.agent = self
@@ -267,6 +271,7 @@ class BaseAgent(BaseModel):
         *,
         enable_think: bool = True,
         enable_multi_tool_use: bool = False,
+        connector_sources: "list | None" = None,
     ) -> str:
         disabled = _disabled_module_ids(config, user)
         modules_prompts = []
@@ -278,6 +283,19 @@ class BaseAgent(BaseModel):
             )
             if instructions:
                 modules_prompts.append(instructions)
+        # Несъёмный connector-дисптач: единый листинг доступных коннекторов
+        # (MCP-серверы + ленивые модули). Источники вычисляются один раз в
+        # amodel_node и передаются сюда, чтобы не дублировать запросы.
+        if connector_sources:
+            from giga_agent.core.agent.connectors.prompt import (
+                build_connectors_prompt,
+            )
+
+            connectors_prompt = await build_connectors_prompt(
+                connector_sources, user_id=user.id
+            )
+            if connectors_prompt:
+                modules_prompts.append(connectors_prompt)
         if channel_prompt:
             modules_prompts.append(channel_prompt.strip())
         instructions = dict(user.settings or {}).get("contextInstructions")

@@ -9,7 +9,6 @@ import { HumanMessage } from "@langchain/langgraph-sdk";
 import * as LucideIcons from "lucide-react";
 import {
   Check,
-  Cog,
   Files,
   FolderOpen,
   Loader2,
@@ -52,6 +51,7 @@ import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { getCollectionName } from "@/components/rag/hooks/use-rag";
 import { useUserInfo } from "@/components/providers/user-info.tsx";
+import ConnectorsMenu from "@/components/mcp/connectors/connectors-menu.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate, useParams } from "react-router-dom";
@@ -192,7 +192,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const { settings } = useSettings();
   const {
     mcpTools,
-    openMcpModal,
     enabledModules,
     toggleModule,
     setModulesState,
@@ -1166,10 +1165,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                         )}
                       </div>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={openMcpModal}>
-                      <Cog className={"size-5"} />
-                      <span>MCP</span>
-                    </DropdownMenuItem>
+                    <ConnectorsMenu />
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="gap-2">
                         <Wrench className="size-5" />

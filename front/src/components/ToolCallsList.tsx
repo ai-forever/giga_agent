@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Minus, Ban, Check, Loader, X } from "lucide-react";
+import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -950,7 +950,7 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
         isVisible={!!previewFile}
         onClose={() => setPreviewFile(null)}
       >
-        <div className="bg-card rounded-lg p-2.5">
+        <div className="bg-card rounded-lg p-2.5 w-full">
           {previewFile ? (
             <MessageAttachment
               path={previewFile.sandbox_path ?? previewFile.path}

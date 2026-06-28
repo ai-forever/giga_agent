@@ -11,6 +11,7 @@ from giga_agent.routes.embeddings import router as embeddings_router
 from giga_agent.routes.files import router as files_router
 from giga_agent.routes.generators import router as generators_router
 from giga_agent.routes.groups import router as groups_router
+from giga_agent.routes.integrations import router as integrations_router
 from giga_agent.routes.llms import router as llms_router
 from giga_agent.routes.models_config import router as models_config_router
 from giga_agent.routes.rate_limits import router as rate_limits_router
@@ -32,6 +33,7 @@ router.include_router(files_router)
 router.include_router(generators_router)
 router.include_router(search_engines_router)
 router.include_router(groups_router)
+router.include_router(integrations_router)
 router.include_router(rate_limits_router)
 router.include_router(resource_permissions_router)
 router.include_router(stt_router)
@@ -54,6 +56,7 @@ __all__ = [
     "generators_router",
     "search_engines_router",
     "groups_router",
+    "integrations_router",
     "rate_limits_router",
     "resource_permissions_router",
     "stt_router",

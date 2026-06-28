@@ -144,12 +144,16 @@ from giga_agent.models.project import (
 
 from giga_agent.models.mcp_server import (
     McpServer,
-    McpOAuthToken,
     McpServerCreate,
     McpServerUpdate,
     McpServerResponse,
     McpServerRepository,
-    McpOAuthTokenRepository,
+)
+
+from giga_agent.models.oauth_connection import (
+    OAuthConnection,
+    OAuthConnectionRepository,
+    mcp_provider_key,
 )
 
 from giga_agent.models.channel import (
@@ -290,12 +294,14 @@ __all__ = [
     "ProjectRepository",
     # MCP servers
     "McpServer",
-    "McpOAuthToken",
     "McpServerCreate",
     "McpServerUpdate",
     "McpServerResponse",
     "McpServerRepository",
-    "McpOAuthTokenRepository",
+    # OAuth connections
+    "OAuthConnection",
+    "OAuthConnectionRepository",
+    "mcp_provider_key",
     # Channels
     "ChannelBot",
     "ChannelThread",

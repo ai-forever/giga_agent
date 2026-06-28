@@ -810,8 +810,8 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
                                             align="start"
                                             className="z-1000"
                                           >
-                                            <div className="space-y-2">
-                                              <div className="font-medium text-sm">
+                                            <div className="space-y-2 min-w-0">
+                                              <div className="font-medium text-sm break-words [overflow-wrap:anywhere]">
                                                 {tool.name}
                                               </div>
                                               {tool.disabled && (
@@ -825,7 +825,7 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
                                                 </Badge>
                                               )}
                                               {tool.description && (
-                                                <div className="text-xs text-muted-foreground">
+                                                <div className="text-xs text-muted-foreground break-words [overflow-wrap:anywhere]">
                                                   {tool.description}
                                                 </div>
                                               )}

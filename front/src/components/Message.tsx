@@ -36,6 +36,8 @@ import { useSettings } from "./Settings.tsx";
 import QuestionsForm from "./QuestionsForm.tsx";
 import type { QuestionAnswer } from "../interfaces.ts";
 
+const McpUiWidget = React.lazy(() => import("./attachments/McpUiWidget.tsx"));
+
 function getMessageText(message: Message_): string {
   if (Array.isArray(message.content)) {
     return message.content
@@ -75,6 +77,9 @@ interface MessageProps {
   hideToolCalls?: boolean;
   // Показывает только tool calls, не дублируя уже вынесенный content/reasoning.
   hideContent?: boolean;
+  // Интерактивные MCP-виджеты из предшествующего agent run — рендерятся сверху
+  // этого AI-сообщения (см. MessageList).
+  leadingWidgets?: any[];
 }
 
 // ≈ 10 строк text-xs (12px) при leading-snug (line-height 1.375): 12 * 1.375 * 10 ≈ 165
@@ -212,6 +217,7 @@ const Message: React.FC<MessageProps> = ({
   hideActions = false,
   hideToolCalls = false,
   hideContent = false,
+  leadingWidgets,
 }) => {
   // 2) хук для постепенной «печати» чанков
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -558,6 +564,32 @@ const Message: React.FC<MessageProps> = ({
                 "markdown",
               ].join(" ")}
             >
+              {message.type === "ai" &&
+                leadingWidgets &&
+                leadingWidgets.length > 0 && (
+                  <div className="mb-3 flex flex-col gap-2">
+                    {leadingWidgets.map((att, i) => (
+                      <React.Suspense
+                        key={`${att.resource_uri ?? "w"}-${i}`}
+                        fallback={
+                          <div className="text-xs text-muted-foreground">
+                            Загрузка виджета…
+                          </div>
+                        }
+                      >
+                        <McpUiWidget
+                          serverRef={att.server_id ?? att.server}
+                          resourceUri={att.resource_uri}
+                          toolName={att.tool}
+                          appName={att.server}
+                          iconUrl={att.icon}
+                          toolArgs={att.tool_args}
+                          structuredContent={att.structured_content}
+                        />
+                      </React.Suspense>
+                    ))}
+                  </div>
+                )}
               {hasToolCalls ? (
                 <div
                   className={
@@ -804,5 +836,6 @@ export default React.memo(
     prev.noContainer === next.noContainer &&
     prev.hideActions === next.hideActions &&
     prev.hideToolCalls === next.hideToolCalls &&
-    prev.hideContent === next.hideContent,
+    prev.hideContent === next.hideContent &&
+    prev.leadingWidgets === next.leadingWidgets,
 );

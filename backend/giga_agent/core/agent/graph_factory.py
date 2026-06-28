@@ -40,6 +40,11 @@ from giga_agent.conf import (
     GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
 )
 from giga_agent.core.agent.anti_loop import detect_loop
+from giga_agent.core.agent.connectors.sources import collect_sources
+from giga_agent.core.agent.connectors.tools import (
+    connector_call_tool,
+    connector_get_info,
+)
 from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.multi_tool_use import (
@@ -454,7 +459,7 @@ def create_graph(
     built_in_tools = [t for t in tools if isinstance(t, dict)]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
 
-    builtin_tools: list[BaseTool] = []
+    builtin_tools: list[BaseTool] = [connector_call_tool, connector_get_info]
     if GIGA_AGENT_ENABLE_THINK_TOOL:
         builtin_tools.append(think)
     if GIGA_AGENT_ENABLE_MULTI_TOOL_USE:
@@ -534,6 +539,7 @@ def create_graph(
         if loop_reason:
             logger.warning("Anti-loop triggered, stopping run: %s", loop_reason)
             stop_message = AIMessage(content=ANTI_LOOP_STOP_MESSAGE)
+            stop_message.additional_kwargs["rendered"] = True
             if name:
                 stop_message.name = name
             return {"messages": [stop_message]}
@@ -669,6 +675,14 @@ def create_graph(
         if multi_tool_use_enabled:
             optional_tools.append(multi_tool_use)
 
+        # Connector-дисптач: если у юзера есть хоть один источник (MCP-сервер или
+        # включённый ленивый модуль) — биндим две мета-тулы. Источники считаем
+        # один раз и переиспользуем для системного промпта.
+        connector_sources = await collect_sources(agent, user, config)
+        if connector_sources:
+            optional_tools.append(connector_get_info)
+            optional_tools.append(connector_call_tool)
+
         all_tools = (
             optional_tools
             + built_in_tools
@@ -677,7 +691,7 @@ def create_graph(
             + agent_tools
             + mcp_tools
         )
-        llm = llm.bind_tools(tools=all_tools, tool_choice=tool_choice)
+        llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
@@ -687,6 +701,7 @@ def create_graph(
                 channel_prompt=channel_prompt,
                 enable_think=think_enabled,
                 enable_multi_tool_use=multi_tool_use_enabled,
+                connector_sources=connector_sources,
             )
         )
 

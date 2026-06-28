@@ -55,6 +55,25 @@ class Settings(BaseSettings):
     giga_agent_host: str | None = Field(None, alias="GIGA_AGENT_HOST")
     giga_agent_port: str | None = Field(None, alias="GIGA_AGENT_PORT")
 
+    # OAuth client credentials for native integration providers (optional).
+    yandex_oauth_client_id: str | None = Field(None, alias="YANDEX_OAUTH_CLIENT_ID")
+    yandex_oauth_client_secret: str | None = Field(
+        None, alias="YANDEX_OAUTH_CLIENT_SECRET"
+    )
+    yandex_oauth_scope: str = Field(
+        "cloud_api:disk.read cloud_api:disk.write cloud_api:disk.info",
+        alias="YANDEX_OAUTH_SCOPE",
+    )
+    google_oauth_client_id: str | None = Field(None, alias="GOOGLE_OAUTH_CLIENT_ID")
+    google_oauth_client_secret: str | None = Field(
+        None, alias="GOOGLE_OAUTH_CLIENT_SECRET"
+    )
+    google_oauth_scope: str = Field(
+        "https://www.googleapis.com/auth/gmail.readonly "
+        "https://www.googleapis.com/auth/gmail.compose",
+        alias="GOOGLE_OAUTH_SCOPE",
+    )
+
     giga_agent_alembic_fileconfig: bool = Field(
         False, alias="GIGA_AGENT_ALEMBIC_FILECONFIG"
     )
@@ -250,6 +269,42 @@ class Settings(BaseSettings):
     )
 
     giga_agent_tool_max_size: int = Field(25000, alias="GIGA_AGENT_TOOL_MAX_SIZE")
+
+    # CSP applied to MCP App (UI widget) iframes to restrict their network
+    # egress. Empty/unset → NO restriction (widget may reach any host). Set to a
+    # full policy string to lock it down, e.g.:
+    #   default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https://esm.sh;
+    #   style-src 'unsafe-inline' https://esm.sh; img-src data: blob: https://esm.sh;
+    #   font-src data: https://esm.sh; connect-src https://esm.sh
+    # Disabled for now (None).
+    giga_agent_mcp_ui_csp: str | None = Field(None, alias="GIGA_AGENT_MCP_UI_CSP")
+
+    # MCP session pool. "embedded" keeps a small set of warm MCP sessions in the
+    # main process (skips the ~0.5s connect+initialize handshake on reuse and
+    # warms cold server paths); "off" reverts to open-a-session-per-call. A
+    # future "remote" mode will point at a standalone pool service (own pod).
+    giga_agent_mcp_pool_mode: str = Field("embedded", alias="GIGA_AGENT_MCP_POOL_MODE")
+    # Max warm sessions per (user, server). Replaces the old per-server cap.
+    giga_agent_mcp_pool_max_per_server: int = Field(
+        4, alias="GIGA_AGENT_MCP_POOL_MAX_PER_SERVER"
+    )
+    # Max warm sessions a single user may hold across all servers.
+    giga_agent_mcp_pool_max_per_user: int = Field(
+        8, alias="GIGA_AGENT_MCP_POOL_MAX_PER_USER"
+    )
+    # Hard ceiling on warm sessions across the whole process.
+    giga_agent_mcp_pool_max_total: int = Field(
+        200, alias="GIGA_AGENT_MCP_POOL_MAX_TOTAL"
+    )
+    # Evict a warm session after this many idle seconds.
+    giga_agent_mcp_pool_idle_ttl_sec: int = Field(
+        300, alias="GIGA_AGENT_MCP_POOL_IDLE_TTL_SEC"
+    )
+    # Recycle a session after this many seconds of life (bounds token/state
+    # staleness even if it stays busy).
+    giga_agent_mcp_pool_max_lifetime_sec: int = Field(
+        1800, alias="GIGA_AGENT_MCP_POOL_MAX_LIFETIME_SEC"
+    )
 
     giga_agent_sandbox_idle_sweeper_enabled: bool = Field(
         True, alias="GIGA_AGENT_SANDBOX_IDLE_SWEEPER_ENABLED"

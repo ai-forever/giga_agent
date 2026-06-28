@@ -16,6 +16,7 @@ http servers are reached directly.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -34,10 +35,6 @@ LOCAL_PREFIX = "local_"
 
 _STUB = {
     "mcpServers": {
-        "filesystem": {
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
-        }
     }
 }
 
@@ -50,8 +47,15 @@ def local_config_path() -> Path:
     return giga_agent_dir() / "mcp.json"
 
 
+def _config_sig(cfg: dict) -> str:
+    """Stable hash of a server's config entry; changes iff the entry is edited."""
+    raw = json.dumps(cfg, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 def _to_resolved(ns: str, cfg: dict) -> ResolvedServer | None:
     name = f"{LOCAL_PREFIX}{ns}"
+    sig = _config_sig(cfg)
     if cfg.get("command"):
         return ResolvedServer(
             name=name,
@@ -59,6 +63,7 @@ def _to_resolved(ns: str, cfg: dict) -> ResolvedServer | None:
             is_local=True,
             cache_id=f"local:{ns}",
             source="file",
+            config_sig=sig,
             command=str(cfg["command"]),
             args=[str(a) for a in (cfg.get("args") or [])],
             env={str(k): str(v) for k, v in (cfg.get("env") or {}).items()} or None,
@@ -72,6 +77,7 @@ def _to_resolved(ns: str, cfg: dict) -> ResolvedServer | None:
             is_local=is_local_url(url),
             cache_id=f"local:{ns}",
             source="file",
+            config_sig=sig,
             url=url,
             headers=cfg.get("headers") or None,
         )
@@ -100,6 +106,22 @@ def load_local_servers() -> dict[str, ResolvedServer]:
         if resolved is not None:
             servers[resolved.name] = resolved
     return servers
+
+
+# Локальные серверы не лежат в БД, поэтому флаг «выключен» храним per-user
+# в user.settings — по аналогии с user.settings["disabledModules"]. Ключ —
+# имя локального сервера (``local_<ns>``).
+LOCAL_DISABLED_SETTINGS_KEY = "disabledLocalServers"
+
+
+def disabled_local_names(settings: dict | None) -> set[str]:
+    """Имена локальных серверов, выключенных пользователем (из user.settings)."""
+    if not settings:
+        return set()
+    raw = settings.get(LOCAL_DISABLED_SETTINGS_KEY) or []
+    if not isinstance(raw, list):
+        return set()
+    return {str(x) for x in raw if x}
 
 
 def ensure_local_config_file() -> Path:

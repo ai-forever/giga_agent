@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 import uuid
 from contextlib import asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, AsyncIterator
@@ -35,8 +36,14 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Hard per-operation timeout (mirrors the frontend 15s in mcp-modal.tsx).
+# Hard per-operation timeout for connect/initialize/discovery (mirrors the
+# frontend 15s in mcp-modal.tsx).
 _OPERATION_TIMEOUT = 15.0
+# Tool execution gets a longer budget: tools legitimately do slow work (uploads,
+# web search, remote rendering). E.g. Excalidraw's export_to_excalidraw uploads
+# to excalidraw.com — usually ~2s but it can spike past 15s, and a too-tight
+# limit surfaces as a confusing "unreachable" error.
+_TOOL_CALL_TIMEOUT = 60.0
 _TOOLS_CACHE_TTL = "10m"
 # Cap concurrent sessions per server to avoid hammering a remote (the project
 # recently added similar per-user session limits elsewhere).
@@ -74,8 +81,15 @@ async def _open_session(
     *,
     user_id: uuid.UUID,
     db: "AsyncSession | None",
+    throttle: bool = True,
 ) -> AsyncIterator[ClientSession]:
-    """Open and initialize an MCP session, or raise a typed error."""
+    """Open and initialize an MCP session, or raise a typed error.
+
+    ``throttle`` gates the per-server concurrency semaphore. The session pool
+    passes ``throttle=False`` because it enforces its own (per-user / per-server
+    / total) limits and would otherwise hold the semaphore for the whole warm
+    lifetime of the session.
+    """
     _ensure_local_allowed(server)
 
     # Serialize OAuth sessions per (user, server) so concurrent calls don't
@@ -85,7 +99,8 @@ async def _open_session(
     else:
         refresh_lock = nullcontext()
 
-    async with _semaphore_for(server.cache_id), refresh_lock:
+    throttle_cm = _semaphore_for(server.cache_id) if throttle else nullcontext()
+    async with throttle_cm, refresh_lock:
         try:
             if server.transport == "stdio":
                 params = StdioServerParameters(
@@ -126,17 +141,59 @@ async def _open_session(
             # Typed errors (auth required, local blocked) must surface as-is.
             raise
         except Exception as exc:  # connection refused / DNS / TLS / spawn / protocol
+            traceback.print_exc()
             raise McpUnreachableError(
                 f"server '{server.name}' is unreachable: {exc}"
             ) from exc
 
 
+def _extract_resource_text(result: Any, uri: str) -> tuple[str, str]:
+    """Pull the first text payload out of a ``read_resource`` result."""
+    for content in result.contents or []:
+        text = getattr(content, "text", None)
+        if isinstance(text, str):
+            return text, str(getattr(content, "mimeType", "") or "")
+    raise McpError(f"resource '{uri}' has no text content")
+
+
+async def read_server_resource(
+    server: ResolvedServer,
+    uri: str,
+    *,
+    user_id: uuid.UUID,
+    db: "AsyncSession | None" = None,
+) -> tuple[str, str]:
+    """Read a text resource (e.g. an MCP App's ``ui://…`` widget HTML).
+
+    Returns ``(text, mime_type)``. Raises :class:`McpError` when the resource
+    has no text payload (binary-only resources are not supported here).
+    """
+    from giga_agent.modules.mcp.pool import get_pool
+
+    async with get_pool().acquire(server, user_id=user_id, db=db) as handle:
+        return await handle.read_resource(uri)
+
+
 def _serialize_tool(tool: Any) -> dict[str, Any]:
-    return {
+    serialized: dict[str, Any] = {
         "name": tool.name,
         "description": tool.description or "",
         "inputSchema": tool.inputSchema or {},
     }
+    # Preserve the tool's ``_meta`` and ``annotations`` — MCP Apps (UI) servers
+    # advertise the widget linkage (``meta.ui.resourceUri``) and tool visibility
+    # (``meta.ui.visibility``) there. Dropping them blinds the UI layer.
+    meta = getattr(tool, "meta", None)
+    if meta:
+        serialized["meta"] = meta
+    annotations = getattr(tool, "annotations", None)
+    if annotations is not None:
+        serialized["annotations"] = (
+            annotations.model_dump()
+            if hasattr(annotations, "model_dump")
+            else annotations
+        )
+    return serialized
 
 
 async def list_server_tools(
@@ -147,41 +204,34 @@ async def list_server_tools(
     force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """Return the server's tool catalog, served from a shared cashews cache."""
-    key = McpServerRepository.cache_key(server.cache_id)
+    from giga_agent.modules.mcp.pool import get_pool
+
+    # Fast path: a cache hit needs no session at all, so don't lease one.
     if not force_refresh:
-        cached = await cache.get(key)
+        cached = await cache.get(McpServerRepository.cache_key(server.cache_id))
         if cached is not None:
             return cached
 
-    async with _open_session(server, user_id=user_id, db=db) as session:
-        result = await asyncio.wait_for(
-            session.list_tools(), timeout=_OPERATION_TIMEOUT
-        )
-    tools = [_serialize_tool(t) for t in result.tools]
-    await cache.set(key, tools, expire=_TOOLS_CACHE_TTL)
-    return tools
+    async with get_pool().acquire(server, user_id=user_id, db=db) as handle:
+        return await handle.list_tools(force_refresh=force_refresh)
 
 
-async def call_server_tool(
-    server: ResolvedServer,
-    tool_name: str,
-    args: dict[str, Any],
-    *,
-    user_id: uuid.UUID,
-    db: "AsyncSession | None" = None,
-) -> tuple[list[dict[str, Any]], bool]:
-    """Call a tool and return ``(content_parts, is_error)``.
+def _process_call_result(
+    result: Any, tool_name: str
+) -> tuple[list[dict[str, Any]], bool, dict[str, Any] | None]:
+    """Normalize a raw ``call_tool`` result into ``(parts, is_error, structured)``.
 
-    ``content_parts`` are plain dicts compatible with
-    :func:`giga_agent.middlewares.tool_result.process_mcp_content`.
+    ``parts`` are plain dicts compatible with
+    :func:`giga_agent.middlewares.tool_result.process_mcp_content`. Oversized
+    payloads are discarded with an error part before any normalization/upload.
     """
-    async with _open_session(server, user_id=user_id, db=db) as session:
-        result = await asyncio.wait_for(
-            session.call_tool(tool_name, args or {}), timeout=_OPERATION_TIMEOUT
-        )
-    parts = [part.model_dump() for part in (result.content or [])]
+    # ``exclude_none`` drops unset optionals (``annotations``, ``_meta``, …)
+    # instead of emitting them as JSON ``null``. MCP App widgets validate each
+    # content block against the zod ``ContentBlockSchema``, where those fields are
+    # ``.optional()`` and a literal ``null`` fails the union match.
+    parts = [part.model_dump(exclude_none=True) for part in (result.content or [])]
+    structured = getattr(result, "structuredContent", None)
 
-    # Guard against absurdly large payloads before normalization/upload.
     try:
         size = len(json.dumps(parts, default=str).encode("utf-8"))
     except (TypeError, ValueError):
@@ -199,5 +249,43 @@ async def call_server_tool(
                 }
             ],
             True,
+            None,
         )
-    return parts, bool(result.isError)
+    return parts, bool(result.isError), structured
+
+
+async def call_server_tool(
+    server: ResolvedServer,
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    user_id: uuid.UUID,
+    db: "AsyncSession | None" = None,
+) -> tuple[list[dict[str, Any]], bool, dict[str, Any] | None]:
+    """Call a tool and return ``(content_parts, is_error, structured_content)``.
+
+    ``structured_content`` is the tool's ``structuredContent`` (machine-readable
+    result, e.g. an MCP App's checkpoint id) — ``None`` when the tool returns none.
+    """
+    from giga_agent.modules.mcp.pool import get_pool
+
+    # When the tool call times out, the (direct-path) teardown may wrap the
+    # cancellation as a misleading "unreachable"; track the real cause so we
+    # surface a genuine timeout.
+    timed_out = False
+    try:
+        async with get_pool().acquire(server, user_id=user_id, db=db) as handle:
+            try:
+                return await handle.call_tool(
+                    tool_name, args, timeout=_TOOL_CALL_TIMEOUT
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                timed_out = True
+                raise
+    except (McpError, asyncio.TimeoutError, TimeoutError) as exc:
+        if timed_out or isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+            raise McpTimeoutError(
+                f"tool '{tool_name}' on '{server.name}' did not respond "
+                f"within {int(_TOOL_CALL_TIMEOUT)}s"
+            ) from exc
+        raise

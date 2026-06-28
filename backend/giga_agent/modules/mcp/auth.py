@@ -53,10 +53,35 @@ async def build_connection_auth(
         return _bearer_headers(server), None
 
     if auth_type == "oauth2":
-        # Phase 5 wires OAuthClientProvider + DbTokenStorage here. Until then,
-        # signal that interactive authorization is required.
-        from giga_agent.modules.mcp.oauth_provider import build_oauth_auth
+        # OAuth tokens live in the shared connection store, keyed by mcp:<id>.
+        # The OAuthClientProvider transparently refreshes them at call time.
+        from giga_agent.models.oauth_connection import mcp_provider_key
+        from giga_agent.core.integrations.errors import ReauthRequired
+        from giga_agent.core.integrations.oauth_provider import build_oauth_auth
+        from giga_agent.core.integrations.token_storage import (
+            mcp_callback_url,
+            resolve_base_url,
+        )
 
-        return await build_oauth_auth(server, user_id=user_id, db=db)
+        _ = db
+        base_url = resolve_base_url()
+        if not base_url:
+            raise McpAuthRequiredError(
+                "OAuth is not configured on the server (set GIGA_AGENT_BASE_URL)"
+            )
+        settings = server.settings or {}
+        try:
+            return await build_oauth_auth(
+                provider_key=mcp_provider_key(server.id),
+                server_url=server.url,
+                scope=settings.get("scope"),
+                client_secret=settings.get("client_secret"),
+                redirect_uri=mcp_callback_url(base_url),
+                user_id=user_id,
+            )
+        except ReauthRequired as exc:
+            raise McpAuthRequiredError(
+                f"server '{server.name or server.url}' requires authorization"
+            ) from exc
 
     raise McpAuthRequiredError(f"unsupported auth_type '{auth_type}'")
