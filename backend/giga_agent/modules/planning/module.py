@@ -20,17 +20,18 @@ class PlanningModule(BaseModule):
     Сервисный модуль (label="") — его тулы всегда доступны и не отключаются
     пользователем через disabled_modules.
 
-    Статус:
-      - update_plan / present_plan: реализованы (tools.py), пушат план в UI.
-      - plan / mode поля: добавлены в AgentState (core/agent/types.py).
+    Статус: реализовано end-to-end (бэкенд + фронт + тесты).
+      - update_plan / present_plan: tools.py, пушат план в UI (push_ui_message).
+      - plan / mode поля: AgentState (core/agent/types.py).
       - сидирование mode из config.configurable.plan_mode: PlanningMiddleware.
-      - гейтинг тулов по state["mode"]: graph_factory.amodel_node
+      - гейтинг тулов по state["mode"]: graph_factory._filter_plan_mode_tools
         (PLAN_MODE_BLOCKED_MODULES).
-      - ОСТАЁТСЯ: фронт (чеклист, карточка approve/edit/reject, тумблер plan mode)
-        и тесты. См. docs/PLANNING_MODE.md.
-    plan mode включается через config.configurable.plan_mode (тумблер на фронте).
-    Пока фронт не шлёт этот флаг — plan mode неактивен, и present_plan модели не
-    предлагается; update_plan работает в обычном режиме.
+      - фронт: тумблер «Режим планирования» (InputArea), чеклист (ToolCallsList),
+        карточка approve/edit/reject (PlanApprovalCard на interrupt plan_approval).
+      - тесты: tests/modules/planning/test_planning.py.
+    См. docs/PLANNING_MODE.md. plan mode включается тумблером на фронте
+    (config.configurable.plan_mode); выключен — present_plan модели не предлагается,
+    update_plan работает в обычном режиме.
     """
 
     id: str = "planning"
