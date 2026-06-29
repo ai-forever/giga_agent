@@ -102,6 +102,22 @@ PLAN_MODE_BLOCKED_MODULES = frozenset(
 )
 
 
+def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
+    """В plan mode убирает тулы модулей с побочными эффектами.
+
+    Read-only тулы, planning (update_plan/present_plan) и built-in dict-тулы
+    (без атрибута .extras) остаются. Вне plan mode список не трогаем.
+    """
+    if mode != "plan":
+        return tools
+    return [
+        t
+        for t in tools
+        if (getattr(t, "extras", None) or {}).get("module_id")
+        not in PLAN_MODE_BLOCKED_MODULES
+    ]
+
+
 def _is_feature_enabled_for_provider(
     enabled: bool,
     allowed_providers: list[str],
@@ -719,15 +735,7 @@ def create_graph(
             + agent_tools
             + mcp_tools
         )
-        # Plan mode: убираем побочные тулы (read-only тулы и planning остаются).
-        # built_in_tools — dict без .extras → getattr вернёт None → пропускаем.
-        if state.get("mode") == "plan":
-            all_tools = [
-                t
-                for t in all_tools
-                if (getattr(t, "extras", None) or {}).get("module_id")
-                not in PLAN_MODE_BLOCKED_MODULES
-            ]
+        all_tools = _filter_plan_mode_tools(all_tools, state.get("mode"))
         llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
         scheduled_prompt = _resolve_scheduled_prompt(config)
