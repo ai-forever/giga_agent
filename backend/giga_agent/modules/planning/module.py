@@ -30,8 +30,9 @@ class PlanningModule(BaseModule):
         карточка approve/edit/reject (PlanApprovalCard на interrupt plan_approval).
       - тесты: tests/modules/planning/test_planning.py.
     См. docs/PLANNING_MODE.md. plan mode включается тумблером на фронте
-    (config.configurable.plan_mode); выключен — present_plan модели не предлагается,
-    update_plan работает в обычном режиме.
+    (config.configurable.plan_mode). В normal-режиме present_plan жёстко
+    отфильтровывается гейтингом (пауза-подтверждение возможна только при
+    включённом plan mode), а update_plan работает всегда — динамический todo-лист.
     """
 
     id: str = "planning"

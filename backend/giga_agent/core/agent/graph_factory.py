@@ -103,19 +103,22 @@ PLAN_MODE_BLOCKED_MODULES = frozenset(
 
 
 def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
-    """В plan mode убирает тулы модулей с побочными эффектами.
+    """Фильтрует список тулов под текущий режим.
 
-    Read-only тулы, planning (update_plan/present_plan) и built-in dict-тулы
-    (без атрибута .extras) остаются. Вне plan mode список не трогаем.
+    plan mode: убираем тулы модулей с побочными эффектами; read-only,
+    update_plan/present_plan и built-in dict-тулы (без .extras) остаются.
+
+    normal: убираем present_plan — пауза на подтверждение возможна только при
+    включённом plan mode. update_plan остаётся (динамический todo-лист).
     """
-    if mode != "plan":
-        return tools
-    return [
-        t
-        for t in tools
-        if (getattr(t, "extras", None) or {}).get("module_id")
-        not in PLAN_MODE_BLOCKED_MODULES
-    ]
+    if mode == "plan":
+        return [
+            t
+            for t in tools
+            if (getattr(t, "extras", None) or {}).get("module_id")
+            not in PLAN_MODE_BLOCKED_MODULES
+        ]
+    return [t for t in tools if getattr(t, "name", None) != "present_plan"]
 
 
 def _is_feature_enabled_for_provider(

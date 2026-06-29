@@ -161,10 +161,13 @@ class GatingTests(unittest.TestCase):
         ):
             self.assertIn(keep, kept)
 
-    def test_normal_mode_keeps_everything(self):
-        tools = self._tools()
-        self.assertEqual(len(_filter_plan_mode_tools(tools, "normal")), len(tools))
-        self.assertEqual(len(_filter_plan_mode_tools(tools, None)), len(tools))
+    def test_normal_mode_drops_only_present_plan(self):
+        for mode in ("normal", None):
+            kept = self._names(_filter_plan_mode_tools(self._tools(), mode))
+            self.assertNotIn("present_plan", kept)  # пауза только в plan mode
+            # всё остальное (включая update_plan и побочные) остаётся
+            for keep in ("update_plan", "python", "upload_file", "web_search"):
+                self.assertIn(keep, kept)
 
     def test_blocked_set_is_side_effecting_modules(self):
         self.assertEqual(
