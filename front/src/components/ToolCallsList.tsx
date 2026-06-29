@@ -85,7 +85,10 @@ const PLAN_STATUS_DOT: Record<string, string> = {
 
 // Живой чеклист плана (update_plan / present_plan). Статусы:
 // pending · in_progress (спиннер) · completed (галка) · skipped (зачёркнут).
-const PlanChecklist: React.FC<{ todos: PlanTodo[] }> = ({ todos }) => {
+const PlanChecklist: React.FC<{ todos: PlanTodo[]; active?: boolean }> = ({
+  todos,
+  active = false,
+}) => {
   const done = todos.filter(
     (t) => t.status === "completed" || t.status === "skipped",
   ).length;
@@ -120,7 +123,16 @@ const PlanChecklist: React.FC<{ todos: PlanTodo[] }> = ({ todos }) => {
             >
               <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
                 {isActive ? (
-                  <Loader size={14} className="animate-spin text-blue-500" />
+                  active ? (
+                    <Loader size={14} className="animate-spin text-blue-500" />
+                  ) : (
+                    // ход завершён, а шаг остался активным — статичный маркер,
+                    // чтобы не выглядело «зависшим».
+                    <span
+                      className="inline-block h-2 w-2 rounded-full bg-blue-500"
+                      aria-hidden
+                    />
+                  )
                 ) : isDone ? (
                   <Check size={14} className="text-emerald-500" />
                 ) : (
@@ -1059,7 +1071,11 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
             if (!isPlanAnchor || idx !== lastUpdatePlanIdx) return null;
             const todos = (tc.args as any)?.todos;
             return Array.isArray(todos) && todos.length ? (
-              <PlanChecklist key={tc.id ?? tc.name} todos={todos} />
+              <PlanChecklist
+                key={tc.id ?? tc.name}
+                todos={todos}
+                active={isStreaming}
+              />
             ) : null;
           }
           // run_deep_research — особый кейс (глубоко завязан на стриминг).
