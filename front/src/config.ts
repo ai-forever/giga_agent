@@ -313,6 +313,8 @@ export const TOOL_MAP = {
   get_documents: "Поиск по базе знаний",
   researcher_agent: "Исследовательский агент",
   run_deep_research: "Глубокое исследование",
+  update_plan: "Планирование",
+  present_plan: "План на подтверждение",
 };
 
 export const PROGRESS_AGENTS = {

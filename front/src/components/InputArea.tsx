@@ -172,6 +172,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const [isMCPLoading, setIsMCPLoading] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [deepResearchForced, setDeepResearchForced] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
@@ -297,6 +298,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
           config: {
             configurable: {
               ...(deepResearchForced ? { deep_research_forced: true } : {}),
+              ...(planMode ? { plan_mode: true } : {}),
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),
@@ -318,6 +320,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       mcpToolsPayload,
       enabledCollections,
       deepResearchForced,
+      planMode,
       selectedSkillNames,
       clearSelectedSkills,
       autoApprove,
@@ -841,6 +844,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     });
   }, []);
 
+  // Plan mode персистит между отправками — сбрасывается только повторным кликом.
+  const togglePlanMode = useCallback(() => {
+    setPlanMode((prev) => !prev);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isMobileDevice) return;
 
@@ -848,10 +856,13 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
         if (thread?.interrupt) {
-          if (thread.interrupt.value?.type === "questions") {
-            if (message.trim()) handleQuestionsComment(message);
-          } else {
-            void handleContinue(message ? "comment" : "approve");
+          // План подтверждается кнопками карточки, не Enter в композере.
+          if (thread.interrupt.value?.type !== "plan_approval") {
+            if (thread.interrupt.value?.type === "questions") {
+              if (message.trim()) handleQuestionsComment(message);
+            } else {
+              void handleContinue(message ? "comment" : "approve");
+            }
           }
         } else {
           handleSend();
@@ -1207,6 +1218,19 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                         )}
                       </div>
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        togglePlanMode();
+                      }}
+                      className="gap-2"
+                    >
+                      <LucideIcons.ListChecks className="size-5" />
+                      <span className="flex-1">Режим планирования</span>
+                      <div className="size-4 shrink-0 flex items-center justify-center">
+                        {planMode && <Check className="size-4 text-primary" />}
+                      </div>
+                    </DropdownMenuItem>
                     <ConnectorsMenu />
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="gap-2">
@@ -1312,6 +1336,21 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                     <X className="size-3 hidden group-hover:block" />
                     <span className="truncate max-w-40">
                       Глубокое исследование
+                    </span>
+                  </button>
+                )}
+                {planMode && (
+                  <button
+                    type="button"
+                    onClick={() => setPlanMode(false)}
+                    title="Выключить режим планирования"
+                    aria-label="Выключить режим планирования"
+                    className="group inline-flex items-center gap-1 rounded-full border border-primary/20 bg-muted/10 px-2 py-1 text-xs font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors duration-150 cursor-pointer hover:bg-muted/20 hover:border-primary/30 dark:bg-primary/20 dark:border-primary/30 dark:hover:bg-primary/30 dark:hover:border-primary/40"
+                  >
+                    <LucideIcons.ListChecks className="size-3 group-hover:hidden" />
+                    <X className="size-3 hidden group-hover:block" />
+                    <span className="truncate max-w-40">
+                      Режим планирования
                     </span>
                   </button>
                 )}

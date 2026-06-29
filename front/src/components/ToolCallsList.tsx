@@ -69,6 +69,82 @@ const DeepResearchPlan: React.FC<{ plan: DeepResearchSubQ[] }> = ({ plan }) => (
   </div>
 );
 
+interface PlanTodo {
+  id: string;
+  title: string;
+  status?: string;
+  note?: string;
+}
+
+const PLAN_STATUS_DOT: Record<string, string> = {
+  pending: "bg-muted-foreground/40",
+  in_progress: "bg-blue-400",
+  completed: "bg-emerald-500",
+  skipped: "bg-muted-foreground/30",
+};
+
+// Живой чеклист плана (update_plan / present_plan). Статусы:
+// pending · in_progress (спиннер) · completed (галка) · skipped (зачёркнут).
+const PlanChecklist: React.FC<{ todos: PlanTodo[] }> = ({ todos }) => {
+  const done = todos.filter(
+    (t) => t.status === "completed" || t.status === "skipped",
+  ).length;
+  return (
+    <div className="ml-7 mt-1 rounded-lg border border-border p-2.5">
+      <div className="mb-1.5 flex items-center">
+        <span className="text-xs font-medium text-foreground">План</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {done}/{todos.length}
+        </span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {todos.map((t) => {
+          const status = t.status || "pending";
+          const isActive = status === "in_progress";
+          const isSkipped = status === "skipped";
+          const isDone = status === "completed";
+          return (
+            <div key={t.id} className="flex items-start gap-2 text-xs">
+              <span className="mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                {isActive ? (
+                  <Loader size={12} className="animate-spin text-blue-400" />
+                ) : isDone ? (
+                  <Check size={12} className="text-emerald-500" />
+                ) : (
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${
+                      PLAN_STATUS_DOT[status] || PLAN_STATUS_DOT.pending
+                    }`}
+                    aria-hidden
+                  />
+                )}
+              </span>
+              <span
+                className={
+                  isActive
+                    ? "font-medium text-foreground"
+                    : isSkipped
+                      ? "text-muted-foreground line-through"
+                      : isDone
+                        ? "text-muted-foreground"
+                        : "text-foreground"
+                }
+              >
+                {t.title}
+              </span>
+              {t.note && (
+                <span className="ml-auto shrink-0 pl-2 text-muted-foreground">
+                  {t.note}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const DeepResearchToolCall: React.FC<{
   toolCall: ToolCall;
   resultMessage?: Message;
@@ -780,6 +856,15 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
     return img || null;
   }, [inFlight, thread, toolCall.id]);
 
+  // План для update_plan / present_plan берём из аргументов вызова.
+  const planTodos: PlanTodo[] | null = useMemo(() => {
+    if (toolCall.name !== "update_plan" && toolCall.name !== "present_plan") {
+      return null;
+    }
+    const todos = (toolCall.args as any)?.todos;
+    return Array.isArray(todos) && todos.length ? todos : null;
+  }, [toolCall.name, toolCall.args]);
+
   const canExpand = true;
 
   return (
@@ -833,6 +918,8 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
           />
         </div>
       )}
+
+      {planTodos && <PlanChecklist todos={planTodos} />}
 
       {attachments.length > 0 && (
         <div className="ml-7 mt-1 flex flex-col gap-0.5">

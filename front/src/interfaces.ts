@@ -15,6 +15,14 @@ export interface GraphState extends Record<string, unknown> {
   collections: Collection[];
   mcp_tools: Tool[];
   disabled_modules: string[];
+  ui?: any[];
+}
+
+export interface PlanTodo {
+  id: string;
+  title: string;
+  status?: "pending" | "in_progress" | "completed" | "skipped";
+  note?: string;
 }
 
 type BagTemplate = {
@@ -65,8 +73,10 @@ export interface GraphInterrupt {
     | "comment"
     | "tool_call"
     | "questions"
-    | "confirm_destructive";
+    | "confirm_destructive"
+    | "plan_approval";
   tools?: ToolCall[];
+  plan?: PlanTodo[];
   questions?: Question[];
   // tool_call_id вопросов ask_questions. Проставляет обёртка
   // giga_agent_experimental (во внешнем графе AI-сообщения с этим tool_call на
