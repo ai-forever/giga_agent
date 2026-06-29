@@ -94,6 +94,13 @@ ANTI_LOOP_STOP_MESSAGE = (
     "действовать, и я попробую снова."
 )
 
+# Модули с побочными эффектами: недоступны в plan mode, пока план не подтверждён.
+# Гейтинг по state["mode"] (не config) — present_plan флипает mode в том же run.
+# См. docs/PLANNING_MODE.md.
+PLAN_MODE_BLOCKED_MODULES = frozenset(
+    {"repl", "io", "image", "github", "vk", "skills", "subagents_legacy"}
+)
+
 
 def _is_feature_enabled_for_provider(
     enabled: bool,
@@ -712,6 +719,15 @@ def create_graph(
             + agent_tools
             + mcp_tools
         )
+        # Plan mode: убираем побочные тулы (read-only тулы и planning остаются).
+        # built_in_tools — dict без .extras → getattr вернёт None → пропускаем.
+        if state.get("mode") == "plan":
+            all_tools = [
+                t
+                for t in all_tools
+                if (getattr(t, "extras", None) or {}).get("module_id")
+                not in PLAN_MODE_BLOCKED_MODULES
+            ]
         llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
         scheduled_prompt = _resolve_scheduled_prompt(config)
