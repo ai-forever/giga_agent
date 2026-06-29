@@ -980,6 +980,7 @@ interface ToolCallsListProps {
   resultsById: Record<string, Message>;
   isStreaming: boolean;
   thread?: UseStream<GraphState>;
+  messageId?: string;
 }
 
 const ToolCallsList: React.FC<ToolCallsListProps> = ({
@@ -987,6 +988,7 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   resultsById,
   isStreaming,
   thread,
+  messageId,
 }) => {
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const notifiedDeepResearchIdsRef = useRef<Set<string>>(new Set());
@@ -1001,8 +1003,24 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
       !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
   );
 
-  // Индекс последнего update_plan — рисуем один живой чеклист, а не по штуке
-  // на каждый вызов внутри одного сообщения.
+  // Один живой чеклист на весь диалог: рисуем только у глобально последнего
+  // вызова update_plan. id сообщения-якоря ищем по всей истории.
+  const lastPlanMessageId = useMemo(() => {
+    const msgs = thread?.messages ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const tcs = (msgs[i] as any).tool_calls;
+      if (
+        Array.isArray(tcs) &&
+        tcs.some((t: any) => t.name === "update_plan")
+      ) {
+        return msgs[i].id;
+      }
+    }
+    return null;
+  }, [thread?.messages]);
+  const isPlanAnchor = !!messageId && messageId === lastPlanMessageId;
+
+  // Индекс последнего update_plan внутри этого сообщения.
   const lastUpdatePlanIdx = visible
     .map((tc) => tc.name)
     .lastIndexOf("update_plan");
@@ -1035,9 +1053,10 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
       <div className="flex flex-col gap-0.5">
         {visible.map((tc) => {
           if (tc.name === "present_plan") return null;
-          // update_plan: один чистый чеклист (последний вызов), без тул-обёртки.
+          // update_plan: один чистый чеклист — только у глобально последнего
+          // вызова (в сообщении-якоре, и последний внутри него).
           if (tc.name === "update_plan") {
-            if (idx !== lastUpdatePlanIdx) return null;
+            if (!isPlanAnchor || idx !== lastUpdatePlanIdx) return null;
             const todos = (tc.args as any)?.todos;
             return Array.isArray(todos) && todos.length ? (
               <PlanChecklist key={tc.id ?? tc.name} todos={todos} />

@@ -639,6 +639,7 @@ const Message: React.FC<MessageProps> = ({
                     resultsById={resultsById ?? {}}
                     isStreaming={stepInFlight}
                     thread={thread as any}
+                    messageId={message.id}
                   />
                 </div>
               ) : (
