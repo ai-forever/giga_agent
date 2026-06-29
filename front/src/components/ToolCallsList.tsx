@@ -126,10 +126,10 @@ const PlanChecklist: React.FC<{ todos: PlanTodo[]; active?: boolean }> = ({
                   active ? (
                     <Loader size={14} className="animate-spin text-blue-500" />
                   ) : (
-                    // ход завершён, а шаг остался активным — статичный маркер,
-                    // чтобы не выглядело «зависшим».
+                    // ход завершён, а шаг остался активным — красный маркер:
+                    // шаг прерван/не завершён, а не «в работе».
                     <span
-                      className="inline-block h-2 w-2 rounded-full bg-blue-500"
+                      className="inline-block h-2 w-2 rounded-full bg-rose-500"
                       aria-hidden
                     />
                   )
