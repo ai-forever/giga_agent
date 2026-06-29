@@ -37,7 +37,12 @@ class TodoItemArg(BaseModel):
     """Один пункт плана."""
 
     id: str = Field(description="Стабильный идентификатор пункта (например, '1', '2').")
-    title: str = Field(description="Короткая формулировка задачи.")
+    title: str = Field(
+        description=(
+            "Короткая формулировка задачи НА ЯЗЫКЕ ПОЛЬЗОВАТЕЛЯ. "
+            "Если пользователь пишет по-русски — title тоже по-русски."
+        )
+    )
     status: TodoStatus = Field(
         default="pending",
         description="pending | in_progress | completed | skipped.",
