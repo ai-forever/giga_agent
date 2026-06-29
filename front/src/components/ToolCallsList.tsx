@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
+import { Ban, Check, Loader, Minus, Plus, X, ListChecks } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -89,27 +89,40 @@ const PlanChecklist: React.FC<{ todos: PlanTodo[] }> = ({ todos }) => {
   const done = todos.filter(
     (t) => t.status === "completed" || t.status === "skipped",
   ).length;
+  const pct = todos.length ? Math.round((done / todos.length) * 100) : 0;
   return (
-    <div className="ml-7 mt-1 rounded-lg border border-border p-2.5">
-      <div className="mb-1.5 flex items-center">
-        <span className="text-xs font-medium text-foreground">План</span>
-        <span className="ml-auto text-xs text-muted-foreground">
+    <div className="mt-1 rounded-xl border border-border bg-muted/20 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <ListChecks size={15} className="text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground">План</span>
+        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
           {done}/{todos.length}
         </span>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="mb-2.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="flex flex-col gap-0.5">
         {todos.map((t) => {
           const status = t.status || "pending";
           const isActive = status === "in_progress";
           const isSkipped = status === "skipped";
           const isDone = status === "completed";
           return (
-            <div key={t.id} className="flex items-start gap-2 text-xs">
-              <span className="mt-px flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+            <div
+              key={t.id}
+              className={`flex items-start gap-2.5 rounded-md px-2 py-1.5 text-sm ${
+                isActive ? "bg-blue-500/10" : ""
+              }`}
+            >
+              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
                 {isActive ? (
-                  <Loader size={12} className="animate-spin text-blue-400" />
+                  <Loader size={14} className="animate-spin text-blue-500" />
                 ) : isDone ? (
-                  <Check size={12} className="text-emerald-500" />
+                  <Check size={14} className="text-emerald-500" />
                 ) : (
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${
@@ -124,7 +137,7 @@ const PlanChecklist: React.FC<{ todos: PlanTodo[] }> = ({ todos }) => {
                   isActive
                     ? "font-medium text-foreground"
                     : isSkipped
-                      ? "text-muted-foreground line-through"
+                      ? "text-muted-foreground line-through decoration-muted-foreground/50"
                       : isDone
                         ? "text-muted-foreground"
                         : "text-foreground"
@@ -133,7 +146,7 @@ const PlanChecklist: React.FC<{ todos: PlanTodo[] }> = ({ todos }) => {
                 {t.title}
               </span>
               {t.note && (
-                <span className="ml-auto shrink-0 pl-2 text-muted-foreground">
+                <span className="ml-auto shrink-0 self-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   {t.note}
                 </span>
               )}
@@ -856,15 +869,6 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
     return img || null;
   }, [inFlight, thread, toolCall.id]);
 
-  // План для update_plan / present_plan берём из аргументов вызова.
-  const planTodos: PlanTodo[] | null = useMemo(() => {
-    if (toolCall.name !== "update_plan" && toolCall.name !== "present_plan") {
-      return null;
-    }
-    const todos = (toolCall.args as any)?.todos;
-    return Array.isArray(todos) && todos.length ? todos : null;
-  }, [toolCall.name, toolCall.args]);
-
   const canExpand = true;
 
   return (
@@ -918,8 +922,6 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({
           />
         </div>
       )}
-
-      {planTodos && <PlanChecklist todos={planTodos} />}
 
       {attachments.length > 0 && (
         <div className="ml-7 mt-1 flex flex-col gap-0.5">
@@ -999,6 +1001,12 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
       !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
   );
 
+  // Индекс последнего update_plan — рисуем один живой чеклист, а не по штуке
+  // на каждый вызов внутри одного сообщения.
+  const lastUpdatePlanIdx = visible
+    .map((tc) => tc.name)
+    .lastIndexOf("update_plan");
+
   useEffect(() => {
     for (const tc of visible) {
       if (tc.name !== "run_deep_research" || !tc.id) continue;
@@ -1026,6 +1034,15 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
     <>
       <div className="flex flex-col gap-0.5">
         {visible.map((tc) => {
+          if (tc.name === "present_plan") return null;
+          // update_plan: один чистый чеклист (последний вызов), без тул-обёртки.
+          if (tc.name === "update_plan") {
+            if (idx !== lastUpdatePlanIdx) return null;
+            const todos = (tc.args as any)?.todos;
+            return Array.isArray(todos) && todos.length ? (
+              <PlanChecklist key={tc.id ?? tc.name} todos={todos} />
+            ) : null;
+          }
           // run_deep_research — особый кейс (глубоко завязан на стриминг).
           if (tc.name === "run_deep_research") {
             return (
