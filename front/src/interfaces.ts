@@ -60,7 +60,7 @@ export interface QuestionsResult {
 }
 
 export interface GraphInterrupt {
-  type: "approve" | "comment" | "tool_call" | "questions" | "confirm_destructive";
+  type: "approve" | "comment" | "tool_call" | "questions";
   tools?: ToolCall[];
   questions?: Question[];
 }

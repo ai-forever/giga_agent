@@ -554,19 +554,6 @@ class ToolResultMiddleware(AgentMiddleware):
             action for action in actions if action.get("name") in mcp_tool_names
         ]
 
-        # Деструктивные вызовы (удаление и т.п.) требуют подтверждения ВСЕГДА —
-        # даже в автономном режиме. Для них отдельный тип interrupt, который
-        # фронт не авто-одобряет.
-        from giga_agent.core.agent.destructive import is_destructive
-
-        destructive_actions = [
-            {"name": a.get("name"), "args": a.get("args")}
-            for a in actions
-            if is_destructive(a.get("name"))
-        ]
-
-        if frontend_actions:
-            value = interrupt({"type": "tool_call", "tools": frontend_actions})
         # The autonomy flag lives in thread metadata (survives resume). Read it
         # live (cache-first, SDK fallback) so a mid-run toggle is honored.
         metadata = await get_thread_metadata(config, _resolve_thread_id(config))
@@ -575,10 +562,6 @@ class ToolResultMiddleware(AgentMiddleware):
         if frontend_actions:
             # MCP tools run on the client — an interrupt is mandatory.
             value = interrupt({"type": "tool_call", "tools": frontend_actions})
-        elif destructive_actions:
-            value = interrupt(
-                {"type": "confirm_destructive", "tools": destructive_actions}
-            )
         elif auto_approve:
             # Autonomous mode without frontend_actions: don't interrupt, keep
             # executing on the server (the run finishes even with the page closed).

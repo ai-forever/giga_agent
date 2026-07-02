@@ -16,11 +16,8 @@ from giga_agent.modules.scraper import ScraperModule
 from giga_agent.modules.search import SearchModule
 from giga_agent.modules.skills.module import SkillsModule
 from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
-from giga_agent.modules.tool_router import ToolRouterModule
 from giga_agent.modules.vk import VKModule
 from giga_agent.modules.weather import WeatherModule
-from giga_agent.modules.yandex_disk import YandexDiskModule
-from giga_agent.modules.yandex_tracker import YandexTrackerModule
 
 
 class GigaAgent(BaseAgent):
@@ -40,13 +37,8 @@ class GigaAgent(BaseAgent):
             SkillsModule(),
             McpModule(),
             VKModule(),
-            YandexDiskModule(),
-            YandexTrackerModule(),
             WeatherModule(),
             DeepResearchModule(),
             SchedulerModule(),
             SubAgentLegacyModule(),
-            # Должен быть последним: его middleware (wrap_model_call) встаёт
-            # внутренним слоем и видит финальный набор тулов перед моделью.
-            ToolRouterModule(),
         ]
