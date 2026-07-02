@@ -3,7 +3,6 @@ import {
   ChevronDown,
   ChevronRight,
   FileCog,
-  Plug,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -56,7 +55,6 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
     busyId,
     toggleActive,
     remove,
-    test,
     refresh,
     authorize,
     fetchTools,
@@ -345,35 +343,26 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
 
                 {isDb && (
                   <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === server.id}
-                      onClick={() => test(server.id)}
-                    >
-                      <Plug size={14} className="mr-1" />
-                      Проверить
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === server.id}
-                      onClick={() => refresh(server.id)}
-                    >
-                      <RefreshCw size={14} className="mr-1" />
-                      Обновить
-                    </Button>
-                    {server.auth_type === "oauth2" && (
+                    {expanded && (
                       <Button
                         size="sm"
-                        variant={needsAuth ? "default" : "outline"}
+                        variant="outline"
+                        disabled={busyId === server.id}
+                        onClick={() => refresh(server.id)}
+                      >
+                        <RefreshCw size={14} className="mr-1" />
+                        Обновить
+                      </Button>
+                    )}
+                    {needsAuth && (
+                      <Button
+                        size="sm"
+                        variant="default"
                         disabled={busyId === server.id}
                         onClick={() => authorize(server.id)}
                       >
                         <ShieldCheck size={14} className="mr-1" />
-                        {server.has_token
-                          ? "Переавторизоваться"
-                          : "Авторизоваться"}
+                        Авторизоваться
                       </Button>
                     )}
                     {server.can_edit && (

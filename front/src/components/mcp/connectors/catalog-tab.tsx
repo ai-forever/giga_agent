@@ -499,10 +499,6 @@ const ConnectorsCatalogTab: React.FC<CatalogTabProps> = ({
             const fields = entry.fields;
             const formOpen = openFormId === entry.key;
             const busy = connectingId === entry.key;
-            const isOAuth =
-              entry.kind === "module"
-                ? entry.module?.auth_kind === "oauth2"
-                : entry.server?.auth_type === "oauth2";
             return (
               <div
                 key={entry.key}
@@ -597,31 +593,16 @@ const ConnectorsCatalogTab: React.FC<CatalogTabProps> = ({
                         Авторизоваться
                       </Button>
                     ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          title="Перейти к управлению"
-                          onClick={() => onConnected(highlightIdFor(entry))}
-                          className="w-fit"
-                        >
-                          <Check size={14} className="mr-1" />
-                          Подключено
-                        </Button>
-                        {isOAuth && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            title="Переавторизоваться"
-                            onClick={() => handleAuthorize(entry)}
-                            className="w-fit"
-                          >
-                            <ShieldCheck size={14} className="mr-1" />
-                            Переавторизоваться
-                          </Button>
-                        )}
-                      </>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Перейти к управлению"
+                        onClick={() => onConnected(highlightIdFor(entry))}
+                        className="w-fit"
+                      >
+                        <Check size={14} className="mr-1" />
+                        Подключено
+                      </Button>
                     )
                   ) : (
                     <Button
