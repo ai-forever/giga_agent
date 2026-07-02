@@ -56,7 +56,8 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             metadata={
                 "telegram_chat_id": "42",
                 "channel": "telegram",
-                "is_channel": True
+                "is_channel": True,
+                "auto_approve": True,
             }
         )
         repo.create_thread.assert_awaited_once_with(

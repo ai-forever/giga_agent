@@ -1,0 +1,154 @@
+// Общие типы для нового UX «Коннекторы» (серверные MCP-серверы).
+// Серверы живут в БД (source: "db") или в локальном mcp.json (source: "file").
+
+export type AuthType = "none" | "bearer" | "oauth2";
+
+export interface ToolInfo {
+  name: string;
+  description?: string;
+}
+
+export interface CatalogRequiredField {
+  key: string;
+  label: string;
+  secret?: boolean;
+  placeholder?: string;
+  help_url?: string;
+}
+
+export interface CatalogEntry {
+  id: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  homepage?: string | null;
+  categories?: string[];
+  url: string;
+  auth_type: AuthType | string;
+  oauth_scope?: string | null;
+  requires?: CatalogRequiredField[];
+}
+
+// Ответ GET /mcp/servers (БД-серверы)
+export interface DbServer {
+  id: string;
+  name?: string | null;
+  url: string;
+  auth_type: AuthType;
+  is_active: boolean;
+  is_local: boolean;
+  has_token: boolean;
+  tool_count?: number | null;
+  can_edit: boolean;
+}
+
+// Ответ GET /mcp/servers/local (локальный mcp.json, только RUNTIME_LOCAL)
+export interface LocalServer {
+  id: string;
+  name: string;
+  transport: string;
+  url?: string | null;
+  command?: string | null;
+  is_local: boolean;
+  is_active?: boolean;
+  auth_type: string;
+}
+
+// Унифицированный коннектор для UI (db + file)
+export interface UnifiedServer {
+  key: string; // имя для модели, используется в tools-by-name
+  id: string; // uuid (db) или name (local)
+  name: string;
+  url?: string | null;
+  command?: string | null;
+  transport?: string;
+  auth_type: AuthType | string;
+  is_active: boolean; // file-серверы всегда считаем активными
+  is_local: boolean;
+  source: "db" | "file";
+  has_token?: boolean;
+  tool_count?: number | null;
+  can_edit?: boolean;
+}
+
+export interface CreateConnectorInput {
+  name?: string;
+  url: string;
+  authType: AuthType;
+  token?: string;
+  scope?: string;
+}
+
+// --- Подключаемые нативные модули (vk, yandex_disk, github, …) -------------- //
+// Приходят из GET /agent/connectors/catalog вместе с MCP-каталогом и
+// рендерятся в том же гриде вкладки «Каталог» (catalog-tab).
+
+export type ModuleAuthKind = "oauth2" | "manual_token" | "both";
+export type ModuleConnStatus = "not_connected" | "connected" | "needs_reauth";
+
+export interface ModuleManualField {
+  key: string;
+  label: string;
+  secret: boolean;
+  placeholder?: string | null;
+}
+
+export interface ModuleCatalogEntry {
+  kind: "module";
+  module_id: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  categories: string[];
+  provider_key: string;
+  auth_kind: ModuleAuthKind;
+  manual_fields: ModuleManualField[];
+  status: ModuleConnStatus;
+  enabled: boolean;
+}
+
+// Ответ GET /agent/connectors/catalog.
+export interface ConnectorsCatalog {
+  mcp: CatalogEntry[];
+  modules: ModuleCatalogEntry[];
+}
+
+// Свести hostname к основному домену, отбросив сабдомены:
+// mcp.example.com -> example.com. Для многоуровневых зон (co.uk, com.br и т.п.)
+// сохраняем три последних лейбла. IP-адреса и «голые» хосты возвращаем как есть.
+function baseDomain(hostname: string): string {
+  const labels = hostname.split(".");
+  if (labels.length <= 2) return hostname;
+  // Двухуровневый публичный суффикс (co.uk, com.br, ...) — берём 3 лейбла.
+  const secondLevel = labels[labels.length - 2];
+  const isTwoPartTld =
+    secondLevel.length <= 3 && labels[labels.length - 1].length <= 3;
+  return labels.slice(isTwoPartTld ? -3 : -2).join(".");
+}
+
+// Собрать URL фавиконки по основному домену MCP-сервера (без сабдоменов) —
+// фолбэк для кастомных коннекторов, которых нет в каталоге. При ошибке загрузки
+// вызывающий код прячет <img> (onError), поэтому «мусорный» URL безопасен.
+export function faviconForUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const { hostname } = new URL(url);
+    if (!hostname) return null;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(
+      baseDomain(hostname),
+    )}&sz=64`;
+  } catch {
+    return null;
+  }
+}
+
+// Подобрать иконку коннектора: сперва по совпадению URL с записью каталога,
+// иначе — фавиконка домена самого коннектора.
+export function iconForConnector(
+  connector: Pick<UnifiedServer, "url">,
+  catalog: CatalogEntry[],
+): string | null {
+  if (!connector.url) return null;
+  const entry = catalog.find((c) => c.url === connector.url);
+  return entry?.icon ?? faviconForUrl(connector.url);
+}

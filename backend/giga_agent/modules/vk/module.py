@@ -28,14 +28,28 @@ class VKModule(BaseModule):
     label: str = "VK"
     description: str = "Работа с API ВКонтакте"
     icon: str = "MessageCircle"
+    lazy_tools: bool = True
+
+    def get_providers(self, **kwargs: Any):
+        _ = kwargs
+        from giga_agent.modules.vk.provider import build_vk_provider
+
+        return [build_vk_provider()]
 
     async def is_enabled(
         self, user: UserShort | None, *, config=None, **kwargs: Any
     ) -> bool:
         _ = config, kwargs
-        return _has_secret(user, VK_SECRET_KEY)
+        if user is None:
+            return False
+        # Connected via the integrations store, or a legacy user.secrets token.
+        if _has_secret(user, VK_SECRET_KEY):
+            return True
+        return await self.providers_connected(user)
 
     def get_secrets(self, **kwargs: Any) -> list[SecretMetadata]:
+        # Kept for backward compatibility: existing users may still hold the
+        # token in user.secrets. New connections go through the integrations panel.
         _ = kwargs
         return [
             {

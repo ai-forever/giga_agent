@@ -24,6 +24,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ManagedServers from "@/components/mcp/managed-servers";
 import { detectGigaChatWrongSchema } from "@/components/mcp/utils/detectGigaChatWrongSchema";
 import { MCP_PROXY_URL } from "@/config.ts";
 import { useMcp } from "@/components/mcp/hooks/useMcp.ts";
@@ -657,295 +659,321 @@ const McpServerModal: React.FC<McpServerModalProps> = ({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="overflow-y-auto max-h-[60vh]">
-            {/* Server List */}
-            <div className="space-y-4 mb-6">
-              {servers.map((server) => {
-                const connection = connectionData[server.id] || {
-                  state: "not-connected",
-                  tools: [],
-                  error: undefined,
-                  authUrl: undefined,
-                };
-                const { state, tools, error, authUrl } = connection;
+          <Tabs defaultValue="local">
+            <TabsList className="mb-2">
+              <TabsTrigger value="local">Браузерные (local)</TabsTrigger>
+              <TabsTrigger value="managed">Серверные (managed)</TabsTrigger>
+            </TabsList>
+            <TabsContent value="managed">
+              <ManagedServers />
+            </TabsContent>
+            <TabsContent value="local">
+              <div className="overflow-y-auto max-h-[60vh]">
+                {/* Server List */}
+                <div className="space-y-4 mb-6">
+                  {servers.map((server) => {
+                    const connection = connectionData[server.id] || {
+                      state: "not-connected",
+                      tools: [],
+                      error: undefined,
+                      authUrl: undefined,
+                    };
+                    const { state, tools, error, authUrl } = connection;
 
-                return (
-                  <div
-                    key={server.id}
-                    className={`bg-card border shadow-none dark:border-t-1 dark:border-l-0 dark:border-r-0 dark:border-b-0 dark:shadow-md border-highlight rounded-lg p-4 ${server.enabled ? "" : ""}`}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div>
-                          <div className="font-medium text-foreground">
-                            {server.name || "MCP Server"}
-                          </div>
-                          <div className="text-sm text-muted-foreground break-all">
-                            {server.url}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(server.enabled ? state : "disabled")}
-                        {server.enabled && state === "ready" && (
-                          <Badge variant="outline" className="font-mono">
-                            {server.transportType.toUpperCase()}
-                          </Badge>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleToggleServer(server.id)}
-                          title={
-                            server.enabled
-                              ? "Отключить сервер"
-                              : "Включить сервер"
-                          }
-                          aria-label={
-                            server.enabled
-                              ? "Отключить сервер"
-                              : "Включить сервер"
-                          }
-                        >
-                          {server.enabled ? (
-                            <Power size={16} />
-                          ) : (
-                            <PowerOff size={16} />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveServer(server.id)}
-                          title="Удалить сервер"
-                          aria-label="Удалить сервер"
-                        >
-                          <Trash2 size={16} />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {server.enabled && (
-                      <>
-                        {error && state === "failed" && (
-                          <Alert variant="destructive" className="mb-3">
-                            <AlertDescription>{error}</AlertDescription>
-                          </Alert>
-                        )}
-
-                        {(state === "pending_auth" || authUrl) && (
-                          <div className="border rounded p-3 mb-3">
-                            <p className="text-sm mb-2">
-                              {state === "pending_auth"
-                                ? "Для подключения к этому серверу требуется аутентификация."
-                                : "Всплывающее окно аутентификации было заблокировано. Вы можете открыть страницу аутентификации вручную:"}
-                            </p>
-                            <div className="space-y-2">
-                              <Button
-                                className="w-full"
-                                onClick={() => handleManualAuth(server.id)}
-                              >
-                                Открыть окно аутентификации
-                              </Button>
-                              {authUrl && (
-                                <a
-                                  href={authUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="block text-center text-sm text-primary underline"
-                                >
-                                  Или открыть в новой вкладке
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {state === "ready" && tools.length > 0 && (
-                          <div>
-                            <h4 className="font-medium text-sm mb-2">
-                              Доступные инструменты ({tools.length})
-                            </h4>
-                            <div className="border rounded p-2 bg-muted max-h-24 overflow-y-auto">
-                              <div className="flex flex-wrap gap-1">
-                                {(serverTools[server.id] || []).map(
-                                  (tool: ToolWithEnabled, index: number) => (
-                                    <Popover key={`${tool.name}-${index}`}>
-                                      <PopoverTrigger asChild>
-                                        <Badge
-                                          variant={
-                                            tool.disabled
-                                              ? "destructive"
-                                              : tool.enabled
-                                                ? "default"
-                                                : "outline"
-                                          }
-                                          className={`${
-                                            tool.disabled
-                                              ? "cursor-not-allowed"
-                                              : "cursor-pointer"
-                                          } ${tool.enabled ? "" : "opacity-70"}`}
-                                        >
-                                          {tool.name}
-                                        </Badge>
-                                      </PopoverTrigger>
-                                      <PopoverContent
-                                        align="start"
-                                        className="z-1000"
-                                      >
-                                        <div className="space-y-2">
-                                          <div className="font-medium text-sm">
-                                            {tool.name}
-                                          </div>
-                                          {tool.disabled && (
-                                            <Badge
-                                              variant="destructive"
-                                              className="cursor-not-allowed"
-                                              title="Этот инструмент отключён в GigaChat из‑за anyOf"
-                                            >
-                                              Инструмент отключён в GigaChat
-                                              из‑за anyOf
-                                            </Badge>
-                                          )}
-                                          {tool.description && (
-                                            <div className="text-xs text-muted-foreground">
-                                              {tool.description}
-                                            </div>
-                                          )}
-                                          <div className="flex items-center justify-between pt-1">
-                                            <span className="text-xs">
-                                              Включён
-                                            </span>
-                                            <Switch
-                                              disabled={Boolean(tool.disabled)}
-                                              checked={tool.enabled}
-                                              onCheckedChange={(checked) => {
-                                                if (tool.disabled) return;
-                                                updateServerTools((prev) => {
-                                                  const list =
-                                                    prev[server.id] || [];
-                                                  const nextList = list.map(
-                                                    (t, i) =>
-                                                      i === index
-                                                        ? {
-                                                            ...t,
-                                                            enabled:
-                                                              Boolean(checked),
-                                                          }
-                                                        : t,
-                                                  );
-                                                  return {
-                                                    ...prev,
-                                                    [server.id]: nextList,
-                                                  };
-                                                });
-                                              }}
-                                            />
-                                          </div>
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
-                                  ),
-                                )}
+                    return (
+                      <div
+                        key={server.id}
+                        className={`bg-card border shadow-none dark:border-t-1 dark:border-l-0 dark:border-r-0 dark:border-b-0 dark:shadow-md border-highlight rounded-lg p-4 ${server.enabled ? "" : ""}`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <div className="font-medium text-foreground">
+                                {server.name || "MCP Server"}
+                              </div>
+                              <div className="text-sm text-muted-foreground break-all">
+                                {server.url}
                               </div>
                             </div>
                           </div>
+
+                          <div className="flex items-center gap-2">
+                            {getStatusBadge(
+                              server.enabled ? state : "disabled",
+                            )}
+                            {server.enabled && state === "ready" && (
+                              <Badge variant="outline" className="font-mono">
+                                {server.transportType.toUpperCase()}
+                              </Badge>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleToggleServer(server.id)}
+                              title={
+                                server.enabled
+                                  ? "Отключить сервер"
+                                  : "Включить сервер"
+                              }
+                              aria-label={
+                                server.enabled
+                                  ? "Отключить сервер"
+                                  : "Включить сервер"
+                              }
+                            >
+                              {server.enabled ? (
+                                <Power size={16} />
+                              ) : (
+                                <PowerOff size={16} />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRemoveServer(server.id)}
+                              title="Удалить сервер"
+                              aria-label="Удалить сервер"
+                            >
+                              <Trash2 size={16} />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {server.enabled && (
+                          <>
+                            {error && state === "failed" && (
+                              <Alert variant="destructive" className="mb-3">
+                                <AlertDescription>{error}</AlertDescription>
+                              </Alert>
+                            )}
+
+                            {(state === "pending_auth" || authUrl) && (
+                              <div className="border rounded p-3 mb-3">
+                                <p className="text-sm mb-2">
+                                  {state === "pending_auth"
+                                    ? "Для подключения к этому серверу требуется аутентификация."
+                                    : "Всплывающее окно аутентификации было заблокировано. Вы можете открыть страницу аутентификации вручную:"}
+                                </p>
+                                <div className="space-y-2">
+                                  <Button
+                                    className="w-full"
+                                    onClick={() => handleManualAuth(server.id)}
+                                  >
+                                    Открыть окно аутентификации
+                                  </Button>
+                                  {authUrl && (
+                                    <a
+                                      href={authUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block text-center text-sm text-primary underline"
+                                    >
+                                      Или открыть в новой вкладке
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {state === "ready" && tools.length > 0 && (
+                              <div>
+                                <h4 className="font-medium text-sm mb-2">
+                                  Доступные инструменты ({tools.length})
+                                </h4>
+                                <div className="border rounded p-2 bg-muted max-h-24 overflow-y-auto">
+                                  <div className="flex flex-wrap gap-1">
+                                    {(serverTools[server.id] || []).map(
+                                      (
+                                        tool: ToolWithEnabled,
+                                        index: number,
+                                      ) => (
+                                        <Popover key={`${tool.name}-${index}`}>
+                                          <PopoverTrigger asChild>
+                                            <Badge
+                                              variant={
+                                                tool.disabled
+                                                  ? "destructive"
+                                                  : tool.enabled
+                                                    ? "default"
+                                                    : "outline"
+                                              }
+                                              className={`${
+                                                tool.disabled
+                                                  ? "cursor-not-allowed"
+                                                  : "cursor-pointer"
+                                              } ${tool.enabled ? "" : "opacity-70"}`}
+                                            >
+                                              {tool.name}
+                                            </Badge>
+                                          </PopoverTrigger>
+                                          <PopoverContent
+                                            align="start"
+                                            className="z-1000"
+                                          >
+                                            <div className="space-y-2 min-w-0">
+                                              <div className="font-medium text-sm break-words [overflow-wrap:anywhere]">
+                                                {tool.name}
+                                              </div>
+                                              {tool.disabled && (
+                                                <Badge
+                                                  variant="destructive"
+                                                  className="cursor-not-allowed"
+                                                  title="Этот инструмент отключён в GigaChat из‑за anyOf"
+                                                >
+                                                  Инструмент отключён в GigaChat
+                                                  из‑за anyOf
+                                                </Badge>
+                                              )}
+                                              {tool.description && (
+                                                <div className="text-xs text-muted-foreground break-words [overflow-wrap:anywhere]">
+                                                  {tool.description}
+                                                </div>
+                                              )}
+                                              <div className="flex items-center justify-between pt-1">
+                                                <span className="text-xs">
+                                                  Включён
+                                                </span>
+                                                <Switch
+                                                  disabled={Boolean(
+                                                    tool.disabled,
+                                                  )}
+                                                  checked={tool.enabled}
+                                                  onCheckedChange={(
+                                                    checked,
+                                                  ) => {
+                                                    if (tool.disabled) return;
+                                                    updateServerTools(
+                                                      (prev) => {
+                                                        const list =
+                                                          prev[server.id] || [];
+                                                        const nextList =
+                                                          list.map((t, i) =>
+                                                            i === index
+                                                              ? {
+                                                                  ...t,
+                                                                  enabled:
+                                                                    Boolean(
+                                                                      checked,
+                                                                    ),
+                                                                }
+                                                              : t,
+                                                          );
+                                                        return {
+                                                          ...prev,
+                                                          [server.id]: nextList,
+                                                        };
+                                                      },
+                                                    );
+                                                  }}
+                                                />
+                                              </div>
+                                            </div>
+                                          </PopoverContent>
+                                        </Popover>
+                                      ),
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+                      </div>
+                    );
+                  })}
 
-              {servers.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Info size={24} className="mx-auto mb-2" />
-                  <p>Пока не настроено ни одного сервера MCP.</p>
-                  <p className="text-sm">Добавьте первый сервер ниже.</p>
+                  {servers.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Info size={24} className="mx-auto mb-2" />
+                      <p>Пока не настроено ни одного сервера MCP.</p>
+                      <p className="text-sm">Добавьте первый сервер ниже.</p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Add New Server */}
-            <div className="border-t pt-4">
-              <div className="flex items-center gap-3 mb-3">
-                <h3 className="font-medium text-sm">Добавить новый сервер</h3>
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer font-mono"
-                  onClick={cycleNewServerTransportType}
-                  title="Нажмите, чтобы переключить тип подключения"
-                >
-                  {newServerTransportType.toUpperCase()}
-                </Badge>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  type="text"
-                  placeholder="Введите URL сервера MCP"
-                  value={newServerUrl}
-                  onChange={(e) => setNewServerUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      handleAddServer();
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant={"default2"}
-                  onClick={handleAddServer}
-                  disabled={!newServerUrl.trim()}
-                >
-                  <Plus size={16} />
-                </Button>
-              </div>
-              {!showAuthTokenInput && (
-                <div className="mt-2">
-                  <button
-                    type="button"
-                    className="text-xs text-primary underline cursor-pointer"
-                    onClick={() => setShowAuthTokenInput(true)}
-                  >
-                    Добавить токен аутентификации
-                  </button>
-                </div>
-              )}
-              {showAuthTokenInput && (
-                <div className="mt-2 relative">
-                  <SecretInput
-                    name="auth_token"
-                    placeholder="Введите токен аутентификации"
-                    value={newServerAuthToken}
-                    onChange={(e) => setNewServerAuthToken(e.target.value)}
-                  />
-                  <div className="absolute right-1 top-1 z-1000">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 rounded-full border bg-card hover:bg-muted"
-                          aria-label="Удалить токен аутентификации"
-                          onClick={() => {
-                            setNewServerAuthToken("");
-                            setShowAuthTokenInput(false);
-                          }}
-                        >
-                          <X size={12} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent className="z-1000" sideOffset={4}>
-                        Удалить токен аутентификации
-                      </TooltipContent>
-                    </Tooltip>
+                {/* Add New Server */}
+                <div className="border-t pt-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <h3 className="font-medium text-sm">
+                      Добавить новый сервер
+                    </h3>
+                    <Badge
+                      variant="outline"
+                      className="cursor-pointer font-mono"
+                      onClick={cycleNewServerTransportType}
+                      title="Нажмите, чтобы переключить тип подключения"
+                    >
+                      {newServerTransportType.toUpperCase()}
+                    </Badge>
                   </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="Введите URL сервера MCP"
+                      value={newServerUrl}
+                      onChange={(e) => setNewServerUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleAddServer();
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant={"default2"}
+                      onClick={handleAddServer}
+                      disabled={!newServerUrl.trim()}
+                    >
+                      <Plus size={16} />
+                    </Button>
+                  </div>
+                  {!showAuthTokenInput && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        className="text-xs text-primary underline cursor-pointer"
+                        onClick={() => setShowAuthTokenInput(true)}
+                      >
+                        Добавить токен аутентификации
+                      </button>
+                    </div>
+                  )}
+                  {showAuthTokenInput && (
+                    <div className="mt-2 relative">
+                      <SecretInput
+                        name="auth_token"
+                        placeholder="Введите токен аутентификации"
+                        value={newServerAuthToken}
+                        onChange={(e) => setNewServerAuthToken(e.target.value)}
+                      />
+                      <div className="absolute right-1 top-1 z-1000">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 rounded-full border bg-card hover:bg-muted"
+                              aria-label="Удалить токен аутентификации"
+                              onClick={() => {
+                                setNewServerAuthToken("");
+                                setShowAuthTokenInput(false);
+                              }}
+                            >
+                              <X size={12} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="z-1000" sideOffset={4}>
+                            Удалить токен аутентификации
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 

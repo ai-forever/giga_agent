@@ -208,6 +208,7 @@ export interface ChannelContactResponse {
   first_name: string | null;
   last_name: string | null;
   is_approved: boolean;
+  is_default_task_recipient: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -304,11 +304,17 @@ async def update_channel_contact_by_chat_id(
         user_id=current_user.id,
         channel_repo=channel_repo,
     )
-    updated = await channel_repo.set_contact_approved_by_external_id(
+    if data.is_approved is None and data.is_default_task_recipient is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Nothing to update",
+        )
+    updated = await channel_repo.set_contact_fields_by_external_id(
         bot_id=bot.id,
         external_chat_id=external_chat_id,
         external_user_id=external_user_id,
-        approved=data.is_approved,
+        is_approved=data.is_approved,
+        is_default_task_recipient=data.is_default_task_recipient,
     )
     if updated is None:
         raise HTTPException(

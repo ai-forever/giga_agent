@@ -18,6 +18,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from giga_agent.conf import get_settings
 from giga_agent.core.cache import setup_cache
 from giga_agent.core.logging import get_logger
 from giga_agent.utils.langgraph_sdk import client_session
@@ -30,6 +31,17 @@ _CACHE_TTL = "10m"
 
 def _is_persistable(thread_id: str | None) -> bool:
     return bool(thread_id) and not thread_id.startswith("temporary/")
+
+
+def _is_cli_runtime() -> bool:
+    return get_settings().giga_agent_runtime == "cli"
+
+
+def _config_metadata(config: RunnableConfig) -> dict[str, Any]:
+    """The run's metadata snapshot from ``config`` (the CLI source of truth)."""
+    if not isinstance(config, dict):
+        return {}
+    return dict(config.get("metadata") or {})
 
 
 def _key(thread_id: str) -> str:
@@ -60,6 +72,14 @@ async def get_thread_metadata(
     if cached is not None:
         return cached
 
+    # CLI runs the graph in-process with no LangGraph API server, so the SDK's
+    # loopback transport has no app to call (it would raise "'NoneType' object is
+    # not callable"). Skip the doomed fetch and use the run's config snapshot.
+    if _is_cli_runtime():
+        meta = _config_metadata(config)
+        await cache.set(_key(thread_id), meta, expire=_CACHE_TTL)
+        return meta
+
     try:
         async with client_session(config) as client:
             thread = await client.threads.get(thread_id)
@@ -80,6 +100,17 @@ async def update_thread_metadata(
         return {}
 
     cache = _cache()
+
+    # No LangGraph API server in CLI: keep the merged value in the cache only
+    # (within-process source of truth), skipping the SDK write that would fail.
+    if _is_cli_runtime():
+        prev = await cache.get(_key(thread_id))
+        if prev is None:
+            prev = _config_metadata(config)
+        meta = {**prev, **updates}
+        await cache.set(_key(thread_id), meta, expire=_CACHE_TTL)
+        return meta
+
     async with client_session(config) as client:
         thread = await client.threads.update(thread_id, metadata=updates)
     meta = (thread or {}).get("metadata") or {}

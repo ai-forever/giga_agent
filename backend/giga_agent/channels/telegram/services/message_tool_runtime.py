@@ -259,32 +259,11 @@ class TelegramMessageToolRuntime:
                     continue
                 return None
 
-            msgs = result.get("messages", [])
-            last_ai = None
-            for msg in reversed(msgs):
-                if isinstance(msg, dict) and msg.get("type") == "ai":
-                    last_ai = msg
-                    break
-            if last_ai and last_ai.get("tool_calls"):
-                logger.info("Auto-approving tool calls for chat %s", message.chat.id)
-                await message.chat.do("typing")
-                result = await asyncio.wait_for(
-                    client.runs.wait(
-                        thread_id=thread_id,
-                        assistant_id=ASSISTANT_ID,
-                        input=None,
-                        command={"resume": {"type": "approve"}},
-                        config={
-                            "configurable": {
-                                "memory_disabled": False,
-                                "memory_tags": build_memory_tags(message),
-                                "memory_show_global": False,
-                            },
-                        },
-                    ),
-                    timeout=run_timeout,
-                )
-                continue
+            # With auto_approve set on the thread, the run never pauses on an
+            # ``approve`` interrupt — server-side tools execute through to
+            # completion. ``runs.wait`` returns only on a pending message-tool
+            # prompt (handled above) or when the run is done, so the result here
+            # is final.
             return result
         return result if isinstance(result, dict) else None
 
@@ -400,6 +379,7 @@ class TelegramMessageToolRuntime:
         pending_tool_calls: list[dict[str, Any]],
         run_timeout: int,
         reply_to_message_id: int | None = None,
+        extra_file_messages: list[tg_types.Message] | None = None,
     ) -> dict[str, Any] | None:
         pending_tool_call = pending_tool_calls[-1]
         reply_message = getattr(message, "reply_to_message", None)
@@ -416,6 +396,15 @@ class TelegramMessageToolRuntime:
             token,
             thread_id,
         )
+        # Album/gallery parts beyond the primary message arrive as separate
+        # updates; fold their files into the interrupt response too.
+        for extra in extra_file_messages or []:
+            extra_files = await self.media_service.collect_incoming_files(
+                extra,
+                token,
+                thread_id,
+            )
+            file_data.extend(extra_files)
         text = message.text or message.caption or ""
         response_text = text or _describe_uploaded_files(file_data)
         message_context = build_message_context_payload(

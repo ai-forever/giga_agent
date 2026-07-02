@@ -42,6 +42,23 @@ export interface QuestionAnswer {
   other_text: string;
 }
 
+// Структурированный результат уже выполненного тула `ask_questions`:
+// какие вопросы были заданы и как на них ответил пользователь.
+export interface AnsweredQuestion {
+  question: string;
+  type: "single" | "multi";
+  options: string[];
+  selected: string[];
+  other_text: string;
+}
+
+export interface QuestionsResult {
+  skipped: boolean;
+  comment?: string;
+  summary: string;
+  items: AnsweredQuestion[];
+}
+
 export interface GraphInterrupt {
   type: "approve" | "comment" | "tool_call" | "questions";
   tools?: ToolCall[];

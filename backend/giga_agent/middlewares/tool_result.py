@@ -164,11 +164,7 @@ def _build_attachment_info(file_type: str, path: str) -> str:
     )
 
 
-def _should_compress(tool: Optional[BaseTool], result_size: int, max_size: int) -> bool:
-    if tool is None:
-        return result_size > max_size
-
-    extras = getattr(tool, "extras", {}) or {}
+def _should_compress(extras: dict[str, Any], result_size: int, max_size: int) -> bool:
     if extras.get("not_compress") is True:
         return False
     return result_size > max_size
@@ -189,10 +185,7 @@ _MIME_EXTENSION_MAP = {
 }
 
 
-def _should_skip_process(tool: Optional[BaseTool]) -> bool:
-    if tool is None:
-        return False
-    extras = getattr(tool, "extras", {}) or {}
+def _should_skip_process(extras: dict[str, Any]) -> bool:
     return bool(extras.get("not_process"))
 
 
@@ -258,21 +251,51 @@ async def process_tool_result(
     config: RunnableConfig | dict[str, Any],
     tool: Optional[BaseTool] = None,
     message: str = "",
+    *,
+    extras_override: dict[str, Any] | None = None,
+    name_override: str | None = None,
+    args_override: Any = None,
 ) -> ToolMessage:
+    # When a tool is dispatched through connector_call_tool, the result carries
+    # the wrapped tool's identity/extras (см. §8): apply those, not the
+    # meta-tool's, so not_process / not_compress / naming behave as if the inner
+    # tool had been bound directly.
+    extras = (
+        extras_override
+        if extras_override is not None
+        else (getattr(tool, "extras", {}) or {})
+    )
+    effective_name = name_override or action.get("name")
+    effective_args = args_override if args_override is not None else action.get("args")
+
     normalized_result = _normalize_result_payload(result)
-    tool_name = action.get("name")
+    tool_name = effective_name
     if tool_name == "think" and normalized_result in ("", None):
         normalized_result = ""
 
-    if action.get("name") in ["message", "think"] or _should_skip_process(tool):
+    if action.get("name") in ["message", "think"] or _should_skip_process(extras):
         return ToolMessage(
             tool_call_id=action.get("id"),
             content=_safe_json_dumps(normalized_result),
             additional_kwargs={
                 "tool_attachments": tool_attachments,
                 "tool_name": tool_name,
-                "tool_args": action.get("args"),
+                "tool_args": effective_args,
             },
+        )
+
+    # `python`/`shell` return raw stdout: cap it inline (with a hint to reduce
+    # output) instead of offloading to a result_path file — otherwise the model
+    # reads that file via python, its stdout again exceeds the limit, and we loop.
+    # `_build_inline_output_message` only truncates when over the size limit, so
+    # small outputs pass through unchanged.
+    if tool_name in _INLINE_OUTPUT_TOOLS:
+        return _build_inline_output_message(
+            normalized_result,
+            action,
+            tool_attachments,
+            message,
+            _get_max_tool_size(),
         )
 
     result_path = await _save_tool_result(
@@ -285,7 +308,7 @@ async def process_tool_result(
 
     serialized = _safe_json_dumps(normalized_result)
     compress = _should_compress(
-        tool=tool, result_size=len(serialized), max_size=_get_max_tool_size()
+        extras=extras, result_size=len(serialized), max_size=_get_max_tool_size()
     )
 
     payload: dict[str, Any]
@@ -319,7 +342,7 @@ async def process_tool_result(
         additional_kwargs={
             "tool_attachments": tool_attachments,
             "tool_name": tool_name,
-            "tool_args": action.get("args"),
+            "tool_args": effective_args,
         },
     )
 
@@ -360,6 +383,23 @@ def _resolve_mcp_file_meta(content_type: str, mime_type: str) -> tuple[FileType,
     return "other", ext
 
 
+def _resolve_resource_meta(mime_type: str) -> tuple[FileType, str]:
+    """File type + extension for an embedded-resource blob, derived from MIME.
+
+    Embedded resources carry no ``image``/``audio``/``video`` content-type hint,
+    so the media kind is inferred from the MIME primary type.
+    """
+    ext = _MIME_EXTENSION_MAP.get(mime_type)
+    if not ext:
+        guessed = mimetypes.guess_extension(mime_type)
+        ext = guessed if guessed else ".bin"
+
+    primary = mime_type.split("/", 1)[0]
+    if primary in ("audio", "video", "image"):
+        return primary, ext  # type: ignore[return-value]
+    return "other", ext
+
+
 async def process_mcp_content(
     content: Any,
     config: RunnableConfig | dict[str, Any],
@@ -375,6 +415,38 @@ async def process_mcp_content(
 
         if part_type == "text":
             text = part.get("text")
+            if isinstance(text, str):
+                try:
+                    text_parts.append(json.loads(text))
+                except json.JSONDecodeError:
+                    text_parts.append(text)
+            continue
+
+        # Embedded resource (e.g. ElevenLabs TTS audio as a blob). Media blobs go
+        # to the sandbox like image/audio/video; text becomes a text part.
+        if part_type == "resource":
+            resource = part.get("resource")
+            if not isinstance(resource, dict):
+                continue
+            mime_type = str(resource.get("mimeType", "application/octet-stream"))
+            # UI/HTML resources (ui:// MCP-app widgets) are large and static —
+            # never persisted here; the widget path fetches them on demand.
+            if mime_type.startswith("text/html"):
+                continue
+            blob = resource.get("blob")
+            if isinstance(blob, str):
+                payload = _decode_base64_payload(blob)
+                if payload is not None:
+                    file_type, extension = _resolve_resource_meta(mime_type)
+                    upload_specs.append(
+                        {
+                            "file_name": f"{thread_id}/mcp/{uuid.uuid4().hex}{extension}",
+                            "content": payload,
+                            "file_type": file_type,
+                        }
+                    )
+                continue
+            text = resource.get("text")
             if isinstance(text, str):
                 try:
                     text_parts.append(json.loads(text))
@@ -555,12 +627,34 @@ class ToolResultMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         result = await handler(request)
         if isinstance(result, ToolMessage):
-            attachments = (result.additional_kwargs or {}).get("tool_attachments", [])
-            return await process_tool_result(
-                result.content,
-                request.tool_call,
-                attachments,
-                request.runtime.config,
-                request.tool,
-            )
+            return await self._process_tool_message(result, request)
+        # Tools that build their own ToolMessage and return it inside a Command
+        # (e.g. `python`/`shell`) would otherwise bypass truncation/offload — the
+        # very tools in ``_INLINE_OUTPUT_TOOLS``. Process the embedded messages so
+        # a huge stdout is capped before it reaches the model's context.
+        if isinstance(result, Command) and isinstance(result.update, dict):
+            messages = result.update.get("messages")
+            if isinstance(messages, list):
+                for i, msg in enumerate(messages):
+                    if isinstance(msg, ToolMessage):
+                        messages[i] = await self._process_tool_message(msg, request)
         return result
+
+    async def _process_tool_message(
+        self, message: ToolMessage, request: ToolCallRequest
+    ) -> ToolMessage:
+        ak = message.additional_kwargs or {}
+        attachments = ak.get("tool_attachments", [])
+        # connector_call_tool advertises the wrapped tool's extras/name so we
+        # apply that tool's processing semantics rather than the meta-tool's.
+        has_inner = "effective_extras" in ak
+        return await process_tool_result(
+            message.content,
+            request.tool_call,
+            attachments,
+            request.runtime.config,
+            request.tool,
+            extras_override=ak.get("effective_extras") if has_inner else None,
+            name_override=ak.get("tool_name") if has_inner else None,
+            args_override=ak.get("tool_args") if has_inner else None,
+        )

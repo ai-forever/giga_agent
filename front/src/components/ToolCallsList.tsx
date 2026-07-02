@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Minus, Ban, Check, Loader, X } from "lucide-react";
+import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -11,6 +11,7 @@ import { PROGRESS_AGENTS, TOOL_MAP } from "../config";
 import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
 import { notifyIfHidden } from "../lib/notifications";
+import { getScheduledTaskId } from "./scheduler/detect";
 
 const THINK_TOOL_NAME = "think";
 
@@ -895,7 +896,15 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const notifiedDeepResearchIdsRef = useRef<Set<string>>(new Set());
 
-  const visible = toolCalls;
+  // Successful schedule_task calls are promoted to a standalone scheduler card
+  // in the message flow (see MessageList), so hide them from the tool-call list.
+  // ask_questions is likewise rendered outside the list — as a live form during
+  // the interrupt, or a read-only "answered" card once completed.
+  const visible = toolCalls.filter(
+    (tc) =>
+      tc.name !== "ask_questions" &&
+      !getScheduledTaskId(tc.id ? resultsById[tc.id] : undefined),
+  );
 
   useEffect(() => {
     for (const tc of visible) {
@@ -950,7 +959,7 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
         isVisible={!!previewFile}
         onClose={() => setPreviewFile(null)}
       >
-        <div className="bg-card rounded-lg p-2.5">
+        <div className="bg-card rounded-lg p-2.5 w-full">
           {previewFile ? (
             <MessageAttachment
               path={previewFile.sandbox_path ?? previewFile.path}

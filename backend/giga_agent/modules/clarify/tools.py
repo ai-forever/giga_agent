@@ -62,30 +62,54 @@ async def ask_questions(questions: list) -> str:
 
     value = interrupt({"type": "questions", "questions": formatted_questions})
 
+    # Структурированный результат отдаём и модели (через `summary`), и фронту
+    # (он рендерит карточку «как ответил пользователь» по этим же полям).
     if isinstance(value, dict) and value.get("type") == "comment":
         user_msg = value.get("message", "")
-        if user_msg:
-            return f'Пользователь пропустил вопросы и ответил: "{user_msg}"'
-        return "Пользователь пропустил вопросы и не оставил ответа."
+        summary = (
+            f'Пользователь пропустил вопросы и ответил: "{user_msg}"'
+            if user_msg
+            else "Пользователь пропустил вопросы и не оставил ответа."
+        )
+        return {
+            "ask_questions": True,
+            "skipped": True,
+            "comment": user_msg,
+            "summary": summary,
+            "items": [],
+        }
 
     answers = value.get("answers", []) if isinstance(value, dict) else []
-    q_map = {q["id"]: q for q in formatted_questions}
+    answers_by_q = {a.get("question_id", ""): a for a in answers}
+    items: list[dict] = []
     parts: list[str] = []
-    for answer in answers:
-        q_id = answer.get("question_id", "")
-        q = q_map.get(q_id)
-        if not q:
-            continue
+    for q in formatted_questions:
+        answer = answers_by_q.get(q["id"], {})
         selected_ids = answer.get("selected", [])
         other_text = answer.get("other_text", "")
         opt_map = {opt["id"]: opt["text"] for opt in q["options"]}
         selected_texts = [opt_map.get(s, s) for s in selected_ids]
+        all_selected = list(selected_texts)
         if other_text:
-            selected_texts.append(other_text)
-        if selected_texts:
-            parts.append(f"Q: {q['text']}\nA: {', '.join(selected_texts)}")
+            all_selected.append(other_text)
+        items.append(
+            {
+                "question": q["text"],
+                "type": q["type"],
+                "options": [opt["text"] for opt in q["options"]],
+                "selected": selected_texts,
+                "other_text": other_text,
+            }
+        )
+        if all_selected:
+            parts.append(f"Q: {q['text']}\nA: {', '.join(all_selected)}")
 
-    return "\n\n".join(parts) if parts else "Пользователь не предоставил ответ."
+    return {
+        "ask_questions": True,
+        "skipped": False,
+        "summary": "\n\n".join(parts) if parts else "Пользователь не предоставил ответ.",
+        "items": items,
+    }
 
 
 ask_questions.extras = {"not_process": True}

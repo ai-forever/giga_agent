@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronLeft,
@@ -46,6 +46,26 @@ const QuestionsForm: React.FC<QuestionsFormProps> = ({
   });
   const [submitted, setSubmitted] = useState(false);
   const otherInputRef = useRef<HTMLInputElement>(null);
+
+  // Arrow-key paging for the gallery. Ignored while typing in the "Other"
+  // field so arrows move the caret there instead of flipping pages.
+  useEffect(() => {
+    const total = questions.length;
+    if (total <= 1 || disabled || submitted) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setCurrentPage((p) => Math.max(0, p - 1));
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setCurrentPage((p) => Math.min(total - 1, p + 1));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [questions.length, disabled, submitted]);
 
   const question = questions[currentPage];
   if (!question) return null;

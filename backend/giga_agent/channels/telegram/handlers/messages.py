@@ -13,12 +13,12 @@ from giga_agent.channels.telegram.message_context import (
     build_reply_kwargs,
 )
 from giga_agent.channels.telegram.message_tool import build_telegram_message_tool_schema
+from giga_agent.channels.telegram.runtime import build_memory_tags
 from giga_agent.channels.telegram.services.access import TelegramAccessService
 from giga_agent.channels.telegram.services.media import TelegramMediaService
 from giga_agent.channels.telegram.services.message_tool_runtime import (
     TelegramMessageToolRuntime,
 )
-from giga_agent.channels.telegram.runtime import build_memory_tags
 from giga_agent.channels.telegram.services.threads import TelegramThreadService
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -79,6 +79,7 @@ class TelegramMessageHandlers:
         reply_to_message_id: int | None = None,
         contact_message: tg_types.Message | None = None,
         text_override: str | None = None,
+        extra_file_messages: list[tg_types.Message] | None = None,
     ) -> None:
         if not await self.access_service.ensure_supported_chat(message):
             return
@@ -128,7 +129,7 @@ class TelegramMessageHandlers:
                     external_user_id,
                 )
 
-            run_timeout = 90
+            run_timeout = 600
             pending_message_tools = (
                 await self.message_tool_runtime.get_pending_message_tool_calls(
                     client,
@@ -144,6 +145,7 @@ class TelegramMessageHandlers:
                     pending_tool_calls=pending_message_tools,
                     run_timeout=run_timeout,
                     reply_to_message_id=reply_to_message_id,
+                    extra_file_messages=extra_file_messages,
                 )
                 if result is None:
                     return
@@ -172,6 +174,15 @@ class TelegramMessageHandlers:
                     token,
                     thread_id,
                 )
+                # Album/gallery parts beyond the primary message arrive as
+                # separate updates; fold their files into this single run.
+                for extra in extra_file_messages or []:
+                    extra_files = await self.media_service.collect_incoming_files(
+                        extra,
+                        token,
+                        thread_id,
+                    )
+                    file_data.extend(extra_files)
                 all_file_data = [*reply_file_data, *file_data]
                 if all_file_data:
                     logger.info(
@@ -241,6 +252,9 @@ class TelegramMessageHandlers:
                                 "memory_disabled": False,
                                 "memory_tags": build_memory_tags(message),
                                 "memory_show_global": False,
+                                # Migrate pre-existing threads to autonomous mode:
+                                # before_agent syncs this into thread metadata.
+                                "auto_approve": True,
                             },
                         },
                     ),

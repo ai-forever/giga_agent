@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from langchain_core.runnables import RunnableConfig
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 from giga_agent.utils.langgraph_sdk import get_client
 
@@ -52,6 +53,9 @@ async def resolve_project_id(
     to fetching thread metadata via the LangGraph SDK (because thread
     metadata is not merged into the runtime config by default).
     """
+    # В CLI-режиме проектов нет — контекст всегда пустой.
+    if get_settings().giga_agent_runtime == "cli":
+        return None
     if not isinstance(config, dict):
         return None
     for source in ("metadata", "configurable"):

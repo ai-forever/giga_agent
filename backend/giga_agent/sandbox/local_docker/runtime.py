@@ -24,6 +24,7 @@ from giga_agent.conf import (
 from giga_agent.core.logging import get_logger
 from giga_agent.core.paths import ensure_giga_agent_dir
 from giga_agent.models.sandbox import SandboxStatus
+from giga_agent.sandbox.access import revoke_sandbox_access_tokens
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.local_docker.constants import (
     BUCKET_PREFIX,
@@ -285,6 +286,7 @@ class LocalDockerSandbox(
         if (
             settings.giga_agent_docker_network is not None
             and not settings.giga_agent_public_base_domain
+            and not settings.giga_agent_publish_cloudflare_tunnel
         ):
             return []
         from giga_agent.sandbox.local_docker.tools import open_port
@@ -310,13 +312,12 @@ class LocalDockerSandbox(
         **kwargs: Any,
     ) -> str:
         _ = user, agent, state, config, kwargs
-        version = self._image_version()
-        if version is None or version < (0, 0, 6):
-            return ""
 
         settings = get_settings()
         base_domain = settings.giga_agent_public_base_domain
+        tunnel_enabled = settings.giga_agent_publish_cloudflare_tunnel
         docker_network = self._docker_network()
+        tunnel_active = tunnel_enabled and not base_domain
 
         lines: list[str] = [
             "",
@@ -361,11 +362,14 @@ class LocalDockerSandbox(
         if base_domain:
             lines.extend([
                 "2. Дёрните `open_port(<port>)` — вернётся HTTPS-URL вида "
-                f"`https://<port>-sandbox-<id>.{base_domain}`.",
+                f"`https://<port>-sandbox-<id>.{base_domain}/?__sbx=<токен>`.",
                 "",
-                "ССЫЛКА ПРИВАТНАЯ: открыть может только текущий "
-                "залогиненный пользователь (через cookie). Делиться "
-                "с посторонними бесполезно — они увидят 401.",
+                "ССЫЛКА СОДЕРЖИТ ВРЕМЕННЫЙ ТОКЕН ДОСТУПА: действует ~10 часов, "
+                "даёт доступ ТОЛЬКО к этому порту этой песочницы (не к аккаунту). "
+                "Открыть может любой, у кого есть полная ссылка с токеном, "
+                "и её можно переоткрывать с разных устройств в течение часа — "
+                "поэтому отдавай ссылку ЦЕЛИКОМ, не отрезай `?__sbx=...`. "
+                "Хозяин песочницы открывает и без токена (по своей сессии).",
                 "",
                 "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
                 f"фреймворк отдаст 400/403 (приходящий Host = "
@@ -383,6 +387,33 @@ class LocalDockerSandbox(
                 "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
                 "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
                 f"vite.config — server.allowedHosts: ['.{base_domain}']",
+            ])
+        elif tunnel_active:
+            lines.extend([
+                "2. Дёрните `open_port(<port>)` — вернётся публичный HTTPS-URL "
+                "вида `https://<random>.trycloudflare.com` (Cloudflare quick "
+                "tunnel).",
+                "",
+                "⚠ ССЫЛКА ПУБЛИЧНАЯ: открыть может КТО УГОДНО, у кого есть URL "
+                "(без авторизации). Не открывайте так ничего с приватными "
+                "данными.",
+                "",
+                "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
+                "фреймворк отдаст 400/403 (приходящий Host = "
+                "`<random>.trycloudflare.com`):",
+                "  • Django: ALLOWED_HOSTS=['*']; USE_X_FORWARDED_HOST=True; "
+                "SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')",
+                "  • FastAPI/Starlette: убрать TrustedHostMiddleware либо "
+                "allowed_hosts=['*']; uvicorn — с --proxy-headers "
+                "--forwarded-allow-ips='*'",
+                "  • Flask: werkzeug.middleware.proxy_fix.ProxyFix(app, "
+                "x_proto=1, x_host=1)",
+                "  • Streamlit: --server.enableCORS=false "
+                "--server.enableXsrfProtection=false --server.headless=true "
+                "--server.address=0.0.0.0",
+                "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
+                "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
+                "vite.config — server.allowedHosts: ['.trycloudflare.com']",
             ])
         elif docker_network is None:
             lines.append(
@@ -616,6 +647,8 @@ class LocalDockerSandbox(
         return True
 
     async def stop(self) -> None:
+        if self.sandbox_id is not None:
+            await revoke_sandbox_access_tokens(self.sandbox_id.hex)
         self._stop_proxy_containers()
         self._remove_proxy_network()
 
