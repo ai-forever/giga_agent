@@ -3,12 +3,15 @@ from giga_agent.core.module import BaseModule
 from giga_agent.memory.module import MemoryModule
 from giga_agent.modules.analyze_images import AnalyzeImagesModule
 from giga_agent.modules.auth.module import AuthModule
+from giga_agent.modules.clarify import ClarifyModule
 from giga_agent.modules.deep_research import DeepResearchModule
-from giga_agent.modules.github import GitHubModule
 from giga_agent.modules.image import ImageModule
 from giga_agent.modules.io import IOModule
+from giga_agent.modules.mcp import McpModule
+from giga_agent.modules.projects import ProjectsModule
 from giga_agent.modules.rag import RagModule
 from giga_agent.modules.repl import ReplModule
+from giga_agent.modules.scheduler.module import SchedulerModule
 from giga_agent.modules.scraper import ScraperModule
 from giga_agent.modules.search import SearchModule
 from giga_agent.modules.skills.module import SkillsModule
@@ -24,21 +27,24 @@ class GigaAgent(BaseAgent):
     def get_modules(self) -> list[BaseModule]:
         return [
             AuthModule(),
+            ClarifyModule(),
             ReplModule(),
             ImageModule(),
             AnalyzeImagesModule(),
             IOModule(),
+            ProjectsModule(),
             ScraperModule(),
             SearchModule(),
             RagModule(),
             MemoryModule(),
             SkillsModule(),
-            GitHubModule(),
+            McpModule(),
             VKModule(),
             YandexDiskModule(),
             YandexTrackerModule(),
             WeatherModule(),
             DeepResearchModule(),
+            SchedulerModule(),
             SubAgentLegacyModule(),
             # Должен быть последним: его middleware (wrap_model_call) встаёт
             # внутренним слоем и видит финальный набор тулов перед моделью.

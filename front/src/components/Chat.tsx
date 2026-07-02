@@ -3,36 +3,51 @@ import { motion } from "framer-motion";
 import { ArrowDown } from "lucide-react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
-import { useStableMessages } from "../hooks/useStableMessages";
 import { GraphState } from "../interfaces";
 import { useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
+import { Client } from "@langchain/langgraph-sdk";
+import { persistStoppedAiMessage } from "@/lib/stopped-message.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
+import {
+  hideThrowingThreadGetters,
+  suppressPhantomBreakpointInterrupt,
+} from "@/lib/thread-history";
+import { BranchesProvider } from "@/hooks/useBranches";
+import type { PromptSuggestionScenario } from "@/types/prompt-suggestions";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
   onThreadReady?: (thread: UseStream<GraphState>) => void;
+  onRequestReload?: () => void;
 }
 
-const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
+const Chat: React.FC<ChatProps> = ({
+  onThreadIdChange,
+  onThreadReady,
+  onRequestReload,
+}) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
   const suppressNextThreadLoadingRef = useRef(false);
   const suppressedThreadIdRef = useRef<string | null>(null);
   const suppressedThreadLoadingStartedRef = useRef(false);
+  // Filled by BranchesProvider; lets onCheckpointEvent grow the branch tree
+  // incrementally instead of refetching the whole history after each run.
+  const checkpointEventRef = useRef<((data: any) => void) | null>(null);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
     assistantId: "giga_agent",
     messagesKey: "messages",
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
-    fetchStateHistory: true,
-    throttle: 75,
+    fetchStateHistory: false,
+    throttle: 10,
     apiKey: token,
     defaultHeaders: {
       Authorization: `Bearer ${token}`,
@@ -51,7 +66,45 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
         return { ...prev, ui };
       });
     },
-  });
+    onCheckpointEvent: (data) => {
+      checkpointEventRef.current?.(data);
+    },
+    // После стопа в values может остаться interrupt отменённого рана —
+    // гасим его, чтобы не показывался approve-UI (mutate мержит поверхностно,
+    // поэтому пустой массив, а не удаление ключа).
+    // Заодно помечаем AI-сообщения rendered: «печатная машинка» в Message.tsx
+    // допечатывает буфер с задержками и без этого продолжает «стримить» текст
+    // после остановки; rendered заставляет дорисовать хвост мгновенно.
+    onStop: ({ mutate }) => {
+      mutate((prev) => {
+        const messages = (prev.messages ?? []).map((m) =>
+          m.type === "ai" &&
+          !(m.additional_kwargs as Record<string, unknown> | undefined)
+            ?.rendered
+            ? {
+                ...m,
+                additional_kwargs: { ...m.additional_kwargs, rendered: true },
+              }
+            : m,
+        );
+        // Частичный AI-ответ сохраняем именно отсюда: prev — самые свежие
+        // values стрима (то, что на экране); снимок в обработчике клика
+        // отстаёт на чанки, прилетевшие за время отмены. Вызов идемпотентен:
+        // persistStoppedAiMessage не пишет, если сообщение уже в чекпоинте.
+        const tail = messages.at(-1);
+        if (tail?.type === "ai" && threadId) {
+          void persistStoppedAiMessage(
+            threadRef.current.client as unknown as Client,
+            threadId,
+            tail,
+          );
+        }
+        return { ...prev, __interrupt__: [], messages };
+      });
+    },
+  }) as unknown as UseStream<GraphState>;
+  hideThrowingThreadGetters(thread);
+  suppressPhantomBreakpointInterrupt(thread);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRootRef = useRef<HTMLElement | null>(null);
   const autoScrollEnabledRef = useRef<boolean>(true);
@@ -68,7 +121,13 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   );
   const firstSroll = useRef<boolean>(false);
   const [showScrollBtn, setShowScrollBtn] = useState<boolean>(false);
-  const stableMessages = useStableMessages(thread);
+  const [prefillPayload, setPrefillPayload] = useState<{
+    suggestion: PromptSuggestionScenario;
+    nonce: number;
+  } | null>(null);
+  const stableMessages = thread.messages;
+  // @ts-ignore
+  globalThis.messages = thread.messages;
 
   const resolveScrollRoot = (): HTMLElement | null => {
     const container = containerRef.current;
@@ -92,14 +151,164 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
   }, [stableMessages.length]);
 
   useEffect(() => {
-    onThreadReady?.(thread as unknown as UseStream<GraphState>);
+    onThreadReady?.(thread);
   }, [thread, onThreadReady]);
+
+  // reconnectOnMount хранит метаданные рана в sessionStorage (изолирован на вкладку),
+  // поэтому ни новая вкладка, ни другой браузер/устройство не подхватывают идущий
+  // стрим. Опрашиваем сервер: сравниваем последний известный ран с новейшим на
+  // сервере и при расхождении присоединяемся к нему через joinStream.
+  //
+  // joinStream доигрывает события не только активного, но и недавно завершённого
+  // рана: aegra держит replay-буфер ~10 мин (Redis TTL) / ~1 ч (in-memory) после
+  // финиша, а сообщения мёрджатся по id, так что повторный джойн идемпотентен.
+  // Поэтому отдельный getState не нужен — это покрывает и «ран закончился, пока
+  // вкладка была в фоне». Если же буфер уже истёк, делаем полный remount.
+  const REPLAY_WINDOW_MS = 8 * 60 * 1000; // консервативно меньше Redis TTL (10 мин)
+  const threadRef = useRef(thread);
+  threadRef.current = thread;
+  const onRequestReloadRef = useRef(onRequestReload);
+  onRequestReloadRef.current = onRequestReload;
+  // Последний ран, который мы уже учли (стримили / приджойнились / он в state).
+  const lastSeenRunIdRef = useRef<string | null>(null);
+  const localStreamRef = useRef<{
+    wasLoading: boolean;
+    finishedAt: number;
+    messagesLength: number;
+    lastMessageId: string | null;
+  }>({
+    wasLoading: false,
+    finishedAt: 0,
+    messagesLength: 0,
+    lastMessageId: null,
+  });
+
+  useEffect(() => {
+    const isLoading = Boolean(thread.isLoading);
+    const lastMessage = stableMessages.at(-1) as any;
+    if (localStreamRef.current.wasLoading && !isLoading) {
+      localStreamRef.current = {
+        wasLoading: false,
+        finishedAt: Date.now(),
+        messagesLength: stableMessages.length,
+        lastMessageId: lastMessage?.id ?? null,
+      };
+      return;
+    }
+
+    localStreamRef.current = {
+      ...localStreamRef.current,
+      wasLoading: isLoading,
+    };
+  }, [thread.isLoading, stableMessages]);
+
+  useEffect(() => {
+    if (!threadId) return;
+    lastSeenRunIdRef.current = null;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const reconcile = async () => {
+      // Запрос только в активной вкладке и когда мы сами не стримим.
+      if (cancelled || document.hidden || threadRef.current.isLoading) return;
+      try {
+        const runs = await threadRef.current.client.runs.list(threadId, {
+          limit: 1,
+        });
+        if (cancelled || threadRef.current.isLoading) return;
+        const latest = runs[0] as
+          | { run_id: string; status: string; updated_at?: string }
+          | undefined;
+        if (!latest) return;
+
+        const isActive =
+          latest.status === "running" || latest.status === "pending";
+
+        // Первая сверка: запоминаем текущий ран. Активный — джойнимся (мы могли
+        // открыть тред в новой вкладке во время стрима); завершённый уже в state.
+        if (lastSeenRunIdRef.current === null) {
+          lastSeenRunIdRef.current = latest.run_id;
+          if (isActive) {
+            // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
+            threadRef.current.joinStream(latest.run_id);
+          }
+          return;
+        }
+
+        // Ран не сменился — ничего нового.
+        if (latest.run_id === lastSeenRunIdRef.current) return;
+
+        // Появился новый ран (запущен в другой вкладке / на другом устройстве).
+        lastSeenRunIdRef.current = latest.run_id;
+        if (isActive) {
+          // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
+          threadRef.current.joinStream(latest.run_id);
+          return;
+        }
+        // Ран уже завершился. Если replay-буфер ещё жив — доигрываем через join,
+        // иначе буфер истёк и сообщения так не получить → полный remount.
+        const finishedAt = latest.updated_at
+          ? new Date(latest.updated_at).getTime()
+          : 0;
+        if (finishedAt && Date.now() - finishedAt < REPLAY_WINDOW_MS) {
+          const localStream = localStreamRef.current;
+          const currentLastMessageId =
+            ((threadRef.current.messages?.at(-1) as any)?.id as
+              | string
+              | undefined) ?? null;
+          const isLocalStreamReplay =
+            localStream.finishedAt > 0 &&
+            Math.abs(localStream.finishedAt - finishedAt) < 15000 &&
+            localStream.messagesLength === threadRef.current.messages.length &&
+            localStream.lastMessageId === currentLastMessageId;
+          // The local stream already merged this run into state; replaying it
+          // would only toggle SDK loading state and rerender the message list.
+          if (isLocalStreamReplay) {
+            return;
+          }
+          // @ts-ignore joinStream есть в рантайме SDK, но не в типах UseStream
+          threadRef.current.joinStream(latest.run_id);
+        } else {
+          onRequestReloadRef.current?.();
+        }
+      } catch {
+        // тред мог ещё не существовать на сервере / сетевая ошибка — игнорируем
+      }
+    };
+
+    // Таймер тикает всегда, но сам запрос внутри уходит лишь при видимой вкладке.
+    const tick = async () => {
+      await reconcile();
+      if (!cancelled) timer = window.setTimeout(tick, 10000);
+    };
+
+    // Как только вкладка становится активной — проверяем сразу, не дожидаясь тика.
+    const onVisibilityChange = () => {
+      if (!document.hidden) void reconcile();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [threadId]);
 
   useEffect(() => {
     if (threadId) {
       onThreadIdChange?.(threadId);
     }
   }, [threadId, onThreadIdChange]);
+
+  // A thread just created here (its first messages are happening now) is flagged
+  // by the same refs that suppress its initial loading spinner. For such threads
+  // BranchesProvider builds the tree from checkpoint events instead of fetching.
+  const isNewThread =
+    !!threadId &&
+    suppressNextThreadLoadingRef.current &&
+    suppressedThreadIdRef.current === threadId;
 
   const isThreadLoading =
     Boolean(threadId) &&
@@ -138,6 +347,18 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
 
     aiCountRef.current = { threadId: currentThreadId, aiCount };
   }, [stableMessages, threadId]);
+
+  // Конец рана (стрим закрылся): aegra финализирует тред в idle до закрытия
+  // SSE (run_executor: finalize_run → _signal_end_event), поэтому сразу
+  // обновляем сайдбар — индикатор активного треда гаснет, не дожидаясь
+  // 20-секундного поллинга.
+  const prevRunActiveRef = useRef(thread.isLoading);
+  useEffect(() => {
+    if (prevRunActiveRef.current && !thread.isLoading) {
+      refreshThreads();
+    }
+    prevRunActiveRef.current = thread.isLoading;
+  }, [thread.isLoading]);
 
   useEffect(() => {
     if (previousThreadLoadingRef.current && !isThreadLoading) {
@@ -303,56 +524,68 @@ const Chat: React.FC<ChatProps> = ({ onThreadIdChange, onThreadReady }) => {
 
   return (
     <SelectedAttachmentsProvider>
-      <div
-        className={[
-          "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
-          !stableMessages.length ? "justify-center" : "",
-        ].join(" ")}
-        ref={containerRef}
+      <BranchesProvider
+        thread={thread}
+        threadId={threadId}
+        isNewThread={isNewThread}
+        checkpointEventRef={checkpointEventRef}
       >
         <div
           className={[
-            stableMessages.length || isThreadLoading
-              ? "grow flex-1 p-7 max-[900px]:p-0"
-              : "",
-            "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
+            "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
+            !stableMessages.length ? "justify-center" : "",
           ].join(" ")}
+          ref={containerRef}
         >
-          {!isThreadLoading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
-            >
-              <MessageList
-                messages={stableMessages ?? []}
-                thread={thread}
-                maybeAutoScroll={maybeAutoScroll}
-              />
-            </motion.div>
-          )}
-        </div>
-
-        {showScrollBtn && stableMessages.length > 0 && (
-          <button
-            type="button"
-            onClick={scrollToBottom}
-            title="Прокрутить вниз"
-            aria-label="Прокрутить вниз"
-            className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
-            style={{
-              backdropFilter: "blur(2px)",
-            }}
+          <div
+            className={[
+              stableMessages.length || isThreadLoading
+                ? "grow flex-1 p-7 max-[900px]:p-0"
+                : "",
+              "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
+            ].join(" ")}
           >
-            <ArrowDown className="size-4" strokeWidth={1.75} />
-          </button>
-        )}
-        <InputArea
-          // @ts-ignore
-          thread={thread}
-        />
-        <div ref={bottomSentinelRef} style={{ height: 1 }} />
-      </div>
+            {!isThreadLoading && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
+              >
+                <MessageList
+                  messages={stableMessages ?? []}
+                  thread={thread}
+                  threadId={threadId}
+                  maybeAutoScroll={maybeAutoScroll}
+                  onSelectSuggestion={(suggestion) =>
+                    setPrefillPayload({ suggestion, nonce: Date.now() })
+                  }
+                />
+              </motion.div>
+            )}
+          </div>
+
+          {showScrollBtn && stableMessages.length > 0 && (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              title="Прокрутить вниз"
+              aria-label="Прокрутить вниз"
+              className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
+              style={{
+                backdropFilter: "blur(2px)",
+              }}
+            >
+              <ArrowDown className="size-4" strokeWidth={1.75} />
+            </button>
+          )}
+          <InputArea
+            // @ts-ignore
+            thread={thread}
+            prefillPayload={prefillPayload}
+          />
+          <div ref={bottomSentinelRef} style={{ height: 1 }} />
+        </div>
+      </BranchesProvider>
     </SelectedAttachmentsProvider>
   );
 };

@@ -1,5 +1,5 @@
 import re
-from typing import Any, Mapping
+from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import JsonOutputParser
@@ -9,7 +9,10 @@ from langgraph.runtime import Runtime
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.thread_metadata import (
+    get_thread_metadata,
+    update_thread_metadata,
+)
 
 _TITLE_MAX_LEN = 80
 _MESSAGE_MAX_LEN = 1200
@@ -31,14 +34,6 @@ def _resolve_thread_id(config: RunnableConfig | dict[str, Any]) -> str | None:
         return thread_id.strip().strip("/")
 
     return None
-
-
-def _extract_metadata(config: Any) -> dict[str, Any]:
-    if isinstance(config, dict):
-        meta = config.get("metadata")
-        return dict(meta) if isinstance(meta, Mapping) else {}
-    meta = getattr(config, "metadata", None)
-    return dict(meta) if isinstance(meta, Mapping) else {}
 
 
 def _pick_first_user_message(state: AgentState) -> str | None:
@@ -125,7 +120,7 @@ class ThreadTitleMiddleware(AgentMiddleware):
         if not thread_id or thread_id.startswith("temporary/"):
             return None
 
-        metadata = _extract_metadata(config)
+        metadata = await get_thread_metadata(config, thread_id)
         existing_title = metadata.get("thread_title")
         if isinstance(existing_title, str) and existing_title.strip():
             return None
@@ -147,10 +142,8 @@ class ThreadTitleMiddleware(AgentMiddleware):
         llm = await fast_llm_runtime.get_llm()
 
         title = await _generate_title(llm, first_message)
-        metadata = {"thread_title": title}
         try:
-            client = get_client(config)
-            await client.threads.update(thread_id, metadata=metadata)
+            await update_thread_metadata(config, thread_id, {"thread_title": title})
         except Exception:
             return None
 

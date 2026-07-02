@@ -33,7 +33,9 @@ import type {
 } from "./types";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
+import { useAuth } from "@/components/providers/auth.tsx";
 import SchemaFields from "./schema-fields";
+import ConnectorSelect from "./connector-select";
 import { compactObject } from "./schema-fields-utils";
 
 interface LLMFormProps {
@@ -61,6 +63,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
   saving = false,
   permissionsSection,
 }) => {
+  const { user } = useAuth();
+  const canManagePermissions = Boolean(user?.is_superuser);
   const [llmTypes, setLlmTypes] = useState<LLMTypeMeta[]>([]);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
 
@@ -393,43 +397,18 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="connector-select">Коннектор</Label>
-        <Select
+        <Label htmlFor="connector-select">Подключение</Label>
+        <ConnectorSelect
+          id="connector-select"
           value={selectedConnectorId}
           onValueChange={setSelectedConnectorId}
-          disabled={
-            saving ||
-            loadingConnectors ||
-            !selectedLLMType ||
-            filteredConnectors.length === 0
-          }
-        >
-          <SelectTrigger id="connector-select" className="w-full">
-            {loadingConnectors ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Загрузка коннекторов...
-              </div>
-            ) : (
-              <SelectValue placeholder="Выберите коннектор" />
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            {filteredConnectors.map((item) => (
-              <SelectItem key={item.id} value={item.id}>
-                {item.name || item.type}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedLLMType &&
-          filteredConnectors.length === 0 &&
-          !loadingConnectors && (
-            <p className="text-sm text-amber-600">
-              Нет активных коннекторов для типа{" "}
-              <span className="font-medium">{selectedLLMType}</span>.
-            </p>
-          )}
+          allowedTypes={supportedConnectorTypes}
+          disabled={saving || !selectedLLMType}
+          loading={loadingConnectors}
+          connectors={connectors}
+          onConnectorsChanged={fetchConnectors}
+          canManagePermissions={canManagePermissions}
+        />
       </div>
 
       <div className="space-y-2">

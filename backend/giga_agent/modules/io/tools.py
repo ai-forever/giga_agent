@@ -24,11 +24,16 @@ from giga_agent.modules.io.memory_bridge import (
     _memory_read,
     _memory_write,
 )
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 logger = get_logger(__name__)
 
 MAX_READ_FILE_CHARS = 100_000
 DEFAULT_READ_FILE_LIMIT = 1000
+# read_file/edit_file/write_file загружают файл целиком в память, поэтому работать
+# с большими файлами через них запрещаем — для них есть shell (sed/tail/grep) и python.
+# Один общий порог: текстовых файлов крупнее в этих сценариях практически не бывает.
+MAX_TEXT_FILE_BYTES = 5 * 1024 * 1024
 TABULAR_FILE_EXTENSIONS = frozenset(
     {
         ".csv",
@@ -267,7 +272,7 @@ def _build_next_read_hint(
 
 
 async def _get_owner_id(runtime: ToolRuntime) -> uuid.UUID:
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
@@ -434,42 +439,210 @@ def _build_io_command(
     return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
 
 
-async def _read_file_text(
-    sandbox_path: str,
-    owner_id: uuid.UUID,
-    runtime: ToolRuntime | None = None,
-) -> str:
-    """Прочитать файл целиком как текст. Поднимает исключение при ошибке."""
+async def _materialize_bounded(
+    result, max_bytes: int
+) -> tuple[bytes | None, bool]:
+    """Материализует результат чтения в bytes с ранним обрывом на max_bytes.
+
+    Возвращает (data, too_large):
+    - (data, False) — контент целиком влез в лимит;
+    - (None, True) — контент превысил max_bytes, чтение прервано (поток не дочитан);
+    - (None, False) — результат недоступен для прямого чтения (только URL).
+
+    RedirectResult скачивается по URL, поэтому его размер по метаданным лучше
+    проверять до вызова, если хранилище большое.
+    """
     from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
 
+    if isinstance(result, ContentResult):
+        if len(result.data) > max_bytes:
+            return None, True
+        return result.data, False
+    if isinstance(result, StreamResult):
+        buffer = bytearray()
+        async for chunk in result.stream:
+            buffer.extend(chunk)
+            if len(buffer) > max_bytes:
+                return None, True
+        return bytes(buffer), False
+    if isinstance(result, RedirectResult):
+        data = await _download_redirect_bytes(result.url)
+        if len(data) > max_bytes:
+            return None, True
+        return data, False
+    return None, False
+
+
+def _overwrite_too_large_error(file_path: str, size: int | None) -> str:
+    size_part = f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    return (
+        f"Ошибка: Файл {file_path} слишком большой для перезаписи "
+        f"({size_part}, лимит {MAX_TEXT_FILE_BYTES}). "
+        "Перезапиши его через shell-команду."
+    )
+
+
+def _edit_too_large_error(file_path: str, size: int | None) -> str:
+    size_part = f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    return (
+        f"Ошибка: Файл {file_path} слишком большой для edit_file "
+        f"({size_part}, лимит {MAX_TEXT_FILE_BYTES}). "
+        "Редактируй его через shell-команду (например sed или python)."
+    )
+
+
+def _read_too_large_error(sandbox_path: str, size: int | None) -> str:
+    size_part = f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    return (
+        f"Ошибка: Файл {sandbox_path} слишком большой для read_file "
+        f"({size_part}, лимит {MAX_TEXT_FILE_BYTES}). "
+        "Читай его через shell-команду (например sed -n, head, tail или grep) "
+        "или через python tool."
+    )
+
+
+async def _probe_existing_file(
+    file_path: str,
+    owner_id: uuid.UUID,
+    runtime: ToolRuntime | None = None,
+):
+    """Читает файл из рантайма для проверок перед записью/правкой.
+
+    Возвращает (result, known_size). Для больших файлов result — ленивый
+    StreamResult (поток ещё НЕ вычитан), known_size — размер из метаданных БД
+    (или None в CLI). Это позволяет проверить размер, не материализуя гигабайты.
+    """
     if _is_cli_runtime() and runtime is not None:
         sandbox_runtime = await _get_cli_sandbox_runtime(runtime)
-        result = await sandbox_runtime.read_file(sandbox_path)
-    else:
-        from giga_agent.sandbox.manager import SandboxManager
+        result = await sandbox_runtime.read_file(file_path)
+        return result, None
 
-        factory = await get_session_factory()
-        async with factory() as session:
-            manager = SandboxManager(session)
-            _, result = await manager.read_file_by_path_for_user(
-                user_id=owner_id,
-                sandbox_path=sandbox_path,
-            )
+    from giga_agent.sandbox.manager import SandboxManager
 
+    factory = await get_session_factory()
+    async with factory() as session:
+        manager = SandboxManager(session)
+        file_record, result = await manager.read_file_by_path_for_user(
+            user_id=owner_id,
+            sandbox_path=file_path,
+        )
+    return result, getattr(file_record, "size", None)
+
+
+def _metadata_size(result, known_size: int | None) -> int | None:
+    """Размер файла из метаданных без материализации потока (или None, если неизвестен)."""
+    from giga_agent.sandbox.base import ContentResult, StreamResult
+
+    if known_size is not None:
+        return known_size
+    if isinstance(result, StreamResult):
+        return result.content_length
     if isinstance(result, ContentResult):
-        data = result.data
-    elif isinstance(result, StreamResult):
-        chunks = []
-        async for chunk in result.stream:
-            chunks.append(chunk)
-        data = b"".join(chunks)
-    elif isinstance(result, RedirectResult):
-        data = await _download_redirect_bytes(result.url)
-    else:
-        raise ValueError("Файл доступен только по URL, прямое чтение невозможно")
+        return len(result.data)
+    return None
 
-    text = data.decode("utf-8")
-    return text
+
+async def _read_text_for_edit(
+    file_path: str,
+    owner_id: uuid.UUID,
+    runtime: ToolRuntime | None = None,
+) -> tuple[str | None, str | None]:
+    """Читает текстовый файл для edit_file одним проходом.
+
+    Возвращает (text, error_message): ровно одно из двух не None. edit_file держит
+    файл целиком в памяти, поэтому слишком большие файлы отклоняются по метаданным
+    ДО материализации (а поток дополнительно читается с ранним обрывом на лимите).
+    """
+    from giga_agent.sandbox.base import ContentResult
+
+    try:
+        result, known_size = await _probe_existing_file(file_path, owner_id, runtime)
+    except Exception as e:
+        logger.warning("edit_file read failed for %s: %s", file_path, e)
+        return None, f"Ошибка: {e}"
+
+    size = _metadata_size(result, known_size)
+    # ContentResult уже материализован рантаймом (< LARGE_FILE_THRESHOLD), он безопасен.
+    # Для остального с неизвестным размером (поток/redirect) читать целиком нельзя.
+    if (size is not None and size > MAX_TEXT_FILE_BYTES) or (
+        size is None and not isinstance(result, ContentResult)
+    ):
+        return None, _edit_too_large_error(file_path, size)
+
+    data, too_large = await _materialize_bounded(result, MAX_TEXT_FILE_BYTES)
+    if too_large:
+        return None, _edit_too_large_error(file_path, None)
+    if data is None:
+        return None, "Ошибка: Файл доступен только по URL, прямое чтение невозможно"
+
+    try:
+        return data.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return None, (
+            f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_path}"
+        )
+
+
+async def _check_overwrite_allowed(
+    file_path: str,
+    owner_id: uuid.UUID,
+    runtime: ToolRuntime | None = None,
+) -> tuple[str | None, int | None]:
+    """Проверяет, можно ли перезаписать существующий файл.
+
+    Возвращает (error_message, old_size). Если error_message не None — перезапись
+    запрещена (файл слишком большой, бинарный или недоступен для прямого чтения).
+    Иначе old_size — размер старого содержимого в байтах.
+
+    Важно: НЕ материализует большие файлы в память. Размер проверяется по
+    метаданным (DB size / content_length), а поток читается с ранним обрывом на
+    лимите, чтобы перезапись гигабайтного файла не уронила сервер по памяти.
+    """
+    from giga_agent.sandbox.base import RedirectResult
+
+    try:
+        result, known_size = await _probe_existing_file(file_path, owner_id, runtime)
+    except Exception as e:
+        logger.warning("write_file overwrite probe failed for %s: %s", file_path, e)
+        return (f"Ошибка: не удалось прочитать файл для перезаписи: {e}", None)
+
+    size = _metadata_size(result, known_size)
+    if size is not None and size > MAX_TEXT_FILE_BYTES:
+        return (_overwrite_too_large_error(file_path, size), None)
+
+    if isinstance(result, RedirectResult):
+        return (
+            f"Ошибка: Файл {file_path} хранится во внешнем хранилище и недоступен для "
+            "прямой перезаписи через write_file. Используй shell-команду.",
+            None,
+        )
+
+    data, too_large = await _materialize_bounded(result, MAX_TEXT_FILE_BYTES)
+    if too_large:
+        return (_overwrite_too_large_error(file_path, None), None)
+    if data is None:
+        return (
+            f"Ошибка: Файл {file_path} доступен только по URL, перезапись через "
+            "write_file невозможна. Используй shell-команду.",
+            None,
+        )
+
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return (
+            f"Ошибка: Файл {file_path} не является текстовым (бинарный формат), "
+            "перезапись через write_file не поддерживается. Используй shell-команду.",
+            None,
+        )
+
+    return (None, len(data))
+
+
+def _write_success_message(file_path: str, new_size: int, old_size: int | None) -> str:
+    if old_size is None:
+        return f"Файл создан: {file_path}, размер: {new_size} байт"
+    return f"Файл перезаписан: {file_path} (было {old_size} → стало {new_size} байт)"
 
 
 @tool(
@@ -498,7 +671,6 @@ async def read_file(
     ] = 1000,
 ) -> Command:
     """Читает файл из sandbox построчно с поддержкой offset/limit."""
-    from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
     from giga_agent.sandbox.manager import SandboxManager
 
     def _result(text: str, *, is_error: bool = False) -> Command:
@@ -515,7 +687,7 @@ async def read_file(
     if _is_memory_path(sandbox_path):
         return await _memory_read(sandbox_path, runtime)
 
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
     if _is_tabular_file_reference(sandbox_path=sandbox_path):
@@ -534,6 +706,9 @@ async def read_file(
                 )
             return _result(error_text, is_error=True)
         file_record = _CliFileStub(sandbox_path)
+        # В CLI нет надёжного размера из метаданных (stub.size == 0), поэтому
+        # полагаемся на content_length из result и потоковый обрыв ниже.
+        known_size: int | None = None
     else:
         factory = await get_session_factory()
         async with factory() as session:
@@ -549,67 +724,51 @@ async def read_file(
                 if _looks_like_missing_file_error(e):
                     error_text += await _build_missing_file_hint(owner_id, sandbox_path)
                 return _result(error_text, is_error=True)
+        known_size = getattr(file_record, "size", None)
 
+    media_type = getattr(result, "media_type", None)
+
+    # Табличные файлы отсекаем по метаданным ДО любого чтения содержимого.
     if _is_tabular_file_reference(
         sandbox_path=sandbox_path,
         file_name=file_record.original_name,
+        media_type=media_type,
     ):
         return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
 
-    text: str | None
-    if isinstance(result, ContentResult):
-        if _is_tabular_file_reference(
-            sandbox_path=sandbox_path,
-            file_name=file_record.original_name,
-            media_type=result.media_type,
-        ):
-            return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
+    # Размер по метаданным: отказываем большим файлам, не материализуя их.
+    size = _metadata_size(result, known_size)
+    if size is not None and size > MAX_TEXT_FILE_BYTES:
+        return _result(_read_too_large_error(sandbox_path, size), is_error=True)
 
-        text = _text_from_file_bytes(
-            data=result.data,
-            sandbox_path=sandbox_path,
-            file_name=file_record.original_name,
-            media_type=result.media_type,
-        )
-        if text is None:
-            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}", is_error=True)
-    elif isinstance(result, StreamResult):
-        chunks = []
-        async for chunk in result.stream:
-            chunks.append(chunk)
-        data = b"".join(chunks)
-        if _is_tabular_file_reference(
-            sandbox_path=sandbox_path,
-            file_name=file_record.original_name,
-            media_type=result.media_type,
-        ):
-            return _result(_build_tabular_read_hint(sandbox_path=sandbox_path))
+    # Читаем с ранним обрывом на лимите — даже если размер не был известен заранее
+    # (CLI/redirect без content_length), файл не сможет переполнить память.
+    try:
+        data, too_large = await _materialize_bounded(result, MAX_TEXT_FILE_BYTES)
+    except Exception as e:
+        logger.warning("read_file materialize failed for %s: %s", sandbox_path, e)
+        return _result(f"Ошибка: {e}", is_error=True)
 
-        text = _text_from_file_bytes(
-            data=data,
-            sandbox_path=sandbox_path,
-            file_name=file_record.original_name,
-            media_type=result.media_type,
+    if too_large:
+        return _result(_read_too_large_error(sandbox_path, None), is_error=True)
+    if data is None:
+        return _result(
+            "Ошибка: Файл доступен только по URL, прямое чтение невозможно",
+            is_error=True,
         )
-        if text is None:
-            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}", is_error=True)
-    elif isinstance(result, RedirectResult):
-        try:
-            data = await _download_redirect_bytes(result.url)
-        except Exception as e:
-            logger.warning(
-                "read_file redirect download failed for %s: %s", sandbox_path, e
-            )
-            return _result(f"Ошибка: {e}", is_error=True)
-        text = _text_from_file_bytes(
-            data=data,
-            sandbox_path=sandbox_path,
-            file_name=file_record.original_name,
+
+    text: str | None = _text_from_file_bytes(
+        data=data,
+        sandbox_path=sandbox_path,
+        file_name=file_record.original_name,
+        media_type=media_type,
+    )
+    if text is None:
+        return _result(
+            f"Ошибка: Файл не является текстовым (бинарный формат). "
+            f"Файл: {file_record.original_name}, размер: {file_record.size}",
+            is_error=True,
         )
-        if text is None:
-            return _result(f"Ошибка: Файл не является текстовым (бинарный формат). Файл: {file_record.original_name}, размер: {file_record.size}", is_error=True)
-    else:
-        return _result("Ошибка: Файл доступен только по URL, прямое чтение невозможно", is_error=True)
 
     if text == "":
         hint = _build_next_read_hint(
@@ -654,11 +813,12 @@ async def read_file(
 
 
 @tool(
-    description="""Создаёт новый файл в файловой системе.
+    description="""Создаёт новый файл в файловой системе или полностью перезаписывает существующий.
 
 Использование:
-- Инструмент write_file создаёт новый файл. Если файл по указанному пути уже существует, будет возвращена ошибка.
-- Предпочитай редактирование существующих файлов (через edit_file) созданию новых, когда это возможно.""",
+- По умолчанию write_file создаёт новый файл. Если файл по указанному пути уже существует, будет возвращена ошибка.
+- Чтобы перезаписать существующий файл целиком, передай overwrite=True. Это заменяет ВСЁ содержимое файла, а не подстроку — для точечных правок используй edit_file.
+- Предпочитай edit_file для точечных изменений; overwrite=True уместен, когда нужно переписать файл целиком.""",
     extras={"repl_skip": True, "not_compress": True, "not_process": True},
 )
 async def write_file(
@@ -671,8 +831,12 @@ async def write_file(
         "Текстовое содержимое для записи в файл. Этот параметр обязателен.",
     ],
     runtime: ToolRuntime,
+    overwrite: Annotated[
+        bool,
+        "Если True, полностью перезаписывает файл, когда он уже существует, вместо ошибки. По умолчанию False.",
+    ] = False,
 ) -> Command:
-    """Создаёт новый файл по указанному пути."""
+    """Создаёт новый файл по указанному пути или перезаписывает существующий."""
     from giga_agent.sandbox.manager import SandboxManager
 
     def _result(text: str, *, is_error: bool = False) -> Command:
@@ -687,10 +851,15 @@ async def write_file(
         return _result("Ошибка: ToolRuntime is required", is_error=True)
 
     if _is_memory_path(file_path):
-        return await _memory_write(file_path, content, runtime)
+        return await _memory_write(file_path, content, runtime, overwrite=overwrite)
 
     owner_id = await _get_owner_id(runtime)
     content_bytes = content.encode("utf-8")
+    exists_error = (
+        f"Ошибка: Файл уже существует ({file_path}). "
+        "Для точечной правки используй edit_file. "
+        "Для полной перезаписи вызови write_file с overwrite=True."
+    )
 
     if _is_cli_runtime():
         try:
@@ -702,8 +871,15 @@ async def write_file(
             )
             return _result(f"Ошибка: {e}", is_error=True)
 
+        old_size: int | None = None
         if exists:
-            return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.", is_error=True)
+            if not overwrite:
+                return _result(exists_error, is_error=True)
+            guard_err, old_size = await _check_overwrite_allowed(
+                file_path, owner_id, runtime
+            )
+            if guard_err:
+                return _result(guard_err, is_error=True)
 
         try:
             await sandbox_runtime.write_file_content(file_path, content_bytes)
@@ -711,7 +887,9 @@ async def write_file(
             logger.warning("write_file failed for %s: %s", file_path, e)
             return _result(f"Ошибка: {e}", is_error=True)
 
-        return _result(f"Файл создан: {file_path}, размер: {len(content_bytes)} байт")
+        return _result(
+            _write_success_message(file_path, len(content_bytes), old_size)
+        )
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -727,8 +905,15 @@ async def write_file(
             )
             return _result(f"Ошибка: {e}", is_error=True)
 
+        old_size = None
         if exists:
-            return _result(f"Ошибка: Файл уже существует ({file_path}). Используй edit_file для изменения существующих файлов.", is_error=True)
+            if not overwrite:
+                return _result(exists_error, is_error=True)
+            guard_err, old_size = await _check_overwrite_allowed(
+                file_path, owner_id, runtime
+            )
+            if guard_err:
+                return _result(guard_err, is_error=True)
 
         try:
             await manager.write_file_content_for_user(
@@ -740,7 +925,7 @@ async def write_file(
             logger.warning("write_file failed for %s: %s", file_path, e)
             return _result(f"Ошибка: {e}", is_error=True)
 
-    return _result(f"Файл создан: {file_path}, размер: {len(content_bytes)} байт")
+    return _result(_write_success_message(file_path, len(content_bytes), old_size))
 
 
 _FILE_MUTATING_TOOLS = frozenset({"edit_file", "write_file", "shell"})
@@ -867,13 +1052,10 @@ async def edit_file(
     if find_string == replace_string:
         return _result(f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}", is_error=True)
 
-    try:
-        raw_text = await _read_file_text(
-            sandbox_path=file_path, owner_id=owner_id, runtime=runtime
-        )
-    except Exception as e:
-        logger.warning("edit_file read failed for %s: %s", file_path, e)
-        return _result(f"Ошибка: {e}", is_error=True)
+    raw_text, read_error = await _read_text_for_edit(file_path, owner_id, runtime)
+    if read_error is not None:
+        return _result(read_error, is_error=True)
+    assert raw_text is not None
 
     text = raw_text.replace("\r\n", "\n").replace("\r", "\n")
     find_string = find_string.replace("\r\n", "\n").replace("\r", "\n")

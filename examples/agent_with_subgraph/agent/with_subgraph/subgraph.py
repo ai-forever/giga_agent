@@ -2,7 +2,7 @@ from typing import TypedDict, Annotated
 from operator import add
 from langgraph.graph import StateGraph, START, END
 from langchain_core.tools import tool
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 from langchain.tools import ToolRuntime
 
 
@@ -99,50 +99,49 @@ async def run_example_graph(user_input: str, runtime: ToolRuntime) -> str:
     Returns:
         Финальный результат выполнения графа
     """
-    # Создаем клиент LangGraph SDK
-    client = get_client(runtime.config)
-    
     initial_state = {
         "messages": [f"Входное сообщение: {user_input}"],
         "counter": 0,
         "result": ""
     }
-    
+
     try:
-        # Создаем поток (thread) для выполнения графа
-        thread = await client.threads.create()
+        # Создаем клиент LangGraph SDK
+        async with client_session(runtime.config) as client:
+            # Создаем поток (thread) для выполнения графа
+            thread = await client.threads.create()
 
-        print(f"\n🔄 Запуск графа через стриминг...")
-        print(f"Thread ID: {thread['thread_id']}\n")
-        
-        final_result = None
-        
-        # Используем стриминг для получения результатов в реальном времени
-        async for chunk in client.runs.stream(
-            thread_id=thread["thread_id"],
-            assistant_id="example_graph",  # ID графа из get_subgraphs
-            input=initial_state,
-            stream_mode="values"  # Стримим значения состояния
-        ):
-            # Выводим информацию о текущем состоянии
-            if chunk.event != "values":
-                continue
-            chunk = chunk.data
-            if isinstance(chunk, dict):
-                counter = chunk.get("counter", 0)
-                messages_count = len(chunk.get("messages", []))
-                result = chunk.get("result", "")
+            print(f"\n🔄 Запуск графа через стриминг...")
+            print(f"Thread ID: {thread['thread_id']}\n")
 
-                print(f"📊 Состояние: counter={counter}, messages={messages_count}")
-                if result:
-                    print(f"✅ Результат: {result}")
-            
-                final_result = chunk.get("result", "")
+            final_result = None
+
+            # Используем стриминг для получения результатов в реальном времени
+            async for chunk in client.runs.stream(
+                thread_id=thread["thread_id"],
+                assistant_id="example_graph",  # ID графа из get_subgraphs
+                input=initial_state,
+                stream_mode="values"  # Стримим значения состояния
+            ):
+                # Выводим информацию о текущем состоянии
+                if chunk.event != "values":
+                    continue
+                chunk = chunk.data
+                if isinstance(chunk, dict):
+                    counter = chunk.get("counter", 0)
+                    messages_count = len(chunk.get("messages", []))
+                    result = chunk.get("result", "")
+
+                    print(f"📊 Состояние: counter={counter}, messages={messages_count}")
+                    if result:
+                        print(f"✅ Результат: {result}")
+
+                    final_result = chunk.get("result", "")
 
         print(f"\n✨ Выполнение завершено\n")
-        
+
         return final_result if final_result else "Результат не получен"
-        
+
     except Exception as e:
         # Fallback на прямой вызов при ошибке SDK
         print(f"⚠️ SDK вызов не удался: {e}")

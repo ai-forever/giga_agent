@@ -1,4 +1,5 @@
 import os
+import unicodedata
 import uuid
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -106,7 +107,11 @@ async def upload_file(
     file_type: FileType | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    file_name = (file.filename or "").strip()
+    # Приводим имя к канонической форме NFC: клиенты (особенно macOS/HFS+)
+    # присылают имена в NFD, и тогда на Linux-ФС точный поиск/open по NFC-пути
+    # от агента промахивается. Нормализуем на входе, чтобы файлы всегда
+    # сохранялись в одной форме.
+    file_name = unicodedata.normalize("NFC", (file.filename or "").strip())
     if not file_name:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

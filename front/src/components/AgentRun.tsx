@@ -7,6 +7,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import Message from "./Message.tsx";
 import { GraphState, GraphTemplate } from "../interfaces.ts";
 import { findScrollRoot } from "@/lib/scroll";
+import { useBranches } from "@/hooks/useBranches";
+import type { MessageMetadata } from "@/lib/branching";
+
+type GetMeta = (message: Message_) => MessageMetadata | undefined;
 
 interface AgentRunProps {
   aiMessages: Message_[];
@@ -36,12 +40,12 @@ const formatDuration = (ms: number): string | null => {
 };
 
 const getCreatedAt = (
-  thread: UseStream<GraphState, GraphTemplate> | undefined,
+  getMeta: GetMeta,
   message: Message_ | undefined,
 ): number | null => {
-  if (!thread || !message) return null;
+  if (!message) return null;
   try {
-    const meta = thread.getMessagesMetadata(message);
+    const meta = getMeta(message);
     const createdAt = meta?.firstSeenState?.created_at;
     if (!createdAt) return null;
     const t = Date.parse(createdAt);
@@ -80,6 +84,8 @@ const AgentRun: React.FC<AgentRunProps> = ({
   appearedInSession,
 }) => {
   const inFlight = !!thread?.isLoading && isLastInThread;
+  const branches = useBranches();
+  const getMeta = branches.getMessagesMetadata;
 
   // На монтировании: раскрыт, если прогон появился в текущей сессии
   // (live стриминг или просто что-то новое в треде); свёрнут только для
@@ -131,13 +137,14 @@ const AgentRun: React.FC<AgentRunProps> = ({
   const durationStartMs = useMemo(() => {
     const firstToolCall = allToolCalls[0];
     return (
-      getCreatedAt(thread, durationStartMessage) ??
+      getCreatedAt(getMeta, durationStartMessage) ??
       getLcRunCreatedAt(firstToolCall?.message) ??
-      getCreatedAt(thread, firstToolCall?.message)
+      getCreatedAt(getMeta, firstToolCall?.message)
     );
-  }, [allToolCalls, durationStartMessage, thread]);
+  }, [allToolCalls, durationStartMessage, getMeta]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const frozenDurationRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!inFlight) return;
@@ -145,6 +152,14 @@ const AgentRun: React.FC<AgentRunProps> = ({
     const id = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [inFlight]);
+
+  // Freeze the live timer value when inFlight transitions to false, so it can
+  // be used as a fallback if the static duration calculation has no data.
+  useEffect(() => {
+    if (inFlight && durationStartMs != null) {
+      frozenDurationRef.current = formatDuration(Date.now() - durationStartMs);
+    }
+  });
 
   const duration: string | null = useMemo(() => {
     if (inFlight) {
@@ -164,22 +179,22 @@ const AgentRun: React.FC<AgentRunProps> = ({
       return formatDuration(diff);
     };
 
-    return (
-      formatPair(durationStartMs, getCreatedAt(thread, durationEndMessage)) ??
+    const staticResult =
+      formatPair(durationStartMs, getCreatedAt(getMeta, durationEndMessage)) ??
       formatPair(
         getLcRunCreatedAt(firstToolCall?.message),
         getLcRunCreatedAt(durationEndMessage),
       ) ??
       formatPair(
-        getCreatedAt(thread, firstToolCall?.message),
-        getCreatedAt(thread, lastResultMessage),
+        getCreatedAt(getMeta, firstToolCall?.message),
+        getCreatedAt(getMeta, lastResultMessage),
       ) ??
       formatPair(
-        getCreatedAt(thread, firstToolCall?.message),
-        getCreatedAt(thread, lastToolCall?.message),
-        { allowZero: true },
-      )
-    );
+        getCreatedAt(getMeta, firstToolCall?.message),
+        getCreatedAt(getMeta, lastToolCall?.message),
+      );
+
+    return staticResult ?? frozenDurationRef.current;
   }, [
     allToolCalls,
     durationEndMessage,
@@ -187,7 +202,7 @@ const AgentRun: React.FC<AgentRunProps> = ({
     inFlight,
     lastResultMessage,
     nowMs,
-    thread,
+    getMeta,
   ]);
 
   const actionsWord =

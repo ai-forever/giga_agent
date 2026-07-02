@@ -400,6 +400,110 @@ class TelegramMediaService:
 
         return sent_any
 
+    async def send_parts_to_chat(
+        self,
+        *,
+        chat_id: int | str,
+        token: str,
+        parts: list[TelegramTextMediaPart],
+        disable_web_page_preview: bool = False,
+    ) -> bool:
+        """Send rendered parts directly to a chat_id (proactive delivery).
+
+        Mirrors :meth:`send_embedded_media` but targets ``chat_id`` via
+        ``bot.send_*`` instead of replying to an incoming ``message``.
+        """
+        target: int | str = chat_id
+        if isinstance(chat_id, str) and chat_id.lstrip("-").isdigit():
+            target = int(chat_id)
+
+        send_ops: list[TelegramTextMediaPart] = []
+        attachment_count = 0
+        image_count = 0
+        for part in parts:
+            kind = part["kind"]
+            value = part["value"]
+            if kind == "text":
+                for chunk in _split_message(value):
+                    if chunk:
+                        send_ops.append({"kind": "text", "value": chunk})
+                continue
+            if kind == "attachment_path":
+                if attachment_count >= 10:
+                    continue
+                attachment_count += 1
+            elif kind == "image_url":
+                if image_count >= 5:
+                    continue
+                image_count += 1
+            send_ops.append(part)
+
+        sent_any = False
+        for part in send_ops:
+            kind = part["kind"]
+            value = part["value"]
+            try:
+                if kind == "text":
+                    tg_text = _md_to_tg_markdown_v2(value)
+                    try:
+                        await self.bot.send_message(
+                            target,
+                            tg_text,
+                            parse_mode="MarkdownV2",
+                            disable_web_page_preview=disable_web_page_preview,
+                        )
+                    except Exception as exc:
+                        logger.exception("Error delivering message to Telegram: %s", exc)
+                        await self.bot.send_message(
+                            target,
+                            value,
+                            disable_web_page_preview=disable_web_page_preview,
+                        )
+                    sent_any = True
+                    continue
+
+                if kind == "attachment_path":
+                    file_bytes = await self.download_attachment(token, value)
+                    if not file_bytes:
+                        continue
+                    filename = value.rsplit("/", 1)[-1] if "/" in value else value
+                    file_bytes, filename, rendered_from_plotly = (
+                        _convert_plotly_attachment(
+                            file_bytes=file_bytes,
+                            filename=filename,
+                        )
+                    )
+                    input_file = BufferedInputFile(file_bytes, filename=filename)
+                    lower = filename.lower()
+                    if rendered_from_plotly or lower.endswith(
+                        (".png", ".jpg", ".jpeg", ".gif", ".webp")
+                    ):
+                        await self.bot.send_photo(target, input_file)
+                    else:
+                        await self.bot.send_document(target, input_file)
+                    sent_any = True
+                    continue
+
+                if kind == "image_url":
+                    if value.startswith("http"):
+                        await self.bot.send_photo(target, value)
+                    elif value.startswith("data:image"):
+                        _, b64data = value.split(",", 1)
+                        await self.bot.send_photo(
+                            target,
+                            BufferedInputFile(
+                                base64.b64decode(b64data), filename="image.png"
+                            ),
+                        )
+                    sent_any = True
+            except Exception:
+                traceback.print_exc()
+                logger.warning(
+                    "Failed to deliver %s part to chat %s", kind, str(target)[:40]
+                )
+
+        return sent_any
+
     async def send_run_result(
         self,
         *,

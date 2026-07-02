@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -8,8 +10,8 @@ import joblib
 import numpy as np
 from langchain.tools import ToolRuntime
 
-from giga_agent.core.logging import get_logger
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.logging import get_logger
 from giga_agent.embeddings.base import BaseEmbeddingRuntime
 
 _MODELS_DIR = Path(__file__).resolve().parent / "models"
@@ -84,7 +86,31 @@ def _preload_models() -> dict[str, Any]:
     return preloaded
 
 
-# _PRELOADED_SENTIMENT_MODELS: dict[str, Any] = _preload_models()
+_PRELOADED_SENTIMENT_MODELS: dict[str, Any] = {}
+_MODELS_READY = threading.Event()
+
+
+def _preload_models_background() -> None:
+    try:
+        _PRELOADED_SENTIMENT_MODELS.update(_preload_models())
+    except Exception:
+        logger.exception("Background sentiment model preload failed")
+    finally:
+        _MODELS_READY.set()
+
+
+# Грузим модели в фоне, чтобы joblib.load не блокировал импорт/старт приложения.
+threading.Thread(
+    target=_preload_models_background,
+    name="sentiment-preload",
+    daemon=True,
+).start()
+
+
+async def _ensure_models_ready() -> None:
+    """Дожидается окончания фоновой загрузки моделей, не блокируя event loop."""
+    if not _MODELS_READY.is_set():
+        await asyncio.to_thread(_MODELS_READY.wait)
 
 
 async def _resolve_user_embeddings(
@@ -116,6 +142,7 @@ async def predict_sentiments(
         raise ValueError("tool_runtime is required for predict_sentiments.")
 
     embedding_runtime, embedding_model_id = await _resolve_user_embeddings(tool_runtime)
+    await _ensure_models_ready()
     clf = _PRELOADED_SENTIMENT_MODELS.get(embedding_model_id)
     if clf is None:
         available = ", ".join(sorted(_PRELOADED_SENTIMENT_MODELS.keys())) or "нет"

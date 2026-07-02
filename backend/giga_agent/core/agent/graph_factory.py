@@ -39,16 +39,23 @@ from giga_agent.conf import (
     GIGA_AGENT_ENABLE_THINK_TOOL,
     GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
 )
+from giga_agent.core.agent.anti_loop import detect_loop
+from giga_agent.core.agent.connectors.sources import collect_sources
+from giga_agent.core.agent.connectors.tools import (
+    connector_call_tool,
+    connector_get_info,
+)
 from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.multi_tool_use import (
     collapse_tool_messages,
     expand_multi_tool_use,
 )
-from giga_agent.core.agent.prompt import BASE_PROMPT
+from giga_agent.core.agent.prompt import BASE_PROMPT, SCHEDULED_RUN_PROMPT
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.think import (
     THINK_VIA_FAST_MODEL,
+    _count_trailing_think_tool_pairs,
     collapse_think_hops,
     is_single_think_call,
     process_think_via_fast_model,
@@ -71,9 +78,21 @@ if TYPE_CHECKING:
 
     from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.agent.types import AgentState, Context
-from giga_agent.core.agent.utils import merge_state
+from giga_agent.core.agent.utils import merge_state, reduce_updates
 
 logger = get_logger(__name__)
+
+# Safety cap on consecutive think hops. Normally forced think is bounded by
+# MAX_FORCED_THINK_FOLLOWUPS, so reaching this means a runaway loop.
+MAX_THINK_HOPS = 6
+
+# User-facing message emitted when an anti-loop detector breaks the run.
+ANTI_LOOP_STOP_MESSAGE = (
+    "Похоже, я зациклился и не могу продвинуться дальше по этой задаче — "
+    "повторяю одни и те же действия без прогресса. Останавливаюсь, чтобы не "
+    "тратить шаги впустую. Уточни, пожалуйста, запрос или подскажи, как лучше "
+    "действовать, и я попробую снова."
+)
 
 
 def _is_feature_enabled_for_provider(
@@ -92,9 +111,14 @@ def _generate_user_info(state: AgentState) -> str:
     language_prompt = ""
     if not language.startswith("ru"):
         language_prompt = f"\nВыбранный язык пользователя: {language}\n"
+    # Current time in the configured/system timezone so "in N minutes" the agent
+    # computes matches how scheduled times are interpreted (see scheduler).
+    from giga_agent.scheduled.cron import default_tz
+
+    now = datetime.now(default_tz())
     return (
         f"<user_info>\n"
-        f"Текущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}"
+        f"Текущая дата: {now.strftime('%d.%m.%Y %H:%M')} ({now.strftime('%Z') or 'local'})"
         f"{language_prompt}</user_info>"
     )
 
@@ -154,6 +178,23 @@ def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
         return ""
 
     return ChannelRegistry.get(normalized_channel_type).get_prompt()
+
+
+def _resolve_scheduled_prompt(config: RunnableConfig | None) -> str:
+    """Extra system instructions for autonomous scheduled-task runs.
+
+    Gated on ``metadata.is_scheduled`` (set on the thread in
+    ``scheduled/runner.py``). Tells the model there is no live user, that the
+    system delivers the result itself, and that its final tool-call-free
+    message is the only thing the user receives — so all artifacts must be
+    gathered there.
+    """
+    if not isinstance(config, dict):
+        return ""
+    metadata = config.get("metadata", {}) or {}
+    if not metadata.get("is_scheduled"):
+        return ""
+    return SCHEDULED_RUN_PROMPT
 
 
 def _chain_async_tool_call_wrappers(
@@ -440,7 +481,7 @@ def create_graph(
     built_in_tools = [t for t in tools if isinstance(t, dict)]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
 
-    builtin_tools: list[BaseTool] = []
+    builtin_tools: list[BaseTool] = [connector_call_tool, connector_get_info]
     if GIGA_AGENT_ENABLE_THINK_TOOL:
         builtin_tools.append(think)
     if GIGA_AGENT_ENABLE_MULTI_TOOL_USE:
@@ -495,7 +536,7 @@ def create_graph(
         if request.system_message:
             messages = [request.system_message, *messages]
 
-        output = await model_.ainvoke(messages)
+        output = await model_.with_retry().ainvoke(messages)
         if name:
             output.name = name
         output.additional_kwargs.pop("function_call", None)
@@ -511,6 +552,20 @@ def create_graph(
         state: AgentState, runtime: Runtime[ContextT], config
     ) -> dict[str, Any]:
         """Async model request handler with sequential middleware processing."""
+        # Anti-loop guard: if the agent is stuck (repeating a call, oscillating,
+        # over the step budget, or failing the same tool), stop the run with a
+        # terminal assistant message instead of invoking the model again. The
+        # message has no tool calls, so _make_model_to_tools_edge routes it to
+        # the end of the graph.
+        loop_reason = detect_loop(state["messages"])
+        if loop_reason:
+            logger.warning("Anti-loop triggered, stopping run: %s", loop_reason)
+            stop_message = AIMessage(content=ANTI_LOOP_STOP_MESSAGE)
+            stop_message.additional_kwargs["rendered"] = True
+            if name:
+                stop_message.name = name
+            return {"messages": [stop_message]}
+
         resolver = await RuntimeResolver.create(config)
         resolver.inject(config)
 
@@ -530,6 +585,15 @@ def create_graph(
             GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
             llm_type,
         )
+
+        if think_enabled:
+            think_hops = _count_trailing_think_tool_pairs(state["messages"])
+            if think_hops > MAX_THINK_HOPS:
+                msg = (
+                    f"Too many consecutive think hops: {think_hops} "
+                    f"(limit {MAX_THINK_HOPS})"
+                )
+                raise RuntimeError(msg)
 
         if multi_tool_use_enabled:
             few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
@@ -633,6 +697,14 @@ def create_graph(
         if multi_tool_use_enabled:
             optional_tools.append(multi_tool_use)
 
+        # Connector-дисптач: если у юзера есть хоть один источник (MCP-сервер или
+        # включённый ленивый модуль) — биндим две мета-тулы. Источники считаем
+        # один раз и переиспользуем для системного промпта.
+        connector_sources = await collect_sources(agent, user, config)
+        if connector_sources:
+            optional_tools.append(connector_get_info)
+            optional_tools.append(connector_call_tool)
+
         all_tools = (
             optional_tools
             + built_in_tools
@@ -641,16 +713,19 @@ def create_graph(
             + agent_tools
             + mcp_tools
         )
-        llm = llm.bind_tools(tools=all_tools, tool_choice=tool_choice)
+        llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
+        scheduled_prompt = _resolve_scheduled_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
                 user,
                 state=state,
                 config=config,
                 channel_prompt=channel_prompt,
+                scheduled_prompt=scheduled_prompt,
                 enable_think=think_enabled,
                 enable_multi_tool_use=multi_tool_use_enabled,
+                connector_sources=connector_sources,
             )
         )
 
@@ -739,6 +814,7 @@ def create_graph(
             resolver = await RuntimeResolver.create(config)
             resolver.inject(config)
 
+            updates: list[dict[str, Any]] = []
             for m in middleware:
                 if getattr(m.__class__, callback_type) is not getattr(
                     AgentMiddleware, callback_type
@@ -750,12 +826,15 @@ def create_graph(
                         else None
                     )
                     if async_callback is not None:
-                        state = merge_state(
-                            state,
-                            await async_callback(state, runtime, config),
-                            AgentState,
-                        )
-            return state
+                        update = await async_callback(state, runtime, config)
+                        if update:
+                            updates.append(update)
+                            state = merge_state(state, update, AgentState)
+            # Return only the accumulated deltas: returning the full merged
+            # state would put existing message ids back on their old channel
+            # positions and a RemoveMessage would never reach the channel,
+            # which breaks the dangling tool_calls repair reordering.
+            return reduce_updates(updates, AgentState)
 
         return callback_node
 

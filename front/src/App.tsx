@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./components/Chat";
 import { SettingsProvider, useSettings } from "./components/Settings.tsx";
 import {
@@ -24,10 +24,12 @@ import { ThemeProvider } from "@/components/providers/theme.tsx";
 import { ConfirmProvider } from "@/components/providers/confirm.tsx";
 import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
+import ProjectPage from "@/components/projects/ProjectPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
+import SchedulerPage from "@/components/scheduler";
 import { runtimeConfig } from "@/config";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import FunctionalityOnboarding from "@/components/onboarding/FunctionalityOnboarding";
@@ -70,10 +72,12 @@ const InnerApp: React.FC = () => {
 
   // эта функция будет прокидываться в Sidebar
   const handleNavigateAndReload = useCallback(() => {
-    // переключаем флаг, чтобы сделать новый key у соседнего компонента
-    setReloadKey((prev) => prev + 1);
+    // Только останавливаем текущий стрим. Remount (новый reloadKey) выполняет
+    // эффект выше — он меняет key лишь когда маршрут уже стал "/". Если бампать
+    // key здесь, <Chat> успевает перемонтироваться, пока маршрут ещё
+    // /threads/:id, и новый useStream грузит state предыдущего треда.
     if (currentThreadRef.current) {
-      currentThreadRef.current.stop();
+      // currentThreadRef.current.stop();
     }
   }, []);
 
@@ -83,6 +87,12 @@ const InnerApp: React.FC = () => {
 
   const handleThreadReady = useCallback((thread: UseStream<GraphState>) => {
     currentThreadRef.current = thread;
+  }, []);
+
+  // Тред мог получить новые сообщения, пока вкладка была в фоне (ран успел
+  // завершиться). Перемонтируем <Chat>, чтобы useStream заново подтянул state.
+  const handleRequestReload = useCallback(() => {
+    setReloadKey((prev) => prev + 1);
   }, []);
   if (!demoItemsLoaded) {
     return null;
@@ -97,6 +107,7 @@ const InnerApp: React.FC = () => {
           onNavigateAndReload={handleNavigateAndReload}
           onThreadIdChange={handleThreadIdChange}
           onThreadReady={handleThreadReady}
+          onRequestReload={handleRequestReload}
         />
       </MainContent>
       <OnboardingWizard />
@@ -110,47 +121,54 @@ const AppRoutes: React.FC<{
   onNavigateAndReload: () => void;
   onThreadIdChange: (threadId: string) => void;
   onThreadReady: (thread: UseStream<GraphState>) => void;
-}> = React.memo(({ reloadKey, onThreadIdChange, onThreadReady }) => {
-  return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Chat
-            key={reloadKey}
-            onThreadIdChange={onThreadIdChange}
-            onThreadReady={onThreadReady}
-          />
-        }
-      />
-      <Route
-        path="/threads/:threadId"
-        element={
-          <Chat
-            key={reloadKey}
-            onThreadIdChange={onThreadIdChange}
-            onThreadReady={onThreadReady}
-          />
-        }
-      />
-      <Route path="/oauth/callback" element={<OAuthCallback />} />
-      <Route path="/rag" element={<RAGInterface />} />
-      <Route path="/memories" element={<MemoriesPage />} />
-      <Route path="/demo/settings" element={<DemoSettings />} />
-      <Route
-        path="/settings"
-        element={<Navigate to="/settings/general" replace />}
-      />
-      <Route path="/settings/:tab" element={<SettingsPage />} />
-      <Route
-        path="/admin-panel"
-        element={<Navigate to="/admin-panel/users" replace />}
-      />
-      <Route path="/admin-panel/users" element={<AdminPanelPage />} />
-      <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
-    </Routes>
-  );
-});
+  onRequestReload: () => void;
+}> = React.memo(
+  ({ reloadKey, onThreadIdChange, onThreadReady, onRequestReload }) => {
+    return (
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <Chat
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route
+          path="/threads/:threadId"
+          element={
+            <Chat
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route path="/oauth/callback" element={<OAuthCallback />} />
+        <Route path="/rag" element={<RAGInterface />} />
+        <Route path="/memories" element={<MemoriesPage />} />
+        <Route path="/scheduler" element={<SchedulerPage />} />
+        <Route path="/projects/:projectId" element={<ProjectPage />} />
+        <Route path="/demo/settings" element={<DemoSettings />} />
+        <Route
+          path="/settings"
+          element={<Navigate to="/settings/general" replace />}
+        />
+        <Route path="/settings/:tab" element={<SettingsPage />} />
+        <Route
+          path="/admin-panel"
+          element={<Navigate to="/admin-panel/users" replace />}
+        />
+        <Route path="/admin-panel/users" element={<AdminPanelPage />} />
+        <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
+      </Routes>
+    );
+  },
+);
 
 AppRoutes.displayName = "AppRoutes";
 

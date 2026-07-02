@@ -18,7 +18,9 @@ import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import SchemaFields from "./forms/schema-fields";
+import ConnectorSelect from "./forms/connector-select";
 import ResourcePermissions from "./forms/resource-permissions";
+import ResourceRateLimits from "./forms/resource-rate-limits";
 import type {
   ConnectorResponse,
   JsonSchema,
@@ -58,7 +60,7 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
         <span className="font-medium">{engine.name || engine.type}</span>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Тип: {engine.type}</span>
-          {connectorName && <span>Connector: {connectorName}</span>}
+          {connectorName && <span>Подключение: {connectorName}</span>}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -99,7 +101,8 @@ interface SearchEngineFormProps {
   settingsSchema: JsonSchema | null;
   settingsValues: Record<string, unknown>;
   selectedConnectorId: string;
-  filteredConnectors: ConnectorResponse[];
+  connectors: ConnectorResponse[];
+  allowedTypes: string[];
   supportsConnectors: boolean;
   requiresConnector: boolean;
   isActive: boolean;
@@ -107,12 +110,14 @@ interface SearchEngineFormProps {
   loadingTypes: boolean;
   loadingSchema: boolean;
   loadingConnectors: boolean;
+  canManagePermissions: boolean;
   saving: boolean;
   submitDisabled: boolean;
   onTypeChange: (type: string) => void;
   onEngineNameChange: (name: string) => void;
   onSettingsChange: (values: Record<string, unknown>) => void;
   onConnectorChange: (connectorId: string) => void;
+  onConnectorsChanged: () => void | Promise<void>;
   onActiveChange: (value: boolean) => void;
   onCheckConnectionChange: (value: boolean) => void;
   onSubmit: () => void;
@@ -128,7 +133,8 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   settingsSchema,
   settingsValues,
   selectedConnectorId,
-  filteredConnectors,
+  connectors,
+  allowedTypes,
   supportsConnectors,
   requiresConnector,
   isActive,
@@ -136,12 +142,14 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
   loadingTypes,
   loadingSchema,
   loadingConnectors,
+  canManagePermissions,
   saving,
   submitDisabled,
   onTypeChange,
   onEngineNameChange,
   onSettingsChange,
   onConnectorChange,
+  onConnectorsChanged,
   onActiveChange,
   onCheckConnectionChange,
   onSubmit,
@@ -222,51 +230,27 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
       {selectedType && supportsConnectors && (
         <div className="space-y-1.5">
           <Label htmlFor="search-engine-connector">
-            Коннектор{" "}
+            Подключение{" "}
             {requiresConnector && <span className="text-destructive">*</span>}
           </Label>
-          <Select
+          <ConnectorSelect
+            id="search-engine-connector"
             value={selectedConnectorId}
-            onValueChange={(value) =>
-              onConnectorChange(value === "__none__" ? "" : value)
-            }
-            disabled={
-              loadingConnectors || saving || filteredConnectors.length === 0
-            }
-          >
-            <SelectTrigger id="search-engine-connector" className="w-full">
-              {loadingConnectors ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  Загрузка коннекторов...
-                </div>
-              ) : (
-                <SelectValue placeholder="Выберите коннектор" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {!requiresConnector && (
-                <SelectItem value="__none__">Без коннектора</SelectItem>
-              )}
-              {filteredConnectors.map((connector) => (
-                <SelectItem key={connector.id} value={connector.id}>
-                  {connector.name || connector.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {filteredConnectors.length === 0 && !loadingConnectors && (
-            <p className="text-sm text-amber-600">
-              Нет активных коннекторов для типа{" "}
-              <span className="font-medium">{selectedType}</span>.
-            </p>
-          )}
+            onValueChange={onConnectorChange}
+            allowedTypes={allowedTypes}
+            allowNone={!requiresConnector}
+            disabled={saving}
+            loading={loadingConnectors}
+            connectors={connectors}
+            onConnectorsChanged={onConnectorsChanged}
+            canManagePermissions={canManagePermissions}
+          />
         </div>
       )}
 
       {selectedType && !supportsConnectors && (
         <p className="text-sm text-muted-foreground">
-          Для выбранного типа движка коннектор не требуется.
+          Для выбранного типа движка подключение не требуется.
         </p>
       )}
 
@@ -707,7 +691,8 @@ export const SearchEnginesSettings: React.FC = () => {
             settingsSchema={settingsSchema}
             settingsValues={settingsValues}
             selectedConnectorId={selectedConnectorId}
-            filteredConnectors={filteredConnectors}
+            connectors={connectors}
+            allowedTypes={supportedConnectorTypes}
             supportsConnectors={supportsConnectors}
             requiresConnector={requiresConnector}
             isActive={isActive}
@@ -715,6 +700,7 @@ export const SearchEnginesSettings: React.FC = () => {
             loadingTypes={loadingTypes}
             loadingSchema={loadingSchema}
             loadingConnectors={loadingConnectors}
+            canManagePermissions={canManagePermissions}
             saving={saving}
             submitDisabled={isSaveDisabled}
             onTypeChange={(nextType) => {
@@ -725,6 +711,7 @@ export const SearchEnginesSettings: React.FC = () => {
             onEngineNameChange={setEngineName}
             onSettingsChange={setSettingsValues}
             onConnectorChange={setSelectedConnectorId}
+            onConnectorsChanged={fetchConnectors}
             onActiveChange={setIsActive}
             onCheckConnectionChange={setCheckConnection}
             onSubmit={handleSave}
@@ -778,7 +765,8 @@ export const SearchEnginesSettings: React.FC = () => {
                   settingsSchema={settingsSchema}
                   settingsValues={settingsValues}
                   selectedConnectorId={selectedConnectorId}
-                  filteredConnectors={filteredConnectors}
+                  connectors={connectors}
+                  allowedTypes={supportedConnectorTypes}
                   supportsConnectors={supportsConnectors}
                   requiresConnector={requiresConnector}
                   isActive={isActive}
@@ -786,6 +774,7 @@ export const SearchEnginesSettings: React.FC = () => {
                   loadingTypes={loadingTypes}
                   loadingSchema={loadingSchema}
                   loadingConnectors={loadingConnectors}
+                  canManagePermissions={canManagePermissions}
                   saving={saving}
                   submitDisabled={isSaveDisabled}
                   onTypeChange={() => {
@@ -794,21 +783,30 @@ export const SearchEnginesSettings: React.FC = () => {
                   onEngineNameChange={setEngineName}
                   onSettingsChange={setSettingsValues}
                   onConnectorChange={setSelectedConnectorId}
+                  onConnectorsChanged={fetchConnectors}
                   onActiveChange={setIsActive}
                   onCheckConnectionChange={setCheckConnection}
                   onSubmit={handleSave}
                   onCancel={handleCancelEdit}
                   permissionsSection={
                     canManagePermissions ? (
-                      <ResourcePermissions
-                        mode="edit"
-                        resourceType="search_engine"
-                        resourceId={editingEngineId ?? undefined}
-                        value={editPermissions}
-                        onChange={setEditPermissions}
-                        canManage={canManagePermissions}
-                        disabled={saving || loadingPermissions}
-                      />
+                      <>
+                        <ResourcePermissions
+                          mode="edit"
+                          resourceType="search_engine"
+                          resourceId={editingEngineId ?? undefined}
+                          value={editPermissions}
+                          onChange={setEditPermissions}
+                          canManage={canManagePermissions}
+                          disabled={saving || loadingPermissions}
+                        />
+                        <ResourceRateLimits
+                          resourceType="search_engine"
+                          resourceId={editingEngineId ?? ""}
+                          canManage={canManagePermissions}
+                          disabled={saving}
+                        />
+                      </>
                     ) : undefined
                   }
                 />

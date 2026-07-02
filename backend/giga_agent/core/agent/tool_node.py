@@ -21,6 +21,13 @@ from typing import (
     get_type_hints,
 )
 
+from langchain.tools.tool_node import (
+    InjectedState,
+    InjectedStore,
+    ToolCallRequest,
+    ToolCallWithContext,
+    ToolRuntime,
+)
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
@@ -36,38 +43,31 @@ from langchain_core.runnables.config import (
 from langchain_core.tools import BaseTool
 from langchain_core.tools import tool as create_tool
 from langchain_core.tools.base import (
-    get_all_basemodel_annotations,
     create_schema_from_function,
+    get_all_basemodel_annotations,
 )
 from langgraph._internal._runnable import RunnableCallable
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langgraph.prebuilt.tool_node import (
+    INVALID_TOOL_NAME_ERROR_TEMPLATE,
+    TOOL_CALL_ERROR_TEMPLATE,
+    AsyncToolCallWrapper,
+    ToolInvocationError,
+    msg_content_output,
+)
 from langgraph.types import Command, Send
 from pydantic import BaseModel, ValidationError
 
-from langchain.tools.tool_node import (
-    ToolRuntime,
-    ToolCallRequest,
-    ToolCallWithContext,
-    InjectedStore,
-    InjectedState,
-)
-from langgraph.prebuilt.tool_node import (
-    ToolInvocationError,
-    TOOL_CALL_ERROR_TEMPLATE,
-    INVALID_TOOL_NAME_ERROR_TEMPLATE,
-    msg_content_output,
-    AsyncToolCallWrapper,
-)
-
-from giga_agent.core.agent.types import AgentState
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.types import AgentState
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from langgraph.runtime import Runtime
     from pydantic_core import ErrorDetails
+
     from giga_agent.core.agent.base import BaseAgent
 
 
@@ -336,7 +336,7 @@ class AgentToolNode:
 
 @dataclass
 class AgentToolRuntime(ToolRuntime):
-    agent: BaseAgent
+    agent: BaseAgent = None
 
 
 class ToolNode(RunnableCallable):
@@ -743,6 +743,8 @@ class ToolNode(RunnableCallable):
         try:
             if self._awrap_tool_call is not None:
                 return await self._awrap_tool_call(tool_request, execute)
+        except GraphBubbleUp:
+            raise
         except Exception as e:
             # Wrapper threw an exception
             if not self._handle_tool_errors:

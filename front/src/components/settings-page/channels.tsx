@@ -46,6 +46,7 @@ const areContactsEqual = (
       contact.first_name === other.first_name &&
       contact.last_name === other.last_name &&
       contact.is_approved === other.is_approved &&
+      contact.is_default_task_recipient === other.is_default_task_recipient &&
       contact.created_at === other.created_at &&
       contact.updated_at === other.updated_at
     );
@@ -98,8 +99,20 @@ const ContactsSection: React.FC<{
     contact: ChannelContactResponse,
     approve: boolean,
   ) => Promise<void>;
+  onDefaultToggle: (
+    contact: ChannelContactResponse,
+    isDefault: boolean,
+  ) => Promise<void>;
   onDelete: (contact: ChannelContactResponse) => Promise<void>;
-}> = ({ botId, contacts, loading, actionKey, onApproveToggle, onDelete }) => {
+}> = ({
+  botId,
+  contacts,
+  loading,
+  actionKey,
+  onApproveToggle,
+  onDefaultToggle,
+  onDelete,
+}) => {
   if (!botId) return null;
 
   if (loading) {
@@ -124,14 +137,17 @@ const ContactsSection: React.FC<{
       {contacts.map((contact) => {
         const approveKey = `approve:${contact.id}`;
         const deleteKey = `delete:${contact.id}`;
+        const defaultKey = `default:${contact.id}`;
         const isApproving = actionKey === approveKey;
         const isDeleting = actionKey === deleteKey;
+        const isTogglingDefault = actionKey === defaultKey;
 
         return (
           <div
             key={contact.id}
-            className="flex items-start gap-3 rounded-xl border border-border bg-card/70 p-3"
+            className="flex flex-col gap-2 rounded-xl border border-border bg-card/70 p-3"
           >
+            <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-medium">
@@ -192,6 +208,26 @@ const ContactsSection: React.FC<{
                 )}
               </Button>
             </div>
+            </div>
+            {contact.is_approved && (
+              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
+                <span className="text-xs text-muted-foreground">
+                  Получатель результатов фоновых задач по умолчанию
+                </span>
+                <div className="flex items-center gap-2">
+                  {isTogglingDefault && (
+                    <Loader2 className="size-4 animate-spin" />
+                  )}
+                  <Switch
+                    checked={contact.is_default_task_recipient}
+                    disabled={isTogglingDefault}
+                    onCheckedChange={(value) =>
+                      void onDefaultToggle(contact, value)
+                    }
+                  />
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -610,6 +646,35 @@ export const ChannelsSettings: React.FC = () => {
     }
   };
 
+  const handleDefaultToggle = async (
+    contact: ChannelContactResponse,
+    isDefault: boolean,
+  ) => {
+    if (!editingBotId) return;
+
+    const actionKey = `default:${contact.id}`;
+    setContactActionKey(actionKey);
+    try {
+      const search = contact.external_user_id
+        ? `?external_user_id=${encodeURIComponent(contact.external_user_id)}`
+        : "";
+      await apiClient.patch<ChannelContactResponse>(
+        `${API_AGENT_PREFIX}/channels/${editingBotId}/contacts/by-chat/${encodeURIComponent(contact.external_chat_id)}${search}`,
+        { is_default_task_recipient: isDefault },
+      );
+      toast.success(
+        isDefault
+          ? "Контакт получает результаты фоновых задач"
+          : "Контакт больше не получает результаты фоновых задач",
+      );
+      await fetchContacts(editingBotId);
+    } catch {
+      // handled globally
+    } finally {
+      setContactActionKey(null);
+    }
+  };
+
   const handleDeleteContact = async (contact: ChannelContactResponse) => {
     if (!editingBotId) return;
 
@@ -790,6 +855,7 @@ export const ChannelsSettings: React.FC = () => {
                           loading={loadingContacts}
                           actionKey={contactActionKey}
                           onApproveToggle={handleApproveToggle}
+                          onDefaultToggle={handleDefaultToggle}
                           onDelete={handleDeleteContact}
                         />
                       </div>

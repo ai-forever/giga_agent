@@ -2,11 +2,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Brain,
+  ChevronDown,
   ChevronRight,
+  Clock,
   Download,
   Files,
+  FolderOpen,
+  FolderPlus,
   Loader2,
   LogOut,
+  MessageSquarePlus,
   MoreHorizontal,
   Pencil,
   Settings as SettingsIcon,
@@ -16,12 +21,17 @@ import {
 } from "lucide-react";
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
-import { API_BASE_URL, ragEnabled } from "@/config.ts";
+import { ragEnabled } from "@/config.ts";
 import { useTheme } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import type { Thread } from "@langchain/langgraph-sdk";
-import { Client } from "@langchain/langgraph-sdk";
+import { useLangGraphClient } from "@/hooks/useLangGraphClient";
 import { appEvents, refreshThreads, THREADS_REFRESH_EVENT } from "@/lib/events";
+import {
+  createProject,
+  listProjects,
+  Project,
+} from "@/components/projects/api";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,7 +72,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import TelegramIcon from "../assets/telegram-colored.svg";
 import DarkLogoSvg from "../assets/dark_theme_GigaAgent.svg?react";
 import LightLogoSvg from "../assets/light_theme_GigaAgent.svg?react";
@@ -108,7 +118,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const location = useLocation();
   const { settings, setSettings } = useSettings();
   const { isDark } = useTheme();
-  const { user, logout, token } = useAuth();
+  const { user, logout } = useAuth();
   const { openContextModal } = useUserInfo();
   const SIDEBAR_WIDTH = 270;
 
@@ -117,16 +127,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     return match ? decodeURIComponent(match[1]) : null;
   }, [location.pathname]);
 
-  const langGraphClient = useMemo(() => {
-    if (!token) return null;
-    return new Client({
-      apiUrl: API_BASE_URL,
-      apiKey: token,
-      defaultHeaders: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  }, [token]);
+  const langGraphClient = useLangGraphClient();
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
@@ -136,6 +137,33 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const [threadsTotal, setThreadsTotal] = useState<number | null>(null);
   const [threadsHasMore, setThreadsHasMore] = useState(false);
   const [threadsRefreshTick, setThreadsRefreshTick] = useState(0);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectName, setCreateProjectName] = useState("");
+  const [createProjectSaving, setCreateProjectSaving] = useState(false);
+  const [createProjectError, setCreateProjectError] = useState<string | null>(
+    null,
+  );
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem("sidebar_expanded_projects_v1");
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [projectThreads, setProjectThreads] = useState<
+    Record<string, Thread[]>
+  >({});
+  const [projectThreadsLoading, setProjectThreadsLoading] = useState<
+    Record<string, boolean>
+  >({});
+
+  const activeProjectId = useMemo(() => {
+    const match = location.pathname.match(/^\/projects\/([^/?#]+)/);
+    return match ? decodeURIComponent(match[1]) : null;
+  }, [location.pathname]);
   const [typedTitles, setTypedTitles] = useState<Record<string, string>>({});
   const [lastSeen, setLastSeen] = useState<Record<string, string>>(() =>
     readLastSeenFromStorage(),
@@ -269,7 +297,12 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     loadMoreControllerRef.current?.abort();
     loadMoreControllerRef.current = null;
     setThreadsLoadingMore(false);
-    setThreadsLoading(true);
+    // Only surface the loading state on the very first load for this graph.
+    // Subsequent refreshes (polling, refresh events) happen silently in the
+    // background so the list doesn't blink.
+    if (!hasLoadedThreadsOnceRef.current) {
+      setThreadsLoading(true);
+    }
     setThreadsError(null);
     setThreadsMoreError(null);
 
@@ -538,7 +571,9 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
   const handleSettings = () => {
     closeSidebarOnMobile();
-    navigate("/settings");
+    // Идём сразу на конечную вкладку. Через "/settings" был бы лишний хоп на
+    // <Navigate>, который рендерит пустой кадр → визуальное моргание.
+    navigate("/settings/general");
   };
 
   const handleRag = () => {
@@ -551,10 +586,160 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     navigate("/memories");
   };
 
+  const handleScheduler = () => {
+    closeSidebarOnMobile();
+    navigate("/scheduler");
+  };
+
   const handleNewChat = () => {
     closeSidebarOnMobile();
     navigate("/");
     onNewChat();
+  };
+
+  const reloadProjects = React.useCallback(async (signal?: AbortSignal) => {
+    setProjectsLoading(true);
+    try {
+      const list = await listProjects({ signal });
+      setProjects(list);
+    } catch (e) {
+      if (signal?.aborted) return;
+      console.error("Failed to load projects", e);
+    } finally {
+      if (!signal?.aborted) setProjectsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const ctrl = new AbortController();
+    void reloadProjects(ctrl.signal);
+    return () => ctrl.abort();
+  }, [user, reloadProjects]);
+
+  const handleOpenProject = (projectId: string) => {
+    closeSidebarOnMobile();
+    navigate(`/projects/${projectId}`);
+  };
+
+  const loadProjectThreads = React.useCallback(
+    async (projectId: string) => {
+      if (!langGraphClient) return;
+      setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: true }));
+      try {
+        const list = await langGraphClient.threads.search({
+          metadata: { project_id: projectId },
+          limit: 50,
+          sortBy: "updated_at",
+          sortOrder: "desc",
+        });
+        setProjectThreads((prev) => ({ ...prev, [projectId]: list }));
+      } catch (e) {
+        console.error("Failed to load threads for project", projectId, e);
+      } finally {
+        setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: false }));
+      }
+    },
+    [langGraphClient],
+  );
+
+  const toggleProjectExpanded = (projectId: string) => {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev);
+      const wasOpen = next.has(projectId);
+      if (wasOpen) next.delete(projectId);
+      else next.add(projectId);
+      try {
+        localStorage.setItem(
+          "sidebar_expanded_projects_v1",
+          JSON.stringify(Array.from(next)),
+        );
+      } catch {
+        /* ignore */
+      }
+      if (!wasOpen && projectThreads[projectId] === undefined) {
+        void loadProjectThreads(projectId);
+      }
+      return next;
+    });
+  };
+
+  // Auto-load threads for any project that's already expanded but has no
+  // data yet (e.g., on first paint when expansion came from localStorage).
+  useEffect(() => {
+    if (!langGraphClient) return;
+    for (const projectId of expandedProjects) {
+      if (projectThreads[projectId] === undefined) {
+        void loadProjectThreads(projectId);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedProjects, langGraphClient, loadProjectThreads]);
+
+  // Refresh open project threads when something elsewhere (e.g., new chat
+  // from a project page, project deletion) signals a refresh.
+  useEffect(() => {
+    const handler = () => {
+      for (const projectId of expandedProjects) {
+        void loadProjectThreads(projectId);
+      }
+    };
+    appEvents.addEventListener(THREADS_REFRESH_EVENT, handler);
+    return () => appEvents.removeEventListener(THREADS_REFRESH_EVENT, handler);
+  }, [expandedProjects, loadProjectThreads]);
+
+  const handleNewChatInProject = async (projectId: string) => {
+    if (!langGraphClient) return;
+    closeSidebarOnMobile();
+    try {
+      const t = await langGraphClient.threads.create({
+        metadata: { project_id: projectId, graph_id: "giga_agent" },
+      });
+      // Optimistically prepend so the chat appears under the project right away.
+      setProjectThreads((prev) => {
+        const existing = prev[projectId] ?? [];
+        return { ...prev, [projectId]: [t as Thread, ...existing] };
+      });
+      setExpandedProjects((prev) => {
+        if (prev.has(projectId)) return prev;
+        const next = new Set(prev).add(projectId);
+        try {
+          localStorage.setItem(
+            "sidebar_expanded_projects_v1",
+            JSON.stringify(Array.from(next)),
+          );
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+      navigate(`/threads/${t.thread_id}`);
+    } catch (e) {
+      console.error("Failed to create chat in project", e);
+    }
+  };
+
+  const submitCreateProject = async () => {
+    const name = createProjectName.trim();
+    if (!name) {
+      setCreateProjectError("Введите название");
+      return;
+    }
+    setCreateProjectSaving(true);
+    setCreateProjectError(null);
+    try {
+      const created = await createProject({ name });
+      setProjects((prev) => [created, ...prev]);
+      setCreateProjectOpen(false);
+      setCreateProjectName("");
+      navigate(`/projects/${created.id}`);
+    } catch (e: unknown) {
+      const message =
+        e instanceof Error ? e.message : "Не удалось создать проект";
+      setCreateProjectError(message);
+    } finally {
+      setCreateProjectSaving(false);
+    }
   };
 
   const handleOpenThread = (threadId: string) => {
@@ -582,13 +767,19 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     return meta ?? {};
   };
 
+  // Threads that belong to a project are shown under their project, not in
+  // the main "Чаты" list — same as Claude.
+  const visibleThreads = useMemo(
+    () => threads.filter((t) => !getThreadMeta(t).project_id),
+    [threads],
+  );
+
   const getThreadTitle = (t: Thread): string => {
     const meta = getThreadMeta(t);
     const rawTitle =
       typeof meta.thread_title === "string" ? meta.thread_title.trim() : "";
     const lastIdPart = t.thread_id.split("/").filter(Boolean).at(-1);
-    const shortId = (lastIdPart ?? t.thread_id).slice(0, 4);
-    return rawTitle.length > 0 ? rawTitle : `Новый чат - ${shortId}`;
+    return rawTitle.length > 0 ? rawTitle : `Новый чат`;
   };
 
   const openRename = (t: Thread) => {
@@ -778,6 +969,194 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
         <hr className="my-3 border-border/60" />
 
+        {user && (
+          <div className="flex flex-col">
+            <div className="flex items-center justify-between gap-2 px-2 py-1">
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Проекты
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground"
+                onClick={() => {
+                  setCreateProjectName("");
+                  setCreateProjectError(null);
+                  setCreateProjectOpen(true);
+                }}
+                aria-label="Создать проект"
+              >
+                <FolderPlus className="h-4 w-4" />
+              </Button>
+            </div>
+            {projectsLoading && projects.length === 0 ? (
+              <div className="px-2 py-1 text-sm text-muted-foreground">
+                Загрузка…
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="px-2 py-1 text-xs text-muted-foreground">
+                Нет проектов
+              </div>
+            ) : (
+              projects.map((p) => {
+                const isActive = activeProjectId === p.id;
+                const isExpanded = expandedProjects.has(p.id);
+                const childThreads = projectThreads[p.id] ?? [];
+                const childLoading = projectThreadsLoading[p.id] ?? false;
+                return (
+                  <div key={p.id}>
+                    <div
+                      className={[
+                        "group flex items-center gap-1 pl-1 pr-1 py-1 h-8 text-sm rounded-lg hover:bg-muted/50",
+                        isActive ? "bg-accent text-accent-foreground" : "",
+                      ].join(" ")}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleProjectExpanded(p.id);
+                        }}
+                        className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0"
+                        aria-label={isExpanded ? "Свернуть" : "Развернуть"}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                      <div
+                        onClick={() => handleOpenProject(p.id)}
+                        className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer"
+                      >
+                        <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="flex-1 min-w-0 truncate">
+                          {p.name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleNewChatInProject(p.id);
+                        }}
+                        className="h-6 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        aria-label="Новый чат в проекте"
+                        title="Новый чат"
+                      >
+                        <MessageSquarePlus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="ml-5 pl-2 border-l border-border/40 flex flex-col">
+                        {childLoading && childThreads.length === 0 ? (
+                          <div className="px-2 py-1 text-xs text-muted-foreground">
+                            Загрузка…
+                          </div>
+                        ) : childThreads.length === 0 ? (
+                          <div className="px-2 py-1 text-xs text-muted-foreground">
+                            Пока пусто
+                          </div>
+                        ) : (
+                          childThreads.map((t) => {
+                            const title = getThreadTitle(t);
+                            const isActiveThread =
+                              activeThreadId === t.thread_id;
+                            return (
+                              <div
+                                key={t.thread_id}
+                                onClick={() => handleOpenThread(t.thread_id)}
+                                className={[
+                                  "group relative flex items-center px-2 py-1 h-7 text-xs rounded-lg cursor-pointer hover:bg-muted/50",
+                                  isActiveThread
+                                    ? "bg-accent text-accent-foreground"
+                                    : "",
+                                ].join(" ")}
+                                title={t.thread_id}
+                                aria-current={
+                                  isActiveThread ? "page" : undefined
+                                }
+                              >
+                                <span className="flex-1 min-w-0 truncate transition-[padding] group-hover:pr-7 group-focus-within:pr-7">
+                                  {title}
+                                </span>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="absolute right-0.5 h-6 w-6 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus:opacity-100 focus:pointer-events-auto data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto"
+                                      onClick={(e) => e.stopPropagation()}
+                                      aria-label="Действия чата"
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="end"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <DropdownMenuItem
+                                      onSelect={() => openRename(t)}
+                                    >
+                                      <Pencil className="mr-2 h-4 w-4" />
+                                      Переименовать
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSub>
+                                      <DropdownMenuSubTrigger>
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Скачать
+                                      </DropdownMenuSubTrigger>
+                                      <DropdownMenuSubContent>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "pdf")
+                                          }
+                                        >
+                                          PDF
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "docx")
+                                          }
+                                        >
+                                          DOCX
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "md")
+                                          }
+                                        >
+                                          Markdown
+                                        </DropdownMenuItem>
+                                      </DropdownMenuSubContent>
+                                    </DropdownMenuSub>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onSelect={() => openDelete(t)}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Удалить
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
+
+        <hr className="my-3 border-border/60" />
+
         {/* Список чатов (LangGraph threads.search / search_threads) */}
         {user && (
           <div className="flex flex-col flex-1 min-h-0">
@@ -801,13 +1180,15 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 {threadsError}
               </div>
             )}
-            {!threadsLoading && !threadsError && threads.length === 0 && (
-              <div className="px-2 py-1 text-sm text-muted-foreground">
-                Нет чатов
-              </div>
-            )}
+            {!threadsLoading &&
+              !threadsError &&
+              visibleThreads.length === 0 && (
+                <div className="px-2 py-1 text-sm text-muted-foreground">
+                  Нет чатов
+                </div>
+              )}
             <div className="flex-1 min-h-0 overflow-auto">
-              {threadsLoading && threads.length === 0 ? (
+              {threadsLoading && visibleThreads.length === 0 ? (
                 <div className="px-2 py-2 space-y-2">
                   {Array.from({ length: 10 }).map((_, i) => (
                     <Skeleton key={i} className="h-9 w-full" />
@@ -815,21 +1196,34 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 </div>
               ) : (
                 <>
-                  {threads.map((t) => {
+                  {visibleThreads.map((t) => {
                     const fullTitle = getThreadTitle(t);
                     const displayTitle = typedTitles[t.thread_id] ?? fullTitle;
                     const isActive = activeThreadId === t.thread_id;
                     const meta = getThreadMeta(t);
                     const isTelegramThread = meta.channel === "telegram";
+                    const isScheduledThread =
+                      meta.type === "scheduled_task" ||
+                      meta.is_scheduled === true;
                     const status = getThreadStatus(t);
                     const updatedAt = getThreadUpdatedAt(t);
                     const seenAt = lastSeen[t.thread_id];
                     const isUnseen =
                       typeof updatedAt === "string" &&
                       (seenAt === undefined || updatedAt > seenAt);
+                    const isBusy = status === "busy";
+                    // Scheduled threads run autonomously in the background — never
+                    // surface "new message" / "needs action" indicators for them.
                     const needsInput =
-                      !isActive && status === "interrupted" && isUnseen;
-                    const hasUpdate = !isActive && !needsInput && isUnseen;
+                      !isActive &&
+                      status === "interrupted" &&
+                      isUnseen &&
+                      !isScheduledThread;
+                    const hasUpdate =
+                      !isActive &&
+                      !needsInput &&
+                      isUnseen &&
+                      !isScheduledThread;
                     const indicatorTitle = needsInput
                       ? "Ожидает вашего ответа"
                       : hasUpdate
@@ -858,21 +1252,39 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                             />
                           </span>
                         )}
-                        {(needsInput || hasUpdate) && (
+                        {isScheduledThread && (
+                          <span
+                            title="Запланированная задача"
+                            aria-label="Запланированная задача"
+                          >
+                            <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          </span>
+                        )}
+                        {isBusy ? (
                           <span
                             className="shrink-0 flex items-center justify-center"
-                            title={indicatorTitle}
-                            aria-label={indicatorTitle}
+                            title="Тред выполняется"
+                            aria-label="Тред выполняется"
                           >
-                            <span
-                              className={[
-                                "inline-block h-2 w-2 rounded-full",
-                                needsInput
-                                  ? "bg-amber-500 animate-pulse"
-                                  : "bg-sky-500",
-                              ].join(" ")}
-                            />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-500" />
                           </span>
+                        ) : (
+                          (needsInput || hasUpdate) && (
+                            <span
+                              className="shrink-0 flex items-center justify-center"
+                              title={indicatorTitle}
+                              aria-label={indicatorTitle}
+                            >
+                              <span
+                                className={[
+                                  "inline-block h-2 w-2 rounded-full",
+                                  needsInput
+                                    ? "bg-amber-500 animate-pulse"
+                                    : "bg-sky-500",
+                                ].join(" ")}
+                              />
+                            </span>
+                          )
                         )}
                         <span
                           className={[
@@ -965,7 +1377,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                       </Button>
                       {threadsTotal !== null && (
                         <div className="mt-1 text-xs text-muted-foreground text-center">
-                          Показано {threads.length} из {threadsTotal}
+                          Показано {visibleThreads.length} из {threadsTotal}
                         </div>
                       )}
                     </div>
@@ -987,7 +1399,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         {user && (
           <div className="pt-3">
             <hr className="mb-3 border-border/60" />
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <div className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-accent/50 border border-border">
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 mr-2">
@@ -1012,6 +1424,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 <DropdownMenuItem onSelect={() => openContextModal()}>
                   <Brain className="mr-2 h-4 w-4" />
                   Персонализация
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleScheduler}>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Планировщик
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleSettings}>
                   <SettingsIcon className="mr-2 h-4 w-4" />
@@ -1073,6 +1489,62 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       </Dialog>
 
       {/* Rename dialog */}
+      <Dialog
+        open={createProjectOpen}
+        onOpenChange={(open) => {
+          if (createProjectSaving) return;
+          setCreateProjectOpen(open);
+          if (!open) {
+            setCreateProjectName("");
+            setCreateProjectError(null);
+          }
+        }}
+      >
+        <DialogContent
+          onClick={(e) => e.stopPropagation()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>Новый проект</DialogTitle>
+            <DialogDescription>
+              Проекты группируют чаты и задают общие инструкции для агента.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={createProjectName}
+              onChange={(e) => setCreateProjectName(e.target.value)}
+              placeholder="Название проекта"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void submitCreateProject();
+              }}
+              aria-invalid={Boolean(createProjectError) || undefined}
+            />
+            {createProjectError && (
+              <div className="text-sm text-destructive">
+                {createProjectError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateProjectOpen(false)}
+              disabled={createProjectSaving}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => void submitCreateProject()}
+              disabled={createProjectSaving}
+            >
+              {createProjectSaving ? "Создание…" : "Создать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={renameOpen}
         onOpenChange={(open) => {

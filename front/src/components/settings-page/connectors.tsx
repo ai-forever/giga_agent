@@ -1,51 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ConnectorForm } from "./forms/provider";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
-import ResourcePermissions from "./forms/resource-permissions";
-import SchemaFields from "./forms/schema-fields";
-import type {
-  ConnectorResponse,
-  ConnectorSettings,
-  ConnectorType,
-  ConnectorTypeMeta,
-  JsonSchema,
-  ResourcePermissionsDraft,
-} from "./forms/types";
-import { EMPTY_RESOURCE_PERMISSIONS } from "./forms/types";
-import {
-  hasNonDefaultPermissions,
-  permissionsEqual,
-  stableStringify,
-  toPermissionsApiPayload,
-} from "./forms/resource-permissions-utils";
-import { compactObject } from "./forms/schema-fields-utils";
-
-type FormMode = "create" | "edit";
-
-const MANAGED_CONNECTOR_TYPES: ConnectorType[] = [
-  "openai",
-  "deepseek",
-  "gigachat",
-];
-const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
+import ConnectorEditorForm from "./forms/connector-editor-form";
+import type { ConnectorResponse } from "./forms/types";
 
 interface ConnectorItemProps {
   connector: ConnectorResponse;
@@ -98,215 +61,18 @@ const ConnectorItem: React.FC<ConnectorItemProps> = ({
   );
 };
 
-interface ConnectorEditorProps {
-  mode: FormMode;
-  connectorTypes: ConnectorTypeMeta[];
-  selectedType: string;
-  connectorName: string;
-  settingsValues: Record<string, unknown>;
-  settingsSchema: JsonSchema | null;
-  isActive: boolean;
-  checkConnection: boolean;
-  loadingTypes: boolean;
-  loadingSchema: boolean;
-  saving: boolean;
-  submitDisabled: boolean;
-  onTypeChange: (type: string) => void;
-  onConnectorNameChange: (name: string) => void;
-  onSettingsChange: (settings: Record<string, unknown>) => void;
-  onActiveChange: (active: boolean) => void;
-  onCheckConnectionChange: (enabled: boolean) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  permissionsSection?: React.ReactNode;
-}
-
-const ConnectorEditor: React.FC<ConnectorEditorProps> = ({
-  mode,
-  connectorTypes,
-  selectedType,
-  connectorName,
-  settingsValues,
-  settingsSchema,
-  isActive,
-  checkConnection,
-  loadingTypes,
-  loadingSchema,
-  saving,
-  submitDisabled,
-  onTypeChange,
-  onConnectorNameChange,
-  onSettingsChange,
-  onActiveChange,
-  onCheckConnectionChange,
-  onSubmit,
-  onCancel,
-  permissionsSection,
-}) => {
-  const isManagedType = MANAGED_CONNECTOR_TYPES.includes(
-    selectedType as ConnectorType,
-  );
-
-  return (
-    <div className="space-y-5">
-      <div className="space-y-1.5">
-        <Label htmlFor="connector-type">
-          Тип сервиса <span className="text-destructive">*</span>
-        </Label>
-        {mode === "create" ? (
-          <Select
-            value={selectedType}
-            onValueChange={onTypeChange}
-            disabled={loadingTypes || saving}
-          >
-            <SelectTrigger id="connector-type" className="w-full">
-              {loadingTypes ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  Загрузка типов...
-                </div>
-              ) : (
-                <SelectValue placeholder="Выберите тип сервиса" />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {connectorTypes.map((item) => (
-                <SelectItem key={item.type} value={item.type}>
-                  {item.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <Input id="connector-type" value={selectedType} disabled />
-        )}
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="connector-name">
-          Название{" "}
-          <span className="text-muted-foreground text-xs font-normal">
-            (опционально)
-          </span>
-        </Label>
-        <Input
-          id="connector-name"
-          placeholder="Мой сервис"
-          value={connectorName}
-          onChange={(e) => onConnectorNameChange(e.target.value)}
-          disabled={saving}
-        />
-      </div>
-
-      {selectedType && (
-        <div className="space-y-2">
-          {isManagedType ? (
-            <ConnectorForm
-              connectorType={selectedType as ConnectorType}
-              onConnectorTypeChange={() => {
-                // Type is controlled above.
-              }}
-              showConnectorTypeSelector={false}
-              compact
-              settings={settingsValues as ConnectorSettings}
-              onSettingsChange={(nextSettings) =>
-                onSettingsChange(nextSettings as Record<string, unknown>)
-              }
-            />
-          ) : loadingSchema ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Загрузка настроек...
-            </div>
-          ) : (
-            <SchemaFields
-              schema={settingsSchema || {}}
-              values={settingsValues}
-              onChange={onSettingsChange}
-              disabled={saving}
-              idPrefix="connector-setting"
-            />
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <Label htmlFor="connector-active">Активен</Label>
-        <Switch
-          id="connector-active"
-          checked={isActive}
-          onCheckedChange={onActiveChange}
-          disabled={saving}
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <Label htmlFor="connector-check-connection">
-          Проверять подключение
-        </Label>
-        <Switch
-          id="connector-check-connection"
-          checked={checkConnection}
-          onCheckedChange={onCheckConnectionChange}
-          disabled={saving}
-        />
-      </div>
-
-      {permissionsSection}
-
-      <div className="flex gap-2 pt-2">
-        <Button onClick={onSubmit} disabled={submitDisabled}>
-          {saving ? (
-            <>
-              <Loader2 className="size-4 animate-spin mr-2" />
-              Сохранение...
-            </>
-          ) : mode === "create" ? (
-            "Создать"
-          ) : (
-            "Сохранить"
-          )}
-        </Button>
-        <Button variant="outline" onClick={onCancel} disabled={saving}>
-          Отмена
-        </Button>
-      </div>
-    </div>
-  );
-};
-
 export const ConnectorsSettings: React.FC = () => {
   const { user } = useAuth();
   const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [connectors, setConnectors] = useState<ConnectorResponse[]>([]);
-  const [connectorTypes, setConnectorTypes] = useState<ConnectorTypeMeta[]>([]);
 
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [editingConnectorId, setEditingConnectorId] = useState<string | null>(
     null,
   );
 
-  const [selectedType, setSelectedType] = useState("");
-  const [connectorName, setConnectorName] = useState("");
-  const [settingsValues, setSettingsValues] = useState<Record<string, unknown>>(
-    {},
-  );
-  const [settingsSchema, setSettingsSchema] = useState<JsonSchema | null>(null);
-  const [isActive, setIsActive] = useState(true);
-  const [checkConnection, setCheckConnection] = useState(true);
-
-  const [loadingTypes, setLoadingTypes] = useState(false);
   const [loadingConnectors, setLoadingConnectors] = useState(false);
-  const [loadingSchema, setLoadingSchema] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [loadingPermissions, setLoadingPermissions] = useState(false);
-  const [createPermissions, setCreatePermissions] =
-    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
-  const [editPermissions, setEditPermissions] =
-    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
-  const [initialEditPermissions, setInitialEditPermissions] =
-    useState<ResourcePermissionsDraft>(EMPTY_RESOURCE_PERMISSIONS);
 
   const fetchConnectors = useCallback(async () => {
     setLoadingConnectors(true);
@@ -322,128 +88,28 @@ export const ConnectorsSettings: React.FC = () => {
     }
   }, []);
 
-  const fetchConnectorTypes = useCallback(async () => {
-    setLoadingTypes(true);
-    try {
-      const data = await apiClient.get<ConnectorTypeMeta[]>(
-        `${API_AGENT_PREFIX}/connectors/types/meta`,
-      );
-      setConnectorTypes(data);
-    } catch {
-      // handled globally
-    } finally {
-      setLoadingTypes(false);
-    }
-  }, []);
-
   useEffect(() => {
     fetchConnectors();
-    fetchConnectorTypes();
-  }, [fetchConnectors, fetchConnectorTypes]);
-
-  const isManagedType = useMemo(
-    () => MANAGED_CONNECTOR_TYPES.includes(selectedType as ConnectorType),
-    [selectedType],
-  );
-
-  useEffect(() => {
-    if (!selectedType || isManagedType) {
-      setSettingsSchema(null);
-      setLoadingSchema(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoadingSchema(true);
-    setSettingsSchema(null);
-
-    const run = async () => {
-      try {
-        const schema = await apiClient.get<JsonSchema>(
-          `${API_AGENT_PREFIX}/connectors/types/${selectedType}/settings-schema`,
-        );
-        if (!cancelled) {
-          setSettingsSchema(schema);
-        }
-      } catch {
-        if (!cancelled) {
-          setSettingsSchema(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingSchema(false);
-        }
-      }
-    };
-
-    run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isManagedType, selectedType]);
-
-  const resetFormState = useCallback(() => {
-    setSelectedType("");
-    setConnectorName("");
-    setSettingsValues({});
-    setSettingsSchema(null);
-    setIsActive(true);
-    setCheckConnection(true);
-    setCreatePermissions(EMPTY_RESOURCE_PERMISSIONS);
-    setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
-    setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
-    setLoadingPermissions(false);
-  }, []);
+  }, [fetchConnectors]);
 
   const handleCreateNew = () => {
     setEditingConnectorId(null);
-    resetFormState();
     setIsCreatingNew(true);
   };
 
   const handleStartEdit = (connectorId: string) => {
     const connector = connectors.find((item) => item.id === connectorId);
     if (!connector || !connector.can_edit) return;
-
     setIsCreatingNew(false);
     setEditingConnectorId(connectorId);
-    setSelectedType(connector.type);
-    setConnectorName(connector.name || "");
-    setSettingsValues((connector.settings || {}) as Record<string, unknown>);
-    setIsActive(connector.is_active);
-    setCheckConnection(true);
-
-    if (!canManagePermissions) {
-      return;
-    }
-
-    setLoadingPermissions(true);
-    void apiClient
-      .get<ResourcePermissionsDraft>(
-        `${API_AGENT_PREFIX}/resource-permissions/connector/${connectorId}`,
-      )
-      .then((permissions) => {
-        setEditPermissions(permissions);
-        setInitialEditPermissions(permissions);
-      })
-      .catch(() => {
-        setEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
-        setInitialEditPermissions(EMPTY_RESOURCE_PERMISSIONS);
-      })
-      .finally(() => {
-        setLoadingPermissions(false);
-      });
   };
 
   const handleCancelCreate = () => {
     setIsCreatingNew(false);
-    resetFormState();
   };
 
   const handleCancelEdit = () => {
     setEditingConnectorId(null);
-    resetFormState();
   };
 
   const handleDelete = async (connectorId: string) => {
@@ -469,105 +135,18 @@ export const ConnectorsSettings: React.FC = () => {
     }
   };
 
-  const handleSave = async () => {
-    if (!selectedType) return;
-
-    setSaving(true);
-    try {
-      const trimmedName = connectorName.trim();
-      const compactedSettings = compactObject(settingsValues);
-
-      if (editingConnectorId) {
-        const currentConnector = connectors.find(
-          (item) => item.id === editingConnectorId,
-        );
-        if (!currentConnector) return;
-
-        const isResourceChanged =
-          (currentConnector.name || null) !== (trimmedName || null) ||
-          currentConnector.is_active !== isActive ||
-          stableStringify(currentConnector.settings || {}) !==
-            stableStringify(compactedSettings);
-        const isPermissionsChanged =
-          canManagePermissions &&
-          !permissionsEqual(editPermissions, initialEditPermissions);
-
-        if (!isResourceChanged && !isPermissionsChanged) {
-          toast.info("Изменений нет");
-          return;
-        }
-
-        const payload: Record<string, unknown> = {
-          name: trimmedName || null,
-          settings: compactedSettings,
-          is_active: isActive,
-          check_connection: checkConnection,
-        };
-
-        if (isResourceChanged) {
-          await apiClient.patch<ConnectorResponse>(
-            `${API_AGENT_PREFIX}/connectors/${editingConnectorId}`,
-            payload,
-          );
-        }
-
-        if (isPermissionsChanged) {
-          await apiClient.put(
-            `${API_AGENT_PREFIX}/resource-permissions/connector/${editingConnectorId}`,
-            toPermissionsApiPayload(editPermissions),
-          );
-        }
-
-        toast.success("Сервис обновлен");
-        handleCancelEdit();
-      } else {
-        const payload: Record<string, unknown> = {
-          type: selectedType,
-          settings: compactedSettings,
-          is_active: isActive,
-          check_connection: checkConnection,
-        };
-
-        if (trimmedName) {
-          payload.name = trimmedName;
-        }
-        if (
-          canManagePermissions &&
-          hasNonDefaultPermissions(createPermissions)
-        ) {
-          payload.permissions = toPermissionsApiPayload(createPermissions);
-        }
-
-        await apiClient.post<ConnectorResponse>(
-          `${API_AGENT_PREFIX}/connectors`,
-          payload,
-        );
-        toast.success("Сервис создан");
-        handleCancelCreate();
-      }
-
-      fetchConnectors();
-    } catch {
-      // handled globally
-    } finally {
-      setSaving(false);
-    }
-  };
-
+  const editingConnector = editingConnectorId
+    ? connectors.find((item) => item.id === editingConnectorId)
+    : undefined;
   const isBusy = isCreatingNew || editingConnectorId !== null;
-  const isSubmitDisabled =
-    saving ||
-    !selectedType ||
-    (!isManagedType && loadingSchema) ||
-    (Boolean(editingConnectorId) && canManagePermissions && loadingPermissions);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">Коннекторы</h3>
+          <h3 className="font-medium">Подключения</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Управление коннекторами для LLM и генераторов
+            Управление подключениями для LLM и генераторов
           </p>
         </div>
         {!isCreatingNew && (
@@ -575,7 +154,7 @@ export const ConnectorsSettings: React.FC = () => {
             onClick={handleCreateNew}
             size="sm"
             variant="default2"
-            disabled={saving}
+            disabled={isBusy}
           >
             <Plus className="size-4 mr-2" />
             Добавить
@@ -587,59 +166,19 @@ export const ConnectorsSettings: React.FC = () => {
         <div className="border border-border rounded-lg p-4 bg-muted/20">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Новый сервис</h3>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleCancelCreate}
-              disabled={saving}
-            >
+            <Button variant="ghost" size="icon" onClick={handleCancelCreate}>
               <X className="size-4" />
             </Button>
           </div>
 
-          <ConnectorEditor
+          <ConnectorEditorForm
             mode="create"
-            connectorTypes={connectorTypes}
-            selectedType={selectedType}
-            connectorName={connectorName}
-            settingsValues={settingsValues}
-            settingsSchema={settingsSchema}
-            isActive={isActive}
-            checkConnection={checkConnection}
-            loadingTypes={loadingTypes}
-            loadingSchema={loadingSchema}
-            saving={saving}
-            submitDisabled={isSubmitDisabled}
-            onTypeChange={(type) => {
-              setSelectedType(type);
-              if (type === "openai") {
-                setSettingsValues({ base_url: OPENAI_DEFAULT_BASE_URL });
-                return;
-              }
-              if (type === "deepseek") {
-                setSettingsValues({ base_url: DEEPSEEK_DEFAULT_BASE_URL });
-                return;
-              }
-              setSettingsValues({});
+            canManagePermissions={canManagePermissions}
+            onSaved={() => {
+              fetchConnectors();
+              setIsCreatingNew(false);
             }}
-            onConnectorNameChange={setConnectorName}
-            onSettingsChange={setSettingsValues}
-            onActiveChange={setIsActive}
-            onCheckConnectionChange={setCheckConnection}
-            onSubmit={handleSave}
             onCancel={handleCancelCreate}
-            permissionsSection={
-              canManagePermissions ? (
-                <ResourcePermissions
-                  mode="create"
-                  resourceType="connector"
-                  value={createPermissions}
-                  onChange={setCreatePermissions}
-                  canManage={canManagePermissions}
-                  disabled={saving}
-                />
-              ) : undefined
-            }
           />
         </div>
       )}
@@ -655,50 +194,20 @@ export const ConnectorsSettings: React.FC = () => {
                 <h3 className="font-medium">
                   Редактирование: {connector.name || connector.type}
                 </h3>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleCancelEdit}
-                  disabled={saving}
-                >
+                <Button variant="ghost" size="icon" onClick={handleCancelEdit}>
                   <X className="size-4" />
                 </Button>
               </div>
-              <ConnectorEditor
+              <ConnectorEditorForm
+                key={connector.id}
                 mode="edit"
-                connectorTypes={connectorTypes}
-                selectedType={selectedType}
-                connectorName={connectorName}
-                settingsValues={settingsValues}
-                settingsSchema={settingsSchema}
-                isActive={isActive}
-                checkConnection={checkConnection}
-                loadingTypes={loadingTypes}
-                loadingSchema={loadingSchema}
-                saving={saving}
-                submitDisabled={isSubmitDisabled}
-                onTypeChange={() => {
-                  // Type is read-only in edit mode.
+                connector={editingConnector}
+                canManagePermissions={canManagePermissions}
+                onSaved={() => {
+                  fetchConnectors();
+                  setEditingConnectorId(null);
                 }}
-                onConnectorNameChange={setConnectorName}
-                onSettingsChange={setSettingsValues}
-                onActiveChange={setIsActive}
-                onCheckConnectionChange={setCheckConnection}
-                onSubmit={handleSave}
                 onCancel={handleCancelEdit}
-                permissionsSection={
-                  canManagePermissions ? (
-                    <ResourcePermissions
-                      mode="edit"
-                      resourceType="connector"
-                      resourceId={editingConnectorId ?? undefined}
-                      value={editPermissions}
-                      onChange={setEditPermissions}
-                      canManage={canManagePermissions}
-                      disabled={saving || loadingPermissions}
-                    />
-                  ) : undefined
-                }
               />
             </div>
           ) : (
@@ -707,7 +216,7 @@ export const ConnectorsSettings: React.FC = () => {
               connector={connector}
               onEdit={handleStartEdit}
               onDelete={handleDelete}
-              disabled={isBusy || saving}
+              disabled={isBusy}
             />
           ),
         )}

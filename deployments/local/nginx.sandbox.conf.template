@@ -28,14 +28,27 @@ server {
 
     location = /__sandbox_auth {
         internal;
-        proxy_pass http://giga-agent:8000/agent/auth/sandbox-access/$sandbox_id_hex;
+        proxy_pass http://giga-agent:8000/agent/auth/sandbox-access/$sandbox_id_hex/$sandbox_port;
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
         proxy_set_header Host $host;
         proxy_set_header X-Original-Host $host;
     }
 
+    # Capability-URL: exchange ?__sbx=<token> for a host-only cookie, then
+    # redirect to the same origin without the token (so it leaves the address
+    # bar / Referer). The backend validates the token against Redis.
+    location = /__sandbox_grant {
+        proxy_pass http://giga-agent:8000/agent/auth/sandbox-grant/$sandbox_id_hex/$sandbox_port$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $effective_scheme;
+    }
+
     location / {
+        # Token present in the query → run the cookie-exchange first.
+        if ($arg___sbx) {
+            rewrite ^ /__sandbox_grant last;
+        }
         auth_request /__sandbox_auth;
         proxy_pass http://giga-sandbox-$sandbox_id_hex:$sandbox_port;
 

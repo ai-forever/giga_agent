@@ -12,15 +12,9 @@ import { GraphState, GraphTemplate } from "../interfaces.ts";
 import MessageEditor from "./MessageEditor.tsx";
 import ToolCallsList from "./ToolCallsList.tsx";
 import { findScrollRoot } from "@/lib/scroll";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Pencil,
-  RefreshCw,
-  X,
-} from "lucide-react";
+import { useBranches } from "@/hooks/useBranches";
+import { Check, Download, Pencil, RefreshCw, X } from "lucide-react";
+import { BranchSwitcher } from "./BranchSwitcher.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,9 +30,18 @@ import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import { BROWSER_USE_NAME } from "@/config.ts";
 import { useSettings } from "./Settings.tsx";
+import type { QuestionsCardItem } from "./MessageList.tsx";
+import { getScheduledTaskId } from "./scheduler/detect";
+
+const SchedulerTaskChatCard = React.lazy(
+  () => import("./scheduler/chat-card.tsx"),
+);
+const AnsweredQuestionsCard = React.lazy(
+  () => import("./questions/AnsweredQuestionsCard.tsx"),
+);
 
 function getMessageText(message: Message_): string {
   if (Array.isArray(message.content)) {
@@ -59,52 +62,6 @@ function getHumanMessageText(message: Message_): string {
   return rawText.replace(/\n*\[system:[\s\S]*$/i, "").trimEnd();
 }
 
-function BranchSwitcher({
-  thread,
-  message,
-}: {
-  thread?: UseStream<GraphState, GraphTemplate>;
-  message: Message_;
-}) {
-  if (!thread) return null;
-  const meta = thread.getMessagesMetadata(message);
-  const branch = meta?.branch;
-  const branchOptions = meta?.branchOptions;
-  if (!branchOptions || !branch) return null;
-  const onSelect = (branch: any) => thread.setBranch(branch);
-  const index = branchOptions.indexOf(branch);
-
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => {
-          const prevBranch = branchOptions[index - 1];
-          if (!prevBranch) return;
-          onSelect(prevBranch);
-        }}
-        disabled={thread.isLoading}
-        className="transition-transform duration-200 bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
-      >
-        <ChevronLeft size={16} />
-      </button>
-      <span className="text-[13px]">
-        {index + 1} / {branchOptions.length}
-      </span>
-      <button
-        onClick={() => {
-          const nextBranch = branchOptions[index + 1];
-          if (!nextBranch) return;
-          onSelect(nextBranch);
-        }}
-        disabled={thread.isLoading}
-        className="transition-transform duration-200 bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
-      >
-        <ChevronRight size={16} />
-      </button>
-    </div>
-  );
-}
-
 interface MessageProps {
   message: Message_;
   onWrite: () => void;
@@ -113,6 +70,8 @@ interface MessageProps {
   thread?: UseStream<GraphState, GraphTemplate>;
   resultsById?: Record<string, Message_>;
   isLastAi?: boolean;
+  // Последнее сообщение в треде — у него убираем нижний отступ.
+  isLast?: boolean;
   // Когда true — рендер AI-с-tool_calls без своей рамки/фона/паддингов
   // (используется внутри AgentRun, чтобы избежать вложенных карточек).
   noContainer?: boolean;
@@ -123,6 +82,13 @@ interface MessageProps {
   hideToolCalls?: boolean;
   // Показывает только tool calls, не дублируя уже вынесенный content/reasoning.
   hideContent?: boolean;
+  // Карточки запланированных задач (schedule_task) — рендерятся отдельным
+  // блоком ПОД reasoning/content этого AI-сообщения (см. MessageList).
+  leadingScheduledTasks?: string[];
+  // Карточки уже отвеченных уточняющих вопросов (тул ask_questions) —
+  // рендерятся отдельным блоком ПОД reasoning/content этого AI-сообщения
+  // (см. MessageList).
+  answeredQuestions?: QuestionsCardItem[];
 }
 
 // ≈ 10 строк text-xs (12px) при leading-snug (line-height 1.375): 12 * 1.375 * 10 ≈ 165
@@ -254,10 +220,14 @@ const Message: React.FC<MessageProps> = ({
   writeMessage = false,
   resultsById,
   isLastAi = false,
+  // @ts-ignore
+  isLast = false,
   noContainer = false,
   hideActions = false,
   hideToolCalls = false,
   hideContent = false,
+  leadingScheduledTasks,
+  answeredQuestions,
 }) => {
   // 2) хук для постепенной «печати» чанков
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -268,7 +238,6 @@ const Message: React.FC<MessageProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
-  const { settings } = useSettings();
 
   const handleExport = async (format: ExportFormat) => {
     if (!thread || isExporting) return;
@@ -394,65 +363,36 @@ const Message: React.FC<MessageProps> = ({
     onWrite();
   }, [normalizedContent, onWrite]);
 
+  const branches = useBranches();
   const onRefresh = async () => {
-    const messages = thread?.messages ?? [];
+    // Index against the branch currently being viewed (head by default).
+    const messages = branches.isViewingNonHead
+      ? branches.activeMessages
+      : (thread?.messages ?? []);
     const targetIndex = messages.findIndex((m) => m.id === message.id);
     if (targetIndex < 0) return;
     const previousMessage = messages[targetIndex - 1];
     const parentMessage: Message_[] = [];
-    // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegra, так как в их API нельзя просто передавать checkpoint (без input)
-    const meta = thread?.getMessagesMetadata(message);
-    const selectedMessageParentCheckpoint = meta?.branch
-      ? ({
-          ...meta?.firstSeenState?.parent_checkpoint,
-          thread_id: meta.firstSeenState?.checkpoint.thread_id,
-          checkpoint_id:
-            meta.branch.split(">").length > 1
-              ? meta.branch.split(">")[0]
-              : meta.branch,
-        } as Checkpoint)
-      : meta?.firstSeenState?.parent_checkpoint;
-    const parentCheckpoint = selectedMessageParentCheckpoint;
+    // TODO: Сейчас это нужно, чтобы giga_agent адекватно работал с aegра, так как в их API нельзя просто передавать checkpoint (без input)
+    const { meta, history } = await branches.resolveForkData(message);
+    // Fork point = the checkpoint whose message list is exactly the prefix
+    // before the regenerated message (ends at previousMessage), resolved
+    // against the currently viewed branch. Fall back to the message's
+    // first-seen parent checkpoint when no exact prefix match exists.
+    const localMatchingState = previousMessage
+      ? history.find((state) => {
+          const stateMessages = state.values?.messages ?? [];
+          return (
+            stateMessages.length === targetIndex &&
+            stateMessages.at(-1)?.id === previousMessage.id
+          );
+        })
+      : undefined;
+    const effectiveParentCheckpoint = (localMatchingState?.checkpoint ??
+      meta?.firstSeenState?.parent_checkpoint) as Checkpoint | undefined;
 
-    let effectiveParentCheckpoint = parentCheckpoint;
-    if (previousMessage) {
-      const localMatchingState = (thread?.history ?? []).find((state) => {
-        const stateMessages = state.values?.messages ?? [];
-        const lastMessage = stateMessages.at(-1);
-        return (
-          stateMessages.length === targetIndex &&
-          lastMessage?.id === previousMessage.id
-        );
-      });
-      if (localMatchingState?.checkpoint) {
-        effectiveParentCheckpoint = localMatchingState.checkpoint as Checkpoint;
-      }
-    }
-
-    if (
-      effectiveParentCheckpoint === parentCheckpoint &&
-      parentCheckpoint?.thread_id &&
-      thread?.client &&
-      previousMessage
-    ) {
-      const threadsClient = (thread.client as any).threads;
-      const fullHistory = await threadsClient
-        .getHistory(parentCheckpoint.thread_id, { limit: 200 })
-        .catch((error: unknown) => ({ error: String(error) }));
-      const historyStates = Array.isArray(fullHistory) ? fullHistory : [];
-      const matchingState = historyStates.find((state: any) => {
-        const stateMessages = state.values?.messages ?? [];
-        const lastMessage = stateMessages.at(-1);
-        return (
-          stateMessages.length === targetIndex &&
-          lastMessage?.id === previousMessage.id
-        );
-      });
-      if (matchingState?.checkpoint) {
-        effectiveParentCheckpoint = matchingState.checkpoint as Checkpoint;
-      }
-    }
-
+    // Stream the regenerated run into the head view.
+    branches.switchBranch("");
     thread?.submit(
       { messages: parentMessage },
       {
@@ -477,6 +417,7 @@ const Message: React.FC<MessageProps> = ({
     // @ts-ignore — служебное сообщение от инфраструктуры (tool-router и т.п.)
     message.additional_kwargs?.kind === "system_notice";
   const isCurrentInterruptMessage =
+    !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
     // Деструктивное подтверждение показываем ВСЕГДА (даже в автономном режиме);
@@ -553,6 +494,19 @@ const Message: React.FC<MessageProps> = ({
     (toolCall) => toolCall.name !== THINK_TOOL_NAME,
   );
 
+  // Tool calls that actually produce a row in ToolCallsList: ask_questions and
+  // successful schedule_task are rendered as standalone cards, so they don't
+  // count. When there are none, reasoning/content render plainly (no
+  // bordered/muted tool container).
+  const displayToolCalls = visibleToolCalls.filter((toolCall) => {
+    const id = (toolCall as any).id as string | undefined;
+    return (
+      toolCall.name !== "ask_questions" &&
+      !getScheduledTaskId(id ? resultsById?.[id] : undefined)
+    );
+  });
+  const hasToolContainer = hasToolCalls && displayToolCalls.length > 0;
+
   const combinedReasoning = useMemo(() => {
     const parts: string[] = [];
     const reasoning = message.additional_kwargs?.reasoning_content;
@@ -623,7 +577,7 @@ const Message: React.FC<MessageProps> = ({
                 "markdown",
               ].join(" ")}
             >
-              {hasToolCalls ? (
+              {hasToolContainer ? (
                 <div
                   className={
                     noContainer
@@ -656,6 +610,26 @@ const Message: React.FC<MessageProps> = ({
                   </TextMarkdown>
                 </>
               )}
+              {message.type === "ai" &&
+                leadingScheduledTasks &&
+                leadingScheduledTasks.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {leadingScheduledTasks.map((taskId) => (
+                      <SchedulerTaskChatCard key={taskId} taskId={taskId} />
+                    ))}
+                  </div>
+                )}
+              {message.type === "ai" &&
+                answeredQuestions &&
+                answeredQuestions.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {answeredQuestions.map((item) => (
+                      <React.Suspense key={item.id} fallback={null}>
+                        <AnsweredQuestionsCard data={item.data} />
+                      </React.Suspense>
+                    ))}
+                  </div>
+                )}
               {
                 //@ts-ignore
                 message.additional_kwargs &&
@@ -787,7 +761,9 @@ const Message: React.FC<MessageProps> = ({
           >
             {message.type === "human" && (
               <button
-                disabled={!thread || thread.isLoading}
+                disabled={
+                  !thread || thread.isLoading || branches.initialLoading
+                }
                 onClick={() => {
                   setEdit(true);
                   if (
@@ -810,7 +786,9 @@ const Message: React.FC<MessageProps> = ({
             {message.type === "ai" && !rawHasToolCalls && (
               <>
                 <button
-                  disabled={!thread || thread.isLoading}
+                  disabled={
+                    !thread || thread.isLoading || branches.initialLoading
+                  }
                   onClick={onRefresh}
                   className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
                 >
@@ -855,8 +833,11 @@ export default React.memo(
     prev.thread === next.thread &&
     prev.resultsById === next.resultsById &&
     prev.isLastAi === next.isLastAi &&
+    prev.isLast === next.isLast &&
     prev.noContainer === next.noContainer &&
     prev.hideActions === next.hideActions &&
     prev.hideToolCalls === next.hideToolCalls &&
-    prev.hideContent === next.hideContent,
+    prev.hideContent === next.hideContent &&
+    prev.leadingScheduledTasks === next.leadingScheduledTasks &&
+    prev.answeredQuestions === next.answeredQuestions,
 );

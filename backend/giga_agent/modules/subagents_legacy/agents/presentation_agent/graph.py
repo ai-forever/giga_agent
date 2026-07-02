@@ -24,7 +24,7 @@ from giga_agent.modules.subagents_legacy.agents.presentation_agent.nodes.slides 
     slides_node,
 )
 from giga_agent.modules.subagents_legacy.uploads import build_tool_message
-from giga_agent.utils.langgraph_sdk import get_client
+from giga_agent.utils.langgraph_sdk import client_session
 from giga_agent.utils.messages import filter_tool_calls
 
 workflow = StateGraph(PresentationState, ConfigSchema)
@@ -66,36 +66,36 @@ async def generate_presentation(
 
         state = await invoke_subgraph_cli(graph, input_data, runtime)
     else:
-        client = get_client(runtime.config)
-        thread = await client.threads.create()
-        thread_id = thread["thread_id"]
-        push_ui_message(
-            "agent_execution",
-            {
-                "agent": "generate_presentation",
-                "node": "__start__",
-                "tool_call_id": runtime.tool_call_id,
-            },
-        )
         state = {}
-        async for chunk in client.runs.stream(
-            thread_id=thread_id,
-            assistant_id="presentation",
-            input=input_data,
-            stream_mode=["values", "updates"],
-            on_disconnect="cancel",
-        ):
-            if chunk.event == "values":
-                state = chunk.data
-            elif chunk.event == "updates":
-                push_ui_message(
-                    "agent_execution",
-                    {
-                        "agent": "generate_presentation",
-                        "node": list(chunk.data.keys())[0],
-                        "tool_call_id": runtime.tool_call_id,
-                    },
-                )
+        async with client_session(runtime.config) as client:
+            thread = await client.threads.create()
+            thread_id = thread["thread_id"]
+            push_ui_message(
+                "agent_execution",
+                {
+                    "agent": "generate_presentation",
+                    "node": "__start__",
+                    "tool_call_id": runtime.tool_call_id,
+                },
+            )
+            async for chunk in client.runs.stream(
+                thread_id=thread_id,
+                assistant_id="presentation",
+                input=input_data,
+                stream_mode=["values", "updates"],
+                on_disconnect="cancel",
+            ):
+                if chunk.event == "values":
+                    state = chunk.data
+                elif chunk.event == "updates":
+                    push_ui_message(
+                        "agent_execution",
+                        {
+                            "agent": "generate_presentation",
+                            "node": list(chunk.data.keys())[0],
+                            "tool_call_id": runtime.tool_call_id,
+                        },
+                    )
     code = FileResponse.model_validate(state["presentation_html"])
     return build_tool_message(
         runtime,

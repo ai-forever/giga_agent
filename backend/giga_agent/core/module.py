@@ -15,8 +15,10 @@ if TYPE_CHECKING:
     from fastapi import APIRouter
     from giga_agent.core.agent.middleware import AgentMiddleware
     from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.agent.connectors.sources import ToolSource
     from giga_agent.core.agent.types import AgentState
     from giga_agent.models.users import UserShort
+    from giga_agent.core.integrations.base import IntegrationProvider
 
 
 class SecretMetadata(TypedDict):
@@ -33,6 +35,9 @@ class BaseModule(Serializable):
     label: str = ""
     description: str = ""
     icon: str = ""  # Имя компонента lucide-react, например "FileText".
+    # True → тулы модуля НЕ байндятся в bind_tools, а доставляются лениво через
+    # connector_get_info / connector_call_tool (см. get_tool_sources).
+    lazy_tools: bool = False
     _module_path: str = PrivateAttr()
 
     @classmethod
@@ -102,7 +107,13 @@ class BaseModule(Serializable):
         мог фильтровать тулы по `disabled_modules` из `config.configurable`.
         Сервисные модули (`label == ""`) не помечаются — их тулы не подлежат
         пользовательскому отключению.
+
+        Для ленивых модулей (`lazy_tools=True`) возвращает пустой список —
+        их тулы не байндятся, а доставляются через connector_call_tool
+        (см. `get_tool_sources`).
         """
+        if self.lazy_tools:
+            return []
         tools = await self._get_tools(user, agent, config=config, **kwargs)
         if not self.label:
             return tools
@@ -111,6 +122,32 @@ class BaseModule(Serializable):
                 tool.extras = {}
             tool.extras.setdefault("module_id", self.id)
         return tools
+
+    async def get_tool_sources(
+        self,
+        user: "UserShort | None",
+        agent: "BaseAgent",
+        *,
+        config: RunnableConfig | None = None,
+        **kwargs: Any,
+    ) -> "list[ToolSource]":
+        """Источники тулов, которые модуль отдаёт в connector-дисптач.
+
+        Дефолт: ленивый модуль (`lazy_tools=True`), доступный пользователю,
+        оборачивает свои `_get_tools` в единый `ModuleToolSource`. Модули с
+        нестандартной доставкой (например MCP, где «тулы» не `BaseTool`)
+        переопределяют этот метод.
+        """
+        if not self.lazy_tools:
+            return []
+        if not await self.is_enabled(user, config=config):
+            return []
+        tools = await self._get_tools(user, agent, config=config, **kwargs)
+        if not tools:
+            return []
+        from giga_agent.core.agent.connectors.sources import ModuleToolSource
+
+        return [ModuleToolSource(self.id, self.label, self.icon, tools)]
 
     async def get_instructions(
         self,
@@ -149,6 +186,16 @@ class BaseModule(Serializable):
         """
         return []
 
+    def get_providers(self, **kwargs: Any) -> list["IntegrationProvider"]:
+        """Интеграции (OAuth/токен-провайдеры), от которых зависит модуль.
+
+        Возвращает экземпляры :class:`IntegrationProvider` (обычно из
+        ``integrations.registry``). Используется для отображения «Подключить» в
+        UI и для дефолтной проверки доступности модуля. По умолчанию пусто.
+        """
+        _ = kwargs
+        return []
+
     def get_middleware(self, **kwargs: Any) -> Optional["AgentMiddleware"]:
         """
         Возвращает AgentMiddleware, предоставляемый модулем.
@@ -178,6 +225,26 @@ class BaseModule(Serializable):
         """
         _ = user, config, kwargs
         return True
+
+    async def providers_connected(self, user: "UserShort | None") -> bool:
+        """True если все объявленные `get_providers()` подключены для юзера.
+
+        Удобный дефолт для `is_enabled` у модулей, зависящих от интеграций.
+        """
+        from giga_agent.conf import get_settings
+
+        # В CLI-режиме нет БД интеграций — считаем провайдеры подключёнными.
+        if get_settings().giga_agent_runtime == "cli":
+            return True
+        user_id = getattr(user, "id", None)
+        if user_id is None:
+            return False
+        keys = [p.key for p in self.get_providers()]
+        if not keys:
+            return True
+        from giga_agent.core.integrations.service import all_providers_connected
+
+        return await all_providers_connected(user_id, keys)
 
     async def on_startup(self, session: "AsyncSession", **kwargs: Any):
         """

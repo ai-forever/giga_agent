@@ -266,7 +266,29 @@ Docker-сценарий оставляем как второй quick start (дл
 ### Отличие от `pip + dev`
 
 - `pip + dev`: самый быстрый локальный запуск для разработки и проверки.
+- standalone Docker image: тот же простой запуск через `giga_agent dev`, но внутри контейнера; использует SQLite и хранит данные в `/data/.giga_agent`.
 - `docker compose`: более инфраструктурный сценарий с отдельными сервисами (nginx/postgres/redis/qdrant и т.д.).
+
+### Standalone image
+
+CI собирает standalone image из `deployments/quickstart/Dockerfile`. Он запускает UI и API одним процессом на порту `9090`.
+
+```bash
+docker run --rm -it \
+  -p 9090:9090 \
+  -v giga-agent-data:/data/.giga_agent \
+  ghcr.io/<owner>/<repo>:latest
+```
+
+После запуска откройте:
+
+```text
+http://localhost:9090
+```
+
+### Docker compose
+
+Compose-сценарий использует `deployments/local/Dockerfile` как backend-компонент и поднимает отдельные сервисы для self-hosted/операционного запуска.
 
 ### Быстрые шаги
 

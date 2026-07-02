@@ -17,8 +17,12 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.types import Command
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
+from giga_agent.core.agent.tool_invoke import (
+    invoke_inner_tool,
+    tool_accepts_parameter,
+)
 from giga_agent.core.agent.tool_node import AgentToolNode
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -188,21 +192,6 @@ def _is_tool_public_for_repl(tool_: BaseTool) -> bool:
     return not bool(extras.get("repl_skip"))
 
 
-def _tool_accepts_parameter(tool_or_callable: Any, param_name: str) -> bool:
-    candidate = tool_or_callable
-    if isinstance(tool_or_callable, BaseTool):
-        candidate = (
-            getattr(tool_or_callable, "coroutine", None)
-            or getattr(tool_or_callable, "func", None)
-            or tool_or_callable
-        )
-    try:
-        signature = inspect.signature(candidate)
-    except (TypeError, ValueError):
-        return False
-    return param_name in signature.parameters
-
-
 def _is_valid_python_identifier(name: str) -> bool:
     return bool(name and name.isidentifier() and not keyword.iskeyword(name))
 
@@ -355,7 +344,7 @@ async def _invoke_repl_tool_callable(
     runtime: ToolRuntime,
 ) -> Any:
     call_kwargs = dict(kwargs)
-    if _tool_accepts_parameter(tool_callable, "tool_runtime"):
+    if tool_accepts_parameter(tool_callable, "tool_runtime"):
         call_kwargs.setdefault("tool_runtime", runtime)
     result = tool_callable(**call_kwargs)
     if inspect.isawaitable(result):
@@ -368,19 +357,7 @@ async def _invoke_tool_node_tool(
     kwargs: dict[str, Any],
     runtime: ToolRuntime,
 ) -> Any:
-    call_kwargs = dict(kwargs)
-    if _tool_accepts_parameter(tool_, "runtime"):
-        call_kwargs.setdefault("runtime", runtime)
-    try:
-        return await tool_.ainvoke(call_kwargs, config=runtime.config)
-    except ValidationError:
-        raw_callable = getattr(tool_, "coroutine", None) or getattr(tool_, "func", None)
-        if raw_callable is None:
-            raise
-        result = raw_callable(**call_kwargs)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+    return await invoke_inner_tool(tool_, kwargs, runtime)
 
 
 async def _handle_special_input_request(
@@ -404,7 +381,6 @@ async def _handle_special_input_request(
         raw_kwargs = payload.get("kwargs", {})
         if not isinstance(raw_kwargs, dict):
             raise ValueError("Tool kwargs must be a JSON object")
-
         if tool_name in repl_tools_map:
             raw_result = await _invoke_repl_tool_callable(
                 repl_tools_map[tool_name], raw_kwargs, runtime

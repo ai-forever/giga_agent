@@ -361,7 +361,8 @@ const buildMarkdownComponents = (transformText: boolean) => {
         if (
           fileType === "image" ||
           fileType === "audio" ||
-          fileType === "video"
+          fileType === "video" ||
+          fileType === "plotly_graph"
         ) {
           return <MessageAttachment path={path} fileType={fileType} />;
         }

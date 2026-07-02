@@ -17,6 +17,7 @@ from langchain_core.runnables.config import RunnableConfig
 from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 CONFIG_KEY = "runtime_resolver"
 
@@ -44,8 +45,7 @@ class RuntimeResolver:
         if get_settings().giga_agent_runtime == "cli":
             return await CliRuntimeResolver.create(config)
 
-        configurable = config.get("configurable") or {}
-        identity = (configurable.get("langgraph_auth_user") or {}).get("identity")
+        identity = get_user_id_from_config(config)
         if identity is None:
             raise ValueError("langgraph_auth_user.identity is missing from config")
         user_uuid = uuid.UUID(identity) if isinstance(identity, str) else identity
@@ -78,6 +78,29 @@ class RuntimeResolver:
             config["configurable"] = {CONFIG_KEY: self}  # type: ignore[typeddict-unknown-key]
         else:
             configurable[CONFIG_KEY] = self  # type: ignore[literal-required]
+
+    # ------------------------------------------------------------------
+    # Rate limiting
+    # ------------------------------------------------------------------
+
+    async def _attach_rate_limiter(
+        self,
+        runtime: Any,
+        resource_type: str,
+        resource_id: uuid.UUID,
+        session,
+    ) -> None:
+        """Build and attach a per-(resource, user) rate limiter, if one is configured."""
+        from giga_agent.core.rate_limit import build_runtime_rate_limiter
+
+        limiter = await build_runtime_rate_limiter(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            user_id=self._user.id,
+            session=session,
+        )
+        if limiter is not None:
+            runtime.attach_rate_limiter(limiter)
 
     # ------------------------------------------------------------------
     # User
@@ -133,6 +156,7 @@ class RuntimeResolver:
         factory = await get_session_factory()
         async with factory() as session:
             runtime = await LLMManager.resolve_by_id(llm_id, session=session)
+            await self._attach_rate_limiter(runtime, "llm", llm_id, session)
         self._cache["llm"] = runtime
         return runtime
 
@@ -150,6 +174,7 @@ class RuntimeResolver:
         factory = await get_session_factory()
         async with factory() as session:
             runtime = await LLMManager.resolve_by_id(llm_id, session=session)
+            await self._attach_rate_limiter(runtime, "llm", llm_id, session)
         self._cache["fast_llm"] = runtime
         return runtime
 
@@ -188,6 +213,7 @@ class RuntimeResolver:
         factory = await get_session_factory()
         async with factory() as session:
             runtime = await EmbeddingManager.resolve_by_id(embedding_id, session=session)
+            await self._attach_rate_limiter(runtime, "embedding", embedding_id, session)
         self._cache["embedding"] = runtime
         return runtime
 
@@ -209,6 +235,9 @@ class RuntimeResolver:
         factory = await get_session_factory()
         async with factory() as session:
             runtime = await ImageGeneratorManager.resolve_by_id(gen_id, session=session)
+            await self._attach_rate_limiter(
+                runtime, "image_generator", gen_id, session
+            )
         self._cache["image_generator"] = runtime
         return runtime
 
@@ -230,6 +259,9 @@ class RuntimeResolver:
         factory = await get_session_factory()
         async with factory() as session:
             runtime = await SearchEngineManager.resolve_by_id(engine_id, session=session)
+            await self._attach_rate_limiter(
+                runtime, "search_engine", engine_id, session
+            )
         self._cache["search_engine"] = runtime
         return runtime
 

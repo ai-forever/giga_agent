@@ -14,8 +14,6 @@ export interface GraphState extends Record<string, unknown> {
   messages: Message[];
   collections: Collection[];
   mcp_tools: Tool[];
-  instructions: string;
-  secrets: Secret[];
   disabled_modules: string[];
 }
 
@@ -26,9 +24,45 @@ type BagTemplate = {
   UpdateType?: unknown;
 };
 
+export interface QuestionOption {
+  id: string;
+  text: string;
+}
+
+export interface Question {
+  id: string;
+  text: string;
+  type: "single" | "multi";
+  options: QuestionOption[];
+}
+
+export interface QuestionAnswer {
+  question_id: string;
+  selected: string[];
+  other_text: string;
+}
+
+// Структурированный результат уже выполненного тула `ask_questions`:
+// какие вопросы были заданы и как на них ответил пользователь.
+export interface AnsweredQuestion {
+  question: string;
+  type: "single" | "multi";
+  options: string[];
+  selected: string[];
+  other_text: string;
+}
+
+export interface QuestionsResult {
+  skipped: boolean;
+  comment?: string;
+  summary: string;
+  items: AnsweredQuestion[];
+}
+
 export interface GraphInterrupt {
-  type: "approve" | "comment" | "tool_call" | "confirm_destructive";
+  type: "approve" | "comment" | "tool_call" | "questions" | "confirm_destructive";
   tools?: ToolCall[];
+  questions?: Question[];
 }
 
 export interface GraphTemplate extends BagTemplate {

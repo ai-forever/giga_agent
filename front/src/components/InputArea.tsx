@@ -9,13 +9,14 @@ import { HumanMessage } from "@langchain/langgraph-sdk";
 import * as LucideIcons from "lucide-react";
 import {
   Check,
-  Cog,
   Files,
+  FolderOpen,
   Loader2,
   Mic,
   Paperclip,
   Plus,
   Send,
+  Square,
   Wrench,
   X,
 } from "lucide-react";
@@ -26,6 +27,10 @@ import {
   API_AGENT_PREFIX,
   BACKEND_STT_ENABLED,
   BROWSER_USE_NAME,
+  PROMPT_SUGGESTIONS_ENABLED,
+  PROMPT_TEMPLATE_TOPICS,
+  STARTER_PROMPT_SUGGESTIONS_ENABLED,
+  STARTER_RECOMMENDATIONS_ENABLED,
 } from "../config.ts";
 import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
@@ -42,13 +47,16 @@ import {
 } from "./Attachments.tsx";
 import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
+import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { getCollectionName } from "@/components/rag/hooks/use-rag";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
+import ConnectorsMenu from "@/components/mcp/connectors/connectors-menu.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
-import { useAuth } from "@/components/providers/auth.tsx";
 import { Switch } from "@/components/ui/switch";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
+import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,6 +74,11 @@ import {
 } from "@/components/ui/tooltip";
 import ModelPicker from "./ModelPicker";
 import TokenUsageIndicator from "./TokenUsageIndicator";
+import { useStarterRecommendations } from "@/hooks/useThreadSuggestions";
+import {
+  getPromptSuggestionTitle,
+  type PromptSuggestionScenario,
+} from "@/types/prompt-suggestions";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
 
@@ -127,10 +140,17 @@ const resolveSttSource = (): SttSource => {
 
 interface InputAreaProps {
   thread?: UseStream<GraphState, GraphTemplate>;
+  prefillPayload?: {
+    suggestion: PromptSuggestionScenario;
+    nonce: number;
+  } | null;
 }
 
-const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
+const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const navigate = useNavigate();
+  const { threadId } = useParams<{ threadId?: string }>();
+  const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
+  const { project: threadProject } = useThreadProject(threadId);
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(
     getInitialIsMobileDevice,
@@ -142,11 +162,12 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   const textRef = useRef<HTMLTextAreaElement>(null);
   const { uploads, uploadFiles, removeUpload, resetUploads } = useFileUpload();
   const { selected, clear } = useSelectedAttachments();
-  const autoApproveLockRef = useRef<unknown>(null);
   const [isMCPLoading, setIsMCPLoading] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
   const [deepResearchForced, setDeepResearchForced] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const sttSource = useMemo<SttSource>(() => resolveSttSource(), []);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -166,14 +187,14 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     collectionsLoading,
     activateCollection,
     deactivateCollection,
+    deactivateAllCollections,
   } = useRagContext();
-  const { settings, setSettings } = useSettings();
-  const { user } = useAuth();
+  const { settings } = useSettings();
   const {
     mcpTools,
-    openMcpModal,
     enabledModules,
     toggleModule,
+    setModulesState,
     availableModules,
   } = useUserInfo();
   const {
@@ -204,6 +225,28 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   );
 
   const selectedCount = Object.keys(selected).length;
+  const branches = useBranches();
+  const isEmptyThread = (thread?.messages?.length ?? 0) === 0;
+  const showStarterPromptButtons =
+    PROMPT_SUGGESTIONS_ENABLED &&
+    STARTER_PROMPT_SUGGESTIONS_ENABLED &&
+    isEmptyThread &&
+    !thread?.isLoading &&
+    !thread?.interrupt;
+  const {
+    suggestions: recommendationPrompts,
+    isLoading: recommendationsLoading,
+    loadRecommendations,
+  } = useStarterRecommendations(
+    PROMPT_SUGGESTIONS_ENABLED && STARTER_RECOMMENDATIONS_ENABLED,
+  );
+  const activeStarterTopic = useMemo(
+    () =>
+      PROMPT_TEMPLATE_TOPICS.find((topic) => topic.id === activeTopicId) ??
+      null,
+    [activeTopicId],
+  );
+  const isRecommendationsTab = activeTopicId === "recommendations";
 
   const isUploading = uploads.some((u) => u.progress < 100 && !u.error);
   const handleSendMessage = useCallback(
@@ -217,29 +260,31 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           selected: selected,
         },
       } as HumanMessage;
-      const userSettings = (user?.settings ?? {}) as Record<string, unknown>;
-      const contextInstructions =
-        typeof userSettings.contextInstructions === "string"
-          ? userSettings.contextInstructions
-          : "";
-      const contextSecrets = Array.isArray(userSettings.contextSecrets)
-        ? userSettings.contextSecrets
-        : [];
       clear();
+      // Continue from the branch currently being viewed (head by default),
+      // then stream the new run into the head view.
+      const baseMessages = branches.isViewingNonHead
+        ? branches.activeMessages
+        : (thread?.messages ?? []);
+      const forkCheckpoint = branches.isViewingNonHead
+        ? branches.activeCheckpoint
+        : undefined;
       thread?.submit(
         {
           messages: [newMessage],
           collections: enabledCollections,
           mcp_tools: mcpToolsPayload,
-          secrets: contextSecrets,
-          instructions: contextInstructions,
         },
         {
           optimisticValues(prev) {
             const prevMessages = prev.messages ?? [];
-            const newMessages = [...prevMessages, newMessage];
+            const sourceMessages = branches.isViewingNonHead
+              ? baseMessages
+              : prevMessages;
+            const newMessages = [...sourceMessages, newMessage];
             return { ...prev, messages: newMessages };
           },
+          checkpoint: forkCheckpoint,
           streamMode: ["messages"],
           onDisconnect: "continue",
           config: {
@@ -248,6 +293,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),
+              auto_approve: autoApprove,
             },
           },
         },
@@ -259,14 +305,15 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     },
     [
       thread,
+      branches,
       selected,
       clear,
       mcpToolsPayload,
       enabledCollections,
-      user,
       deepResearchForced,
       selectedSkillNames,
       clearSelectedSkills,
+      autoApprove,
     ],
   );
   const handleContinueThread = useCallback(
@@ -316,6 +363,110 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
   useEffect(() => {
     autoResize();
   }, [message, isMobileDevice]);
+
+  const applySuggestion = useCallback(
+    async (
+      suggestion: PromptSuggestionScenario,
+      options?: { fromStartSuggestions?: boolean; isRecommendation?: boolean },
+    ) => {
+      const trimmed = suggestion.text.trim();
+      if (!trimmed) return;
+
+      const shouldClear =
+        options?.fromStartSuggestions && !options?.isRecommendation;
+
+      if (shouldClear) {
+        setDeepResearchForced(false);
+        clearSelectedSkills();
+        deactivateAllCollections();
+      }
+
+      if (suggestion.deepResearchForced !== undefined) {
+        setDeepResearchForced(suggestion.deepResearchForced);
+      }
+
+      if (suggestion.skills) {
+        if (!shouldClear) {
+          clearSelectedSkills();
+        }
+        suggestion.skills.forEach((name) => toggleSkill(name, true));
+      }
+
+      if (suggestion.ragMode) {
+        let availableCollections = collections;
+        if (availableCollections.length === 0 && !initialSearchExecuted) {
+          await initialFetch();
+          availableCollections = await getCollections();
+        }
+        if (suggestion.ragMode === "all") {
+          availableCollections.forEach((collection) =>
+            activateCollection(collection.uuid),
+          );
+        } else {
+          availableCollections.forEach((collection) =>
+            deactivateCollection(collection.uuid),
+          );
+        }
+      }
+
+      setMessage(trimmed);
+      requestAnimationFrame(() => {
+        const el = textRef.current;
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(trimmed.length, trimmed.length);
+        } catch {
+          /* selection may fail if unmounted */
+        }
+      });
+
+      if (shouldClear) {
+        const moduleUpdates: Record<string, boolean> = {};
+        availableModules.forEach((mod) => {
+          moduleUpdates[mod.id] = false;
+        });
+        if (suggestion.modules) {
+          Object.entries(suggestion.modules).forEach(([moduleId, enabled]) => {
+            moduleUpdates[moduleId] = enabled;
+          });
+        }
+        void setModulesState(moduleUpdates);
+      } else {
+        if (suggestion.modules) {
+          void Promise.all(
+            Object.entries(suggestion.modules).map(([moduleId, enabled]) =>
+              toggleModule(moduleId, enabled),
+            ),
+          );
+        }
+      }
+    },
+    [
+      activateCollection,
+      clearSelectedSkills,
+      collections,
+      deactivateCollection,
+      deactivateAllCollections,
+      getCollections,
+      initialFetch,
+      initialSearchExecuted,
+      toggleModule,
+      setModulesState,
+      availableModules,
+      toggleSkill,
+    ],
+  );
+
+  useEffect(() => {
+    if (!prefillPayload?.suggestion) return;
+    void applySuggestion(prefillPayload.suggestion);
+  }, [applySuggestion, prefillPayload?.nonce, prefillPayload?.suggestion]);
+
+  useEffect(() => {
+    // A newly opened chat should start with all starter tabs collapsed.
+    setActiveTopicId(null);
+  }, [threadId]);
 
   useEffect(() => {
     if (!window.matchMedia) return;
@@ -611,33 +762,25 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     [mcpTools, setMessage, handleContinueThread, message, thread?.interrupt],
   );
 
+  // Сохранение частичного AI-ответа живёт в onStop у useStream (Chat.tsx):
+  // только там доступны финальные values стрима — любой снимок/реф на этой
+  // стороне отстаёт от экрана на последние чанки.
+  // Синхронный гард от даблклика: setIsStopping применяется только на
+  // следующем рендере, и два быстрых клика могут успеть пройти оба.
+  const stopRequestedRef = useRef(false);
+  const handleStop = useCallback(() => {
+    if (isStopping || stopRequestedRef.current) return;
+    stopRequestedRef.current = true;
+    setIsStopping(true);
+    void thread?.stop();
+  }, [isStopping, thread]);
+
   useEffect(() => {
-    const canAutoApprove =
-      !!thread?.interrupt &&
-      ["approve", "tool_call"].includes(thread?.interrupt.value?.type ?? "") &&
-      settings.autoApprove;
-
-    const interruptKey = thread?.interrupt?.value;
-
-    if (!canAutoApprove) {
-      autoApproveLockRef.current = null;
-      return;
+    if (!thread?.isLoading) {
+      setIsStopping(false);
+      stopRequestedRef.current = false;
     }
-
-    if (autoApproveLockRef.current === interruptKey) return;
-
-    if (thread?.isLoading || isMCPLoading) return;
-
-    autoApproveLockRef.current = interruptKey;
-    void handleContinue("approve");
-  }, [
-    thread?.interrupt,
-    thread?.interrupt?.value,
-    thread?.isLoading,
-    isMCPLoading,
-    settings.autoApprove,
-    handleContinue,
-  ]);
+  }, [thread?.isLoading]);
 
   const handleSend = () => {
     if (!message.trim() && uploads.length === 0) return;
@@ -663,7 +806,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
         if (thread?.interrupt) {
-          void handleContinue(message ? "comment" : "approve");
+          if (thread.interrupt.value?.type === "questions") {
+            if (message) void handleContinue("comment");
+          } else {
+            void handleContinue(message ? "comment" : "approve");
+          }
         } else {
           handleSend();
         }
@@ -742,6 +889,9 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
     };
   }, [uploadFiles, isBusy]);
 
+  const showStopButton =
+    !!thread?.isLoading && !thread?.interrupt && !isMCPLoading;
+
   const showMicButton =
     sttSource !== null &&
     !isRecording &&
@@ -790,6 +940,17 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           className="w-9 h-9 p-0 rounded-full text-foreground flex items-center justify-center outline-hidden"
         >
           <Loader2 className="animate-spin" />
+        </button>
+      ) : showStopButton ? (
+        <button
+          type="button"
+          onClick={handleStop}
+          disabled={isStopping}
+          title="Остановить"
+          aria-label="Остановить"
+          className="w-7 h-7 p-0 rounded-full bg-foreground text-background flex items-center justify-center transition-colors cursor-pointer outline-hidden hover:bg-foreground/85 disabled:opacity-67"
+        >
+          <Square className="fill-current size-3" />
         </button>
       ) : showMicButton ? (
         <button
@@ -848,9 +1009,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
             <textarea
               data-onboarding="chat-input"
               placeholder={
-                thread?.interrupt
-                  ? "Принять / Отменить с комментарием…"
-                  : "Введите вашу задачу…"
+                thread?.interrupt?.value?.type === "questions"
+                  ? "Ответьте на вопросы выше или введите комментарий…"
+                  : thread?.interrupt
+                    ? "Принять / Отменить с комментарием…"
+                    : "Введите вашу задачу…"
               }
               ref={textRef}
               rows={1}
@@ -862,7 +1025,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
               className="w-full min-h-[60px] max-h-[200px] resize-none font-sans p-2 rounded-md text-foreground placeholder:text-muted-foreground overflow-y-auto outline-none border-0 disabled:opacity-60 max-[900px]:min-h-[60px] max-[900px]:h-[60px]"
             />
             <div className={"flex"}>
-              <div className="flex items-center gap-1 flex-1">
+              <div className="flex items-center gap-1 flex-1 min-w-0">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -1002,52 +1165,62 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
                         )}
                       </div>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={openMcpModal}>
-                      <Cog className={"size-5"} />
-                      <span>MCP</span>
-                    </DropdownMenuItem>
+                    <ConnectorsMenu />
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="gap-2">
                         <Wrench className="size-5" />
-                        <span>Инструменты</span>
+                        <span>Модули</span>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
                         {availableModules.length === 0 && (
                           <div className="px-2 py-3 text-xs text-muted-foreground text-center">
-                            Нет доступных инструментов
+                            Нет доступных модулей
                           </div>
                         )}
-                        {availableModules.map((mod) => (
-                          <div
-                            key={mod.id}
-                            className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <ModuleIcon
-                                name={mod.icon}
-                                className="size-5 shrink-0 text-muted-foreground"
-                              />
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium truncate">
-                                  {mod.label}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {mod.description}
+                        <div>
+                          {availableModules.map((mod) => (
+                            <div
+                              key={mod.id}
+                              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <ModuleIcon
+                                  name={mod.icon}
+                                  className="size-5 shrink-0 text-muted-foreground"
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium truncate">
+                                    {mod.label}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {mod.description}
+                                  </div>
                                 </div>
                               </div>
+                              <Switch
+                                checked={enabledModules[mod.id] !== false}
+                                onCheckedChange={(checked) =>
+                                  toggleModule(mod.id, Boolean(checked))
+                                }
+                              />
                             </div>
-                            <Switch
-                              checked={enabledModules[mod.id] !== false}
-                              onCheckedChange={(checked) =>
-                                toggleModule(mod.id, Boolean(checked))
-                              }
-                            />
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {threadProject && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${threadProject.id}`)}
+                    className="inline-flex items-center gap-1 h-7 px-2 rounded-full text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors min-w-0 max-w-[180px]"
+                    title="Открыть проект"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{threadProject.name}</span>
+                  </button>
+                )}
                 {enabledCollectionCount > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1153,10 +1326,8 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           >
             <span>Автономность</span>
             <Switch
-              checked={settings.autoApprove ?? false}
-              onCheckedChange={(checked) =>
-                setSettings((prev) => ({ ...prev, autoApprove: checked }))
-              }
+              checked={autoApprove}
+              onCheckedChange={(checked) => setAutoApprove(checked)}
             />
           </label>
         </div>
@@ -1182,6 +1353,107 @@ const InputArea: React.FC<InputAreaProps> = ({ thread }) => {
           </Overlay>
         )}
       </div>
+      {showStarterPromptButtons && (
+        <div className="max-w-[880px] mx-auto mt-2 mb-1 print:hidden">
+          <div className="flex flex-wrap items-center gap-2">
+            {STARTER_RECOMMENDATIONS_ENABLED && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTopicId("recommendations");
+                  if (recommendationPrompts.length === 0) {
+                    void loadRecommendations(false);
+                  }
+                }}
+                className={[
+                  "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors cursor-pointer",
+                  isRecommendationsTab
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border bg-muted/40 text-foreground hover:bg-muted",
+                ].join(" ")}
+              >
+                <LucideIcons.Sparkle className="size-3.5 shrink-0" />
+                Рекомендации
+              </button>
+            )}
+            {PROMPT_TEMPLATE_TOPICS.map((topic) => (
+              <button
+                key={topic.id}
+                type="button"
+                onClick={() => setActiveTopicId(topic.id)}
+                className={[
+                  "inline-flex items-center rounded-full border px-3 py-1.5 text-xs transition-colors cursor-pointer",
+                  activeTopicId === topic.id
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-border bg-muted/40 text-foreground hover:bg-muted",
+                ].join(" ")}
+              >
+                {topic.label}
+              </button>
+            ))}
+          </div>
+
+          {(activeStarterTopic || isRecommendationsTab) && (
+            <div className="mt-2 rounded-lg border border-border bg-card p-2">
+              {activeStarterTopic &&
+                activeStarterTopic.prompts.map((prompt, idx) => (
+                  <button
+                    key={`${prompt.text}-${idx}`}
+                    type="button"
+                    onClick={() =>
+                      void applySuggestion(prompt, {
+                        fromStartSuggestions: true,
+                        isRecommendation: false,
+                      })
+                    }
+                    className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
+                  >
+                    {getPromptSuggestionTitle(prompt)}
+                  </button>
+                ))}
+
+              {isRecommendationsTab &&
+                (recommendationsLoading ? (
+                  <div className="px-2 py-1.5 space-y-2">
+                    <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
+                    <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
+                    <div className="h-8 w-full rounded-md bg-muted animate-pulse" />
+                  </div>
+                ) : recommendationPrompts.length > 0 ? (
+                  recommendationPrompts.map((prompt, idx) => (
+                    <button
+                      key={`${prompt.text}-${idx}`}
+                      type="button"
+                      onClick={() =>
+                        void applySuggestion(
+                          {
+                            text: prompt.text,
+                            title: prompt.title,
+                          },
+                          {
+                            fromStartSuggestions: true,
+                            isRecommendation: true,
+                          },
+                        )
+                      }
+                      className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
+                    >
+                      {getPromptSuggestionTitle(prompt)}
+                    </button>
+                  ))
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void loadRecommendations(true)}
+                    className="w-full rounded-md px-2 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+                  >
+                    Обновить рекомендации
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

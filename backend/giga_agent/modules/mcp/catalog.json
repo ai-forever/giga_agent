@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "servers": [
+
+    {
+      "id": "vkusvill",
+      "name": "ВкусВилл",
+      "description": "MCP-сервер ВкусВилл: каталог товаров и сервисы сети.",
+      "icon": "https://www.google.com/s2/favicons?domain=vkusvill.ru&sz=64",
+      "homepage": "https://vkusvill.ru",
+      "categories": ["ru", "retail"],
+      "url": "https://mcp001.vkusvill.ru/mcp",
+      "auth_type": "none"
+    },
+    {
+      "id": "tutu",
+      "name": "Туту.ру",
+      "description": "Поиск и покупка билетов на поезда, самолёты, автобусы и туры на Туту.ру.",
+      "icon": "https://www.google.com/s2/favicons?domain=tutu.ru&sz=64",
+      "homepage": "https://www.tutu.ru",
+      "categories": ["ru", "travel"],
+      "url": "https://mcp.tutu.ru/mcp",
+      "auth_type": "none"
+    },
+    {
+      "id": "bitrix24",
+      "name": "Bitrix24",
+      "description": "CRM, задачи, сделки и данные портала Bitrix24 через MCP.",
+      "icon": "https://www.google.com/s2/favicons?domain=bitrix24.ru&sz=64",
+      "homepage": "https://helpdesk.bitrix24.ru/open/26952788",
+      "categories": ["ru", "crm"],
+      "url": "https://mcp.bitrix24.tech/mcp/",
+      "auth_type": "oauth2",
+      "oauth_scope": "auth profile"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Репозитории, issues, pull requests и код на GitHub через официальный MCP-сервер.",
+      "icon": "https://www.google.com/s2/favicons?domain=github.com&sz=64",
+      "homepage": "https://github.com/github/github-mcp-server",
+      "categories": ["dev", "code"],
+      "url": "https://api.githubcopilot.com/mcp/",
+      "auth_type": "bearer",
+      "requires": [
+        {
+          "key": "token",
+          "label": "Personal access token",
+          "secret": true,
+          "placeholder": "ghp_... или github_pat_...",
+          "help_url": "https://github.com/settings/personal-access-tokens"
+        }
+      ]
+    },
+    {
+      "id": "deepwiki",
+      "name": "DeepWiki",
+      "description": "Документация и Q&A по публичным GitHub-репозиториям.",
+      "icon": "https://www.google.com/s2/favicons?domain=deepwiki.com&sz=64",
+      "homepage": "https://docs.devin.ai/work-with-devin/deepwiki-mcp",
+      "categories": ["dev", "docs"],
+      "url": "https://mcp.deepwiki.com/mcp",
+      "auth_type": "none"
+    },
+    {
+      "id": "context7",
+      "name": "Context7",
+      "description": "Актуальная документация библиотек и фреймворков по запросу.",
+      "icon": "https://www.google.com/s2/favicons?domain=context7.com&sz=64",
+      "homepage": "https://context7.com",
+      "categories": ["dev", "docs"],
+      "url": "https://mcp.context7.com/mcp",
+      "auth_type": "none"
+    },
+    {
+      "id": "excalidraw",
+      "name": "Excalidraw",
+      "description": "Создание и редактирование диаграмм и схем в Excalidraw.",
+      "icon": "https://www.google.com/s2/favicons?domain=excalidraw.com&sz=64",
+      "homepage": "https://excalidraw.com",
+      "categories": ["dev", "diagrams"],
+      "url": "https://mcp.excalidraw.com/mcp",
+      "auth_type": "none"
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "description": "Поиск моделей, датасетов и Spaces на Hugging Face.",
+      "icon": "https://www.google.com/s2/favicons?domain=huggingface.co&sz=64",
+      "homepage": "https://huggingface.co/settings/mcp",
+      "categories": ["ai", "search"],
+      "url": "https://huggingface.co/mcp",
+      "auth_type": "oauth2"
+    },
+    {
+      "id": "tavily",
+      "name": "Tavily Search",
+      "description": "Веб-поиск и извлечение контента, оптимизированные под LLM.",
+      "icon": "https://www.google.com/s2/favicons?domain=tavily.com&sz=64",
+      "homepage": "https://docs.tavily.com",
+      "categories": ["search", "web"],
+      "url": "https://mcp.tavily.com/mcp",
+      "auth_type": "bearer",
+      "requires": [
+        {
+          "key": "token",
+          "label": "API key",
+          "secret": true,
+          "placeholder": "tvly-...",
+          "help_url": "https://app.tavily.com/home"
+        }
+      ]
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "description": "Доступ к ошибкам, issues и трейсам проекта в Sentry.",
+      "icon": "https://www.google.com/s2/favicons?domain=sentry.io&sz=64",
+      "homepage": "https://docs.sentry.io/product/sentry-mcp/",
+      "categories": [
+        "dev",
+        "observability"
+      ],
+      "url": "https://mcp.sentry.dev/mcp",
+      "auth_type": "oauth2"
+    }
+  ]
+}

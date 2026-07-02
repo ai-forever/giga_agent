@@ -61,9 +61,24 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
         return {}
 
     def _get_websocket_connect_kwargs(self) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {}
         if self.is_base_url_internal():
-            return {"proxy": None}
-        return {}
+            kwargs["proxy"] = None
+        open_timeout = self._kernel_startup_timeout()
+        if open_timeout is not None:
+            # The server finishes the WS opening handshake only once the kernel
+            # is connected, so this doubles as the kernel-ready budget.
+            kwargs["open_timeout"] = open_timeout
+        return kwargs
+
+    def _kernel_startup_timeout(self) -> float | None:
+        """Seconds allotted for a kernel to come up (POST + WS handshake).
+
+        ``None`` keeps library defaults (``websockets`` ≈10s, ``aiohttp`` ≈300s).
+        Subclasses (e.g. the managed local sandbox) override with a configured
+        value so cold/contended kernel launches don't fail spuriously.
+        """
+        return None
 
     async def up(self) -> None:
         """
@@ -89,10 +104,22 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
             pass
         return False
 
+    async def _before_kernel_create(self, session: aiohttp.ClientSession) -> None:
+        """Hook invoked right before a brand new kernel is created."""
+        del session
+
+    async def _on_kernel_active(self, kernel_id: str) -> None:
+        """Hook invoked whenever a kernel is created or reused."""
+        del kernel_id
+
     async def _ensure_kernel(self) -> None:
-        async with aiohttp.ClientSession(
-            **self._get_client_session_kwargs()
-        ) as session:
+        session_kwargs = dict(self._get_client_session_kwargs())
+        kernel_timeout = self._kernel_startup_timeout()
+        if kernel_timeout is not None:
+            # Bound the kernel-creation POST too: the server blocks it until the
+            # kernel is ready, so without this it hangs on aiohttp's ~300s default.
+            session_kwargs["timeout"] = aiohttp.ClientTimeout(total=kernel_timeout)
+        async with aiohttp.ClientSession(**session_kwargs) as session:
             if self._kernel_id:
                 # Check if alive
                 try:
@@ -101,11 +128,13 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                         headers=self._get_headers(),
                     ) as r:
                         if r.status == 200:
+                            await self._on_kernel_active(self._kernel_id)
                             return
                 except Exception:
                     pass
 
             # Create new kernel
+            await self._before_kernel_create(session)
             payload = self._get_kernel_request_payload()
             async with session.post(
                 f"{self.base_url}/api/kernels",
@@ -115,6 +144,7 @@ class JupyterSandbox(BaseSandbox, CodeMixin):
                 r.raise_for_status()
                 data = await r.json()
                 self._kernel_id = data["id"]
+            await self._on_kernel_active(self._kernel_id)
 
     async def run_code(
         self,

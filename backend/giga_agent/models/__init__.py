@@ -114,6 +114,14 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionsPayload,
     ResourcePermissionRepository,
 )
+from giga_agent.models.rate_limit import (
+    RateLimit,
+    RateLimitBase,
+    RateLimitCreate,
+    RateLimitUpdate,
+    RateLimitResponse,
+    RateLimitRepository,
+)
 from giga_agent.models.skill import (
     Skill,
     SkillSourceType,
@@ -125,6 +133,27 @@ from giga_agent.models.skill import (
     SkillCreate,
     SkillUpdate,
     SkillRepository,
+)
+from giga_agent.models.project import (
+    Project,
+    ProjectCreate,
+    ProjectUpdate,
+    ProjectResponse,
+    ProjectRepository,
+)
+
+from giga_agent.models.mcp_server import (
+    McpServer,
+    McpServerCreate,
+    McpServerUpdate,
+    McpServerResponse,
+    McpServerRepository,
+)
+
+from giga_agent.models.oauth_connection import (
+    OAuthConnection,
+    OAuthConnectionRepository,
+    mcp_provider_key,
 )
 
 from giga_agent.models.channel import (
@@ -140,6 +169,15 @@ from giga_agent.models.channel import (
     ChannelThreadResponse,
     ChannelContactResponse,
     ChannelBotRepository,
+)
+
+from giga_agent.models.scheduled_task import (
+    ScheduledTask,
+    DeliveryTarget,
+    ScheduledTaskCreate,
+    ScheduledTaskUpdate,
+    ScheduledTaskResponse,
+    ScheduledTaskRepository,
 )
 
 __all__ = [
@@ -239,6 +277,13 @@ __all__ = [
     "ResourcePermission",
     "ResourcePermissionsPayload",
     "ResourcePermissionRepository",
+    # Rate limits
+    "RateLimit",
+    "RateLimitBase",
+    "RateLimitCreate",
+    "RateLimitUpdate",
+    "RateLimitResponse",
+    "RateLimitRepository",
     # Skills
     "Skill",
     "SkillSourceType",
@@ -250,6 +295,22 @@ __all__ = [
     "SkillCreate",
     "SkillUpdate",
     "SkillRepository",
+    # Projects
+    "Project",
+    "ProjectCreate",
+    "ProjectUpdate",
+    "ProjectResponse",
+    "ProjectRepository",
+    # MCP servers
+    "McpServer",
+    "McpServerCreate",
+    "McpServerUpdate",
+    "McpServerResponse",
+    "McpServerRepository",
+    # OAuth connections
+    "OAuthConnection",
+    "OAuthConnectionRepository",
+    "mcp_provider_key",
     # Channels
     "ChannelBot",
     "ChannelThread",
@@ -263,4 +324,11 @@ __all__ = [
     "ChannelThreadResponse",
     "ChannelContactResponse",
     "ChannelBotRepository",
+    # Scheduled tasks
+    "ScheduledTask",
+    "DeliveryTarget",
+    "ScheduledTaskCreate",
+    "ScheduledTaskUpdate",
+    "ScheduledTaskResponse",
+    "ScheduledTaskRepository",
 ]

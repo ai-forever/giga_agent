@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
+from cashews import cache
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import NotFoundError
 
@@ -13,6 +14,7 @@ from giga_agent.channels.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECO
     TELEGRAM_CHANNEL_TYPE
 from giga_agent.channels.telegram.runtime import get_thread_external_user_id
 from giga_agent.channels.telegram.utils import _langgraph_url, _make_token
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models.channel import ChannelBot, ChannelBotRepository
@@ -25,6 +27,11 @@ class TelegramThreadService:
     def __init__(self, *, bot_row: ChannelBot, user_email: str):
         self.bot_row = bot_row
         self.user_email = user_email
+
+    def _thread_lock_key(self, chat_id: int, external_user_id: str | None) -> str:
+        return (
+            f"channel:tg-thread:{self.bot_row.id}:{chat_id}:{external_user_id}"
+        )
 
     @property
     def assistant_id(self) -> str:
@@ -70,7 +77,10 @@ class TelegramThreadService:
         try:
             token = self.create_token()
             client = self.create_client(token)
-            await self.stop_thread_runs(client, thread_id)
+            try:
+                await self.stop_thread_runs(client, thread_id)
+            finally:
+                await client.aclose()
         except Exception:
             logger.warning(
                 "Failed to stop active runs for thread %s",
@@ -79,6 +89,26 @@ class TelegramThreadService:
             )
 
     async def get_or_create_thread(
+        self,
+        client: Any,
+        repo: ChannelBotRepository,
+        chat_id: int,
+        external_user_id: str | None = None,
+    ) -> str:
+        # Distributed lock (Redis-backed in prod, in-memory locally) serializes
+        # concurrent updates for the same chat — e.g. album parts arriving in
+        # parallel — so they cannot each create a thread.
+        setup_cache()
+        lock_key = self._thread_lock_key(chat_id, external_user_id)
+        async with cache.lock(lock_key, expire=30, wait=True):
+            return await self._get_or_create_thread(
+                client,
+                repo,
+                chat_id,
+                external_user_id,
+            )
+
+    async def _get_or_create_thread(
         self,
         client: Any,
         repo: ChannelBotRepository,
@@ -124,6 +154,10 @@ class TelegramThreadService:
             metadata["telegram_user_id"] = external_user_id
         metadata["channel"] = TELEGRAM_CHANNEL_TYPE
         metadata["is_channel"] = True
+        # Telegram has no approval UI — run autonomously so server-side tool calls
+        # execute without an interrupt (the message tool stays an MCP action and
+        # still interrupts for inline-button prompts).
+        metadata["auto_approve"] = True
         thread = await client.threads.create(metadata=metadata)
         thread_id = thread["thread_id"]
         await repo.create_thread(

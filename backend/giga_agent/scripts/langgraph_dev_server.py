@@ -148,6 +148,8 @@ def main() -> int:
     _patch_uvicorn_log_suppression(desired_level=log_level)
     reload_excludes = _build_reload_excludes()
 
+    from giga_agent.core.sqlite_checkpointer import CHECKPOINTER_CONFIG
+
     run_server(
         host,
         port,
@@ -157,6 +159,7 @@ def main() -> int:
         reload_excludes=reload_excludes,
         auth={"path": auth_path},
         http=http_config,
+        checkpointer=CHECKPOINTER_CONFIG,
         allow_blocking=True,
         timeout_graceful_shutdown=_DEV_SERVER_TIMEOUT_GRACEFUL_SHUTDOWN_SEC,
     )

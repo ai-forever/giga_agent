@@ -6,6 +6,7 @@ import abc
 import asyncio
 from typing import Any, ClassVar, Type
 
+from langchain_core.rate_limiters import BaseRateLimiter
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 
@@ -27,9 +28,14 @@ class BaseSearchEngine(BaseModel, abc.ABC):
     }
     _semaphore: asyncio.Semaphore = PrivateAttr()
     _initialized: bool = PrivateAttr(default=False)
+    _rate_limiter: BaseRateLimiter | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
         self._semaphore = asyncio.Semaphore(self.parallel_calls)
+
+    def attach_rate_limiter(self, limiter: BaseRateLimiter | None) -> None:
+        """Attach a rate limiter applied on every search invocation."""
+        self._rate_limiter = limiter
 
     async def init(self) -> None:
         self._initialized = True
@@ -50,6 +56,8 @@ class BaseSearchEngine(BaseModel, abc.ABC):
             )
         if not queries:
             return []
+        if self._rate_limiter is not None:
+            await self._rate_limiter.aacquire(blocking=True)
         async with self._semaphore:
             return await self._search(queries, **kwargs)
 

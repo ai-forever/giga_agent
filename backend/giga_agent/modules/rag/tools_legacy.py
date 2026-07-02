@@ -8,18 +8,19 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
 from giga_agent.core.agent.tool_results import build_error_tool_message
+from giga_agent.core.agent.types import Collection
 from giga_agent.core.db import get_session_factory
 from giga_agent.embeddings.manager import EmbeddingManager
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.modules.rag.database.collection_names import (
     rag_qdrant_collection_name_for_embedding,
 )
+from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 from giga_agent.vectorstores.qdrant import (
     get_qdrant_client,
     resolve_qdrant_collection,
 )
-from giga_agent.modules.rag.database.qdrant_store import build_filter, search_chunks
-from giga_agent.models.rag import RagCollectionsRepository
-from giga_agent.core.agent.types import Collection
 
 
 @tool(
@@ -45,7 +46,7 @@ async def get_documents(
     if runtime is None:
         return _error("ToolRuntime is required")
 
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
     try:
