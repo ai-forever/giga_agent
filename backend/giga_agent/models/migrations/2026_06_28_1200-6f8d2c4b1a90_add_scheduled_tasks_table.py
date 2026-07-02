@@ -33,7 +33,12 @@ def upgrade() -> None:
         sa.Column("timezone", sa.String(length=64), nullable=True),
         sa.Column("run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("targets", _JSON, nullable=True),
-        sa.Column("is_enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column(
+            "is_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.text("true"),
+        ),
         sa.Column("status", sa.String(length=30), nullable=False),
         sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),

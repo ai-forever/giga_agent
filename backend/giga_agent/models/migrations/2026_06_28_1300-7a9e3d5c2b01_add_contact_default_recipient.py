@@ -24,7 +24,7 @@ def upgrade() -> None:
                 "is_default_task_recipient",
                 sa.Boolean(),
                 nullable=False,
-                server_default=sa.text("0"),
+                server_default=sa.text("false"),
             )
         )
 
