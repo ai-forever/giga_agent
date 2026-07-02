@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from aiogram import Dispatcher, types as tg_types
 from aiogram.filters import Command
@@ -26,6 +27,11 @@ from giga_agent.core.logging import get_logger
 from giga_agent.models.channel import ChannelBot
 
 logger = get_logger(__name__)
+
+# Telegram delivers an album/gallery as several separate updates that share a
+# ``media_group_id``. We buffer them briefly and process the whole group as one
+# logical message so it produces a single thread and a single agent run.
+MEDIA_GROUP_DEBOUNCE_SECONDS = 1.0
 
 
 def _has_supported_attachment(message: tg_types.Message | None) -> bool:
@@ -56,6 +62,9 @@ class TelegramBotApp:
         self.bot = create_telegram_bot(get_bot_token(bot_row))
         self.dp = Dispatcher()
         self._task: asyncio.Task | None = None
+        # media_group_id -> {"messages": [...], "task": asyncio.Task}
+        self._media_groups: dict[str, dict[str, Any]] = {}
+        self._media_group_lock = asyncio.Lock()
 
         self.access_service = TelegramAccessService(bot_row=bot_row, bot=self.bot)
         self.thread_service = TelegramThreadService(
@@ -113,9 +122,66 @@ class TelegramBotApp:
             )
             if not text and not has_file:
                 return
+            if message.media_group_id is not None:
+                # An album's caption/@mention lives on a single part, so the
+                # access decision is deferred to flush time and evaluated over
+                # the whole group; per-part filtering here would drop the rest
+                # of the gallery in group chats.
+                await self._buffer_media_group(message)
+                return
             if not self.access_service.should_process_message(message):
                 return
             await self.handle_message(message)
+
+    async def _buffer_media_group(self, message: tg_types.Message) -> None:
+        """Collect album messages sharing a media_group_id and debounce a flush.
+
+        Each incoming part restarts the timer; once no new part arrives within
+        ``MEDIA_GROUP_DEBOUNCE_SECONDS`` the whole group is handled at once.
+        """
+        group_id = str(message.media_group_id)
+        async with self._media_group_lock:
+            buffer = self._media_groups.get(group_id)
+            if buffer is None:
+                buffer = {"messages": [], "task": None}
+                self._media_groups[group_id] = buffer
+            buffer["messages"].append(message)
+            if buffer["task"] is not None:
+                buffer["task"].cancel()
+            buffer["task"] = asyncio.create_task(self._flush_media_group(group_id))
+
+    async def _flush_media_group(self, group_id: str) -> None:
+        try:
+            await asyncio.sleep(MEDIA_GROUP_DEBOUNCE_SECONDS)
+        except asyncio.CancelledError:
+            return
+        async with self._media_group_lock:
+            buffer = self._media_groups.pop(group_id, None)
+        if not buffer:
+            return
+        messages: list[tg_types.Message] = buffer["messages"]
+        if not messages:
+            return
+        # Decide over the whole group: process only if some part is addressed to
+        # the bot (always true in private chats; a reply/@mention in groups).
+        processable = [
+            m for m in messages if self.access_service.should_process_message(m)
+        ]
+        if not processable:
+            return
+        # The caption/@mention of an album lives on a single part; pick a
+        # processable part (preferring one with text) as primary so handle_message
+        # passes its own access check and the agent gets the user's text.
+        primary = next((m for m in processable if (m.caption or m.text)), processable[0])
+        extras = [m for m in messages if m is not primary]
+        try:
+            await self.handle_message(primary, extra_file_messages=extras)
+        except Exception:
+            logger.exception(
+                "Failed to handle media group %s for bot %s",
+                group_id,
+                self.bot_row.id,
+            )
 
     async def handle_new(self, message: tg_types.Message) -> None:
         await self.message_handlers.handle_new(message)
@@ -144,6 +210,7 @@ class TelegramBotApp:
         reply_to_message_id: int | None = None,
         contact_message: tg_types.Message | None = None,
         text_override: str | None = None,
+        extra_file_messages: list[tg_types.Message] | None = None,
     ) -> None:
         await self.message_handlers.handle_message(
             message,
@@ -151,6 +218,7 @@ class TelegramBotApp:
             reply_to_message_id=reply_to_message_id,
             contact_message=contact_message,
             text_override=text_override,
+            extra_file_messages=extra_file_messages,
         )
 
     async def handle_callback_query(self, callback: tg_types.CallbackQuery) -> None:

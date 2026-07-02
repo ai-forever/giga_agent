@@ -1,5 +1,8 @@
 """Sidecar socat proxy for exposing sandbox ports to localhost."""
 
+import asyncio
+import re
+import time
 import uuid
 from typing import Any
 
@@ -7,8 +10,16 @@ from docker.errors import DockerException, NotFound
 
 from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
+from giga_agent.sandbox.access import (
+    SANDBOX_ACCESS_QUERY_PARAM,
+    mint_sandbox_access_token,
+)
 from giga_agent.sandbox.local_docker.constants import (
+    CLOUDFLARED_IMAGE,
     MANAGED_LABEL,
+    PROXY_KIND_LABEL,
+    PROXY_KIND_SOCAT,
+    PROXY_KIND_TUNNEL,
     PROXY_LABEL,
     PROXY_PORT_LABEL,
     SANDBOX_ID_LABEL,
@@ -16,6 +27,11 @@ from giga_agent.sandbox.local_docker.constants import (
 )
 
 logger = get_logger(__name__)
+
+# cloudflared quick-tunnel prints a line like
+# "https://<random-words>.trycloudflare.com" once the tunnel is up.
+_TRYCF_URL_RE = re.compile(rb"https://[a-z0-9-]+\.trycloudflare\.com")
+_TUNNEL_URL_TIMEOUT_SEC = 30
 
 
 class PortProxyMixin:
@@ -40,11 +56,6 @@ class PortProxyMixin:
             raise RuntimeError("sandbox_id is required for proxy network")
         return f"giga-sandbox-net-{self.sandbox_id}"
 
-    def _proxy_container_name(self, port: int) -> str:
-        if self.sandbox_id is None:
-            raise RuntimeError("sandbox_id is required for proxy container")
-        return f"giga-proxy-{self.sandbox_id}-{port}"
-
     def _proxy_sandbox_alias(self) -> str:
         if self.sandbox_id is None:
             raise RuntimeError("sandbox_id is required for proxy alias")
@@ -54,10 +65,20 @@ class PortProxyMixin:
     # labels / filters
     # ------------------------------------------------------------------
 
-    def _proxy_container_labels(self, port: int) -> dict[str, str]:
+    def _proxy_container_name(self, port: int, kind: str = PROXY_KIND_SOCAT) -> str:
+        if self.sandbox_id is None:
+            raise RuntimeError("sandbox_id is required for proxy container")
+        if kind == PROXY_KIND_TUNNEL:
+            return f"giga-tunnel-{self.sandbox_id}-{port}"
+        return f"giga-proxy-{self.sandbox_id}-{port}"
+
+    def _proxy_container_labels(
+        self, port: int, kind: str = PROXY_KIND_SOCAT
+    ) -> dict[str, str]:
         labels = self._container_labels()
         labels[PROXY_LABEL] = "true"
         labels[PROXY_PORT_LABEL] = str(port)
+        labels[PROXY_KIND_LABEL] = kind
         return labels
 
     @classmethod
@@ -82,10 +103,16 @@ class PortProxyMixin:
             filters=self._proxy_container_filters(self.sandbox_id),
         )
 
-    def _find_proxy_for_port(self, port: int) -> Any | None:
+    def _find_proxy_for_port(
+        self, port: int, kind: str = PROXY_KIND_SOCAT
+    ) -> Any | None:
         for container in self._find_proxy_containers():
             labels = getattr(container, "labels", None) or {}
-            if labels.get(PROXY_PORT_LABEL) == str(port):
+            if labels.get(PROXY_PORT_LABEL) != str(port):
+                continue
+            # Older proxies predate the kind label; treat them as socat.
+            container_kind = labels.get(PROXY_KIND_LABEL, PROXY_KIND_SOCAT)
+            if container_kind == kind:
                 return container
         return None
 
@@ -124,22 +151,38 @@ class PortProxyMixin:
 
         In docker-network mode with ``GIGA_AGENT_PUBLIC_BASE_DOMAIN`` set,
         returns ``https://{port}-sandbox-{sandbox_id_hex}.{domain}`` (proxied
-        by the frontend nginx). Otherwise spawns a socat sidecar and returns
-        ``http://localhost:{host_port}``.
+        by the frontend nginx). When there is no nginx mode and
+        ``GIGA_AGENT_PUBLISH_CLOUDFLARE_TUNNEL`` is set, spawns a
+        ``cloudflared`` quick-tunnel sidecar and returns its public
+        ``https://*.trycloudflare.com`` URL. Otherwise spawns a socat sidecar
+        and returns ``http://localhost:{host_port}``.
         """
         if self.sandbox_id is None:
             raise RuntimeError("sandbox_id is required to expose a port")
+        settings = get_settings()
         docker_network = self._docker_network()
-        if docker_network is not None:
-            base_domain = get_settings().giga_agent_public_base_domain
-            if not base_domain:
-                raise RuntimeError(
-                    "open_port is not available when GIGA_AGENT_DOCKER_NETWORK "
-                    "is set without GIGA_AGENT_PUBLIC_BASE_DOMAIN"
-                )
+        base_domain = settings.giga_agent_public_base_domain
+
+        if docker_network is not None and base_domain:
             await self._ensure_container_connected()
             self._ensure_hex_alias(docker_network)
-            return f"https://{port}-sandbox-{self.sandbox_id.hex}.{base_domain}"
+            sandbox_hex = self.sandbox_id.hex
+            token = await mint_sandbox_access_token(sandbox_hex, port)
+            return (
+                f"https://{port}-sandbox-{sandbox_hex}.{base_domain}/"
+                f"?{SANDBOX_ACCESS_QUERY_PARAM}={token}"
+            )
+
+        if settings.giga_agent_publish_cloudflare_tunnel:
+            return await self._expose_via_cloudflare_tunnel(port)
+
+        if docker_network is not None:
+            raise RuntimeError(
+                "open_port is not available when GIGA_AGENT_DOCKER_NETWORK "
+                "is set without GIGA_AGENT_PUBLIC_BASE_DOMAIN "
+                "(set GIGA_AGENT_PUBLISH_CLOUDFLARE_TUNNEL=true to use a "
+                "Cloudflare quick tunnel instead)"
+            )
         await self._ensure_container_connected()
 
         existing = self._find_proxy_for_port(port)
@@ -196,6 +239,103 @@ class PortProxyMixin:
                 f"Could not determine host port for proxy container {container_name}"
             )
         return f"http://localhost:{host_port}"
+
+    # ------------------------------------------------------------------
+    # cloudflare quick tunnel
+    # ------------------------------------------------------------------
+
+    async def _expose_via_cloudflare_tunnel(self, port: int) -> str:
+        """Expose *port* through a ``cloudflared`` quick-tunnel sidecar.
+
+        The sidecar joins the sandbox proxy network and reaches the app at
+        ``http://{sandbox_alias}:{port}`` via Docker DNS; no host port is
+        published since cloudflared connects outbound to Cloudflare's edge.
+        The assigned ``*.trycloudflare.com`` URL is read back from the
+        sidecar's logs. Reuses a running sidecar for the same port.
+        """
+        await self._ensure_container_connected()
+
+        existing = self._find_proxy_for_port(port, kind=PROXY_KIND_TUNNEL)
+        if existing is not None:
+            try:
+                existing.reload()
+            except NotFound:
+                existing = None
+
+        if existing is not None and self._container_is_running(existing):
+            url = await self._wait_for_tunnel_url(existing)
+            if url is not None:
+                return url
+
+        if existing is not None:
+            try:
+                existing.remove(force=True)
+            except NotFound:
+                pass
+
+        network = self._find_or_create_proxy_network()
+        self._ensure_sandbox_in_network(network)
+
+        sandbox_alias = self._proxy_sandbox_alias()
+        container_name = self._proxy_container_name(port, kind=PROXY_KIND_TUNNEL)
+
+        try:
+            stale = self._client.containers.get(container_name)
+            stale.remove(force=True)
+        except NotFound:
+            pass
+
+        logger.info(
+            "Starting cloudflared quick tunnel %s -> %s:%d",
+            container_name,
+            sandbox_alias,
+            port,
+        )
+        # The cloudflare/cloudflared image ENTRYPOINT is
+        # ["cloudflared", "--no-autoupdate"], so the command is just the
+        # subcommand + its flags.
+        tunnel = self._client.containers.run(
+            CLOUDFLARED_IMAGE,
+            command=f"tunnel --url http://{sandbox_alias}:{port}",
+            name=container_name,
+            network=network.name,
+            labels=self._proxy_container_labels(port, kind=PROXY_KIND_TUNNEL),
+            detach=True,
+            remove=True,
+        )
+
+        url = await self._wait_for_tunnel_url(tunnel)
+        if url is None:
+            try:
+                tunnel.remove(force=True)
+            except NotFound:
+                pass
+            raise RuntimeError(
+                "cloudflared did not report a tunnel URL within "
+                f"{_TUNNEL_URL_TIMEOUT_SEC}s for port {port}"
+            )
+        return url
+
+    async def _wait_for_tunnel_url(self, container: Any) -> str | None:
+        """Poll *container* logs for the assigned ``trycloudflare.com`` URL."""
+        deadline = time.monotonic() + _TUNNEL_URL_TIMEOUT_SEC
+        while time.monotonic() < deadline:
+            try:
+                container.reload()
+            except NotFound:
+                return None
+            try:
+                logs = container.logs(stdout=True, stderr=True)
+            except DockerException:
+                logs = b""
+            match = _TRYCF_URL_RE.search(logs)
+            if match is not None:
+                return match.group(0).decode()
+            # If cloudflared exited before emitting a URL, stop waiting.
+            if not self._container_is_running(container):
+                return None
+            await asyncio.sleep(0.5)
+        return None
 
     # ------------------------------------------------------------------
     # helpers

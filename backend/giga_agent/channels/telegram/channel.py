@@ -99,3 +99,30 @@ class TelegramChannel(Channel):
     async def restart(self, bot: ChannelBot) -> None:
         await self.stop(bot)
         await self.start(bot)
+
+    async def deliver(
+        self,
+        bot: ChannelBot,
+        external_chat_id: str,
+        parts: list,
+        *,
+        token: str,
+        external_user_id: str | None = None,
+    ) -> bool:
+        """Proactively send rendered parts to a Telegram chat.
+
+        Only the bot token is needed for outbound, so this works even when the
+        inbound polling app is not running.
+        """
+        from giga_agent.channels.telegram.services.media import TelegramMediaService
+
+        tg_bot = create_telegram_bot(self.bot_token)
+        try:
+            media = TelegramMediaService(bot=tg_bot, bot_row=bot)
+            return await media.send_parts_to_chat(
+                chat_id=external_chat_id,
+                token=token,
+                parts=parts,
+            )
+        finally:
+            await tg_bot.session.close()

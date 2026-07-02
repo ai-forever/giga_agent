@@ -435,6 +435,23 @@ def _md_to_tg_markdown_v2(text: str) -> str:
     def _escape(value: str) -> str:
         return re.sub(r"([_\[\]()~#+\-=|{}.!\\])", r"\\\1", value)
 
+    # Inline markdown links [text](url) -> MarkdownV2 links. Saved as placeholders
+    # so the general escaper below doesn't escape the []() and break the link.
+    links: list[str] = []
+
+    def _save_link(match: re.Match) -> str:
+        link_text = _escape(match.group(1))
+        # Inside the URL only ')' and '\' need escaping in MarkdownV2.
+        link_url = re.sub(r"([\\)])", r"\\\1", match.group(2))
+        links.append(f"[{link_text}]({link_url})")
+        return f"\x00LINK{len(links) - 1}\x00"
+
+    text = re.sub(
+        r"(?<![!\\])\[([^\]\[]+)\]\((https?://[^)\s]+)\)",
+        _save_link,
+        text,
+    )
+
     parts = re.split(r"(\*\*(?:(?!\*\*).)+\*\*)", text)
     result_parts: list[str] = []
     for part in parts:
@@ -450,6 +467,9 @@ def _md_to_tg_markdown_v2(text: str) -> str:
                     result_parts.append(_escape(sub_part))
 
     text = "".join(result_parts)
+
+    for i, link in enumerate(links):
+        text = text.replace(f"\x00LINK{i}\x00", link)
 
     for i, code in enumerate(inline_codes):
         text = text.replace(f"\x00INLINE{i}\x00", code)

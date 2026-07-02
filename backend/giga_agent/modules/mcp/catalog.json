@@ -90,7 +90,7 @@
       "homepage": "https://huggingface.co/settings/mcp",
       "categories": ["ai", "search"],
       "url": "https://huggingface.co/mcp",
-      "auth_type": "none"
+      "auth_type": "oauth2"
     },
     {
       "id": "tavily",

@@ -7,7 +7,7 @@ import { SecretInput } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api-client";
 import { API_AGENT_PREFIX } from "@/config.ts";
-import { useUserInfo } from "@/components/providers/user-info";
+import { useUserInfo } from "@/components/providers/user-info-context";
 import { useOAuthPopup } from "@/components/integrations/use-oauth-popup";
 
 const INTEGRATIONS_URL = `${API_AGENT_PREFIX}/integrations`;

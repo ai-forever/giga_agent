@@ -51,7 +51,7 @@ from giga_agent.core.agent.multi_tool_use import (
     collapse_tool_messages,
     expand_multi_tool_use,
 )
-from giga_agent.core.agent.prompt import BASE_PROMPT
+from giga_agent.core.agent.prompt import BASE_PROMPT, SCHEDULED_RUN_PROMPT
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.think import (
     THINK_VIA_FAST_MODEL,
@@ -111,9 +111,14 @@ def _generate_user_info(state: AgentState) -> str:
     language_prompt = ""
     if not language.startswith("ru"):
         language_prompt = f"\nВыбранный язык пользователя: {language}\n"
+    # Current time in the configured/system timezone so "in N minutes" the agent
+    # computes matches how scheduled times are interpreted (see scheduler).
+    from giga_agent.scheduled.cron import default_tz
+
+    now = datetime.now(default_tz())
     return (
         f"<user_info>\n"
-        f"Текущая дата: {datetime.today().strftime('%d.%m.%Y %H:%M')}"
+        f"Текущая дата: {now.strftime('%d.%m.%Y %H:%M')} ({now.strftime('%Z') or 'local'})"
         f"{language_prompt}</user_info>"
     )
 
@@ -173,6 +178,23 @@ def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
         return ""
 
     return ChannelRegistry.get(normalized_channel_type).get_prompt()
+
+
+def _resolve_scheduled_prompt(config: RunnableConfig | None) -> str:
+    """Extra system instructions for autonomous scheduled-task runs.
+
+    Gated on ``metadata.is_scheduled`` (set on the thread in
+    ``scheduled/runner.py``). Tells the model there is no live user, that the
+    system delivers the result itself, and that its final tool-call-free
+    message is the only thing the user receives — so all artifacts must be
+    gathered there.
+    """
+    if not isinstance(config, dict):
+        return ""
+    metadata = config.get("metadata", {}) or {}
+    if not metadata.get("is_scheduled"):
+        return ""
+    return SCHEDULED_RUN_PROMPT
 
 
 def _chain_async_tool_call_wrappers(
@@ -693,12 +715,14 @@ def create_graph(
         )
         llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
+        scheduled_prompt = _resolve_scheduled_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
                 user,
                 state=state,
                 config=config,
                 channel_prompt=channel_prompt,
+                scheduled_prompt=scheduled_prompt,
                 enable_think=think_enabled,
                 enable_multi_tool_use=multi_tool_use_enabled,
                 connector_sources=connector_sources,

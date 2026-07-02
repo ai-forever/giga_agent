@@ -27,6 +27,12 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
+# Names of the two built-in connector meta-tools. Single source of truth — used
+# for the @tool names, error hints and any prompt that references them, so the
+# tools can be renamed in one place.
+GET_INFO_TOOL_NAME = "connector_get_info"
+CALL_TOOL_NAME = "connector_call_tool"
+
 
 async def _resolve_context(
     runtime: ToolRuntime,
@@ -46,9 +52,10 @@ def _names(sources: list[ToolSource]) -> str:
 
 
 @tool(
+    GET_INFO_TOOL_NAME,
     description=(
         "Получить список инструментов конкретного коннектора и схему их аргументов. "
-        "Вызывай это ПЕРЕД connector_call_tool, чтобы узнать имена инструментов и поля params. "
+        f"Вызывай это ПЕРЕД {CALL_TOOL_NAME}, чтобы узнать имена инструментов и поля params. "
         "Аргумент connector — имя коннектора из списка доступных коннекторов."
     ),
 )
@@ -68,23 +75,24 @@ async def connector_get_info(
         return build_error_tool_message(
             content=f"connector '{connector}' not found; available: {_names(sources)}",
             runtime=runtime,
-            tool_name="connector_get_info",
+            tool_name=GET_INFO_TOOL_NAME,
         )
     specs = await target.list_tools(user_id=owner_id)
     return {
         "connector": target.name,
         "tools": [s.as_dict() for s in specs],
         "hint": (
-            f"Вызов: connector_call_tool(connector='{target.name}', tool='<имя>', "
+            f"Вызов: {CALL_TOOL_NAME}(connector='{target.name}', tool='<имя>', "
             "params='<JSON-строка из params_example>')"
         ),
     }
 
 
 @tool(
+    CALL_TOOL_NAME,
     description=(
         "Вызвать инструмент коннектора. connector — имя коннектора, tool — имя инструмента "
-        "(узнай через connector_get_info), params — JSON-строка с аргументами, например "
+        f"(узнай через {GET_INFO_TOOL_NAME}), params — JSON-строка с аргументами, например "
         '\'{"a": 1, "b": 2}\'. Если аргументы не нужны — params можно не передавать.'
     ),
 )
@@ -99,7 +107,7 @@ async def connector_call_tool(
 ) -> dict | ToolMessage:
     def _error(message: str) -> ToolMessage:
         return build_error_tool_message(
-            content=message, runtime=runtime, tool_name="connector_call_tool"
+            content=message, runtime=runtime, tool_name=CALL_TOOL_NAME
         )
 
     parsed_params: dict[str, Any] = {}
@@ -135,7 +143,7 @@ async def connector_call_tool(
         available = ", ".join(tool_names) or "<нет>"
         return _error(
             f"connector '{target.name}' has no tool '{tool}'; "
-            f"available: {available}; call connector_get_info('{target.name}')"
+            f"available: {available}; call {GET_INFO_TOOL_NAME}('{target.name}')"
         )
 
     outcome = await target.call_tool(
@@ -164,7 +172,7 @@ async def connector_call_tool(
         attachments.append(outcome.extra_attachment)
 
     additional_kwargs: dict[str, Any] = {
-        "tool_name": outcome.inner_name or "connector_call_tool",
+        "tool_name": outcome.inner_name or CALL_TOOL_NAME,
         "tool_args": parsed_params,
         "tool_attachments": attachments,
     }

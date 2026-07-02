@@ -7,8 +7,8 @@ failing tool forever. These detectors run on the message history at the start of
 each model step; if any fires, the caller stops the run with a terminal message.
 
 Detectors (matching the agreed design):
-- A: same tool call (name + args) repeated >= DUPLICATE_CALL_THRESHOLD times in
-     the current user turn.
+- A: same tool call (name + args) repeated >= DUPLICATE_CALL_THRESHOLD times
+     consecutively (a contiguous streak; an intervening different call resets it).
 - B: an oscillating cycle of tool-call signatures (A->B->A->B...).
 - C: too many tool rounds since the last user message (step budget).
 - D: a streak of consecutive errored tool results (failing retries).
@@ -25,8 +25,8 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-# A: identical (name + args) signature seen this many times in the turn.
-DUPLICATE_CALL_THRESHOLD = 4
+# A: identical (name + args) signature seen this many times consecutively.
+DUPLICATE_CALL_THRESHOLD = 10
 # B: an oscillating block must repeat at least this many times. Kept below
 # DUPLICATE_CALL_THRESHOLD so an A->B->A->B cycle is caught before any single
 # call hits the duplicate threshold.
@@ -69,16 +69,27 @@ def _messages_since_last_human(messages: list[AnyMessage]) -> list[AnyMessage]:
 
 
 def _detect_duplicate(signatures: list[str]) -> str | None:
-    """A: the most recent signature appears >= threshold times in the turn."""
+    """A: the most recent signature repeats >= threshold times *consecutively*.
+
+    Only a contiguous trailing streak counts — any intervening different call
+    resets it. This distinguishes a stuck model (spamming the identical call
+    back-to-back) from a healthy edit→check→edit→check workflow that reuses the
+    same idempotent verification command (``wc -c file``, ``ls``, ``git status``)
+    between productive steps.
+    """
     if not signatures:
         return None
     last = signatures[-1]
-    count = signatures.count(last)
-    if count >= DUPLICATE_CALL_THRESHOLD:
+    streak = 0
+    for sig in reversed(signatures):
+        if sig != last:
+            break
+        streak += 1
+    if streak >= DUPLICATE_CALL_THRESHOLD:
         name = last.split("::", 1)[0]
         return (
             f"повторяет один и тот же вызов '{name}' с теми же аргументами "
-            f"{count} раз(а)"
+            f"{streak} раз(а) подряд"
         )
     return None
 

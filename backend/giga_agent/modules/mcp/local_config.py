@@ -16,7 +16,6 @@ http servers are reached directly.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import platform
@@ -26,7 +25,7 @@ from pathlib import Path
 from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 from giga_agent.core.paths import giga_agent_dir
-from giga_agent.modules.mcp.resolved import ResolvedServer
+from giga_agent.modules.mcp.resolved import ResolvedServer, config_sig
 from giga_agent.utils.mcp_host import is_local_url
 
 logger = get_logger(__name__)
@@ -47,15 +46,9 @@ def local_config_path() -> Path:
     return giga_agent_dir() / "mcp.json"
 
 
-def _config_sig(cfg: dict) -> str:
-    """Stable hash of a server's config entry; changes iff the entry is edited."""
-    raw = json.dumps(cfg, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
-
 def _to_resolved(ns: str, cfg: dict) -> ResolvedServer | None:
     name = f"{LOCAL_PREFIX}{ns}"
-    sig = _config_sig(cfg)
+    sig = config_sig(cfg)
     if cfg.get("command"):
         return ResolvedServer(
             name=name,

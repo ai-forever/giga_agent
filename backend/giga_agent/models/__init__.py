@@ -171,6 +171,15 @@ from giga_agent.models.channel import (
     ChannelBotRepository,
 )
 
+from giga_agent.models.scheduled_task import (
+    ScheduledTask,
+    DeliveryTarget,
+    ScheduledTaskCreate,
+    ScheduledTaskUpdate,
+    ScheduledTaskResponse,
+    ScheduledTaskRepository,
+)
+
 __all__ = [
     # Users
     "User",
@@ -315,4 +324,11 @@ __all__ = [
     "ChannelThreadResponse",
     "ChannelContactResponse",
     "ChannelBotRepository",
+    # Scheduled tasks
+    "ScheduledTask",
+    "DeliveryTarget",
+    "ScheduledTaskCreate",
+    "ScheduledTaskUpdate",
+    "ScheduledTaskResponse",
+    "ScheduledTaskRepository",
 ]

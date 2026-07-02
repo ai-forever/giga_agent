@@ -277,6 +277,15 @@ class McpSessionPool:
         raise NotImplementedError
         yield  # noqa: W0101 - makes this an async generator for typing
 
+    async def invalidate(
+        self, *, cache_id: str, user_id: uuid.UUID | None = None
+    ) -> None:  # pragma: no cover - default no-op
+        """Drop any warm sessions for a server (all users, or one user).
+
+        No-op for pools that don't keep warm sessions (``DirectPool`` / off).
+        """
+        pass
+
     async def shutdown(self) -> None:  # pragma: no cover - default no-op
         pass
 
@@ -303,8 +312,10 @@ class LocalSessionPool(McpSessionPool):
         max_total: int,
         idle_ttl: int,
         max_lifetime: int,
+        max_per_server_oauth: int = 1,
     ):
         self.max_per_server = max(1, max_per_server)
+        self.max_per_server_oauth = max(1, max_per_server_oauth)
         self.max_per_user = max(1, max_per_user)
         self.max_total = max(1, max_total)
         self.idle_ttl = max(1, idle_ttl)
@@ -319,9 +330,14 @@ class LocalSessionPool(McpSessionPool):
         self._closing = False
 
     def _poolable(self, server: ResolvedServer) -> bool:
-        # OAuth sessions need request-scoped db + the refresh lock; keep them
-        # one-shot for now (extension point).
-        return server.auth_type != "oauth2"
+        # All auth types are pooled. OAuth is capped at max_per_server_oauth
+        # (default 1) so its token refresh stays serialized per (user, server).
+        return True
+
+    def _max_per_server(self, server: ResolvedServer) -> int:
+        if server.auth_type == "oauth2":
+            return self.max_per_server_oauth
+        return self.max_per_server
 
     @asynccontextmanager
     async def acquire(
@@ -372,7 +388,7 @@ class LocalSessionPool(McpSessionPool):
                 w.state = _BUSY
                 return w
             if (
-                self._per_key[key] < self.max_per_server
+                self._per_key[key] < self._max_per_server(server)
                 and self._per_user[user_id] < self.max_per_user
                 and self._total < self.max_total
             ):
@@ -399,6 +415,25 @@ class LocalSessionPool(McpSessionPool):
             else:
                 worker.state = _IDLE
                 self._idle[worker.key].append(worker)
+
+    async def invalidate(
+        self, *, cache_id: str, user_id: uuid.UUID | None = None
+    ) -> None:
+        """Kill warm sessions for ``cache_id`` (all users, or one ``user_id``).
+
+        Called when a server's config/creds change so the next request opens a
+        fresh session instead of reusing a warm one bound to stale settings.
+        """
+        async with self._lock:
+            for w in list(self._all):
+                if w.key[1] != cache_id:
+                    continue
+                if user_id is not None and w.key[0] != user_id:
+                    continue
+                dq = self._idle.get(w.key)
+                if dq and w in dq:
+                    dq.remove(w)
+                self._kill_locked(w)
 
     async def _retire_if_idle(self, worker: _Worker) -> bool:
         """Called by an idle worker on its TTL timeout. True → it should exit."""
@@ -468,6 +503,7 @@ def _build_pool() -> McpSessionPool:
         )
     return LocalSessionPool(
         max_per_server=s.giga_agent_mcp_pool_max_per_server,
+        max_per_server_oauth=s.giga_agent_mcp_pool_max_per_server_oauth,
         max_per_user=s.giga_agent_mcp_pool_max_per_user,
         max_total=s.giga_agent_mcp_pool_max_total,
         idle_ttl=s.giga_agent_mcp_pool_idle_ttl_sec,
@@ -481,6 +517,18 @@ def get_pool() -> McpSessionPool:
     if _pool is None:
         _pool = _build_pool()
     return _pool
+
+
+async def invalidate_pool_for_server(
+    server_id: Any, *, user_id: uuid.UUID | None = None
+) -> None:
+    """Drop warm pool sessions for a DB server (its ``cache_id`` is ``str(id)``).
+
+    Wired into ``invalidate_tools_cache`` so editing/deleting a server or
+    completing an OAuth (re)auth also recycles any warm session bound to the old
+    config/creds — not just the tool-discovery cache.
+    """
+    await get_pool().invalidate(cache_id=str(server_id), user_id=user_id)
 
 
 async def shutdown_pool() -> None:

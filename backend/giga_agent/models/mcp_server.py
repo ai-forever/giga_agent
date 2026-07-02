@@ -173,6 +173,12 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
     @staticmethod
     async def invalidate_tools_cache(server_id: uuid.UUID) -> None:
         await cache.delete(McpServerRepository.cache_key(server_id))
+        # Also recycle any warm pool session bound to the old config/creds — the
+        # tool-discovery cache and the live session are invalidated together.
+        # Lazy import avoids a models -> modules import cycle.
+        from giga_agent.modules.mcp.pool import invalidate_pool_for_server
+
+        await invalidate_pool_for_server(server_id)
 
     async def get_by_id(self, server_id: uuid.UUID) -> McpServer | None:
         result = await self.db.execute(
@@ -293,8 +299,17 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
         *,
         can_edit: bool = False,
         tool_count: int | None = None,
+        has_token: bool | None = None,
     ) -> McpServerResponse:
         settings = server.settings or {}
+        # For oauth2 the token lives in ``core_oauth_connections`` (per user), not
+        # in ``settings`` — callers pass an explicit ``has_token`` computed from
+        # that store. Fall back to the settings heuristic for bearer servers.
+        resolved_has_token = (
+            has_token
+            if has_token is not None
+            else bool(settings.get("token") or settings.get("client_id"))
+        )
         return McpServerResponse(
             id=server.id,
             owner_id=server.owner_id,
@@ -303,7 +318,7 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
             auth_type=server.auth_type,
             is_active=server.is_active,
             is_local=server.is_local,
-            has_token=bool(settings.get("token") or settings.get("client_id")),
+            has_token=resolved_has_token,
             token_hint=_mask_secret(settings.get("token")),
             oauth_scope=settings.get("scope"),
             use_dcr=bool(settings.get("use_dcr")),

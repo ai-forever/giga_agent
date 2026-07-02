@@ -23,7 +23,9 @@ const USER_ME_URL = `${API_AGENT_PREFIX}/auth/users/me`;
 // local_<ns>). Мирроринг бэкенд-константы LOCAL_DISABLED_SETTINGS_KEY.
 const DISABLED_LOCAL_KEY = "disabledLocalServers";
 
-function readDisabledLocal(settings: Record<string, unknown> | null | undefined): string[] {
+function readDisabledLocal(
+  settings: Record<string, unknown> | null | undefined,
+): string[] {
   const raw = settings?.[DISABLED_LOCAL_KEY];
   if (!Array.isArray(raw)) return [];
   return raw.filter((x): x is string => typeof x === "string");
@@ -46,8 +48,11 @@ export interface UseConnectorsResult {
   reloadCatalog: () => Promise<void>;
   reload: () => Promise<void>;
   toggleActive: (id: string, isActive: boolean) => Promise<void>;
-  connect: (entryId: string, inputs: Record<string, string>) => Promise<DbServer>;
-  createCustom: (input: CreateConnectorInput) => Promise<void>;
+  connect: (
+    entryId: string,
+    inputs: Record<string, string>,
+  ) => Promise<DbServer>;
+  createCustom: (input: CreateConnectorInput) => Promise<DbServer>;
   remove: (id: string) => Promise<void>;
   test: (id: string) => Promise<void>;
   refresh: (id: string) => Promise<void>;
@@ -200,7 +205,7 @@ export function useConnectors(): UseConnectorsResult {
         if (input.scope?.trim()) settings.scope = input.scope.trim();
         settings.use_dcr = true;
       }
-      await apiClient.post(MCP_SERVERS_URL, {
+      const created = await apiClient.post<DbServer>(MCP_SERVERS_URL, {
         name: input.name?.trim() || undefined,
         url: input.url.trim(),
         auth_type: input.authType,
@@ -209,6 +214,7 @@ export function useConnectors(): UseConnectorsResult {
         check_connection: input.authType !== "oauth2",
       });
       await reload();
+      return created;
     },
     [reload],
   );
@@ -235,7 +241,9 @@ export function useConnectors(): UseConnectorsResult {
         if (res.auth_required) {
           toast.info("Требуется авторизация — нажмите «Авторизоваться»");
         } else if (res.ok) {
-          toast.success(`Подключение успешно: инструментов ${res.tool_count ?? 0}`);
+          toast.success(
+            `Подключение успешно: инструментов ${res.tool_count ?? 0}`,
+          );
         } else {
           toast.error("Подключение не удалось");
         }

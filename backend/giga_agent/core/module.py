@@ -231,6 +231,11 @@ class BaseModule(Serializable):
 
         Удобный дефолт для `is_enabled` у модулей, зависящих от интеграций.
         """
+        from giga_agent.conf import get_settings
+
+        # В CLI-режиме нет БД интеграций — считаем провайдеры подключёнными.
+        if get_settings().giga_agent_runtime == "cli":
+            return True
         user_id = getattr(user, "id", None)
         if user_id is None:
             return False

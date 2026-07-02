@@ -44,7 +44,7 @@ const SettingsPage: React.FC = () => {
     { id: "general", label: "Основные" },
     { id: "llm", label: "LLM" },
     { id: "embedding", label: "Embeddings" },
-    { id: "connectors", label: "Коннекторы" },
+    { id: "connectors", label: "Подключения" },
     { id: "integrations", label: "Интеграции" },
     { id: "image", label: "Image" },
     { id: "search", label: "Поиск" },

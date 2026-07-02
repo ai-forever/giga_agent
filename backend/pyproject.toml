@@ -64,6 +64,7 @@ dependencies = [
     "plotly>=6.0.0,<7.0.0",
     "kaleido>=1.0.0,<2.0.0",
     "aiogram>=3.26.0,<4.0.0",
+    "croniter>=2.0.0,<7.0.0",
     "google-genai>=1.66.0,<2.0.0",
     "socksio~=1.0.0",
     "aiohttp-socks~=0.11.0",

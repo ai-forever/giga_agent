@@ -1,5 +1,5 @@
 import React from "react";
-import { Blocks, Plug, Plus, Settings2 } from "lucide-react";
+import { Blocks, Settings2 } from "lucide-react";
 
 import {
   DropdownMenuItem,
@@ -9,7 +9,8 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
+import ConnectorIcon from "./connector-icon";
 import { iconForConnector } from "./types";
 
 /**
@@ -19,13 +20,15 @@ import { iconForConnector } from "./types";
 const ConnectorsMenu: React.FC = () => {
   const {
     connectors: api,
-    openConnectorsDirectory,
-    openConnectorsManage,
+    openConnectors,
     toggleModule,
     enabledModules,
   } = useUserInfo();
   const { connectors, catalog, moduleCatalog, toggleActive } = api;
-  const connectedModules = moduleCatalog.filter((m) => m.status === "connected");
+  const connectedModules = moduleCatalog.filter(
+    (m) => m.status === "connected",
+  );
+  const hasAny = connectors.length > 0 || connectedModules.length > 0;
 
   return (
     <DropdownMenuSub>
@@ -34,13 +37,12 @@ const ConnectorsMenu: React.FC = () => {
         <span>Коннекторы</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-[260px] max-h-[60vh] overflow-y-auto p-2 space-y-1">
-        <DropdownMenuItem onSelect={openConnectorsDirectory} className="gap-2">
-          <Plus className="size-4" />
-          <span>Добавить коннектор</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={openConnectorsManage} className="gap-2">
+        <DropdownMenuItem
+          onSelect={() => openConnectors(hasAny ? "connected" : "catalog")}
+          className="gap-2"
+        >
           <Settings2 className="size-4" />
-          <span>Управление коннекторами</span>
+          <span>Настроить коннекторы</span>
         </DropdownMenuItem>
 
         {(connectors.length > 0 || connectedModules.length > 0) && (
@@ -59,18 +61,7 @@ const ConnectorsMenu: React.FC = () => {
             className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
           >
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              {m.icon ? (
-                <img
-                  src={m.icon}
-                  alt=""
-                  className="size-5 rounded shrink-0"
-                  onError={(e) => {
-                    e.currentTarget.style.display = "none";
-                  }}
-                />
-              ) : (
-                <Plug className="size-5 shrink-0 text-muted-foreground" />
-              )}
+              <ConnectorIcon src={m.icon} className="size-5" />
               <span className="text-sm truncate max-w-[200px]">{m.name}</span>
             </div>
             <Switch
@@ -90,18 +81,7 @@ const ConnectorsMenu: React.FC = () => {
               className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                {icon ? (
-                  <img
-                    src={icon}
-                    alt=""
-                    className="size-5 rounded shrink-0"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <Plug className="size-5 shrink-0 text-muted-foreground" />
-                )}
+                <ConnectorIcon src={icon} className="size-5" />
                 <span className="text-sm truncate max-w-[200px]">{c.name}</span>
                 {c.source === "file" && (
                   <span className="text-[10px] text-muted-foreground shrink-0">

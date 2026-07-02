@@ -256,6 +256,24 @@ class TestTelegramMarkdownConversion:
 
         assert _md_to_tg_markdown_v2(text) == "*Заголовок*\n\n*Подзаголовок*"
 
+    def test_converts_inline_link_to_markdown_v2_link(self):
+        text = "🔗 [Euronews](https://ru.euronews.com/business/2026/06/18/x)"
+
+        assert _md_to_tg_markdown_v2(text) == (
+            "🔗 [Euronews](https://ru.euronews.com/business/2026/06/18/x)"
+        )
+
+    def test_link_text_is_escaped_but_url_is_not(self):
+        text = "[a_b.c](https://e.com/a_b?x=1)"
+
+        # Link text escaped per MarkdownV2; URL kept intact so it stays clickable.
+        assert _md_to_tg_markdown_v2(text) == "[a\\_b\\.c](https://e.com/a_b?x=1)"
+
+    def test_keeps_surrounding_text_escaping_around_link(self):
+        text = "См. [тут](https://e.com) подробнее."
+
+        assert _md_to_tg_markdown_v2(text) == "См\\. [тут](https://e.com) подробнее\\."
+
     def test_wraps_markdown_table_in_code_block(self):
         text = (
             "Результаты:\n\n"

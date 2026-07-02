@@ -144,9 +144,9 @@ export const ConnectorsSettings: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-medium">Коннекторы</h3>
+          <h3 className="font-medium">Подключения</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Управление коннекторами для LLM и генераторов
+            Управление подключениями для LLM и генераторов
           </p>
         </div>
         {!isCreatingNew && (

@@ -24,6 +24,10 @@ from giga_agent.models.mcp_server import (
     McpServerUpdate,
     normalize_settings,
 )
+from giga_agent.models.oauth_connection import (
+    OAuthConnectionRepository,
+    mcp_provider_key,
+)
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
@@ -115,8 +119,27 @@ async def list_servers(
         user_id=current_user.id,
         only_active=only_active,
     )
+    # oauth2 token state lives in core_oauth_connections (per user), not settings.
+    has_oauth = any(
+        (item.auth_type or "").lower() == "oauth2" for item, _ in rows
+    )
+    authorized: set[str] = (
+        await OAuthConnectionRepository(repo.db).authorized_provider_keys(
+            current_user.id
+        )
+        if has_oauth
+        else set()
+    )
     return [
-        McpServerRepository.to_response(item, can_edit=can_edit)
+        McpServerRepository.to_response(
+            item,
+            can_edit=can_edit,
+            has_token=(
+                mcp_provider_key(item.id) in authorized
+                if (item.auth_type or "").lower() == "oauth2"
+                else None
+            ),
+        )
         for item, can_edit in rows
     ]
 
@@ -348,7 +371,15 @@ async def get_server(
         repository=repo,
         not_found_detail="MCP server not found",
     )
-    return McpServerRepository.to_response(server, can_edit=can_edit)
+    has_token: bool | None = None
+    if (server.auth_type or "").lower() == "oauth2":
+        conn = await OAuthConnectionRepository(repo.db).get(
+            current_user.id, mcp_provider_key(server.id)
+        )
+        has_token = bool(conn and conn.access_token)
+    return McpServerRepository.to_response(
+        server, can_edit=can_edit, has_token=has_token
+    )
 
 
 @router.patch("/{server_id}", response_model=McpServerResponse)

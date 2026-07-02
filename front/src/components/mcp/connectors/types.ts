@@ -81,7 +81,7 @@ export interface CreateConnectorInput {
 
 // --- Подключаемые нативные модули (vk, yandex_disk, github, …) -------------- //
 // Приходят из GET /agent/connectors/catalog вместе с MCP-каталогом и
-// рендерятся в том же гриде directory-modal.
+// рендерятся в том же гриде вкладки «Каталог» (catalog-tab).
 
 export type ModuleAuthKind = "oauth2" | "manual_token" | "both";
 export type ModuleConnStatus = "not_connected" | "connected" | "needs_reauth";
@@ -113,12 +113,42 @@ export interface ConnectorsCatalog {
   modules: ModuleCatalogEntry[];
 }
 
-// Подобрать иконку коннектора по совпадению URL с записью каталога.
+// Свести hostname к основному домену, отбросив сабдомены:
+// mcp.example.com -> example.com. Для многоуровневых зон (co.uk, com.br и т.п.)
+// сохраняем три последних лейбла. IP-адреса и «голые» хосты возвращаем как есть.
+function baseDomain(hostname: string): string {
+  const labels = hostname.split(".");
+  if (labels.length <= 2) return hostname;
+  // Двухуровневый публичный суффикс (co.uk, com.br, ...) — берём 3 лейбла.
+  const secondLevel = labels[labels.length - 2];
+  const isTwoPartTld =
+    secondLevel.length <= 3 && labels[labels.length - 1].length <= 3;
+  return labels.slice(isTwoPartTld ? -3 : -2).join(".");
+}
+
+// Собрать URL фавиконки по основному домену MCP-сервера (без сабдоменов) —
+// фолбэк для кастомных коннекторов, которых нет в каталоге. При ошибке загрузки
+// вызывающий код прячет <img> (onError), поэтому «мусорный» URL безопасен.
+export function faviconForUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const { hostname } = new URL(url);
+    if (!hostname) return null;
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(
+      baseDomain(hostname),
+    )}&sz=64`;
+  } catch {
+    return null;
+  }
+}
+
+// Подобрать иконку коннектора: сперва по совпадению URL с записью каталога,
+// иначе — фавиконка домена самого коннектора.
 export function iconForConnector(
   connector: Pick<UnifiedServer, "url">,
   catalog: CatalogEntry[],
 ): string | null {
   if (!connector.url) return null;
   const entry = catalog.find((c) => c.url === connector.url);
-  return entry?.icon ?? null;
+  return entry?.icon ?? faviconForUrl(connector.url);
 }

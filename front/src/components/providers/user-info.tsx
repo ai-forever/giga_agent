@@ -1,29 +1,22 @@
 import React, {
-  createContext,
   PropsWithChildren,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
 } from "react";
 import { type MCPTool } from "@/components/mcp/mcp-modal.tsx";
 import ContextModal from "@/components/modals/context-modal.tsx";
-import ConnectorsDirectoryModal from "@/components/mcp/connectors/directory-modal.tsx";
-import ConnectorsManageModal from "@/components/mcp/connectors/manage-modal.tsx";
-import {
-  useConnectors,
-  type UseConnectorsResult,
-} from "@/components/mcp/connectors/use-connectors.ts";
+import ConnectorsModal, {
+  type ConnectorsTab,
+} from "@/components/mcp/connectors/connectors-modal.tsx";
+import { useConnectors } from "@/components/mcp/connectors/use-connectors.ts";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
-
-export interface ModuleInfo {
-  id: string;
-  label: string;
-  description: string;
-  icon: string;
-}
+import {
+  UserInfoContext,
+  type ModuleInfo,
+} from "@/components/providers/user-info-context.ts";
 
 const readDisabledFromUser = (user: unknown): string[] => {
   const settings = (user as { settings?: unknown } | null | undefined)
@@ -34,28 +27,11 @@ const readDisabledFromUser = (user: unknown): string[] => {
   return raw.filter((x): x is string => typeof x === "string");
 };
 
-type UserInfoContextType = {
-  mcpTools: MCPTool[];
-  setMcpTools: React.Dispatch<React.SetStateAction<MCPTool[]>>;
-  connectors: UseConnectorsResult;
-  openConnectorsDirectory: () => void;
-  openConnectorsManage: () => void;
-  openContextModal: () => void;
-  closeContextModal: () => void;
-  enabledModules: Record<string, boolean>;
-  toggleModule: (moduleId: string, enabled: boolean) => Promise<void>;
-  setModulesState: (updates: Record<string, boolean>) => Promise<void>;
-  availableModules: ModuleInfo[];
-  refreshModules: () => void;
-};
-
-const UserInfoContext = createContext<UserInfoContextType | null>(null);
-
 export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
   const connectors = useConnectors();
-  const [directoryOpen, setDirectoryOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [connectorsTab, setConnectorsTab] = useState<ConnectorsTab>("catalog");
   const [contextModalOpen, setContextModalOpen] = useState(false);
   const [availableModules, setAvailableModules] = useState<ModuleInfo[]>([]);
   const { token, user, refreshUser } = useAuth();
@@ -90,12 +66,9 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
     void refreshModules();
   }, [refreshModules]);
 
-  const openConnectorsDirectory = useCallback(() => {
-    setDirectoryOpen(true);
-  }, []);
-
-  const openConnectorsManage = useCallback(() => {
-    setManageOpen(true);
+  const openConnectors = useCallback((tab: ConnectorsTab = "catalog") => {
+    setConnectorsTab(tab);
+    setConnectorsOpen(true);
   }, []);
 
   const openContextModal = useCallback(() => {
@@ -160,8 +133,7 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
         mcpTools,
         setMcpTools,
         connectors,
-        openConnectorsDirectory,
-        openConnectorsManage,
+        openConnectors,
         openContextModal,
         closeContextModal,
         enabledModules,
@@ -172,33 +144,13 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
       }}
     >
       {children}
-      <ConnectorsDirectoryModal
-        isOpen={directoryOpen}
-        onClose={() => setDirectoryOpen(false)}
+      <ConnectorsModal
+        isOpen={connectorsOpen}
+        onClose={() => setConnectorsOpen(false)}
         api={connectors}
-        onManage={() => {
-          setDirectoryOpen(false);
-          setManageOpen(true);
-        }}
-      />
-      <ConnectorsManageModal
-        isOpen={manageOpen}
-        onClose={() => setManageOpen(false)}
-        api={connectors}
-        onAdd={() => {
-          setManageOpen(false);
-          setDirectoryOpen(true);
-        }}
+        initialTab={connectorsTab}
       />
       <ContextModal isOpen={contextModalOpen} onClose={closeContextModal} />
     </UserInfoContext.Provider>
   );
-};
-
-export const useUserInfo = () => {
-  const context = useContext(UserInfoContext);
-  if (context === null) {
-    throw new Error("useUserInfo must be used within a UserInfoProvider");
-  }
-  return context;
 };

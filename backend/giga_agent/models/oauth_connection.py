@@ -104,6 +104,20 @@ class OAuthConnectionRepository:
         )
         return list(result.scalars().all())
 
+    async def authorized_provider_keys(self, user_id: uuid.UUID) -> set[str]:
+        """Provider keys for which *user_id* has a usable access token.
+
+        Rows holding only DCR client creds (``access_token IS NULL``) are excluded
+        — authorization is not yet complete for those.
+        """
+        result = await self.db.execute(
+            select(OAuthConnection.provider_key).where(
+                OAuthConnection.user_id == user_id,
+                OAuthConnection.access_token.is_not(None),
+            )
+        )
+        return set(result.scalars().all())
+
     async def upsert(
         self,
         *,

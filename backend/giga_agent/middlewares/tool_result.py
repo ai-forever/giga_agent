@@ -284,6 +284,20 @@ async def process_tool_result(
             },
         )
 
+    # `python`/`shell` return raw stdout: cap it inline (with a hint to reduce
+    # output) instead of offloading to a result_path file — otherwise the model
+    # reads that file via python, its stdout again exceeds the limit, and we loop.
+    # `_build_inline_output_message` only truncates when over the size limit, so
+    # small outputs pass through unchanged.
+    if tool_name in _INLINE_OUTPUT_TOOLS:
+        return _build_inline_output_message(
+            normalized_result,
+            action,
+            tool_attachments,
+            message,
+            _get_max_tool_size(),
+        )
+
     result_path = await _save_tool_result(
         normalized_result, action=action, config=config
     )
@@ -613,19 +627,34 @@ class ToolResultMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command:
         result = await handler(request)
         if isinstance(result, ToolMessage):
-            ak = result.additional_kwargs or {}
-            attachments = ak.get("tool_attachments", [])
-            # connector_call_tool advertises the wrapped tool's extras/name so we
-            # apply that tool's processing semantics rather than the meta-tool's.
-            has_inner = "effective_extras" in ak
-            return await process_tool_result(
-                result.content,
-                request.tool_call,
-                attachments,
-                request.runtime.config,
-                request.tool,
-                extras_override=ak.get("effective_extras") if has_inner else None,
-                name_override=ak.get("tool_name") if has_inner else None,
-                args_override=ak.get("tool_args") if has_inner else None,
-            )
+            return await self._process_tool_message(result, request)
+        # Tools that build their own ToolMessage and return it inside a Command
+        # (e.g. `python`/`shell`) would otherwise bypass truncation/offload — the
+        # very tools in ``_INLINE_OUTPUT_TOOLS``. Process the embedded messages so
+        # a huge stdout is capped before it reaches the model's context.
+        if isinstance(result, Command) and isinstance(result.update, dict):
+            messages = result.update.get("messages")
+            if isinstance(messages, list):
+                for i, msg in enumerate(messages):
+                    if isinstance(msg, ToolMessage):
+                        messages[i] = await self._process_tool_message(msg, request)
         return result
+
+    async def _process_tool_message(
+        self, message: ToolMessage, request: ToolCallRequest
+    ) -> ToolMessage:
+        ak = message.additional_kwargs or {}
+        attachments = ak.get("tool_attachments", [])
+        # connector_call_tool advertises the wrapped tool's extras/name so we
+        # apply that tool's processing semantics rather than the meta-tool's.
+        has_inner = "effective_extras" in ak
+        return await process_tool_result(
+            message.content,
+            request.tool_call,
+            attachments,
+            request.runtime.config,
+            request.tool,
+            extras_override=ak.get("effective_extras") if has_inner else None,
+            name_override=ak.get("tool_name") if has_inner else None,
+            args_override=ak.get("tool_args") if has_inner else None,
+        )

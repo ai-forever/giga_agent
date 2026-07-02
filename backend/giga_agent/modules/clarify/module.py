@@ -21,6 +21,23 @@ class ClarifyModule(BaseModule):
 
     id: str = "clarify"
 
+    @staticmethod
+    def _is_disabled_context(config: RunnableConfig | None) -> bool:
+        """Disable ask_questions where there's no interactive user to answer.
+
+        Channel runs (no synchronous UI) and scheduled/background runs (nobody is
+        watching) carry these flags in the thread metadata (langgraph surfaces
+        them in ``config.metadata``).
+        """
+        if not isinstance(config, dict):
+            return False
+        metadata = config.get("metadata") or {}
+        return bool(
+            metadata.get("is_channel")
+            or metadata.get("is_scheduled")
+            or metadata.get("type") == "scheduled_task"
+        )
+
     async def _get_tools(
         self,
         user: "UserShort | None",
@@ -29,10 +46,8 @@ class ClarifyModule(BaseModule):
         config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> List[BaseTool]:
-        if isinstance(config, dict):
-            metadata = config.get("metadata") or {}
-            if metadata.get("is_channel"):
-                return []
+        if self._is_disabled_context(config):
+            return []
 
         from giga_agent.modules.clarify.tools import ask_questions
 
@@ -47,10 +62,8 @@ class ClarifyModule(BaseModule):
         **kwargs: Any,
     ) -> str | None:
         _ = user, agent, state, kwargs
-        if isinstance(config, dict):
-            metadata = config.get("metadata") or {}
-            if metadata.get("is_channel"):
-                return None
+        if self._is_disabled_context(config):
+            return None
 
         return (
             "You have the `ask_questions` tool for gathering structured input from the user. "

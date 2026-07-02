@@ -92,15 +92,16 @@ async def _open_session(
     """
     _ensure_local_allowed(server)
 
-    # Serialize OAuth sessions per (user, server) so concurrent calls don't
-    # race on token refresh and invalidate each other's refresh token.
-    if server.auth_type == "oauth2":
-        refresh_lock = cache.lock(f"mcp:refresh:{user_id}:{server.cache_id}", expire=30)
-    else:
-        refresh_lock = nullcontext()
-
+    # NOTE: OAuth token refresh is NOT serialized by a lock here. A per-session
+    # lock wrapping the whole ``yield`` is incompatible with the warm-session
+    # pool (a session lives up to ~30 min, far past any sane lock TTL) and the
+    # mcp SDK's OAuthClientProvider refreshes lazily at request time anyway, not
+    # at open. Instead we rely on: max_per_server_oauth=1 (one warm session per
+    # (user, server) in-pod → refresh is serialized for free) plus self-heal —
+    # a refresh that loses a cross-pod rotation race fails, poisons the worker,
+    # and the next open re-reads the fresh token from the DB.
     throttle_cm = _semaphore_for(server.cache_id) if throttle else nullcontext()
-    async with throttle_cm, refresh_lock:
+    async with throttle_cm:
         try:
             if server.transport == "stdio":
                 params = StdioServerParameters(

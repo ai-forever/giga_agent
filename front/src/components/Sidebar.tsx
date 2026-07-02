@@ -4,6 +4,7 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  Clock,
   Download,
   Files,
   FolderOpen,
@@ -71,7 +72,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import TelegramIcon from "../assets/telegram-colored.svg";
 import DarkLogoSvg from "../assets/dark_theme_GigaAgent.svg?react";
 import LightLogoSvg from "../assets/light_theme_GigaAgent.svg?react";
@@ -570,7 +571,9 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
 
   const handleSettings = () => {
     closeSidebarOnMobile();
-    navigate("/settings");
+    // Идём сразу на конечную вкладку. Через "/settings" был бы лишний хоп на
+    // <Navigate>, который рендерит пустой кадр → визуальное моргание.
+    navigate("/settings/general");
   };
 
   const handleRag = () => {
@@ -581,6 +584,11 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const handleMemories = () => {
     closeSidebarOnMobile();
     navigate("/memories");
+  };
+
+  const handleScheduler = () => {
+    closeSidebarOnMobile();
+    navigate("/scheduler");
   };
 
   const handleNewChat = () => {
@@ -771,8 +779,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     const rawTitle =
       typeof meta.thread_title === "string" ? meta.thread_title.trim() : "";
     const lastIdPart = t.thread_id.split("/").filter(Boolean).at(-1);
-    const shortId = (lastIdPart ?? t.thread_id).slice(0, 4);
-    return rawTitle.length > 0 ? rawTitle : `Новый чат - ${shortId}`;
+    return rawTitle.length > 0 ? rawTitle : `Новый чат`;
   };
 
   const openRename = (t: Thread) => {
@@ -1061,13 +1068,80 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                                 key={t.thread_id}
                                 onClick={() => handleOpenThread(t.thread_id)}
                                 className={[
-                                  "px-2 py-1 h-7 text-xs rounded-lg cursor-pointer truncate hover:bg-muted/50",
+                                  "group relative flex items-center px-2 py-1 h-7 text-xs rounded-lg cursor-pointer hover:bg-muted/50",
                                   isActiveThread
                                     ? "bg-accent text-accent-foreground"
                                     : "",
                                 ].join(" ")}
+                                title={t.thread_id}
+                                aria-current={
+                                  isActiveThread ? "page" : undefined
+                                }
                               >
-                                {title}
+                                <span className="flex-1 min-w-0 truncate transition-[padding] group-hover:pr-7 group-focus-within:pr-7">
+                                  {title}
+                                </span>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="absolute right-0.5 h-6 w-6 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus:opacity-100 focus:pointer-events-auto data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto"
+                                      onClick={(e) => e.stopPropagation()}
+                                      aria-label="Действия чата"
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="end"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <DropdownMenuItem
+                                      onSelect={() => openRename(t)}
+                                    >
+                                      <Pencil className="mr-2 h-4 w-4" />
+                                      Переименовать
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSub>
+                                      <DropdownMenuSubTrigger>
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Скачать
+                                      </DropdownMenuSubTrigger>
+                                      <DropdownMenuSubContent>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "pdf")
+                                          }
+                                        >
+                                          PDF
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "docx")
+                                          }
+                                        >
+                                          DOCX
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "md")
+                                          }
+                                        >
+                                          Markdown
+                                        </DropdownMenuItem>
+                                      </DropdownMenuSubContent>
+                                    </DropdownMenuSub>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                      className="text-destructive focus:text-destructive"
+                                      onSelect={() => openDelete(t)}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Удалить
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             );
                           })
@@ -1128,6 +1202,9 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                     const isActive = activeThreadId === t.thread_id;
                     const meta = getThreadMeta(t);
                     const isTelegramThread = meta.channel === "telegram";
+                    const isScheduledThread =
+                      meta.type === "scheduled_task" ||
+                      meta.is_scheduled === true;
                     const status = getThreadStatus(t);
                     const updatedAt = getThreadUpdatedAt(t);
                     const seenAt = lastSeen[t.thread_id];
@@ -1135,9 +1212,18 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                       typeof updatedAt === "string" &&
                       (seenAt === undefined || updatedAt > seenAt);
                     const isBusy = status === "busy";
+                    // Scheduled threads run autonomously in the background — never
+                    // surface "new message" / "needs action" indicators for them.
                     const needsInput =
-                      !isActive && status === "interrupted" && isUnseen;
-                    const hasUpdate = !isActive && !needsInput && isUnseen;
+                      !isActive &&
+                      status === "interrupted" &&
+                      isUnseen &&
+                      !isScheduledThread;
+                    const hasUpdate =
+                      !isActive &&
+                      !needsInput &&
+                      isUnseen &&
+                      !isScheduledThread;
                     const indicatorTitle = needsInput
                       ? "Ожидает вашего ответа"
                       : hasUpdate
@@ -1164,6 +1250,14 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                               alt=""
                               className="h-5 w-5 shrink-0"
                             />
+                          </span>
+                        )}
+                        {isScheduledThread && (
+                          <span
+                            title="Запланированная задача"
+                            aria-label="Запланированная задача"
+                          >
+                            <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
                           </span>
                         )}
                         {isBusy ? (
@@ -1305,7 +1399,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         {user && (
           <div className="pt-3">
             <hr className="mb-3 border-border/60" />
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <div className="flex items-center p-2 text-sm rounded-lg cursor-pointer hover:bg-accent/50 border border-border">
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 mr-2">
@@ -1330,6 +1424,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 <DropdownMenuItem onSelect={() => openContextModal()}>
                   <Brain className="mr-2 h-4 w-4" />
                   Персонализация
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleScheduler}>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Планировщик
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleSettings}>
                   <SettingsIcon className="mr-2 h-4 w-4" />

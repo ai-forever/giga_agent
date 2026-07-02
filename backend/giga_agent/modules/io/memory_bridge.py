@@ -176,7 +176,7 @@ def _format_with_line_numbers(text: str) -> str:
 
 
 async def _memory_write(
-    file_path: str, content: str, runtime: ToolRuntime
+    file_path: str, content: str, runtime: ToolRuntime, overwrite: bool = False
 ) -> Command:
     config = runtime.config
     if is_memory_disabled(config):
@@ -206,8 +206,13 @@ async def _memory_write(
         )
 
     service = await build_memory_service(config)
+    overwritten = False
     try:
-        result = await service.create(path=file_path, content=content)
+        if overwrite and await service.get(file_path) is not None:
+            result = await service.update(path=file_path, content=content)
+            overwritten = True
+        else:
+            result = await service.create(path=file_path, content=content)
     except MemoryFileTooLargeError as exc:
         return _build_command(
             runtime=runtime,
@@ -221,12 +226,17 @@ async def _memory_write(
             tool_name="write_file",
             content=(
                 f"Ошибка: Файл памяти уже существует ({file_path}). "
-                "Используй edit_file для изменения."
+                "Для точечной правки используй edit_file. "
+                "Для полной перезаписи вызови write_file с overwrite=True."
             ),
             is_error=True,
         )
 
-    msg = f"Файл памяти создан: {file_path}"
+    msg = (
+        f"Файл памяти перезаписан: {file_path}"
+        if overwritten
+        else f"Файл памяти создан: {file_path}"
+    )
     if result.description_repaired:
         msg += (
             "\n<memory-warning>Description в frontmatter не был указан "

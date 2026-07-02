@@ -202,7 +202,7 @@ class LocalJupyterServerManager:
             pid_alive = self._is_pid_alive(handle.pid)
             if not pid_alive:
                 continue
-            probe_ok = await self._probe_server(handle.base_url, handle.token)
+            probe_ok = await self._probe_alive(handle)
             if probe_ok:
                 return handle
 
@@ -215,7 +215,7 @@ class LocalJupyterServerManager:
         if not self._is_pid_alive(metadata_handle.pid):
             await self._clear_state_unlocked(pid=metadata_handle.pid)
             return
-        if await self._probe_server(metadata_handle.base_url, metadata_handle.token):
+        if await self._probe_alive(metadata_handle):
             self._handle = metadata_handle
             return
         await self._terminate_pid_unlocked(metadata_handle.pid)
@@ -358,10 +358,31 @@ class LocalJupyterServerManager:
                 )
             await asyncio.sleep(0.5)
 
-    async def _probe_server(self, base_url: str, token: str) -> bool:
+    async def _probe_alive(self, handle: LocalJupyterHandle) -> bool:
+        """Tolerant liveness check for a server whose pid is already alive.
+
+        Retries with a generous timeout so a momentarily-busy (not dead) server
+        isn't declared dead — which would spawn a duplicate and double the load
+        on a constrained container.
+        """
+        timeout = float(
+            get_settings().giga_agent_local_jupyter_health_probe_timeout_sec
+        )
+        for attempt in range(3):
+            if await self._probe_server(
+                handle.base_url, handle.token, timeout=timeout
+            ):
+                return True
+            if attempt < 2:
+                await asyncio.sleep(0.5)
+        return False
+
+    async def _probe_server(
+        self, base_url: str, token: str, *, timeout: float = 1.5
+    ) -> bool:
         headers = {"Authorization": f"token {token}"}
         try:
-            timeout = aiohttp.ClientTimeout(total=1.5)
+            timeout = aiohttp.ClientTimeout(total=timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
                     f"{base_url}/api/status",

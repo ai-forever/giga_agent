@@ -7,6 +7,8 @@ client can open a session uniformly regardless of source/transport.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -14,6 +16,17 @@ from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from giga_agent.models.mcp_server import McpServer
+
+
+def config_sig(cfg: dict) -> str:
+    """Stable hash of a server's connection config; changes iff the config is edited.
+
+    Shared by file servers (``local_config``) and DB servers so both hash
+    identically and deterministically across pods (each pod re-resolves the
+    server per request and compares sigs in the pool's ``_lease``).
+    """
+    raw = json.dumps(cfg, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
 
 
 def base_name_from_url(url: str | None) -> str | None:
@@ -90,6 +103,20 @@ class ResolvedServer:
 
 
 def resolve_db_server(server: "McpServer") -> ResolvedServer:
+    # Hash the connection *identity* only: url / auth_type / is_local / settings.
+    # For bearer, ``settings`` carries the token+header (a token edit MUST recycle
+    # the warm session); for oauth2 it carries the client identity (client_id /
+    # secret / scope). The OAuth access/refresh tokens live in a separate table
+    # (``core_oauth_connections``), NOT in ``settings`` — so this sig is naturally
+    # immune to token-refresh churn, and only changes when the server is edited.
+    sig = config_sig(
+        {
+            "url": server.url,
+            "auth_type": server.auth_type or "none",
+            "is_local": bool(server.is_local),
+            "settings": server.settings or {},
+        }
+    )
     return ResolvedServer(
         name=server.name or base_name_from_url(server.url) or str(server.id),
         transport="http",
@@ -97,6 +124,7 @@ def resolve_db_server(server: "McpServer") -> ResolvedServer:
         cache_id=str(server.id),
         source="db",
         auth_type=server.auth_type or "none",
+        config_sig=sig,
         url=server.url,
         db_server=server,
     )

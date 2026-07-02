@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any, List, Optional
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.module import BaseModule
 from giga_agent.models.mcp_server import McpServer, McpServerRepository
@@ -21,12 +22,22 @@ if TYPE_CHECKING:
     from giga_agent.models.users import UserShort
 
 
+def _is_cli_runtime() -> bool:
+    return get_settings().giga_agent_runtime == "cli"
+
+
 async def _active_servers(user_id: uuid.UUID) -> list[McpServer]:
     factory = await get_session_factory()
     async with factory() as session:
         return await McpServerRepository(session).get_readable_for_user(
             user_id, only_active=True
         )
+
+
+def _enabled_local_servers(user: "UserShort") -> list:
+    """Local (``mcp.json``) серверы, не выключенные пользователем."""
+    disabled = disabled_local_names(user.settings)
+    return [s for s in load_local_servers().values() if s.name not in disabled]
 
 
 class McpModule(BaseModule):
@@ -50,6 +61,9 @@ class McpModule(BaseModule):
         _ = config, kwargs
         if user is None:
             return False
+        # В CLI-режиме БД не трогаем — источник серверов только mcp.json.
+        if _is_cli_runtime():
+            return len(_enabled_local_servers(user)) > 0
         return len(await _active_servers(user.id)) > 0
 
     async def get_tool_sources(
@@ -68,16 +82,17 @@ class McpModule(BaseModule):
         _ = agent, config, kwargs
         if user is None:
             return []
-        factory = await get_session_factory()
-        async with factory() as session:
-            db_servers = await McpServerRepository(session).get_readable_for_user(
-                user.id, only_active=True
-            )
-        resolved = [resolve_db_server(s) for s in db_servers]
-        disabled = disabled_local_names(user.settings)
-        resolved.extend(
-            s for s in load_local_servers().values() if s.name not in disabled
-        )
+        # В CLI-режиме БД не трогаем — серверы берём только из mcp.json.
+        if _is_cli_runtime():
+            resolved = _enabled_local_servers(user)
+        else:
+            factory = await get_session_factory()
+            async with factory() as session:
+                db_servers = await McpServerRepository(session).get_readable_for_user(
+                    user.id, only_active=True
+                )
+            resolved = [resolve_db_server(s) for s in db_servers]
+            resolved.extend(_enabled_local_servers(user))
         # Same-host servers (the URL-derived fallback name) would otherwise share
         # a connector name; make names unique so the model can address each one.
         disambiguate_names(resolved)

@@ -259,7 +259,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
     >
       {showConnectorTypeSelector && (
         <div className="space-y-2">
-          <Label>Тип коннектора</Label>
+          <Label>Тип подключения</Label>
           <div className="flex gap-2">
             {CONNECTOR_TYPES.map((type) => (
               <Badge
@@ -277,10 +277,10 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
 
       {onConnectorNameChange && (
         <div className="space-y-2">
-          <Label htmlFor="connector_name">Название коннектора</Label>
+          <Label htmlFor="connector_name">Название подключения</Label>
           <Input
             id="connector_name"
-            placeholder="Мой коннектор"
+            placeholder="Моё подключение"
             value={connectorName || ""}
             onChange={(e) => onConnectorNameChange(e.target.value)}
           />

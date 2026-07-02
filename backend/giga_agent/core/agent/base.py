@@ -22,6 +22,12 @@ from giga_agent.conf import (
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_INTERVAL_SEC,
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_KEY,
     GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_LOCK_TTL_SEC,
+    GIGA_AGENT_SCHEDULER_ENABLED,
+    GIGA_AGENT_SCHEDULER_INTERVAL_SEC,
+    GIGA_AGENT_SCHEDULER_LOCK_KEY,
+    GIGA_AGENT_SCHEDULER_LOCK_TTL_SEC,
+    GIGA_AGENT_SCHEDULER_MAX_CONCURRENT_RUNS,
+    GIGA_AGENT_SCHEDULER_RUN_TIMEOUT_SEC,
     GIGA_AGENT_UI,
     GIGA_AGENT_UI_PREFIX,
     get_settings,
@@ -41,6 +47,7 @@ from giga_agent.routes import router as api_router
 from giga_agent.runtime_config import mount_runtime_config_route
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
+from giga_agent.scheduled.scheduler import ScheduledTaskScheduler
 
 NOTES_PROMPT = """
 ====
@@ -91,6 +98,7 @@ class BaseAgent(BaseModel):
     _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
     _idle_sandbox_sweeper: IdleSandboxSweeper | None = PrivateAttr(default=None)
     _orphan_sandbox_sweeper: OrphanSandboxSweeper | None = PrivateAttr(default=None)
+    _scheduled_task_scheduler: ScheduledTaskScheduler | None = PrivateAttr(default=None)
 
     def get_modules(self) -> list[BaseModule]:
         return []
@@ -155,6 +163,9 @@ class BaseAgent(BaseModel):
                 self._idle_sandbox_sweeper.start()
             if self._orphan_sandbox_sweeper is not None:
                 self._orphan_sandbox_sweeper.start()
+            if self._scheduled_task_scheduler is not None:
+                await self._scheduled_task_scheduler.reset_stale()
+                self._scheduled_task_scheduler.start()
             try:
                 yield
             finally:
@@ -162,6 +173,8 @@ class BaseAgent(BaseModel):
                     await self._idle_sandbox_sweeper.stop()
                 if self._orphan_sandbox_sweeper is not None:
                     await self._orphan_sandbox_sweeper.stop()
+                if self._scheduled_task_scheduler is not None:
+                    await self._scheduled_task_scheduler.stop()
                 await get_local_jupyter_server_manager().stop()
                 stack = getattr(_app.state, "_ui_resources_stack", None)
                 if stack is not None:
@@ -241,6 +254,14 @@ class BaseAgent(BaseModel):
             concurrency=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_CONCURRENCY,
             enabled=GIGA_AGENT_SANDBOX_ORPHAN_SWEEPER_ENABLED,
         )
+        self._scheduled_task_scheduler = ScheduledTaskScheduler(
+            interval_sec=GIGA_AGENT_SCHEDULER_INTERVAL_SEC,
+            lock_key=GIGA_AGENT_SCHEDULER_LOCK_KEY,
+            lock_ttl_sec=GIGA_AGENT_SCHEDULER_LOCK_TTL_SEC,
+            run_timeout_sec=GIGA_AGENT_SCHEDULER_RUN_TIMEOUT_SEC,
+            max_concurrent_runs=GIGA_AGENT_SCHEDULER_MAX_CONCURRENT_RUNS,
+            enabled=GIGA_AGENT_SCHEDULER_ENABLED,
+        )
 
     @property
     def app(self) -> FastAPI:
@@ -268,6 +289,7 @@ class BaseAgent(BaseModel):
         state: AgentState | None = None,
         config: RunnableConfig | None = None,
         channel_prompt: str = "",
+        scheduled_prompt: str = "",
         *,
         enable_think: bool = True,
         enable_multi_tool_use: bool = False,
@@ -298,6 +320,8 @@ class BaseAgent(BaseModel):
                 modules_prompts.append(connectors_prompt)
         if channel_prompt:
             modules_prompts.append(channel_prompt.strip())
+        if scheduled_prompt:
+            modules_prompts.append(scheduled_prompt.strip())
         instructions = dict(user.settings or {}).get("contextInstructions")
         instructions_prompt = ""
         if instructions:

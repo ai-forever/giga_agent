@@ -213,27 +213,98 @@ class PoolTests(unittest.IsolatedAsyncioTestCase):
             await pool.shutdown()
             self.assertEqual(counters["active"], 0)
 
-    async def test_oauth_server_bypasses_pool(self) -> None:
+    async def test_invalidate_kills_warm_workers(self) -> None:
         counters = {"opened": 0, "active": 0}
         pool = self._pool()
-        oauth = ResolvedServer(
+        uid = uuid.uuid4()
+        with mock.patch.object(poolmod, "_open_session", _fake_open_factory(counters)):
+            async with pool.acquire(_server(cache_id="srv"), user_id=uid) as h:
+                await h.call_tool("a", {})
+            self.assertEqual(counters["active"], 1)  # warm, parked
+            await pool.invalidate(cache_id="srv")
+            for _ in range(50):
+                if counters["active"] == 0:
+                    break
+                await asyncio.sleep(0.02)
+            self.assertEqual(counters["active"], 0)  # warm session torn down
+            # Next acquire must open a fresh session.
+            async with pool.acquire(_server(cache_id="srv"), user_id=uid) as h2:
+                await h2.call_tool("b", {})
+            self.assertEqual(counters["opened"], 2)
+            await pool.shutdown()
+
+    async def test_invalidate_scoped_to_user(self) -> None:
+        counters = {"opened": 0, "active": 0}
+        pool = self._pool()
+        u1, u2 = uuid.uuid4(), uuid.uuid4()
+        with mock.patch.object(poolmod, "_open_session", _fake_open_factory(counters)):
+            async with pool.acquire(_server(cache_id="srv"), user_id=u1) as h:
+                await h.call_tool("a", {})
+            async with pool.acquire(_server(cache_id="srv"), user_id=u2) as h:
+                await h.call_tool("a", {})
+            self.assertEqual(counters["active"], 2)
+            await pool.invalidate(cache_id="srv", user_id=u1)
+            for _ in range(50):
+                if counters["active"] == 1:
+                    break
+                await asyncio.sleep(0.02)
+            self.assertEqual(counters["active"], 1)  # only u1 killed, u2 kept
+            # u2 reuses its warm session (no new handshake); u1 opens fresh.
+            async with pool.acquire(_server(cache_id="srv"), user_id=u2) as h:
+                await h.call_tool("b", {})
+            self.assertEqual(counters["opened"], 2)
+            async with pool.acquire(_server(cache_id="srv"), user_id=u1) as h:
+                await h.call_tool("b", {})
+            self.assertEqual(counters["opened"], 3)
+            await pool.shutdown()
+
+    def _oauth(self, cache_id: str = "oa") -> ResolvedServer:
+        return ResolvedServer(
             name="OA",
             transport="http",
             is_local=False,
-            cache_id="oa",
+            cache_id=cache_id,
             source="db",
             url="https://example.com/mcp",
             auth_type="oauth2",
         )
+
+    async def test_oauth_server_is_pooled(self) -> None:
+        counters = {"opened": 0, "active": 0}
+        pool = self._pool()
         uid = uuid.uuid4()
         with mock.patch.object(poolmod, "_open_session", _fake_open_factory(counters)):
-            async with pool.acquire(oauth, user_id=uid) as h1:
+            async with pool.acquire(self._oauth(), user_id=uid) as h1:
                 await h1.call_tool("a", {})
-            async with pool.acquire(oauth, user_id=uid) as h2:
+            async with pool.acquire(self._oauth(), user_id=uid) as h2:
                 await h2.call_tool("b", {})
-            # OAuth is one-shot for now → no reuse → two handshakes.
-            self.assertEqual(counters["opened"], 2)
-            self.assertEqual(counters["active"], 0)
+            # OAuth is now warm-pooled → sequential acquires reuse one session.
+            self.assertEqual(counters["opened"], 1)
+            self.assertEqual(counters["active"], 1)  # parked
+            await pool.shutdown()
+
+    async def test_oauth_per_server_cap_is_one(self) -> None:
+        # max_per_server_oauth defaults to 1: a second CONCURRENT OAuth acquire
+        # can't get a warm worker and degrades to a cold one-shot that closes on
+        # release — so only one warm session survives. A non-oauth server with
+        # max_per_server=4 keeps both concurrent sessions warm.
+        counters = {"opened": 0, "active": 0}
+        pool = self._pool()
+        uid = uuid.uuid4()
+        with mock.patch.object(poolmod, "_open_session", _fake_open_factory(counters)):
+            async with pool.acquire(self._oauth(), user_id=uid) as h1:
+                await h1.call_tool("a", {})
+                async with pool.acquire(self._oauth(), user_id=uid) as h2:
+                    await h2.call_tool("b", {})
+            self.assertEqual(counters["opened"], 2)  # 1 warm + 1 cold one-shot
+            self.assertEqual(counters["active"], 1)  # only the warm one parked
+
+            async with pool.acquire(_server(cache_id="np"), user_id=uid) as h1:
+                await h1.call_tool("a", {})
+                async with pool.acquire(_server(cache_id="np"), user_id=uid) as h2:
+                    await h2.call_tool("b", {})
+            self.assertEqual(counters["active"], 3)  # both non-oauth warm + oauth
+            await pool.shutdown()
 
 
 if __name__ == "__main__":
