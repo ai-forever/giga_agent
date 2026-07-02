@@ -410,11 +410,21 @@ const Message: React.FC<MessageProps> = ({
     );
   };
 
+  const interruptType = thread?.interrupt?.value?.type;
+  const isDestructiveConfirm = interruptType === "confirm_destructive";
+  const isSystemNotice =
+    message.type === "ai" &&
+    // @ts-ignore — служебное сообщение от инфраструктуры (tool-router и т.п.)
+    message.additional_kwargs?.kind === "system_notice";
   const isCurrentInterruptMessage =
     !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
-    ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+    // Деструктивное подтверждение показываем ВСЕГДА (даже в автономном режиме);
+    // обычные approve/tool_call — только когда автоодобрение выключено.
+    (isDestructiveConfirm ||
+      (!settings.autoApprove &&
+        ["approve", "tool_call"].includes(interruptType ?? ""))) &&
     // @ts-ignore
     !!message.tool_calls?.length &&
     thread?.messages.at(-1)?.id === message.id;
@@ -536,6 +546,20 @@ const Message: React.FC<MessageProps> = ({
           }}
           thread={thread}
         />
+      ) : isSystemNotice ? (
+        <div className="flex justify-start py-2.5">
+          <div className="max-w-[85%] rounded-2xl border border-border/60 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide opacity-70">
+              <span>🔧</span>
+              <span>Системное сообщение</span>
+            </div>
+            <div className="markdown whitespace-pre-wrap">
+              <TextMarkdown isStreaming={false}>
+                {normalizedContent}
+              </TextMarkdown>
+            </div>
+          </div>
+        </div>
       ) : (
         <>
           <div
@@ -631,6 +655,11 @@ const Message: React.FC<MessageProps> = ({
               layout
               className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
             >
+              {isDestructiveConfirm && (
+                <span className="mr-auto text-xs font-medium text-red-600">
+                  ⚠️ Подтвердите удаление
+                </span>
+              )}
               <motion.button
                 layout
                 animate={{
