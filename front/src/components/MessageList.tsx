@@ -251,7 +251,11 @@ const MessageList: React.FC<MessageListProps> = ({
             out.push({ kind: "scheduled", taskIds, key: `sched-${idKey}` });
           }
           if (questionCards.length) {
-            out.push({ kind: "questions", cards: questionCards, key: `q-${idKey}` });
+            out.push({
+              kind: "questions",
+              cards: questionCards,
+              key: `q-${idKey}`,
+            });
           }
           if (widgets.length) {
             out.push({ kind: "widgets", widgets, key: `w-${idKey}` });

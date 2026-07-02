@@ -37,7 +37,10 @@ const STATUS_META: Record<
   { label: string; variant: "default" | "outline" | "destructive" }
 > = {
   connected: { label: "Подключено", variant: "default" },
-  needs_reauth: { label: "Нужна повторная авторизация", variant: "destructive" },
+  needs_reauth: {
+    label: "Нужна повторная авторизация",
+    variant: "destructive",
+  },
   not_connected: { label: "Не подключено", variant: "outline" },
 };
 
@@ -66,15 +69,18 @@ export const IntegrationsSettings: React.FC = () => {
     void load();
   }, [load]);
 
-  const openPopup = useOAuthPopup("integration_auth_callback", (success, data) => {
-    if (success) {
-      toast.success("Авторизация прошла успешно");
-      void load();
-      refreshModules();
-    } else {
-      toast.error(`Авторизация не удалась: ${data?.error || "ошибка"}`);
-    }
-  });
+  const openPopup = useOAuthPopup(
+    "integration_auth_callback",
+    (success, data) => {
+      if (success) {
+        toast.success("Авторизация прошла успешно");
+        void load();
+        refreshModules();
+      } else {
+        toast.error(`Авторизация не удалась: ${data?.error || "ошибка"}`);
+      }
+    },
+  );
 
   const handleConnect = async (provider: Provider) => {
     setBusyKey(provider.key);

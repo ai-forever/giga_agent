@@ -148,66 +148,68 @@ const ContactsSection: React.FC<{
             className="flex flex-col gap-2 rounded-xl border border-border bg-card/70 p-3"
           >
             <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">
-                  {formatContactName(contact)}
-                </span>
-                <Badge variant={contact.is_approved ? "default" : "secondary"}>
-                  {contact.is_approved ? "Подтверждён" : "Ожидает"}
-                </Badge>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">
+                    {formatContactName(contact)}
+                  </span>
+                  <Badge
+                    variant={contact.is_approved ? "default" : "secondary"}
+                  >
+                    {contact.is_approved ? "Подтверждён" : "Ожидает"}
+                  </Badge>
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {formatContactMeta(contact)}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {formatContactMeta(contact)}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              {!contact.is_approved ? (
-                <Button
-                  size="sm"
-                  disabled={isApproving || isDeleting}
-                  onClick={() => void onApproveToggle(contact, true)}
-                >
-                  {isApproving ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="mr-1 size-4" />
-                      Подтвердить
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={isApproving || isDeleting}
-                  onClick={() => void onApproveToggle(contact, false)}
-                >
-                  {isApproving ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <>
-                      <X className="mr-1 size-4" />
-                      Отозвать
-                    </>
-                  )}
-                </Button>
-              )}
-              <Button
-                size="icon"
-                variant="ghost"
-                disabled={isApproving || isDeleting}
-                onClick={() => void onDelete(contact)}
-                title="Удалить контакт"
-              >
-                {isDeleting ? (
-                  <Loader2 className="size-4 animate-spin" />
+              <div className="flex shrink-0 items-center gap-1">
+                {!contact.is_approved ? (
+                  <Button
+                    size="sm"
+                    disabled={isApproving || isDeleting}
+                    onClick={() => void onApproveToggle(contact, true)}
+                  >
+                    {isApproving ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="mr-1 size-4" />
+                        Подтвердить
+                      </>
+                    )}
+                  </Button>
                 ) : (
-                  <Trash2 className="size-4 text-destructive" />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isApproving || isDeleting}
+                    onClick={() => void onApproveToggle(contact, false)}
+                  >
+                    {isApproving ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <>
+                        <X className="mr-1 size-4" />
+                        Отозвать
+                      </>
+                    )}
+                  </Button>
                 )}
-              </Button>
-            </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  disabled={isApproving || isDeleting}
+                  onClick={() => void onDelete(contact)}
+                  title="Удалить контакт"
+                >
+                  {isDeleting ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4 text-destructive" />
+                  )}
+                </Button>
+              </div>
             </div>
             {contact.is_approved && (
               <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">

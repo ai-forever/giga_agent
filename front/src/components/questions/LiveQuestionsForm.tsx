@@ -21,7 +21,9 @@ const LiveQuestionsForm: React.FC<{
 
   const interrupt = thread?.interrupt?.value;
   const questions =
-    interrupt && interrupt.type === "questions" ? interrupt.questions : undefined;
+    interrupt && interrupt.type === "questions"
+      ? interrupt.questions
+      : undefined;
 
   if (!questions?.length || handled || thread?.isLoading) return null;
 

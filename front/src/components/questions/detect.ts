@@ -15,10 +15,7 @@ const toItems = (raw: any): AnsweredQuestion[] =>
 // Legacy `ask_questions` results stored only the "Q: …\nA: …" summary string.
 // Reconstruct the card from the original questions (kept in tool_args) by
 // matching each answer line back to the question's options.
-const fromLegacy = (
-  summary: string,
-  toolArgs: any,
-): QuestionsResult | null => {
+const fromLegacy = (summary: string, toolArgs: any): QuestionsResult | null => {
   const text = summary.trim();
   if (text.startsWith("Пользователь пропустил")) {
     const m = text.match(/ответил:\s*"([\s\S]*)"\s*$/);
@@ -39,7 +36,9 @@ const fromLegacy = (
     const question = String(q?.text ?? "");
     const options = Array.isArray(q?.options) ? q.options.map(String) : [];
     const answer = answerByQuestion.get(question) ?? "";
-    const selected = options.filter((opt: string) => opt && answer.includes(opt));
+    const selected = options.filter(
+      (opt: string) => opt && answer.includes(opt),
+    );
     // Couldn't map the answer onto any option → treat as free-text ("Other").
     const otherText = selected.length === 0 ? answer : "";
     return {
@@ -74,7 +73,7 @@ export const getQuestionsResult = (
   let content: unknown = (resultMessage as any).content;
   if (Array.isArray(content)) {
     content = content
-      .map((p) => (typeof p === "string" ? p : (p as any)?.text ?? ""))
+      .map((p) => (typeof p === "string" ? p : ((p as any)?.text ?? "")))
       .join("");
   }
   if (typeof content !== "string" || !content.trim()) return null;
