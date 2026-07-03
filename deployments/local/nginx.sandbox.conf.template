@@ -36,12 +36,15 @@ server {
     }
 
     # Capability-URL: exchange ?__sbx=<token> for a host-only cookie, then
-    # redirect to the same origin without the token (so it leaves the address
-    # bar / Referer). The backend validates the token against Redis.
+    # redirect back to the originally requested page without the token (so it
+    # leaves the address bar / Referer). The backend validates the token against
+    # Redis. $request_uri holds the original client URI (e.g. /snake.html?__sbx=…)
+    # unchanged by the internal rewrite, so the backend can land the user there.
     location = /__sandbox_grant {
         proxy_pass http://giga-agent:8000/agent/auth/sandbox-grant/$sandbox_id_hex/$sandbox_port$is_args$args;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $effective_scheme;
+        proxy_set_header X-Original-URI $request_uri;
     }
 
     location / {

@@ -1,4 +1,6 @@
+import re
 import secrets
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from cashews import cache
 
@@ -109,3 +111,49 @@ async def revoke_sandbox_access_tokens(sandbox_id_hex: str) -> None:
         await cache.delete_match(sandbox_access_match_pattern(sandbox_id_hex))
     except Exception:
         pass
+
+
+# ----------------------------------------------------------------------
+# Recognising sandbox URLs in outgoing text
+# ----------------------------------------------------------------------
+#
+# ``open_port`` returns a clean, token-less URL: the owner opens it via their
+# session cookie. When such a URL is forwarded to a place with no session
+# cookie (e.g. a Telegram message), a fresh capability token has to be spliced
+# in. Rather than have the model assemble the ``?__sbx=`` query itself (which it
+# does unreliably), the sending code detects the URL and appends the token. The
+# helpers below are pure so they can be unit-tested in isolation.
+
+
+def sandbox_url_pattern(base_domain: str) -> "re.Pattern[str]":
+    """Regex matching ``https://{port}-sandbox-{32hex}.{base_domain}[/path…]``.
+
+    The optional tail (path/query/fragment) is consumed greedily but stops at
+    whitespace and the delimiters that typically close a URL in Markdown
+    (``)``, ``>``, ``]``, quotes, ``<``).
+    """
+    return re.compile(
+        r"https?://(?P<port>\d+)-sandbox-(?P<hex>[a-f0-9]{32})\."
+        + re.escape(base_domain)
+        + r"(?:[/?#][^\s)>\]\"'<]*)?"
+    )
+
+
+def append_sandbox_access_token_to_url(url: str, token: str) -> str:
+    """Return ``url`` with a ``__sbx`` capability token added to its query.
+
+    Any pre-existing ``__sbx`` is dropped first, the path defaults to ``/`` and
+    the fragment is preserved, so the result is a valid sandbox URL regardless
+    of how the input was shaped.
+    """
+    parts = urlsplit(url)
+    query_pairs = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key != SANDBOX_ACCESS_QUERY_PARAM
+    ]
+    query_pairs.append((SANDBOX_ACCESS_QUERY_PARAM, token))
+    new_query = urlencode(query_pairs)
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path or "/", new_query, parts.fragment)
+    )

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { buildContentByPathUrl } from "./file-utils.ts";
 
@@ -70,7 +70,7 @@ const HTMLPage: React.FC<HTMLPageProps> = ({
       <StyledIframe
         title={alt || `iframe-${path}`}
         src={buildContentByPathUrl(path)}
-        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-forms"
         scale={scale}
       />
     </IframeWrapper>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import re
 import traceback
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,9 +23,16 @@ from giga_agent.channels.telegram.utils import (
     _plotly_json_to_png_bytes,
     _split_message,
 )
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models.channel import ChannelBot
+from giga_agent.models.sandbox import SandboxRepository
+from giga_agent.sandbox.access import (
+    append_sandbox_access_token_to_url,
+    mint_sandbox_access_token,
+    sandbox_url_pattern,
+)
 
 logger = get_logger(__name__)
 
@@ -54,6 +62,55 @@ class TelegramMediaService:
     def __init__(self, *, bot: Bot, bot_row: ChannelBot):
         self.bot = bot
         self.bot_row = bot_row
+
+    async def inject_sandbox_access_tokens(self, text: str) -> str:
+        """Splice a fresh ``__sbx`` capability token into sandbox URLs in ``text``.
+
+        ``open_port`` hands the model a clean, token-less URL (the owner opens it
+        via their session cookie). Telegram recipients have no such cookie, so a
+        per-``(sandbox, port)`` token is appended here — by code, not by the
+        model, which composes the query unreliably. Only sandboxes owned by this
+        bot's user get a token; foreign or unknown URLs are left untouched.
+        """
+        if not text or "-sandbox-" not in text:
+            return text
+        base_domain = get_settings().giga_agent_public_base_domain
+        if not base_domain:
+            return text
+        pattern = sandbox_url_pattern(base_domain)
+        pairs = {
+            (match.group("hex"), int(match.group("port")))
+            for match in pattern.finditer(text)
+        }
+        if not pairs:
+            return text
+
+        owner_id = str(self.bot_row.user_id)
+        tokens: dict[tuple[str, int], str] = {}
+        factory = await get_session_factory()
+        async with factory() as session:
+            repo = SandboxRepository(session)
+            for sandbox_hex, port in pairs:
+                try:
+                    sandbox_id = uuid.UUID(hex=sandbox_hex)
+                except ValueError:
+                    continue
+                resolved_owner = await repo.get_owner_id_by_sandbox_cached(sandbox_id)
+                if resolved_owner is None or str(resolved_owner) != owner_id:
+                    continue
+                tokens[(sandbox_hex, port)] = await mint_sandbox_access_token(
+                    sandbox_hex, port
+                )
+        if not tokens:
+            return text
+
+        def _replace(match: "re.Match[str]") -> str:
+            token = tokens.get((match.group("hex"), int(match.group("port"))))
+            if not token:
+                return match.group(0)
+            return append_sandbox_access_token_to_url(match.group(0), token)
+
+        return pattern.sub(_replace, text)
 
     async def upload_tg_file(
         self,
@@ -333,6 +390,7 @@ class TelegramMediaService:
             value = part["value"]
             try:
                 if kind == "text":
+                    value = await self.inject_sandbox_access_tokens(value)
                     tg_text = _md_to_tg_markdown_v2(value)
                     try:
                         await message.answer(
@@ -444,6 +502,7 @@ class TelegramMediaService:
             value = part["value"]
             try:
                 if kind == "text":
+                    value = await self.inject_sandbox_access_tokens(value)
                     tg_text = _md_to_tg_markdown_v2(value)
                     try:
                         await self.bot.send_message(

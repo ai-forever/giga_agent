@@ -10,10 +10,6 @@ from docker.errors import DockerException, NotFound
 
 from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
-from giga_agent.sandbox.access import (
-    SANDBOX_ACCESS_QUERY_PARAM,
-    mint_sandbox_access_token,
-)
 from giga_agent.sandbox.local_docker.constants import (
     CLOUDFLARED_IMAGE,
     MANAGED_LABEL,
@@ -167,11 +163,10 @@ class PortProxyMixin:
             await self._ensure_container_connected()
             self._ensure_hex_alias(docker_network)
             sandbox_hex = self.sandbox_id.hex
-            token = await mint_sandbox_access_token(sandbox_hex, port)
-            return (
-                f"https://{port}-sandbox-{sandbox_hex}.{base_domain}/"
-                f"?{SANDBOX_ACCESS_QUERY_PARAM}={token}"
-            )
+            # Clean, token-less URL: the owner opens it via their session cookie
+            # (see verify_sandbox_access). A capability token is spliced in only
+            # when the URL leaves for a cookie-less surface (e.g. Telegram).
+            return f"https://{port}-sandbox-{sandbox_hex}.{base_domain}/"
 
         if settings.giga_agent_publish_cloudflare_tunnel:
             return await self._expose_via_cloudflare_tunnel(port)

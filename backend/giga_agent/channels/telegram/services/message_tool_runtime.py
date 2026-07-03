@@ -193,7 +193,15 @@ class TelegramMessageToolRuntime:
             if attachment.path:
                 sent_attachment_paths.add(attachment.path)
 
-        reply_markup = _build_prompt_reply_markup(prompt) if include_reply_markup else None
+        if include_reply_markup:
+            for button in prompt.buttons:
+                if button.kind == "url" and button.url:
+                    button.url = await self.media_service.inject_sandbox_access_tokens(
+                        button.url
+                    )
+            reply_markup = _build_prompt_reply_markup(prompt)
+        else:
+            reply_markup = None
         parts = [
             part
             for part in _extract_text_media(prompt.content)

@@ -2,6 +2,7 @@ import uuid
 from collections import defaultdict
 from datetime import timedelta
 from typing import Annotated, Awaitable, Callable
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
@@ -566,6 +567,37 @@ async def logout(response: Response):
     )
 
 
+def _sandbox_grant_redirect_target(request: Request) -> str:
+    """Path to land on after the capability-cookie exchange.
+
+    Uses the original client URI (forwarded by nginx as ``X-Original-URI``) so
+    the user returns to the page they actually requested — e.g. ``/snake.html``
+    — instead of the sandbox root. The one-time ``__sbx`` token is stripped so
+    the redirect doesn't re-trigger the grant loop.
+
+    Only same-origin, root-relative paths are honored (open-redirect guard);
+    anything with a scheme/host or a protocol-relative ``//`` prefix falls back
+    to ``/``.
+    """
+    original = request.headers.get("x-original-uri") or ""
+    if not original.startswith("/") or original.startswith(("//", "/\\")):
+        return "/"
+
+    parts = urlsplit(original)
+    if parts.scheme or parts.netloc:
+        return "/"
+
+    path = parts.path or "/"
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if key != SANDBOX_ACCESS_QUERY_PARAM
+        ]
+    )
+    return f"{path}?{query}" if query else path
+
+
 def _parse_sandbox_id_hex(sandbox_id_hex: str) -> uuid.UUID:
     if len(sandbox_id_hex) != 32:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -637,9 +669,10 @@ async def grant_sandbox_access(
 
     Validates ``?{SANDBOX_ACCESS_QUERY_PARAM}=<token>`` against Redis for this
     exact ``(sandbox_id, port)`` pair, sets a per-sandbox host-only cookie, and
-    302-redirects to ``/`` so the token disappears from the address bar and is
-    not leaked via Referer. The cookie is then validated on every request by
-    the auth_request endpoint.
+    302-redirects back to the originally requested path (``X-Original-URI`` from
+    nginx, ``__sbx`` stripped) — falling back to ``/`` — so the token disappears
+    from the address bar and is not leaked via Referer. The cookie is then
+    validated on every request by the auth_request endpoint.
     """
     _parse_sandbox_id_hex(sandbox_id_hex)
 
@@ -651,7 +684,8 @@ async def grant_sandbox_access(
         )
 
     secure = request.headers.get("x-forwarded-proto", "https") == "https"
-    response = RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+    redirect_target = _sandbox_grant_redirect_target(request)
+    response = RedirectResponse(url=redirect_target, status_code=status.HTTP_302_FOUND)
     response.set_cookie(
         key=sandbox_access_cookie_name(sandbox_id_hex),
         value=token,  # type: ignore[arg-type]
