@@ -15,8 +15,18 @@ import type { CalendarEvent, CalendarMonthPayload } from "./kit";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const MONTHS = [
-  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
 ];
 
 function hhmm(iso?: string): string {
@@ -106,10 +116,7 @@ const MonthGrid: React.FC<{
           const evs = grid.byDay.get(day) ?? [];
           const isToday = isCurrentMonth && day === today;
           return (
-            <div
-              key={day}
-              className="min-h-[58px] bg-card/60 p-1 align-top"
-            >
+            <div key={day} className="min-h-[58px] bg-card/60 p-1 align-top">
               <div
                 className={`mb-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] ${
                   isToday

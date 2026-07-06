@@ -197,8 +197,7 @@ const MessageList: React.FC<MessageListProps> = ({
         // ask_questions и response-widget-результаты прерывают ран.
         const questionCards = collectAnsweredQuestions([m], resultsById);
         const responseWidgets = collectResponseWidgets([m], resultsById);
-        const hasCard =
-          questionCards.length > 0 || responseWidgets.length > 0;
+        const hasCard = questionCards.length > 0 || responseWidgets.length > 0;
         const hasVisible = hasVisibleToolCalls(m, resultsById);
 
         // Pure card step (no other visible tool): render the message standalone

@@ -141,7 +141,10 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
 
   // Раскрыть/свернуть список инструментов. `loader` дёргается только при
   // раскрытии — MCP-серверы читают из tools-by-name, модули из /connectors/modules.
-  const toggleTools = async (key: string, loader: () => Promise<ToolInfo[]>) => {
+  const toggleTools = async (
+    key: string,
+    loader: () => Promise<ToolInfo[]>,
+  ) => {
     const existing = toolsByKey[key];
     if (existing) {
       setToolsByKey((prev) => {

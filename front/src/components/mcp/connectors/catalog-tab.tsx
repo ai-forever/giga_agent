@@ -508,7 +508,9 @@ const ConnectorsCatalogTab: React.FC<CatalogTabProps> = ({
                 <div className="flex items-start gap-2">
                   {entry.icon && (
                     <img
-                      src={resolveProviderIcon(entry.id, entry.icon) ?? entry.icon}
+                      src={
+                        resolveProviderIcon(entry.id, entry.icon) ?? entry.icon
+                      }
                       alt=""
                       className="h-6 w-6 rounded shrink-0 mt-0.5"
                       onError={(e) => {

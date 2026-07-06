@@ -51,7 +51,9 @@ const BoardWidget: React.FC<{
     provider: it.provider || payload.provider,
   }));
 
-  return <Board issues={issues} groupBy={payload.groupBy} error={payload.error} />;
+  return (
+    <Board issues={issues} groupBy={payload.groupBy} error={payload.error} />
+  );
 };
 
 export default BoardWidget;

@@ -31,7 +31,8 @@ function fmtSize(bytes?: number): string {
   if (bytes == null) return "";
   if (bytes < 1024) return `${bytes} Б`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} ГБ`;
 }
 
@@ -106,7 +107,9 @@ const FileBrowser: React.FC<{
 
   function patchEntry(path: string, patch: Partial<FileEntry>) {
     setEntries((prev) =>
-      (prev ?? curEntries).map((e) => (e.path === path ? { ...e, ...patch } : e)),
+      (prev ?? curEntries).map((e) =>
+        e.path === path ? { ...e, ...patch } : e,
+      ),
     );
   }
 
@@ -209,7 +212,9 @@ const FileBrowser: React.FC<{
                 <Icon
                   size={15}
                   className={
-                    isDir ? "shrink-0 text-blue-500" : "shrink-0 text-muted-foreground"
+                    isDir
+                      ? "shrink-0 text-blue-500"
+                      : "shrink-0 text-muted-foreground"
                   }
                 />
                 {isDir ? (

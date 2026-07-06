@@ -1,5 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { Mail, MailOpen, Loader, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Mail,
+  MailOpen,
+  Loader,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import type { Message } from "@langchain/langgraph-sdk";
 import type { ToolCall } from "@langchain/core/messages/tool";
 import { toast } from "sonner";
@@ -24,8 +30,8 @@ const MailHtmlFrame: React.FC<{ html: string }> = ({ html }) => {
       '<!doctype html><html><head><meta charset="utf-8">' +
       '<base target="_blank">' +
       '<meta name="viewport" content="width=device-width, initial-scale=1">' +
-      "</head><body style=\"margin:0;padding:8px;background:#fff;color:#111;" +
-      'font-family:system-ui,-apple-system,sans-serif;font-size:13px;' +
+      '</head><body style="margin:0;padding:8px;background:#fff;color:#111;' +
+      "font-family:system-ui,-apple-system,sans-serif;font-size:13px;" +
       // Уменьшаем вёрстку письма до 60% (zoom корректно пересчитывает layout,
       // в отличие от transform:scale, который оставляет исходный бокс).
       'line-height:1.45;word-break:break-word;zoom:0.6">' +
@@ -43,11 +49,11 @@ const MailHtmlFrame: React.FC<{ html: string }> = ({ html }) => {
   );
 };
 
-const MailRow: React.FC<{ msg: MailMessage; provider: string; folder: string }> = ({
-  msg,
-  provider,
-  folder,
-}) => {
+const MailRow: React.FC<{
+  msg: MailMessage;
+  provider: string;
+  folder: string;
+}> = ({ msg, provider, folder }) => {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<MailMessage | null>(
     msg.body != null || msg.html != null ? msg : null,

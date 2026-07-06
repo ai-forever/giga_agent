@@ -416,7 +416,9 @@ const Message: React.FC<MessageProps> = ({
   // Лейбл подтверждения по имени тула: деструктив — не только удаление
   // (mail_send — отправка). Берём из interrupt.value.tools.
   const destructiveLabel = (() => {
-    const names = ((thread?.interrupt?.value?.tools ?? []) as { name?: string }[])
+    const names = (
+      (thread?.interrupt?.value?.tools ?? []) as { name?: string }[]
+    )
       .map((t) => t?.name || "")
       .filter(Boolean);
     if (names.length === 1) {
