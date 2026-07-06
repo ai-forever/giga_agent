@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from cashews import cache
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from giga_agent.core.deps import get_agent
@@ -123,7 +123,7 @@ async def _module_catalog_entries(
                 name=module.label,
                 description=module.description or None,
                 icon=info.icon,
-                categories=["Модули"],
+                categories=module.categories,
                 provider_key=info.key,
                 auth_kind=info.auth_kind,
                 manual_fields=[
@@ -140,6 +140,50 @@ async def _module_catalog_entries(
             )
         )
     return entries
+
+
+class ToolInfoResponse(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class ModuleToolsResponse(BaseModel):
+    tools: list[ToolInfoResponse]
+
+
+@router.get(
+    "/connectors/modules/{module_id}/tools",
+    response_model=ModuleToolsResponse,
+)
+async def get_module_tools(
+    module_id: str,
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    agent: Annotated["BaseAgent", Depends(get_agent)],
+) -> ModuleToolsResponse:
+    """Список инструментов, которые подключённый нативный модуль отдаёт агенту.
+
+    Аналог ``/mcp/servers/tools-by-name/{key}`` для MCP-серверов: раскрывает,
+    какие тулы появятся у агента после подключения модуля. Тулы берутся из
+    :meth:`BaseModule.get_tool_sources` (ленивые модули оборачивают их в
+    ``ModuleToolSource``), поэтому список совпадает с тем, что видит модель
+    через ``connector_get_info``.
+    """
+    module = next((m for m in agent.all_modules if m.id == module_id), None)
+    if module is None:
+        raise HTTPException(status_code=404, detail="module not found")
+
+    sources = await module.get_tool_sources(current_user, agent)
+    tools: list[ToolInfoResponse] = []
+    seen: set[str] = set()
+    for source in sources:
+        for spec in await source.list_tools(user_id=current_user.id):
+            if spec.name in seen:
+                continue
+            seen.add(spec.name)
+            tools.append(
+                ToolInfoResponse(name=spec.name, description=spec.description or None)
+            )
+    return ModuleToolsResponse(tools=tools)
 
 
 @router.get("/connectors/catalog", response_model=ConnectorsCatalogResponse)

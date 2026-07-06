@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from giga_agent.models.scheduled_task import KIND_CRON, KIND_ONCE
-from giga_agent.scheduled.cron import compute_next_run, default_tz, is_valid_cron
+from giga_agent.core.time import default_tz
+from giga_agent.scheduled.cron import compute_next_run, is_valid_cron
 
 
 class ScheduleParseError(ValueError):

@@ -181,6 +181,10 @@ async def connector_call_tool(
     # connector_call_tool's own. Absent for MCP sources (no inner BaseTool).
     if outcome.inner_extras is not None:
         additional_kwargs["effective_extras"] = outcome.inner_extras
+    # Пробрасываем сигнал размещения дальше — ToolResultMiddleware._process_tool_message
+    # прочитает его отсюда и сохранит при финальной пересборке ToolMessage.
+    if outcome.response_widget:
+        additional_kwargs["response_widget"] = True
 
     return ToolMessage(
         tool_call_id=runtime.tool_call_id,

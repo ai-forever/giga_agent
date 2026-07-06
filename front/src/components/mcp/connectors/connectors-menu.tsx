@@ -61,7 +61,11 @@ const ConnectorsMenu: React.FC = () => {
             className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
           >
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <ConnectorIcon src={m.icon} className="size-5" />
+              <ConnectorIcon
+                src={m.icon}
+                iconKey={m.module_id}
+                className="size-5"
+              />
               <span className="text-sm truncate max-w-[200px]">{m.name}</span>
             </div>
             <Switch

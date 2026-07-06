@@ -345,7 +345,13 @@ def _build_message_tool_result_parts(
         payload = {
             "content": "",
             "expect_response": False,
-            "message": "Ты отправил уведомление пользователю (expect_response=False). Если тебе нужен ответ от пользователя, отправляй с expect_response=True.",
+            "message": (
+                "Уведомление доставлено пользователю. Не пересказывай и не подытоживай свои действия — пользователь их уже видел. "
+                "Продолжай выполнять задачу. "
+                "Когда всё готово, отправь финал через `message` с expect_response=true — от первого лица ('я сделал...', а не 'агент сделал...'). "
+                "Не заканчивай ход обычным текстом без вызова `message`. "
+                "Если добавить нечего — коротко попрощайся через `message` с expect_response=true, без отчёта о проделанной работе."
+            ),
         }
     else:
         payload = {
@@ -431,6 +437,14 @@ def _md_to_tg_markdown_v2(text: str) -> str:
         return f"\x00INLINE{len(inline_codes) - 1}\x00"
 
     text = re.sub(r"`[^`]+`", _save_inline_code, text)
+
+    # Telegram MarkdownV2 has no horizontal rule; render standard Markdown
+    # thematic breaks (---, ***, ___) as a Unicode line (no escaping needed).
+    text = re.sub(
+        r"(?m)^[ \t]*([-*_])[ \t]*(?:\1[ \t]*){2,}$",
+        "─" * 10,
+        text,
+    )
 
     def _escape(value: str) -> str:
         return re.sub(r"([_\[\]()~#+\-=|{}.!\\])", r"\\\1", value)

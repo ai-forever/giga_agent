@@ -15,18 +15,17 @@ import {
   getPromptSuggestionTitle,
   type PromptSuggestionScenario,
 } from "@/types/prompt-suggestions";
-import { getScheduledTaskId } from "./scheduler/detect";
 import { getQuestionsResult } from "./questions/detect";
 import LiveQuestionsForm from "./questions/LiveQuestionsForm";
 import type { QuestionsResult } from "../interfaces.ts";
+import { isResponseWidget } from "./widgets/registry";
+import ResponseWidget, {
+  type ResponseWidgetItem,
+} from "./widgets/ResponseWidget";
 
 const AnsweredQuestionsCard = React.lazy(
   () => import("./questions/AnsweredQuestionsCard.tsx"),
 );
-const SchedulerTaskChatCard = React.lazy(
-  () => import("./scheduler/chat-card.tsx"),
-);
-const McpUiWidget = React.lazy(() => import("./attachments/McpUiWidget.tsx"));
 
 interface MessageListProps {
   messages: Message_[];
@@ -50,14 +49,15 @@ const hasVisibleToolCalls = (
     name: string;
     id?: string;
   }>;
-  // think, promoted schedule_task cards and ask_questions (its live form and
-  // answered card render outside the run) don't count as visible tool calls —
-  // a step consisting only of those should not form a collapsible agent run.
+  // think, response-widget-результаты (genui-виджеты, MCP-аппы, карточки
+  // планировщика) и ask_questions рендерятся ВНЕ рана, поэтому не считаются
+  // видимыми тулами — шаг из одних только них не должен образовывать
+  // схлопывающийся agent-ран (иначе получим пустой ран-бокс).
   return tc.some(
     (c) =>
       c.name !== THINK_TOOL_NAME &&
       c.name !== ASK_QUESTIONS_TOOL_NAME &&
-      !getScheduledTaskId(c.id ? resultsById[c.id] : undefined),
+      !isResponseWidget(c.id ? resultsById[c.id] : undefined),
   );
 };
 
@@ -85,38 +85,20 @@ const stripThinkingTags = (text: string): string =>
 const hasContentOutsideThinking = (m: Message_): boolean =>
   m.type === "ai" && stripThinkingTags(getMessageText(m)).length > 0;
 
-// Interactive MCP-app widgets produced by a run's tool calls. They render at the
-// top of the AI message that follows the run (not inside the collapsible run).
-const collectMcpUiWidgets = (
+// Результаты тулов, помеченные как response_widget (genui-виджеты, MCP-аппы,
+// карточки планировщика — см. registry.isResponseWidget). Рендерятся ВНЕ
+// схлопывающегося рана: самостоятельным блоком после рана либо под контентом
+// сообщения (если шаг состоит только из них). Порядок сохраняется; ЧТО рисовать
+// для каждого — решает диспетчер ResponseWidget.
+const collectResponseWidgets = (
   aiMessages: Message_[],
   resultsById: Record<string, Message_>,
-): any[] => {
-  const out: any[] = [];
+): ResponseWidgetItem[] => {
+  const out: ResponseWidgetItem[] = [];
   for (const m of aiMessages) {
-    for (const c of ((m as any).tool_calls ?? []) as Array<{ id?: string }>) {
+    for (const c of ((m as any).tool_calls ?? []) as Array<any>) {
       const result = c.id ? resultsById[c.id] : undefined;
-      const atts = (result?.additional_kwargs?.tool_attachments as any[]) ?? [];
-      for (const a of atts) {
-        if (a?.file_type === "mcp_ui" && a?.resource_uri) out.push(a);
-      }
-    }
-  }
-  return out;
-};
-
-// Scheduled-task cards produced by a run's tool calls. Like MCP widgets, they
-// render as a standalone block on the AI message that follows the run, not
-// inside the collapsible tool-call list.
-const collectScheduledTasks = (
-  aiMessages: Message_[],
-  resultsById: Record<string, Message_>,
-): string[] => {
-  const out: string[] = [];
-  for (const m of aiMessages) {
-    for (const c of ((m as any).tool_calls ?? []) as Array<{ id?: string }>) {
-      const result = c.id ? resultsById[c.id] : undefined;
-      const taskId = getScheduledTaskId(result);
-      if (taskId) out.push(taskId);
+      if (isResponseWidget(result)) out.push({ toolCall: c, result });
     }
   }
   return out;
@@ -147,12 +129,11 @@ const collectAnsweredQuestions = (
 type RenderItem =
   | { kind: "single"; message: Message_; hideToolCalls?: boolean }
   | { kind: "run"; aiMessages: Message_[]; key: string }
-  // Standalone card emitted when ask_questions/schedule_task is called in
-  // parallel with a visible tool: the visible tool stays in the run, the card
-  // renders right after it as its own block (see items grouping).
+  // Standalone block emitted when ask_questions / a response-widget tool is
+  // called in parallel with a visible tool: the visible tool stays in the run,
+  // the card/widget renders right after it as its own block (see items grouping).
   | { kind: "questions"; cards: QuestionsCardItem[]; key: string }
-  | { kind: "scheduled"; taskIds: string[]; key: string }
-  | { kind: "widgets"; widgets: any[]; key: string };
+  | { kind: "response"; items: ResponseWidgetItem[]; key: string };
 
 const MessageList: React.FC<MessageListProps> = ({
   messages: messagesProp,
@@ -213,17 +194,15 @@ const MessageList: React.FC<MessageListProps> = ({
     };
     for (const m of renderable) {
       if (hasToolCalls(m)) {
-        // ask_questions / schedule_task / MCP-app widgets interrupt the run.
+        // ask_questions и response-widget-результаты прерывают ран.
         const questionCards = collectAnsweredQuestions([m], resultsById);
-        const taskIds = collectScheduledTasks([m], resultsById);
-        const widgets = collectMcpUiWidgets([m], resultsById);
-        const hasCard =
-          questionCards.length > 0 || taskIds.length > 0 || widgets.length > 0;
+        const responseWidgets = collectResponseWidgets([m], resultsById);
+        const hasCard = questionCards.length > 0 || responseWidgets.length > 0;
         const hasVisible = hasVisibleToolCalls(m, resultsById);
 
         // Pure card step (no other visible tool): render the message standalone
-        // with its card under its reasoning/content (card attached via the
-        // leading maps below) — [run] [questions/scheduler] [run].
+        // with its card/widget under its reasoning/content (attached via the
+        // leading maps below) — [run] [questions/widget] [run].
         if (hasCard && !hasVisible) {
           flush();
           out.push({ kind: "single", message: m });
@@ -242,13 +221,17 @@ const MessageList: React.FC<MessageListProps> = ({
         bufferHasVisibleToolCalls = bufferHasVisibleToolCalls || hasVisible;
 
         // Parallel call: the visible tool stays in the run; close the run right
-        // after this message and emit the card(s) as their own block —
-        // [run …m(tool)] [questions/scheduler/widget] [run].
+        // after this message and emit the card(s)/widget(s) as their own block —
+        // [run …m(tool)] [questions/widget] [run].
         if (hasCard) {
           flush();
           const idKey = m.id ?? out.length;
-          if (taskIds.length) {
-            out.push({ kind: "scheduled", taskIds, key: `sched-${idKey}` });
+          if (responseWidgets.length) {
+            out.push({
+              kind: "response",
+              items: responseWidgets,
+              key: `w-${idKey}`,
+            });
           }
           if (questionCards.length) {
             out.push({
@@ -256,9 +239,6 @@ const MessageList: React.FC<MessageListProps> = ({
               cards: questionCards,
               key: `q-${idKey}`,
             });
-          }
-          if (widgets.length) {
-            out.push({ kind: "widgets", widgets, key: `w-${idKey}` });
           }
         }
       } else {
@@ -270,18 +250,18 @@ const MessageList: React.FC<MessageListProps> = ({
     return out;
   }, [renderable, resultsById]);
 
-  // Scheduled-task cards render as a standalone block on the AI message that
-  // issued schedule_task — that message is always a split-point "single" (it
-  // interrupts the run, see items grouping above).
-  const leadingScheduledTasksByAiId = useMemo(() => {
-    const map = new Map<string, string[]>();
+  // Response-widget-результаты рендерятся под контентом того AI-сообщения,
+  // которое их породило (pure-card "single" — оно прерывает ран, см. группировку
+  // выше). Рисуются диспетчером ResponseWidget.
+  const leadingResponseWidgetsByAiId = useMemo(() => {
+    const map = new Map<string, ResponseWidgetItem[]>();
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       if (it.kind !== "single" || it.message.type !== "ai" || !it.message.id) {
         continue;
       }
-      const taskIds = collectScheduledTasks([it.message], resultsById);
-      if (taskIds.length) map.set(it.message.id, taskIds);
+      const widgets = collectResponseWidgets([it.message], resultsById);
+      if (widgets.length) map.set(it.message.id, widgets);
     }
     return map;
   }, [items, resultsById]);
@@ -446,45 +426,19 @@ const MessageList: React.FC<MessageListProps> = ({
             </div>
           );
         }
-        if (item.kind === "scheduled") {
+        if (item.kind === "response") {
           return (
             <div
               key={item.key}
               className="px-[20px] mb-[20px] flex flex-col gap-2"
             >
-              {item.taskIds.map((id) => (
-                <React.Suspense key={id} fallback={null}>
-                  <SchedulerTaskChatCard taskId={id} />
-                </React.Suspense>
-              ))}
-            </div>
-          );
-        }
-        if (item.kind === "widgets") {
-          return (
-            <div
-              key={item.key}
-              className="px-[20px] mb-[20px] flex flex-col gap-2"
-            >
-              {item.widgets.map((att, i) => (
-                <React.Suspense
-                  key={`${att.resource_uri ?? "w"}-${i}`}
-                  fallback={
-                    <div className="text-xs text-muted-foreground">
-                      Загрузка виджета…
-                    </div>
-                  }
-                >
-                  <McpUiWidget
-                    serverRef={att.server_id ?? att.server}
-                    resourceUri={att.resource_uri}
-                    toolName={att.tool}
-                    appName={att.server}
-                    iconUrl={att.icon}
-                    toolArgs={att.tool_args}
-                    structuredContent={att.structured_content}
-                  />
-                </React.Suspense>
+              {item.items.map((w, i) => (
+                <ResponseWidget
+                  key={w.toolCall.id ?? `${item.key}-${i}`}
+                  item={w}
+                  thread={thread}
+                  isStreaming={!!thread?.isLoading}
+                />
               ))}
             </div>
           );
@@ -499,9 +453,9 @@ const MessageList: React.FC<MessageListProps> = ({
             isLastAi={item.message.id === lastAiId}
             isLast={idx === items.length - 1}
             hideToolCalls={item.hideToolCalls}
-            leadingScheduledTasks={
+            leadingResponseWidgets={
               item.message.id
-                ? leadingScheduledTasksByAiId.get(item.message.id)
+                ? leadingResponseWidgetsByAiId.get(item.message.id)
                 : undefined
             }
             answeredQuestions={

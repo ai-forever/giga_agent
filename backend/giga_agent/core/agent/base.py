@@ -216,6 +216,12 @@ class BaseAgent(BaseModel):
         default_modules = tuple(self.get_modules())
         self._agent_modules = (*default_modules, *self.modules)
 
+        # Register the loaded agent so the integrations registry can resolve
+        # providers by walking modules from request-free contexts.
+        from giga_agent.core.integrations.registry import set_current_agent
+
+        set_current_agent(self)
+
         for module in self._agent_modules:
             if module.id in self._module_ids:
                 raise ValueError(

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SecretInput } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { apiClient } from "@/lib/api-client";
+import { resolveProviderIcon } from "@/lib/provider-icons";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { useUserInfo } from "@/components/providers/user-info-context";
 import { useOAuthPopup } from "@/components/integrations/use-oauth-popup";
@@ -164,7 +165,7 @@ export const IntegrationsSettings: React.FC = () => {
                   <div className="flex items-center gap-2 min-w-0">
                     {p.icon ? (
                       <img
-                        src={p.icon}
+                        src={resolveProviderIcon(p.key, p.icon) ?? p.icon}
                         alt=""
                         className="w-5 h-5 rounded"
                         onError={(e) => {

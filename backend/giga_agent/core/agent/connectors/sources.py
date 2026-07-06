@@ -121,6 +121,9 @@ class ToolCallOutcome:
     # Identity/extras of the wrapped tool, for ToolResultMiddleware (see §8).
     inner_name: str | None = None
     inner_extras: dict[str, Any] | None = None
+    # Placement signal from the inner tool: render the result as a standalone
+    # widget OUTSIDE the collapsible agent run (см. build_widget_tool_message).
+    response_widget: bool = False
 
 
 @runtime_checkable
@@ -203,13 +206,15 @@ class ModuleToolSource:
         inner_extras = dict(target.extras or {})
 
         if isinstance(result, ToolMessage):
-            attachments = (result.additional_kwargs or {}).get("tool_attachments", [])
+            inner_ak = result.additional_kwargs or {}
+            attachments = inner_ak.get("tool_attachments", [])
             return ToolCallOutcome(
                 content=result.content,
                 attachments=list(attachments) if attachments else [],
                 is_error=result.status == "error",
                 inner_name=target.name,
                 inner_extras=inner_extras,
+                response_widget=bool(inner_ak.get("response_widget")),
             )
 
         return ToolCallOutcome(

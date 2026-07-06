@@ -17,6 +17,7 @@ import type {
 
 const MCP_SERVERS_URL = `${API_AGENT_PREFIX}/mcp/servers`;
 const CONNECTORS_CATALOG_URL = `${API_AGENT_PREFIX}/agent/connectors/catalog`;
+const CONNECTORS_MODULES_URL = `${API_AGENT_PREFIX}/agent/connectors/modules`;
 const USER_ME_URL = `${API_AGENT_PREFIX}/auth/users/me`;
 
 // Ключ в user.settings, где храним выключенные локальные серверы (по имени
@@ -58,6 +59,7 @@ export interface UseConnectorsResult {
   refresh: (id: string) => Promise<void>;
   authorize: (id: string) => Promise<void>;
   fetchTools: (key: string) => Promise<ToolInfo[]>;
+  fetchModuleTools: (moduleId: string) => Promise<ToolInfo[]>;
   openLocalConfig: () => Promise<void>;
 }
 
@@ -300,6 +302,13 @@ export function useConnectors(): UseConnectorsResult {
     return res.tools;
   }, []);
 
+  const fetchModuleTools = useCallback(async (moduleId: string) => {
+    const res = await apiClient.get<{ tools: ToolInfo[] }>(
+      `${CONNECTORS_MODULES_URL}/${encodeURIComponent(moduleId)}/tools`,
+    );
+    return res.tools;
+  }, []);
+
   const openLocalConfig = useCallback(async () => {
     try {
       await apiClient.post(`${MCP_SERVERS_URL}/local-config/open`);
@@ -350,6 +359,7 @@ export function useConnectors(): UseConnectorsResult {
     refresh,
     authorize,
     fetchTools,
+    fetchModuleTools,
     openLocalConfig,
   };
 }

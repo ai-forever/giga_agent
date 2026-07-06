@@ -51,7 +51,7 @@ async def _get_vk_token(runtime: ToolRuntime) -> str:
     from giga_agent.core.integrations.errors import ReauthRequired
     from giga_agent.core.integrations.registry import get_static_provider
     from giga_agent.core.integrations.service import get_access_token
-    from giga_agent.modules.vk.provider import VK_PROVIDER_KEY
+    from giga_agent.modules.integrations.vk.provider import VK_PROVIDER_KEY
 
     user = await _get_current_user(runtime)
     try:

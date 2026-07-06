@@ -28,11 +28,12 @@ class VKModule(BaseModule):
     label: str = "VK"
     description: str = "Работа с API ВКонтакте"
     icon: str = "MessageCircle"
+    categories: list[str] = ["ru", "web"]
     lazy_tools: bool = True
 
     def get_providers(self, **kwargs: Any):
         _ = kwargs
-        from giga_agent.modules.vk.provider import build_vk_provider
+        from giga_agent.modules.integrations.vk.provider import build_vk_provider
 
         return [build_vk_provider()]
 
@@ -65,7 +66,7 @@ class VKModule(BaseModule):
         _ = agent
         if not _has_secret(user, VK_SECRET_KEY):
             return []
-        from giga_agent.modules.vk.tools import (
+        from giga_agent.modules.integrations.vk.tools import (
             vk_get_comments,
             vk_get_last_comments,
             vk_get_posts,

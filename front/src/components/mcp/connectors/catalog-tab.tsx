@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { resolveProviderIcon } from "@/lib/provider-icons";
 import { apiClient } from "@/lib/api-client";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { useUserInfo } from "@/components/providers/user-info-context";
@@ -507,7 +508,9 @@ const ConnectorsCatalogTab: React.FC<CatalogTabProps> = ({
                 <div className="flex items-start gap-2">
                   {entry.icon && (
                     <img
-                      src={entry.icon}
+                      src={
+                        resolveProviderIcon(entry.id, entry.icon) ?? entry.icon
+                      }
                       alt=""
                       className="h-6 w-6 rounded shrink-0 mt-0.5"
                       onError={(e) => {

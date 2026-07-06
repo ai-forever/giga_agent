@@ -20,7 +20,8 @@ from giga_agent.models.scheduled_task import (
 )
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.scheduled.cron import compute_next_run, default_tz, is_valid_cron
+from giga_agent.core.time import default_tz
+from giga_agent.scheduled.cron import compute_next_run, is_valid_cron
 
 router = APIRouter(tags=["scheduled-tasks"])
 

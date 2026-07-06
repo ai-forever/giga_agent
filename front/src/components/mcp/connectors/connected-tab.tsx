@@ -24,7 +24,7 @@ import { apiClient } from "@/lib/api-client";
 import { useUserInfo } from "@/components/providers/user-info-context";
 import { useOAuthPopup } from "@/components/integrations/use-oauth-popup";
 import ConnectorIcon from "./connector-icon";
-import type { ModuleCatalogEntry, ToolInfo, UnifiedServer } from "./types";
+import type { ModuleCatalogEntry, ToolInfo } from "./types";
 import { iconForConnector } from "./types";
 import type { UseConnectorsResult } from "./use-connectors";
 
@@ -58,6 +58,7 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
     refresh,
     authorize,
     fetchTools,
+    fetchModuleTools,
     openLocalConfig,
   } = api;
   const { toggleModule, enabledModules, refreshModules } = useUserInfo();
@@ -132,37 +133,43 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
     }
   };
 
-  // key -> tools | "loading"
+  // key -> tools | "loading". Ключ уникален в пределах вкладки: для MCP-серверов
+  // это server.key, для модулей — `module:<module_id>`.
   const [toolsByKey, setToolsByKey] = useState<
     Record<string, ToolInfo[] | "loading">
   >({});
 
-  const toggleTools = async (server: UnifiedServer) => {
-    const existing = toolsByKey[server.key];
+  // Раскрыть/свернуть список инструментов. `loader` дёргается только при
+  // раскрытии — MCP-серверы читают из tools-by-name, модули из /connectors/modules.
+  const toggleTools = async (
+    key: string,
+    loader: () => Promise<ToolInfo[]>,
+  ) => {
+    const existing = toolsByKey[key];
     if (existing) {
       setToolsByKey((prev) => {
         const next = { ...prev };
-        delete next[server.key];
+        delete next[key];
         return next;
       });
       return;
     }
-    setToolsByKey((prev) => ({ ...prev, [server.key]: "loading" }));
+    setToolsByKey((prev) => ({ ...prev, [key]: "loading" }));
     try {
-      const tools = await fetchTools(server.key);
-      setToolsByKey((prev) => ({ ...prev, [server.key]: tools }));
+      const tools = await loader();
+      setToolsByKey((prev) => ({ ...prev, [key]: tools }));
     } catch (e: any) {
       setToolsByKey((prev) => {
         const next = { ...prev };
-        delete next[server.key];
+        delete next[key];
         return next;
       });
       toast.error(e?.message || "Не удалось получить инструменты");
     }
   };
 
-  const renderTools = (server: UnifiedServer) => {
-    const tools = toolsByKey[server.key];
+  const renderTools = (key: string) => {
+    const tools = toolsByKey[key];
     if (!tools) return null;
     if (tools === "loading") {
       return (
@@ -233,7 +240,11 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
             <div key={hid} ref={cardRef(hid)} className={cardClass(hid)}>
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2 min-w-0 flex-1">
-                  <ConnectorIcon src={m.icon} className="h-6 w-6 mt-0.5" />
+                  <ConnectorIcon
+                    src={m.icon}
+                    iconKey={m.module_id}
+                    className="h-6 w-6 mt-0.5"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="font-medium break-words">{m.name}</div>
                     {m.description && (
@@ -266,6 +277,21 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
                 <Button
                   size="sm"
                   variant="ghost"
+                  onClick={() =>
+                    toggleTools(hid, () => fetchModuleTools(m.module_id))
+                  }
+                >
+                  {toolsByKey[hid] ? (
+                    <ChevronDown size={14} className="mr-1" />
+                  ) : (
+                    <ChevronRight size={14} className="mr-1" />
+                  )}
+                  <Wrench size={14} className="mr-1" />
+                  Инструменты
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
                   className="text-destructive ml-auto"
                   disabled={moduleBusy === m.provider_key}
                   onClick={() => disconnectModule(m.provider_key)}
@@ -273,6 +299,7 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
                   <Trash2 size={14} />
                 </Button>
               </div>
+              {renderTools(hid)}
             </div>
           );
         })}
@@ -330,7 +357,9 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => toggleTools(server)}
+                  onClick={() =>
+                    toggleTools(server.key, () => fetchTools(server.key))
+                  }
                 >
                   {expanded ? (
                     <ChevronDown size={14} className="mr-1" />
@@ -380,7 +409,7 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
                 )}
               </div>
 
-              {renderTools(server)}
+              {renderTools(server.key)}
             </div>
           );
         })}

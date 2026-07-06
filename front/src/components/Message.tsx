@@ -34,11 +34,11 @@ import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import { BROWSER_USE_NAME } from "@/config.ts";
 import { useSettings } from "./Settings.tsx";
 import type { QuestionsCardItem } from "./MessageList.tsx";
-import { getScheduledTaskId } from "./scheduler/detect";
+import { isResponseWidget } from "./widgets/registry";
+import ResponseWidget, {
+  type ResponseWidgetItem,
+} from "./widgets/ResponseWidget";
 
-const SchedulerTaskChatCard = React.lazy(
-  () => import("./scheduler/chat-card.tsx"),
-);
 const AnsweredQuestionsCard = React.lazy(
   () => import("./questions/AnsweredQuestionsCard.tsx"),
 );
@@ -82,9 +82,10 @@ interface MessageProps {
   hideToolCalls?: boolean;
   // Показывает только tool calls, не дублируя уже вынесенный content/reasoning.
   hideContent?: boolean;
-  // Карточки запланированных задач (schedule_task) — рендерятся отдельным
-  // блоком ПОД reasoning/content этого AI-сообщения (см. MessageList).
-  leadingScheduledTasks?: string[];
+  // Вынесенные наружу виджеты/карточки (genui, MCP-аппы, планировщик) — если
+  // шаг состоял только из них, рендерятся отдельным блоком ПОД reasoning/content
+  // этого AI-сообщения через диспетчер ResponseWidget (см. MessageList).
+  leadingResponseWidgets?: ResponseWidgetItem[];
   // Карточки уже отвеченных уточняющих вопросов (тул ask_questions) —
   // рендерятся отдельным блоком ПОД reasoning/content этого AI-сообщения
   // (см. MessageList).
@@ -226,7 +227,7 @@ const Message: React.FC<MessageProps> = ({
   hideActions = false,
   hideToolCalls = false,
   hideContent = false,
-  leadingScheduledTasks,
+  leadingResponseWidgets,
   answeredQuestions,
 }) => {
   // 2) хук для постепенной «печати» чанков
@@ -410,6 +411,29 @@ const Message: React.FC<MessageProps> = ({
     );
   };
 
+  const interruptType = thread?.interrupt?.value?.type;
+  const isDestructiveConfirm = interruptType === "confirm_destructive";
+  // Лейбл подтверждения по имени тула: деструктив — не только удаление
+  // (mail_send — отправка). Берём из interrupt.value.tools.
+  const destructiveLabel = (() => {
+    const names = (
+      (thread?.interrupt?.value?.tools ?? []) as { name?: string }[]
+    )
+      .map((t) => t?.name || "")
+      .filter(Boolean);
+    if (names.length === 1) {
+      const n = names[0];
+      if (n === "mail_send") return "отправку письма";
+      if (n === "calendar_create_event") return "создание события";
+      if (/_(delete|remove|drop|purge)$/.test(n) || n.includes("delete"))
+        return "удаление";
+    }
+    return "действие";
+  })();
+  const isSystemNotice =
+    message.type === "ai" &&
+    // @ts-ignore — служебное сообщение от инфраструктуры (tool-router и т.п.)
+    message.additional_kwargs?.kind === "system_notice";
   const isCurrentInterruptMessage =
     !hideToolCalls &&
     message.type === "ai" &&
@@ -485,14 +509,14 @@ const Message: React.FC<MessageProps> = ({
   );
 
   // Tool calls that actually produce a row in ToolCallsList: ask_questions and
-  // successful schedule_task are rendered as standalone cards, so they don't
-  // count. When there are none, reasoning/content render plainly (no
-  // bordered/muted tool container).
+  // response-widget-результаты (genui-виджеты, MCP-аппы, карточки планировщика)
+  // рисуются самостоятельными блоками, поэтому не считаются. Когда таких нет,
+  // reasoning/content рендерятся без обрамляющего tool-контейнера.
   const displayToolCalls = visibleToolCalls.filter((toolCall) => {
     const id = (toolCall as any).id as string | undefined;
     return (
       toolCall.name !== "ask_questions" &&
-      !getScheduledTaskId(id ? resultsById?.[id] : undefined)
+      !isResponseWidget(id ? resultsById?.[id] : undefined)
     );
   });
   const hasToolContainer = hasToolCalls && displayToolCalls.length > 0;
@@ -587,11 +611,16 @@ const Message: React.FC<MessageProps> = ({
                 </>
               )}
               {message.type === "ai" &&
-                leadingScheduledTasks &&
-                leadingScheduledTasks.length > 0 && (
+                leadingResponseWidgets &&
+                leadingResponseWidgets.length > 0 && (
                   <div className="mt-3 flex flex-col gap-2">
-                    {leadingScheduledTasks.map((taskId) => (
-                      <SchedulerTaskChatCard key={taskId} taskId={taskId} />
+                    {leadingResponseWidgets.map((w, i) => (
+                      <ResponseWidget
+                        key={w.toolCall.id ?? `lrw-${i}`}
+                        item={w}
+                        thread={thread}
+                        isStreaming={!!thread?.isLoading}
+                      />
                     ))}
                   </div>
                 )}
@@ -631,6 +660,11 @@ const Message: React.FC<MessageProps> = ({
               layout
               className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
             >
+              {isDestructiveConfirm && (
+                <span className="mr-auto text-xs font-medium text-red-600">
+                  ⚠️ Подтвердите {destructiveLabel}
+                </span>
+              )}
               <motion.button
                 layout
                 animate={{
@@ -809,6 +843,6 @@ export default React.memo(
     prev.hideActions === next.hideActions &&
     prev.hideToolCalls === next.hideToolCalls &&
     prev.hideContent === next.hideContent &&
-    prev.leadingScheduledTasks === next.leadingScheduledTasks &&
+    prev.leadingResponseWidgets === next.leadingResponseWidgets &&
     prev.answeredQuestions === next.answeredQuestions,
 );

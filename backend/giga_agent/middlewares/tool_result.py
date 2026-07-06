@@ -255,6 +255,7 @@ async def process_tool_result(
     extras_override: dict[str, Any] | None = None,
     name_override: str | None = None,
     args_override: Any = None,
+    response_widget: bool = False,
 ) -> ToolMessage:
     # When a tool is dispatched through connector_call_tool, the result carries
     # the wrapped tool's identity/extras (см. §8): apply those, not the
@@ -274,14 +275,18 @@ async def process_tool_result(
         normalized_result = ""
 
     if action.get("name") in ["message", "think"] or _should_skip_process(extras):
+        additional_kwargs: dict[str, Any] = {
+            "tool_attachments": tool_attachments,
+            "tool_name": tool_name,
+            "tool_args": effective_args,
+        }
+        # Сохраняем сигнал размещения, выставленный тулом (build_widget_tool_message).
+        if response_widget:
+            additional_kwargs["response_widget"] = True
         return ToolMessage(
             tool_call_id=action.get("id"),
             content=_safe_json_dumps(normalized_result),
-            additional_kwargs={
-                "tool_attachments": tool_attachments,
-                "tool_name": tool_name,
-                "tool_args": effective_args,
-            },
+            additional_kwargs=additional_kwargs,
         )
 
     # `python`/`shell` return raw stdout: cap it inline (with a hint to reduce
@@ -336,14 +341,17 @@ async def process_tool_result(
             part for part in [message, saved_result_message] if part
         )
 
+    final_kwargs: dict[str, Any] = {
+        "tool_attachments": tool_attachments,
+        "tool_name": tool_name,
+        "tool_args": effective_args,
+    }
+    if response_widget:
+        final_kwargs["response_widget"] = True
     return ToolMessage(
         tool_call_id=action.get("id"),
         content=_safe_json_dumps(payload),
-        additional_kwargs={
-            "tool_attachments": tool_attachments,
-            "tool_name": tool_name,
-            "tool_args": effective_args,
-        },
+        additional_kwargs=final_kwargs,
     )
 
 
@@ -657,4 +665,7 @@ class ToolResultMiddleware(AgentMiddleware):
             extras_override=ak.get("effective_extras") if has_inner else None,
             name_override=ak.get("tool_name") if has_inner else None,
             args_override=ak.get("tool_args") if has_inner else None,
+            # Флаг размещения, выставленный тулом (build_widget_tool_message) или
+            # проброшенный коннектором из inner-ToolMessage (см. connectors).
+            response_widget=bool(ak.get("response_widget")),
         )
