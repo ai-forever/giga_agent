@@ -17,6 +17,7 @@ from giga_agent.core.logging import setup_cli_logging
 from giga_agent.core.process_supervisor import get_process_supervisor
 
 from ..types import LogLevel
+from ..utils.dotenv import load_dev_env
 from ..utils.secret_key import ensure_dev_secret_key_env
 
 _ATTACHMENT_MARKDOWN_RE = re.compile(r"(!?)\[([^\]]*)\]\(attachment:([^\s)]+)\)")
@@ -934,6 +935,9 @@ def cli_chat(
     """
     setup_cli_logging(log_level.value.upper())
     os.environ.setdefault("GIGA_AGENT_LOG_LEVEL", log_level.value)
+
+    # .env → os.environ до чтения настроек (per-service креды берутся os.getenv).
+    load_dev_env()
 
     from giga_agent.core.paths import ensure_giga_agent_dir
 

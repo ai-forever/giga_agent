@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Minus, Check, Loader, X } from "lucide-react";
+import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -11,14 +11,15 @@ import { PROGRESS_AGENTS, TOOL_MAP } from "../config";
 import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
 import { notifyIfHidden } from "../lib/notifications";
-import { getScheduledTaskId } from "./scheduler/detect";
-import { resolveWidget } from "./widgets/registry";
+import {
+  compositionFor,
+  compositionFromResult,
+  isResponseWidget,
+  resolveWidget,
+} from "./widgets/registry";
 import { ComposedBoard } from "./widgets/kit";
-import type { Composition } from "./widgets/kit";
 
 const THINK_TOOL_NAME = "think";
-// Имя pushed-UI генеративной доски (совпадает с tracker_base.COMPOSED_UI).
-const COMPOSED_BOARD_UI = "issue_board_composed";
 
 interface DeepResearchSubQ {
   id: number;
@@ -192,38 +193,6 @@ const DeepResearchToolCall: React.FC<{
       )}
     </div>
   );
-};
-
-// Достаёт композицию генеративной доски из thread.values.ui по tool_call_id.
-const compositionFor = (
-  thread: UseStream<GraphState> | undefined,
-  toolCallId: string | undefined,
-): Composition | null => {
-  if (!thread || !toolCallId) return null;
-  // @ts-ignore — ui не типизирован в GraphState
-  const uis = (thread.values?.ui ?? []).filter(
-    (el: any) =>
-      el.name === COMPOSED_BOARD_UI && el.props?.tool_call_id === toolCallId,
-  );
-  const last = uis.at(-1);
-  return (last?.props?.composition as Composition) ?? null;
-};
-
-// Композиция из РЕЗУЛЬТАТА тула (персистентный источник, в отличие от
-// thread.values.ui, который живёт только во время стрима).
-const compositionFromResult = (resultMessage?: Message): Composition | null => {
-  if (!resultMessage) return null;
-  try {
-    const raw =
-      typeof resultMessage.content === "string"
-        ? JSON.parse(resultMessage.content)
-        : resultMessage.content;
-    const inner = (raw as any)?.data ?? raw;
-    if ((inner as any)?.view !== "composed_board") return null;
-    return ((inner as any)?.composition as Composition) ?? null;
-  } catch {
-    return null;
-  }
 };
 
 const ATTACHMENT_TEXTS: Record<string, string> = {
@@ -933,14 +902,14 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const notifiedDeepResearchIdsRef = useRef<Set<string>>(new Set());
 
-  // Successful schedule_task calls are promoted to a standalone scheduler card
-  // in the message flow (see MessageList), so hide them from the tool-call list.
-  // ask_questions is likewise rendered outside the list — as a live form during
-  // the interrupt, or a read-only "answered" card once completed.
+  // response-widget-результаты (genui-виджеты, MCP-аппы, карточки планировщика)
+  // рендерятся самостоятельными блоками ВНЕ рана (см. MessageList), поэтому не
+  // показываем их строкой здесь — иначе виджет задублируется. ask_questions
+  // тоже рисуется снаружи (live-форма при interrupt или "answered"-карточка).
   const visible = toolCalls.filter(
     (tc) =>
       tc.name !== "ask_questions" &&
-      !getScheduledTaskId(tc.id ? resultsById[tc.id] : undefined),
+      !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
   );
 
   useEffect(() => {

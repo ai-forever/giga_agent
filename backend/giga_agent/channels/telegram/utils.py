@@ -432,6 +432,14 @@ def _md_to_tg_markdown_v2(text: str) -> str:
 
     text = re.sub(r"`[^`]+`", _save_inline_code, text)
 
+    # Telegram MarkdownV2 has no horizontal rule; render standard Markdown
+    # thematic breaks (---, ***, ___) as a Unicode line (no escaping needed).
+    text = re.sub(
+        r"(?m)^[ \t]*([-*_])[ \t]*(?:\1[ \t]*){2,}$",
+        "─" * 10,
+        text,
+    )
+
     def _escape(value: str) -> str:
         return re.sub(r"([_\[\]()~#+\-=|{}.!\\])", r"\\\1", value)
 

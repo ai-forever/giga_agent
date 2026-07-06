@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from giga_agent.modules.github.tools import get_pull_request
-from giga_agent.modules.vk.tools import vk_get_posts
+from giga_agent.modules.integrations.vk.tools import vk_get_posts
 from giga_agent.modules.weather.tools import weather
 
 
@@ -99,15 +99,15 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
                 return _FakeHTTPResponse({"response": {"items": []}})
 
         with patch(
-            "giga_agent.modules.vk.tools.get_session_factory",
+            "giga_agent.modules.integrations.vk.tools.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
-            "giga_agent.modules.vk.tools.UserRepository.get_cached_or_db",
+            "giga_agent.modules.integrations.vk.tools.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
         ), patch(
-            "giga_agent.modules.vk.tools.httpx.AsyncClient",
+            "giga_agent.modules.integrations.vk.tools.httpx.AsyncClient",
             return_value=_FakeClient(),
-        ), patch("giga_agent.modules.vk.tools.asyncio.sleep", AsyncMock()):
+        ), patch("giga_agent.modules.integrations.vk.tools.asyncio.sleep", AsyncMock()):
             assert vk_get_posts.coroutine is not None
             await vk_get_posts.coroutine(
                 domain="club1",
@@ -218,10 +218,10 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         with patch(
-            "giga_agent.modules.vk.tools.get_session_factory",
+            "giga_agent.modules.integrations.vk.tools.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
-            "giga_agent.modules.vk.tools.UserRepository.get_cached_or_db",
+            "giga_agent.modules.integrations.vk.tools.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
         ), patch(
             "giga_agent.core.integrations.service.get_access_token",

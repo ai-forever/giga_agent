@@ -3,8 +3,8 @@ import unittest
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from giga_agent.modules.vk import VKModule
-from giga_agent.modules.vk.provider import build_vk_provider
+from giga_agent.modules.integrations.vk import VKModule
+from giga_agent.modules.integrations.vk.provider import build_vk_provider
 
 
 class _FakeResp:
@@ -31,7 +31,7 @@ class _FakeClient:
 
 def _patch_vk_http(data):
     return patch(
-        "giga_agent.modules.vk.provider.httpx.AsyncClient",
+        "giga_agent.modules.integrations.vk.provider.httpx.AsyncClient",
         lambda **_: _FakeClient(data),
     )
 

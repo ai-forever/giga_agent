@@ -8,7 +8,6 @@ import { SandboxSettings } from "./sandbox";
 import { ImageGeneratorsSettings } from "./image-generators";
 import { SearchEnginesSettings } from "./search-engines";
 import { ConnectorsSettings } from "./connectors";
-import { ConnectionsSettings } from "./connections";
 import { ChannelsSettings } from "./channels";
 import { SkillsSettings } from "./skills";
 
@@ -17,7 +16,6 @@ const SETTINGS_TABS = [
   "llm",
   "embedding",
   "connectors",
-  "connections",
   "sandbox",
   "image",
   "search",
@@ -45,7 +43,6 @@ const SettingsPage: React.FC = () => {
     { id: "llm", label: "LLM" },
     { id: "embedding", label: "Embeddings" },
     { id: "connectors", label: "Подключения" },
-      { id: "connections", label: "Подключения 2" },
     { id: "image", label: "Image" },
     { id: "search", label: "Поиск" },
     { id: "sandbox", label: "Sandbox" },
@@ -63,8 +60,6 @@ const SettingsPage: React.FC = () => {
         return <EmbeddingsSettings />;
       case "connectors":
         return <ConnectorsSettings />;
-      case "connections":
-        return <ConnectionsSettings />;
       case "image":
         return <ImageGeneratorsSettings />;
       case "search":

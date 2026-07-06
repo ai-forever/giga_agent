@@ -6,6 +6,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from pydantic import Field
 
+from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.channel import ChannelBotRepository, ChannelContact
 from giga_agent.models.scheduled_task import (
@@ -243,13 +244,16 @@ async def schedule_task(
             targets=targets,
             memory_tags=_current_memory_tags(runtime),
         )
-    return {
-        "task_id": str(task.id),
-        "kind": task.kind,
-        "next_run": task.run_at.isoformat() if task.run_at else None,
-        "recipients": len(task.targets) if task.targets else "default",
-        "status": "scheduled",
-    }
+    return build_widget_tool_message(
+        {
+            "task_id": str(task.id),
+            "kind": task.kind,
+            "next_run": task.run_at.isoformat() if task.run_at else None,
+            "recipients": len(task.targets) if task.targets else "default",
+            "status": "scheduled",
+        },
+        runtime=runtime,
+    )
 
 
 @tool("schedule_task")
@@ -291,12 +295,15 @@ async def schedule_task_in_chat(
             targets=targets,
             memory_tags=_channel_memory_tags(runtime),
         )
-    return {
-        "task_id": str(task.id),
-        "kind": task.kind,
-        "next_run": task.run_at.isoformat() if task.run_at else None,
-        "status": "scheduled",
-    }
+    return build_widget_tool_message(
+        {
+            "task_id": str(task.id),
+            "kind": task.kind,
+            "next_run": task.run_at.isoformat() if task.run_at else None,
+            "status": "scheduled",
+        },
+        runtime=runtime,
+    )
 
 
 def _task_summary(t) -> dict:
@@ -469,13 +476,16 @@ async def edit_scheduled_task(
             }
 
         task = await repo.update(task, **fields)
-    return {
-        "task_id": str(task.id),
-        "kind": task.kind,
-        "next_run": task.run_at.isoformat() if task.run_at else None,
-        "recipients": len(task.targets) if task.targets else "default",
-        "status": "updated",
-    }
+    return build_widget_tool_message(
+        {
+            "task_id": str(task.id),
+            "kind": task.kind,
+            "next_run": task.run_at.isoformat() if task.run_at else None,
+            "recipients": len(task.targets) if task.targets else "default",
+            "status": "updated",
+        },
+        runtime=runtime,
+    )
 
 
 @tool("edit_scheduled_task")
@@ -532,9 +542,12 @@ async def edit_scheduled_task_in_chat(
             }
 
         task = await repo.update(task, **fields)
-    return {
-        "task_id": str(task.id),
-        "kind": task.kind,
-        "next_run": task.run_at.isoformat() if task.run_at else None,
-        "status": "updated",
-    }
+    return build_widget_tool_message(
+        {
+            "task_id": str(task.id),
+            "kind": task.kind,
+            "next_run": task.run_at.isoformat() if task.run_at else None,
+            "status": "updated",
+        },
+        runtime=runtime,
+    )

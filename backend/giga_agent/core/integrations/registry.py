@@ -25,7 +25,6 @@ from giga_agent.core.integrations.static_provider import (
 logger = get_logger(__name__)
 
 GITHUB_PROVIDER_KEY = "github"
-YANDEX_PROVIDER_KEY = "yandex"
 GOOGLE_PROVIDER_KEY = "google"
 
 
@@ -62,7 +61,10 @@ def static_providers() -> dict[str, IntegrationProvider]:
 
     # VK — provider is defined in the VK module; register it here so it is
     # resolvable by the integrations API and the shared token-fetch path.
-    from giga_agent.modules.vk.provider import VK_PROVIDER_KEY, build_vk_provider
+    from giga_agent.modules.integrations.vk.provider import (
+        VK_PROVIDER_KEY,
+        build_vk_provider,
+    )
 
     providers[VK_PROVIDER_KEY] = build_vk_provider()
 
@@ -76,23 +78,39 @@ def static_providers() -> dict[str, IntegrationProvider]:
 
         providers[GOOGLE_PROVIDER_KEY] = build_google_provider()
 
-    # Yandex — OAuth (only if app client creds are configured).
-    if settings.yandex_oauth_client_id and settings.yandex_oauth_client_secret:
-        providers[YANDEX_PROVIDER_KEY] = StaticOAuthProvider(
-            StaticOAuthConfig(
-                key=YANDEX_PROVIDER_KEY,
-                label="Яндекс",
-                icon=_icon("yandex.ru"),
-                auth_kind="oauth2",
-                authorization_endpoint="https://oauth.yandex.ru/authorize",
-                token_endpoint="https://oauth.yandex.ru/token",
-                client_id=settings.yandex_oauth_client_id,
-                client_secret=settings.yandex_oauth_client_secret,
-                scope=settings.yandex_oauth_scope,
-                validate_url="https://login.yandex.ru/info?format=json",
-                auth_header_scheme="OAuth",
-            )
-        )
+    # Yandex — три независимых OAuth-провайдера (Диск/Трекер/Почта), каждый со
+    # своим приложением и scope. Client-креды берутся из env самими провайдерами
+    # (в conf.py не заводятся); регистрируем только сконфигурированные.
+    from giga_agent.modules.integrations.yandex_disk.provider import (
+        YANDEX_DISK_PROVIDER_KEY,
+        build_yandex_disk_provider,
+        yandex_disk_configured,
+    )
+    from giga_agent.modules.integrations.yandex_mail.provider import (
+        YANDEX_MAIL_PROVIDER_KEY,
+        build_yandex_mail_provider,
+        yandex_mail_configured,
+    )
+    from giga_agent.modules.integrations.yandex_tracker.provider import (
+        YANDEX_TRACKER_PROVIDER_KEY,
+        build_yandex_tracker_provider,
+        yandex_tracker_configured,
+    )
+    # Яндекс.Календарь — OAuth (CalDAV поверх токена), как Диск/Трекер/Почта.
+    from giga_agent.modules.integrations.yandex_calendar.provider import (
+        YANDEX_CALENDAR_PROVIDER_KEY,
+        build_yandex_calendar_provider,
+        yandex_calendar_configured,
+    )
+
+    if yandex_disk_configured():
+        providers[YANDEX_DISK_PROVIDER_KEY] = build_yandex_disk_provider()
+    if yandex_tracker_configured():
+        providers[YANDEX_TRACKER_PROVIDER_KEY] = build_yandex_tracker_provider()
+    if yandex_mail_configured():
+        providers[YANDEX_MAIL_PROVIDER_KEY] = build_yandex_mail_provider()
+    if yandex_calendar_configured():
+        providers[YANDEX_CALENDAR_PROVIDER_KEY] = build_yandex_calendar_provider()
 
     return providers
 

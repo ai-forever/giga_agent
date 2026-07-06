@@ -123,6 +123,16 @@
       ],
       "url": "https://mcp.sentry.dev/mcp",
       "auth_type": "oauth2"
+    },
+    {
+      "id": "replicate",
+      "name": "Replicate",
+      "description": "Запуск и управление ML-моделями на Replicate через MCP.",
+      "icon": "https://www.google.com/s2/favicons?domain=replicate.com&sz=64",
+      "homepage": "https://replicate.com/docs/reference/mcp",
+      "categories": ["ai", "models"],
+      "url": "https://mcp.replicate.com/mcp",
+      "auth_type": "oauth2"
     }
   ]
 }

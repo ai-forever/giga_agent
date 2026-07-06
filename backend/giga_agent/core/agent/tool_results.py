@@ -10,9 +10,40 @@ exception and returned a plain success-shaped value).
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
+
+
+def build_widget_tool_message(
+    payload: Any,
+    *,
+    runtime: ToolRuntime,
+) -> ToolMessage:
+    """ToolMessage, помеченный ``response_widget`` в ``additional_kwargs``.
+
+    Фронт хойстит такой результат ВНЕ схлопывающегося agent-рана и рендерит его
+    как самостоятельный виджет (см. фронт: MessageList.collectResponseWidgets).
+    Это сигнал РАЗМЕЩЕНИЯ; КАКОЙ компонент рисовать, фронт решает сам по маркеру
+    ``widget`` в payload (resolveWidget) или по mcp_ui-аттачменту.
+
+    ``payload`` — то, что тул вернул бы как обычный результат (dict/список/строка):
+    он сериализуется в ``content`` как есть, поэтому маркер ``widget`` внутри
+    payload продолжает работать. Флаг живёт в ``additional_kwargs`` и не попадает
+    в контекст модели.
+
+    Флаг сохраняется сквозь ``process_tool_result`` (пересборка ToolMessage) и
+    connector-роутинг (``ToolCallOutcome.response_widget``).
+    """
+    content = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    return ToolMessage(
+        content=content,
+        tool_call_id=runtime.tool_call_id,
+        additional_kwargs={"response_widget": True},
+    )
 
 
 def build_error_tool_message(

@@ -2,7 +2,7 @@
 
 Why a pool: an MCP session is a stateful connection that costs a ~0.5s
 connect+initialize handshake, AND it cannot be moved between asyncio tasks —
-``streamablehttp_client`` / ``stdio_client`` / ``ClientSession`` are anyio
+``streamable_http_client`` / ``stdio_client`` / ``ClientSession`` are anyio
 task-group context managers whose background read/write tasks live in the task
 that opened them. So "keep a session warm" means a dedicated long-lived task
 owns the open session and serves operations to it over a queue (the ``_Worker``

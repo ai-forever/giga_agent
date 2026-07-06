@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import uuid
+from urllib.parse import urlsplit
 
 import httpx
 from langchain.tools import ToolRuntime, tool
@@ -18,6 +19,13 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
 from giga_agent.sandbox.manager import SandboxManager
+
+# Максимальный размер изображения, скачиваемого по ссылке.
+MAX_URL_IMAGE_BYTES = 9 * 1024 * 1024
+
+
+def _is_http_url(value: str) -> bool:
+    return urlsplit(value).scheme in {"http", "https"}
 
 
 async def resolve_image_analyzer_llm(
@@ -56,6 +64,32 @@ async def _download_redirect_bytes(*, url: str) -> tuple[bytes, str | None]:
         response.raise_for_status()
         mime_type = _normalize_mime_type(response.headers.get("content-type"))
         return response.content, mime_type
+
+
+async def _download_image_bytes(
+    *, url: str, max_bytes: int = MAX_URL_IMAGE_BYTES
+) -> tuple[bytes, str | None]:
+    """Скачать изображение по ссылке, не превышая ``max_bytes``."""
+    limit_mb = max_bytes // (1024 * 1024)
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+
+            content_length = response.headers.get("content-length")
+            if content_length and content_length.isdigit():
+                if int(content_length) > max_bytes:
+                    raise ValueError(f"Изображение по ссылке больше {limit_mb} МБ.")
+
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in response.aiter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError(f"Изображение по ссылке больше {limit_mb} МБ.")
+                chunks.append(chunk)
+
+            mime_type = _normalize_mime_type(response.headers.get("content-type"))
+            return b"".join(chunks), mime_type
 
 
 def _image_bytes_to_jpeg_bytes(*, image_bytes: bytes) -> bytes:
@@ -169,18 +203,22 @@ async def analyze_image(
     prompt: str,
     runtime: ToolRuntime,
 ) -> ToolMessage:
-    """Analyze an image from sandbox path with current user's LLM.
+    """Analyze an image from sandbox path or URL with current user's LLM.
 
     Args:
-        image_path: Полный путь вложения в sandbox (`attachment:<path>` без префикса).
+        image_path: Путь вложения в sandbox (`attachment:<path>` без префикса) либо
+            прямая ссылка http(s) на изображение (максимум 9 МБ).
         prompt: Что нужно определить по изображению.
     """
     resolver = RuntimeResolver.from_config(runtime.config)
     owner_id = resolver.user.id
-    image_bytes, mime_type = await _read_file_bytes(
-        owner_id=owner_id,
-        image_path=image_path,
-    )
+    if _is_http_url(image_path):
+        image_bytes, mime_type = await _download_image_bytes(url=image_path)
+    else:
+        image_bytes, mime_type = await _read_file_bytes(
+            owner_id=owner_id,
+            image_path=image_path,
+        )
     if _is_plotly_json_input(mime_type=mime_type, image_path=image_path):
         plotly_png_bytes = await asyncio.to_thread(
             _plotly_json_to_png_bytes, payload_bytes=image_bytes

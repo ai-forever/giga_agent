@@ -81,6 +81,8 @@ export interface MailMessage {
   date?: string;
   /** Тело — приходит при чтении (REST /read), не в списке. */
   body?: string;
+  /** HTML-вёрстка письма (REST /read, только для виджета) — рендерится в iframe. */
+  html?: string;
   to?: string;
   truncated?: boolean;
 }

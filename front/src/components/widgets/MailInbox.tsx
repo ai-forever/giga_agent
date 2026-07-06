@@ -16,19 +16,48 @@ import type { MailMessage, MailInboxPayload } from "./kit";
  * из виджета: mail_send остаётся за агентом (confirm-гейт на деструктив).
  */
 
+/** Вёрстка письма в песочном iframe: скрипты и same-origin запрещены (защита от
+ * XSS/трекеров), ссылки открываются в новой вкладке (base target + allow-popups). */
+const MailHtmlFrame: React.FC<{ html: string }> = ({ html }) => {
+  const srcDoc = useMemo(
+    () =>
+      '<!doctype html><html><head><meta charset="utf-8">' +
+      '<base target="_blank">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      "</head><body style=\"margin:0;padding:8px;background:#fff;color:#111;" +
+      'font-family:system-ui,-apple-system,sans-serif;font-size:13px;' +
+      // Уменьшаем вёрстку письма до 60% (zoom корректно пересчитывает layout,
+      // в отличие от transform:scale, который оставляет исходный бокс).
+      'line-height:1.45;word-break:break-word;zoom:0.6">' +
+      html +
+      "</body></html>",
+    [html],
+  );
+  return (
+    <iframe
+      title="Вёрстка письма"
+      srcDoc={srcDoc}
+      sandbox="allow-popups allow-popups-to-escape-sandbox"
+      className="h-96 w-full rounded border border-border/40 bg-white"
+    />
+  );
+};
+
 const MailRow: React.FC<{ msg: MailMessage; provider: string; folder: string }> = ({
   msg,
   provider,
   folder,
 }) => {
   const [open, setOpen] = useState(false);
-  const [body, setBody] = useState<string | null>(msg.body ?? null);
+  const [content, setContent] = useState<MailMessage | null>(
+    msg.body != null || msg.html != null ? msg : null,
+  );
   const [loading, setLoading] = useState(false);
 
   async function toggle() {
     const next = !open;
     setOpen(next);
-    if (next && body == null && !loading) {
+    if (next && content == null && !loading) {
       setLoading(true);
       try {
         const data = await apiClient.get<MailMessage>(
@@ -37,10 +66,10 @@ const MailRow: React.FC<{ msg: MailMessage; provider: string; folder: string }> 
           )}&message_id=${encodeURIComponent(msg.id)}`,
           { showError: false },
         );
-        setBody(data?.body ?? "(пустое письмо)");
+        setContent(data ?? { id: msg.id, body: "(пустое письмо)" });
       } catch {
         toast.error("Не удалось открыть письмо");
-        setBody(null);
+        setContent(null);
         setOpen(false);
       } finally {
         setLoading(false);
@@ -83,9 +112,11 @@ const MailRow: React.FC<{ msg: MailMessage; provider: string; folder: string }> 
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <Loader size={12} className="animate-spin" /> Загрузка…
             </span>
+          ) : content?.html ? (
+            <MailHtmlFrame html={content.html} />
           ) : (
             <div className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-              {body}
+              {content?.body}
             </div>
           )}
         </div>

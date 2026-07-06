@@ -14,10 +14,11 @@ import uuid
 from contextlib import asynccontextmanager, nullcontext
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
+import httpx
 from cashews import cache
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 
 from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
@@ -44,6 +45,10 @@ _OPERATION_TIMEOUT = 15.0
 # to excalidraw.com — usually ~2s but it can spike past 15s, and a too-tight
 # limit surfaces as a confusing "unreachable" error.
 _TOOL_CALL_TIMEOUT = 60.0
+# SSE read timeout for streaming responses. Kept at the MCP SDK default (300s)
+# so long-running tool calls stream results back over the whole warm session;
+# the short _OPERATION_TIMEOUT only bounds connect/write, not the SSE read.
+_SSE_READ_TIMEOUT = 300.0
 _TOOLS_CACHE_TTL = "10m"
 # Cap concurrent sessions per server to avoid hammering a remote (the project
 # recently added similar per-user session limits elsewhere).
@@ -123,17 +128,24 @@ async def _open_session(
                     )
                 else:
                     headers, http_auth = server.headers or {}, None
-                async with streamablehttp_client(
-                    server.url,
+                # mcp>=1.28 dropped headers/auth/timeout from the transport;
+                # they must be configured on the httpx client instead. Since we
+                # supply the client, the transport no longer owns its lifecycle,
+                # so we manage it with our own ``async with``.
+                http_client = create_mcp_http_client(
                     headers=headers or None,
+                    timeout=httpx.Timeout(_OPERATION_TIMEOUT, read=_SSE_READ_TIMEOUT),
                     auth=http_auth,
-                    timeout=_OPERATION_TIMEOUT,
-                ) as (read, write, _get_session_id):
-                    async with ClientSession(read, write) as session:
-                        await asyncio.wait_for(
-                            session.initialize(), timeout=_OPERATION_TIMEOUT
-                        )
-                        yield session
+                )
+                async with http_client:
+                    async with streamable_http_client(
+                        server.url, http_client=http_client
+                    ) as (read, write, _get_session_id):
+                        async with ClientSession(read, write) as session:
+                            await asyncio.wait_for(
+                                session.initialize(), timeout=_OPERATION_TIMEOUT
+                            )
+                            yield session
         except asyncio.TimeoutError as exc:
             raise McpTimeoutError(
                 f"server '{server.name}' did not respond in time"

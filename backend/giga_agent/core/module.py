@@ -35,6 +35,10 @@ class BaseModule(Serializable):
     label: str = ""
     description: str = ""
     icon: str = ""  # Имя компонента lucide-react, например "FileText".
+    # Теги каталога коннекторов. Из того же словаря, что и MCP-каталог
+    # (mcp/catalog.json: "ru", "dev", "docs", …), чтобы модули фильтровались в
+    # одном гриде с MCP-серверами. По умолчанию тегов нет — модуль задаёт их сам.
+    categories: list[str] = []
     # True → тулы модуля НЕ байндятся в bind_tools, а доставляются лениво через
     # connector_get_info / connector_call_tool (см. get_tool_sources).
     lazy_tools: bool = False
