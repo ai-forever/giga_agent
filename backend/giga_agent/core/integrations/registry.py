@@ -1,16 +1,19 @@
 """Provider registry: resolves a ``provider_key`` to an :class:`IntegrationProvider`.
 
-Two sources:
-- A static catalog built from config (Yandex OAuth, GitHub PAT, ...). These are
-  the providers native agent modules declare a dependency on.
+Three sources, merged by :func:`static_providers`:
+- Providers declared by the loaded agent's modules via ``module.get_providers()``
+  (VK, Yandex Диск/Трекер/Почта/Календарь, ...). Each module owns its own
+  ``*_configured()`` gating, so unconfigured providers are simply absent.
+- A small set of *base* providers not owned by any module — standalone
+  manual-token integrations like the GitHub PAT (see :func:`_base_providers`).
 - MCP servers, resolved dynamically from the DB by ``mcp:<server_id>`` keys.
 """
 
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
-from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
 from giga_agent.core.integrations.base import (
     IntegrationProvider,
@@ -22,22 +25,39 @@ from giga_agent.core.integrations.static_provider import (
     StaticOAuthProvider,
 )
 
+if TYPE_CHECKING:
+    from giga_agent.core.agent.base import BaseAgent
+    from giga_agent.core.module import BaseModule
+
 logger = get_logger(__name__)
 
 GITHUB_PROVIDER_KEY = "github"
-GOOGLE_PROVIDER_KEY = "google"
+
+# Process-global handle to the loaded agent, set once at construction time
+# (see ``BaseAgent.model_post_init``). Lets request-free call sites — the shared
+# token-fetch path in ``service.py``, tool execution in ``vk/tools.py`` — resolve
+# providers by walking the agent's modules.
+_current_agent: "BaseAgent | None" = None
+
+
+def set_current_agent(agent: "BaseAgent") -> None:
+    """Register the loaded agent so ``static_providers`` can enumerate modules."""
+    global _current_agent
+    _current_agent = agent
+
+
+def _current_modules() -> "tuple[BaseModule, ...]":
+    if _current_agent is None:
+        return ()
+    return tuple(_current_agent.all_modules)
 
 
 def _icon(name: str) -> str:
     return f"https://www.google.com/s2/favicons?domain={name}&sz=64"
 
 
-def static_providers() -> dict[str, IntegrationProvider]:
-    """Build the configured static/manual providers, keyed by provider key.
-
-    Providers requiring client credentials are only included when configured.
-    """
-    settings = get_settings()
+def _base_providers() -> dict[str, IntegrationProvider]:
+    """Providers not owned by any agent module (standalone integrations)."""
     providers: dict[str, IntegrationProvider] = {}
 
     # GitHub — manually entered Personal Access Token.
@@ -59,59 +79,20 @@ def static_providers() -> dict[str, IntegrationProvider]:
         )
     )
 
-    # VK — provider is defined in the VK module; register it here so it is
-    # resolvable by the integrations API and the shared token-fetch path.
-    from giga_agent.modules.integrations.vk.provider import (
-        VK_PROVIDER_KEY,
-        build_vk_provider,
-    )
+    return providers
 
-    providers[VK_PROVIDER_KEY] = build_vk_provider()
 
-    # Google — OAuth (only if app client creds are configured). The provider is
-    # defined in the Gmail community module; register it here so it is resolvable
-    # by the integrations API and the shared token-fetch path.
-    if settings.google_oauth_client_id and settings.google_oauth_client_secret:
-        from giga_agent.modules.community.google.gmail.provider import (
-            build_google_provider,
-        )
+def static_providers() -> dict[str, IntegrationProvider]:
+    """Build the available static/manual providers, keyed by provider key.
 
-        providers[GOOGLE_PROVIDER_KEY] = build_google_provider()
-
-    # Yandex — три независимых OAuth-провайдера (Диск/Трекер/Почта), каждый со
-    # своим приложением и scope. Client-креды берутся из env самими провайдерами
-    # (в conf.py не заводятся); регистрируем только сконфигурированные.
-    from giga_agent.modules.integrations.yandex_disk.provider import (
-        YANDEX_DISK_PROVIDER_KEY,
-        build_yandex_disk_provider,
-        yandex_disk_configured,
-    )
-    from giga_agent.modules.integrations.yandex_mail.provider import (
-        YANDEX_MAIL_PROVIDER_KEY,
-        build_yandex_mail_provider,
-        yandex_mail_configured,
-    )
-    from giga_agent.modules.integrations.yandex_tracker.provider import (
-        YANDEX_TRACKER_PROVIDER_KEY,
-        build_yandex_tracker_provider,
-        yandex_tracker_configured,
-    )
-    # Яндекс.Календарь — OAuth (CalDAV поверх токена), как Диск/Трекер/Почта.
-    from giga_agent.modules.integrations.yandex_calendar.provider import (
-        YANDEX_CALENDAR_PROVIDER_KEY,
-        build_yandex_calendar_provider,
-        yandex_calendar_configured,
-    )
-
-    if yandex_disk_configured():
-        providers[YANDEX_DISK_PROVIDER_KEY] = build_yandex_disk_provider()
-    if yandex_tracker_configured():
-        providers[YANDEX_TRACKER_PROVIDER_KEY] = build_yandex_tracker_provider()
-    if yandex_mail_configured():
-        providers[YANDEX_MAIL_PROVIDER_KEY] = build_yandex_mail_provider()
-    if yandex_calendar_configured():
-        providers[YANDEX_CALENDAR_PROVIDER_KEY] = build_yandex_calendar_provider()
-
+    Providers are collected from the loaded agent's modules (each module gates
+    its own availability), then merged with the base providers. Providers
+    requiring client credentials are only present when their module reports them
+    as configured.
+    """
+    providers = _base_providers()
+    for provider in collect_module_providers(_current_modules()):
+        providers[provider.key] = provider
     return providers
 
 

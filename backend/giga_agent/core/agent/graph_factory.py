@@ -113,7 +113,7 @@ def _generate_user_info(state: AgentState) -> str:
         language_prompt = f"\nВыбранный язык пользователя: {language}\n"
     # Current time in the configured/system timezone so "in N minutes" the agent
     # computes matches how scheduled times are interpreted (see scheduler).
-    from giga_agent.scheduled.cron import default_tz
+    from giga_agent.core.time import default_tz
 
     now = datetime.now(default_tz())
     return (

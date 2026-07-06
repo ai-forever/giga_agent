@@ -16,6 +16,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
 from giga_agent.core.agent.tool_results import build_widget_tool_message
+from giga_agent.core.time import default_tz
 from giga_agent.modules.integrations.widget_hint import with_widget_note
 from giga_agent.modules.integrations.yandex_calendar.auth import get_calendar_token
 from giga_agent.modules.integrations.yandex_calendar.provider import CALDAV_URL
@@ -63,8 +64,11 @@ def _cal_name(cal: caldav.Calendar) -> str:
 
 
 def _parse_dt(value: str) -> dt.datetime:
-    """ISO-строка → datetime. Принимает '2026-06-20T15:00' и '2026-06-20 15:00'."""
-    return dt.datetime.fromisoformat(value.strip())
+    """ISO-строка → aware datetime. Принимает '2026-06-20T15:00' и
+    '2026-06-20 15:00'. Наивное время трактуем в проектной TZ (default_tz) — так
+    же, как агент видит «текущее время» и как cron читает расписания."""
+    parsed = dt.datetime.fromisoformat(value.strip())
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=default_tz())
 
 
 def _demojibake(text: str) -> str:
@@ -118,13 +122,17 @@ def _search_range(
 
 
 def _list_sync(token: str, days: int) -> list[dict[str, Any]]:
-    now = dt.datetime.now()
+    now = dt.datetime.now(default_tz())
     return _search_range(token, now, now + dt.timedelta(days=days), MAX_EVENTS)
 
 
 def _month_sync(token: str, year: int, month: int) -> list[dict[str, Any]]:
-    start = dt.datetime(year, month, 1)
-    end = dt.datetime(year + 1, 1, 1) if month == 12 else dt.datetime(year, month + 1, 1)
+    tz = default_tz()
+    start = dt.datetime(year, month, 1, tzinfo=tz)
+    if month == 12:
+        end = dt.datetime(year + 1, 1, 1, tzinfo=tz)
+    else:
+        end = dt.datetime(year, month + 1, 1, tzinfo=tz)
     return _search_range(token, start, end, MAX_MONTH_EVENTS)
 
 
@@ -149,7 +157,7 @@ def _create_sync(
     ev.add("dtend", _parse_dt(end))
     if description:
         ev.add("description", description)
-    ev.add("dtstamp", dt.datetime.now())
+    ev.add("dtstamp", dt.datetime.now(dt.timezone.utc))
     cal.add_component(ev)
     target.save_event(cal.to_ical().decode("utf-8"))
     return {
@@ -206,7 +214,7 @@ async def calendar_month(
         month: Месяц 1–12. 0 = текущий.
     """
     token = await get_calendar_token(runtime)
-    now = dt.datetime.now()
+    now = dt.datetime.now(default_tz())
     y = year or now.year
     m = month or now.month
     if not (1 <= m <= 12):
