@@ -10,6 +10,7 @@ from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.modules.integrations.yandex_tracker.provider import (
     YANDEX_TRACKER_PROVIDER_KEY,
 )
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 # Ручной секрет: ID организации Трекера (X-Cloud-Org-ID / X-Org-ID). OAuth его
 # не выдаёт, поэтому вводится отдельно.
@@ -55,7 +56,7 @@ async def get_tracker_auth(runtime: ToolRuntime) -> tuple[str, str]:
     """(oauth_token, org_id) текущего пользователя для Трекера."""
     if runtime is None:
         raise ValueError("Tool runtime is required.")
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     owner_id = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
     user = await _load_user(owner_id)
     org_id = _require_org(user)

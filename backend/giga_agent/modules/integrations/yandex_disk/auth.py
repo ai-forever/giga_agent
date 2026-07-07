@@ -9,12 +9,13 @@ from giga_agent.models.users import UserShort
 from giga_agent.modules.integrations.yandex_disk.provider import (
     YANDEX_DISK_PROVIDER_KEY,
 )
+from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 
 def _runtime_user_id(runtime: ToolRuntime) -> uuid.UUID:
     if runtime is None:
         raise ValueError("Tool runtime is required.")
-    user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+    user_id = get_user_id_from_config(runtime.config)
     return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 
