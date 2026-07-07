@@ -1,5 +1,8 @@
 FROM mikelarg/aegra:0.0.11
 
+# Bring in the standalone `uv` binary for fast, reproducible installs.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 USER root
 
 # scikit-learn wheels require libgomp at runtime.
@@ -33,6 +36,6 @@ COPY backend/giga_agent/ ./giga_agent/
 RUN rm -rf ./giga_agent/ui_dist/ && mkdir -p ./giga_agent/ui_dist/
 
 # Install the package (and dependencies from pyproject.toml)
-RUN pip install --no-cache-dir .
+RUN uv pip install --system --no-cache .
 
 USER root
