@@ -12,7 +12,7 @@ from giga_agent.models.users import UserShort
 class YandexCalendarModule(BaseModule):
     id: str = "yandex_calendar"
     label: str = "Яндекс.Календарь"
-    description: str = "Просмотр и создание событий в Яндекс.Календаре (CalDAV)"
+    description: str = "Просмотр и создание событий в Яндекс.Календаре"
     icon: str = "Calendar"
     categories: list[str] = ["ru", "web"]
     lazy_tools: bool = True

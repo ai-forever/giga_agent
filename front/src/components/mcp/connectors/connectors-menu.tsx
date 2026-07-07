@@ -28,7 +28,6 @@ const ConnectorsMenu: React.FC = () => {
   const connectedModules = moduleCatalog.filter(
     (m) => m.status === "connected",
   );
-  const hasAny = connectors.length > 0 || connectedModules.length > 0;
 
   return (
     <DropdownMenuSub>
@@ -38,11 +37,11 @@ const ConnectorsMenu: React.FC = () => {
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-[260px] max-h-[60vh] overflow-y-auto p-2 space-y-1">
         <DropdownMenuItem
-          onSelect={() => openConnectors(hasAny ? "connected" : "catalog")}
+          onSelect={() => openConnectors("catalog")}
           className="gap-2"
         >
           <Settings2 className="size-4" />
-          <span>Настроить коннекторы</span>
+          <span>Управление коннекторами</span>
         </DropdownMenuItem>
 
         {(connectors.length > 0 || connectedModules.length > 0) && (
