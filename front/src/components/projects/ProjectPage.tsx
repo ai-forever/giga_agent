@@ -1,7 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquarePlus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react";
 import { Client } from "@langchain/langgraph-sdk";
 import type { Thread } from "@langchain/langgraph-sdk";
 
@@ -10,6 +16,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { exportChat, type ExportFormat } from "@/lib/chat-export";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -162,6 +178,27 @@ const ProjectPage: React.FC = () => {
     }
   };
 
+  const handleThreadExport = async (t: Thread, format: ExportFormat) => {
+    if (!langGraphClient) return;
+    const toastId = toast.loading("Экспорт чата...");
+    try {
+      const state = await langGraphClient.threads.getState(t.thread_id);
+      const messages = (
+        state.values as { messages?: Parameters<typeof exportChat>[0] }
+      )?.messages;
+      if (!messages?.length) {
+        toast.dismiss(toastId);
+        return;
+      }
+      const title =
+        (t.metadata?.thread_title as string | undefined) ?? "Без названия";
+      await exportChat(messages, format, title);
+      toast.success("Экспорт завершён", { id: toastId });
+    } catch {
+      toast.error("Не удалось выполнить экспорт", { id: toastId });
+    }
+  };
+
   const startNewChat = async () => {
     if (!project || !langGraphClient) return;
     try {
@@ -310,9 +347,52 @@ const ProjectPage: React.FC = () => {
                   <div
                     key={t.thread_id}
                     onClick={() => navigate(`/threads/${t.thread_id}`)}
-                    className="px-3 py-2 rounded-lg hover:bg-muted cursor-pointer text-sm truncate"
+                    className="group relative flex items-center px-3 py-2 rounded-lg hover:bg-muted cursor-pointer text-sm"
                   >
-                    {title}
+                    <span className="flex-1 min-w-0 truncate transition-[padding] group-hover:pr-8 group-focus-within:pr-8">
+                      {title}
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-1 h-7 w-7 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto focus:opacity-100 focus:pointer-events-auto data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto"
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label="Действия чата"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <DropdownMenuSub>
+                          <DropdownMenuSubTrigger>
+                            <Download className="mr-2 h-4 w-4" />
+                            Скачать
+                          </DropdownMenuSubTrigger>
+                          <DropdownMenuSubContent>
+                            <DropdownMenuItem
+                              onSelect={() => handleThreadExport(t, "pdf")}
+                            >
+                              PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => handleThreadExport(t, "docx")}
+                            >
+                              DOCX
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => handleThreadExport(t, "md")}
+                            >
+                              Markdown
+                            </DropdownMenuItem>
+                          </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 );
               })}
