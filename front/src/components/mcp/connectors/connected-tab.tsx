@@ -80,11 +80,8 @@ const ConnectorsConnectedTab: React.FC<ConnectedTabProps> = ({
     return () => clearTimeout(t);
   }, [highlightId, connectors.length, connectedModules.length]);
 
-  const cardClass = (id: string) =>
-    cn(
-      "rounded-md border bg-card p-3 flex flex-col gap-2 transition-shadow",
-      highlightId === id && "ring-2 ring-primary",
-    );
+  const cardClass = (_id: string) =>
+    cn("rounded-md border bg-card p-3 flex flex-col gap-2 transition-shadow");
   const cardRef = (id: string) =>
     highlightId === id ? highlightRef : undefined;
 
