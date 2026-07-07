@@ -39,6 +39,8 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.87 0 0);
   --highlight: oklch(0 0 0 / 0.14);
+  --brand: oklch(0.63 0.15 150);
+  --brand-foreground: oklch(0.985 0 0);
 }
 
 .dark {
@@ -78,9 +80,13 @@
     inset 0 1px 2px oklch(1 0 0 / 0.2), 0 1px 2px oklch(0 0 0 / 0.3),
     0 2px 4px oklch(0 0 0 / 0.15);
   --highlight: oklch(1 0 0 / 0.14);
+  --brand: oklch(0.7 0.14 150);
+  --brand-foreground: oklch(0.16 0 0);
 }
 
 @theme inline {
+  --font-sans: "Golos Text", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -118,6 +124,8 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-highlight: var(--highlight);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
 }
 
 @layer base {

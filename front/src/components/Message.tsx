@@ -572,7 +572,7 @@ const Message: React.FC<MessageProps> = ({
             <div
               className={[
                 message.type === "human"
-                  ? "max-w-[80%] w-auto p-4 pt-4 pb-4 rounded-[25px] bg-secondary text-foreground overflow-x-auto"
+                  ? "max-w-[78%] w-auto px-4 py-3 rounded-2xl bg-secondary text-foreground overflow-x-auto"
                   : "max-w-full w-full p-0 bg-transparent",
                 "markdown",
               ].join(" ")}
