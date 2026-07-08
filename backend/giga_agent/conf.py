@@ -181,7 +181,7 @@ class Settings(BaseSettings):
         True, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
     )
     giga_agent_local_docker_image: str = Field(
-        "mikelarg/code-interpreter:0.0.6",
+        "mikelarg/code-interpreter:0.0.7",
         alias="GIGA_AGENT_LOCAL_DOCKER_IMAGE",
     )
     giga_agent_local_docker_memory_limit_mb: int = Field(
@@ -217,6 +217,13 @@ class Settings(BaseSettings):
     )
     giga_agent_local_docker_files_path: Path | None = Field(
         None, alias="GIGA_AGENT_LOCAL_DOCKER_FILES_PATH"
+    )
+    # --- in-guest SandboxAPI Server (local_docker + e2b работают ТОЛЬКО через него) ---
+    giga_agent_sandbox_api_port: int = Field(
+        49999, alias="GIGA_AGENT_SANDBOX_API_PORT"
+    )
+    giga_agent_sandbox_api_startup_timeout_sec: int = Field(
+        30, alias="GIGA_AGENT_SANDBOX_API_STARTUP_TIMEOUT_SEC"
     )
     giga_agent_local_jupyter_startup_timeout_sec: int = Field(
         20, alias="GIGA_AGENT_LOCAL_JUPYTER_STARTUP_TIMEOUT_SEC"

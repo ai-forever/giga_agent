@@ -1,0 +1,8 @@
+# SandboxAPI Server (in-guest agent) dependencies.
+# jupyter_client/ipykernel уже стоят в образе (см. ../requirements.txt) —
+# сервер переиспользует их для управления kernel'ами.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+aiofiles==24.1.0
+python-multipart==0.0.20
+PyYAML==6.0.2

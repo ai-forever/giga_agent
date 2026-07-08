@@ -4,9 +4,7 @@ import asyncio
 import os
 import secrets
 import shutil
-import time
 import uuid
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -25,10 +23,10 @@ from giga_agent.core.logging import get_logger
 from giga_agent.core.paths import ensure_giga_agent_dir
 from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.access import revoke_sandbox_access_tokens
+from giga_agent.sandbox.api_backed import APIBackedSandbox
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.local_docker.constants import (
     BUCKET_PREFIX,
-    JUPYTER_PORT,
     MANAGED_LABEL,
     OWNER_ID_LABEL,
     PROVIDER_ID_LABEL,
@@ -39,7 +37,6 @@ from giga_agent.sandbox.local_docker.constants import (
 from giga_agent.sandbox.local_docker.container import ContainerMixin
 from giga_agent.sandbox.local_docker.files import FilesMixin
 from giga_agent.sandbox.local_docker.proxy import PortProxyMixin
-from giga_agent.sandbox.local_docker.shell import ShellMixin
 from giga_agent.sandbox.manager.types import (
     LogOnlyOrphanAction,
     OrphanAction,
@@ -59,7 +56,7 @@ logger = get_logger(__name__)
 
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(
-    ContainerMixin, ShellMixin, FilesMixin, PortProxyMixin, JupyterSandbox,
+    APIBackedSandbox, ContainerMixin, FilesMixin, PortProxyMixin, JupyterSandbox,
 ):
     image: str = Field(
         default_factory=lambda: get_settings().giga_agent_local_docker_image,
@@ -128,22 +125,16 @@ class LocalDockerSandbox(
         default=None,
         description="Docker container ID",
     )
-    jupyter_token: Optional[str] = Field(
-        default=None,
-        description="Jupyter auth token",
-    )
     host_port: Optional[int] = Field(
         default=None,
-        description="Mapped host port for Jupyter",
+        description="Mapped host port for the SandboxAPI server",
     )
 
-    base_url: str = Field(
-        default="",
-        description="Base URL of local Jupyter server",
-    )
+    # Наследуется от JupyterSandbox как required — здесь не используется
+    # (кернелы/шелл/файлы идут через SandboxAPI), держим пустым по умолчанию.
+    base_url: str = Field(default="", description="unused (legacy)")
 
-    _runtime_fields = JupyterSandbox._runtime_fields | {
-        "jupyter_token",
+    _runtime_fields = APIBackedSandbox._runtime_fields | {
         "host_port",
         "owner_id",
     }
@@ -226,12 +217,6 @@ class LocalDockerSandbox(
         except DockerException:
             pass
 
-    def _internal_base_url(self) -> str:
-        return f"http://{self._container_name()}:{JUPYTER_PORT}"
-
-    def is_base_url_internal(self) -> bool:
-        return self._docker_network() is not None
-
     def _container_labels(self) -> dict[str, str]:
         if self.sandbox_id is None:
             raise RuntimeError("sandbox_id is required for docker labels")
@@ -257,10 +242,6 @@ class LocalDockerSandbox(
         if root_dir is None:
             root_dir = ensure_giga_agent_dir() / "sandboxes"
         self._sandbox_root_dir = root_dir
-        if self.jupyter_token:
-            self._token = self.jupyter_token
-        if self._docker_network() and not self.base_url and self.sandbox_id is not None:
-            self.base_url = self._internal_base_url()
 
     @classmethod
     def has_limit_cls(cls) -> bool:
@@ -269,8 +250,9 @@ class LocalDockerSandbox(
     def get_connection_settings(self) -> dict:
         settings: dict[str, Any] = {
             "external_id": self.external_id,
-            "jupyter_token": self._token,
             "host_port": self.host_port,
+            "api_base_url": self.api_base_url,
+            "api_token": self.api_token,
         }
         return {k: v for k, v in settings.items() if v is not None}
 
@@ -493,8 +475,6 @@ class LocalDockerSandbox(
             raise RuntimeError("owner_id is required for local_docker runtime")
 
         docker_network = self._docker_network()
-        if docker_network:
-            self.base_url = self._internal_base_url()
 
         existing = self._find_reusable_container(docker_network)
         if existing is not None:
@@ -511,16 +491,16 @@ class LocalDockerSandbox(
         user_root = self._user_root_dir(self.owner_id)
         user_root.mkdir(parents=True, exist_ok=True)
 
-        self._token = secrets.token_urlsafe(13)
-        self.jupyter_token = self._token
+        settings = get_settings()
+        api_port = settings.giga_agent_sandbox_api_port
+        self.api_token = secrets.token_urlsafe(24)
 
         envs = {
-            "JUPYTER_TOKEN": self._token,
-            "JUPYTER_RUNTIME_DIR": "/tmp/jupyter_runtime",
-            "IPYTHONDIR": "/tmp/ipython",
+            "SANDBOX_API_TOKEN": self.api_token,
+            "SANDBOX_API_PORT": str(api_port),
+            "SANDBOX_WORKDIR": self.current_workdir() or "/root",
             "MATPLOTLIBRC": "/tmp/matplotlibrc",
         }
-        settings = get_settings()
         bind_source = user_root
         if settings.giga_agent_host_project_path is not None:
             giga_dir = ensure_giga_agent_dir()
@@ -542,7 +522,9 @@ class LocalDockerSandbox(
             )
         bucket_mount = BUCKET_PREFIX.rstrip("/")
         run_kwargs: dict[str, Any] = {
-            "command": "sleep infinity",
+            # sandbox-server как главный процесс (supervisor авто-рестартит его
+            # при падении; совместимо с docker --rm, в отличие от restart_policy)
+            "command": ["sandbox-server-supervised"],
             "detach": True,
             "remove": not self.not_remove,
             "environment": envs,
@@ -564,7 +546,7 @@ class LocalDockerSandbox(
             run_kwargs["name"] = self._container_name()
             run_kwargs["network"] = docker_network
         else:
-            run_kwargs["ports"] = {f"{JUPYTER_PORT}/tcp": None}
+            run_kwargs["ports"] = {f"{api_port}/tcp": None}
         if self.enforce_readonly_rootfs:
             run_kwargs["tmpfs"] = {
                 "/tmp": "rw,exec,nosuid,size=512m",
@@ -587,6 +569,19 @@ class LocalDockerSandbox(
             self._ensure_hex_alias(docker_network)
             self._container.reload()
         self._apply_container_connection(self._container)
+        await self._ensure_api_server_ready()
+
+    async def _ensure_api_server_ready(self) -> None:
+        ok = await self._wait_for_sandbox_api(
+            get_settings().giga_agent_sandbox_api_startup_timeout_sec
+        )
+        if not ok:
+            raise RuntimeError(
+                "SandboxAPI server did not become healthy inside the container. "
+                "Убедись, что образ содержит sandbox-server "
+                f"(image={self.image}); обнови GIGA_AGENT_LOCAL_DOCKER_IMAGE "
+                "до версии с сервером."
+            )
 
     def _find_reusable_container(self, docker_network: str | None) -> Any:
         if docker_network:
@@ -629,17 +624,16 @@ class LocalDockerSandbox(
                 return False
             self._kernel_id = None
 
-        if not self._token:
+        # api_token восстанавливается из env контейнера в _apply_container_connection
+        if not self.api_token:
             return False
 
-        if not self.not_remove:
-            return True
-
         try:
-            await self._ensure_jupyter_ready()
+            await self._ensure_api_server_ready()
         except Exception:
             logger.warning(
-                "Jupyter failed to start in reused sandbox container %s; recreating",
+                "SandboxAPI failed to become ready in reused sandbox container %s; "
+                "recreating",
                 getattr(container, "id", "")[:12],
                 exc_info=True,
             )
@@ -694,37 +688,32 @@ class LocalDockerSandbox(
         if isinstance(container_id, str) and container_id:
             self.external_id = container_id
 
-        token = (
-            self.jupyter_token
-            or getattr(self, "_token", None)
-            or self._get_env_value(container, "JUPYTER_TOKEN")
-        )
+        token = self.api_token or self._get_env_value(container, "SANDBOX_API_TOKEN")
         if token:
-            self._token = token
-            self.jupyter_token = token
+            self.api_token = token
 
         docker_network = self._docker_network()
         if docker_network:
             self._ensure_hex_alias(docker_network)
 
-        self._ensure_base_url()
+        self._ensure_api_base_url()
 
-    def _ensure_base_url(self) -> None:
+    def _ensure_api_base_url(self) -> None:
+        port = get_settings().giga_agent_sandbox_api_port
         if self._docker_network() and self.sandbox_id is not None:
             self.host_port = None
-            self.base_url = self._internal_base_url()
+            self.api_base_url = f"http://{self._container_name()}:{port}"
             return
         binding = None
         if self._container is not None:
             ports = (self._container.attrs.get("NetworkSettings") or {}).get("Ports") or {}
-            binding = ports.get(f"{JUPYTER_PORT}/tcp")
+            binding = ports.get(f"{port}/tcp")
         if binding:
             self.host_port = int(binding[0]["HostPort"])
-            self.base_url = f"http://localhost:{self.host_port}"
+            self.api_base_url = f"http://localhost:{self.host_port}"
             return
-        if not self.host_port:
-            return
-        self.base_url = f"http://localhost:{self.host_port}"
+        if self.host_port:
+            self.api_base_url = f"http://localhost:{self.host_port}"
 
     async def _is_container_up(self) -> bool:
         try:
@@ -741,128 +730,6 @@ class LocalDockerSandbox(
             return False
         self._apply_container_connection(self._container)
         return self._container_is_running(self._container)
-
-    # ------------------------------------------------------------------
-    # Jupyter lazy start
-    # ------------------------------------------------------------------
-
-    async def _is_jupyter_ready(self) -> bool:
-        if not await self._is_container_up():
-            return False
-        if not self._token:
-            return False
-        self._ensure_base_url()
-        if not self.base_url:
-            return False
-        return await super().is_up()
-
-    def _jupyter_start_lock_key(self) -> str:
-        identity = (
-            str(self.sandbox_id)
-            if self.sandbox_id is not None
-            else self.external_id
-            or (str(self.owner_id) if self.owner_id is not None else None)
-        )
-        if not identity:
-            raise RuntimeError("sandbox identity is required for jupyter startup lock")
-        return f"sandbox:jupyter-start:{identity}"
-
-    async def _start_jupyter_server(self) -> None:
-        await self._ensure_container_connected()
-        assert self._container is not None
-        cmd = (
-            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} --allow-root "
-            '--ServerApp.token="${JUPYTER_TOKEN}" > /dev/null 2>&1 &'
-        )
-        logger.info(
-            "Starting Jupyter inside local sandbox container %s",
-            getattr(self._container, "id", "")[:12],
-        )
-        exit_code, output = await self._run_exec_in_container(cmd=["sh", "-lc", cmd])
-        if exit_code != 0:
-            raise RuntimeError(
-                "Failed to start Jupyter server: "
-                + self._decode_container_output(output).strip()
-            )
-
-    async def _wait_for_jupyter_ready(self) -> None:
-        start = time.time()
-        while True:
-            if await self._is_jupyter_ready():
-                return
-            if time.time() - start > self.startup_timeout_sec:
-                raise TimeoutError(
-                    f"Jupyter did not start within {self.startup_timeout_sec} seconds"
-                )
-            await asyncio.sleep(1)
-
-    async def _ensure_jupyter_ready(self) -> bool:
-        if await self._is_jupyter_ready():
-            return False
-
-        lock_timeout = float(max(self.startup_timeout_sec + 5, 5))
-        try:
-            async with asyncio.timeout(lock_timeout):
-                async with cache.lock(
-                    self._jupyter_start_lock_key(),
-                    expire=lock_timeout + 5,
-                    wait=True,
-                    check_interval=0.05,
-                ):
-                    if await self._is_jupyter_ready():
-                        return False
-                    if not await self._is_container_up():
-                        raise RuntimeError(
-                            "Local docker sandbox container is not running"
-                        )
-                    await self._start_jupyter_server()
-                    await self._wait_for_jupyter_ready()
-                    return True
-        except TimeoutError as exc:
-            raise TimeoutError(
-                "Timed out while waiting to start Jupyter in local docker sandbox"
-            ) from exc
-
-    async def run_code(
-        self,
-        code: str,
-        kernel_id: str | None = None,
-        *,
-        allow_stdin: bool = True,
-        envs: dict[str, str] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Any], str]:
-        jupyter_started = await self._ensure_jupyter_ready()
-        effective_kernel_id = kernel_id
-        if jupyter_started:
-            logger.info(
-                "Jupyter was started lazily for sandbox %s; resetting kernel state",
-                self.sandbox_id,
-            )
-            self._kernel_id = None
-            effective_kernel_id = None
-
-        code_iter = super().run_code(
-            code,
-            kernel_id=effective_kernel_id,
-            allow_stdin=allow_stdin,
-            envs=envs,
-            **kwargs,
-        )
-        # ВАЖНО: пробрасываем значение из .asend() обратно во внутренний
-        # генератор, иначе ответы на input() теряются (input_reply уходит
-        # пустым). `async for ... yield chunk` молча отбрасывает asend-значение.
-        pending_input_reply: str | None = None
-        while True:
-            try:
-                if pending_input_reply is None:
-                    chunk = await anext(code_iter)
-                else:
-                    chunk = await code_iter.asend(pending_input_reply)
-                    pending_input_reply = None
-            except StopAsyncIteration:
-                break
-            pending_input_reply = yield chunk
 
     # ------------------------------------------------------------------
     # orphan cleanup (class-level)

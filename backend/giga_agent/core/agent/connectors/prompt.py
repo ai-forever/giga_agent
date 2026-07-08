@@ -59,7 +59,7 @@ async def build_connectors_prompt(
             lines.append(head)
     listing = "\n".join(lines)
     return (
-        "Доступные коннекторы (с их инструментами):\n"
+        "Доступные коннекторы/mcp (с их инструментами):\n"
         f"{listing}\n"
         "Чтобы узнать параметры инструмента коннектора, вызови "
         "connector_get_info('<имя>'). "

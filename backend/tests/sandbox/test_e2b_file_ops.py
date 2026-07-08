@@ -248,13 +248,16 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
             f"giga_agent/{sandbox.owner_id}/u/to-delete.txt"
         )
 
-    async def test_read_file_returns_content_for_non_s3(self):
+    async def test_read_file_non_s3_delegates_to_sandbox_api(self):
         sandbox = self._sandbox()
-        sandbox._e2b_sandbox = types.SimpleNamespace(
-            files=types.SimpleNamespace(read=AsyncMock(return_value=b"payload"))
-        )
+        with patch.object(
+            sandbox,
+            "_api_read_file",
+            AsyncMock(return_value=ContentResult(data=b"payload")),
+        ) as api_read:
+            result = await sandbox.read_file("/tmp/local.txt")
 
-        result = await sandbox.read_file("/tmp/local.txt")
+        api_read.assert_awaited_once_with("/tmp/local.txt")
         self.assertIsInstance(result, ContentResult)
         self.assertEqual(result.data, b"payload")
 
