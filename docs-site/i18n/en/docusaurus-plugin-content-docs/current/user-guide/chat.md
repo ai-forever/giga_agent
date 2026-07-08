@@ -15,6 +15,10 @@ A chat request combines the user message, selected model, enabled modules, confi
 4. The selected model answers, optionally calling tools.
 5. The UI receives streamed events and final messages.
 
+## Clarifying questions
+
+When a request is ambiguous, the agent asks clarifying questions: a form with answer options appears in the chat — single or multiple choice. Pick the options that fit, and the agent continues with your answer in mind. This behavior is built in; to avoid clarifications, phrase the request more specifically or ask the agent to proceed without follow-ups.
+
 ## Stopping a response
 
 While the agent is answering, the UI offers a stop button. It interrupts the current run; the already generated part of the answer is kept in history, so the conversation does not lose context.

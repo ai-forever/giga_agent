@@ -9,9 +9,11 @@ Some tools call external services. They are not enabled just by installing the p
 
 | Service | Typical requirement |
 |---|---|
-| GitHub | `GITHUB_PERSONAL_ACCESS_TOKEN` |
-| VK | `VK_TOKEN` |
+| GitHub | The GitHub server from the [connectors catalog](./connectors.md) and its token |
+| VK | A VK connection in the [connectors catalog](./connectors.md); the legacy `VK_TOKEN` secret also works |
 | Weather | `OWM_API_KEY` |
 | Search | Search provider configuration |
+
+Yandex Mail, Calendar, and Disk are covered on a separate page — [Yandex services](./yandex-services.md).
 
 Store secrets in the UI or environment, not in documentation or screenshots.
