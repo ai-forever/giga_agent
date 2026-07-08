@@ -19,7 +19,18 @@ class AuthModule(BaseModule):
 
     def get_api_router(self, **kwargs: Any) -> APIRouter:
         _ = kwargs
-        return api.router
+        from giga_agent.modules.auth import invites_api
+
+        combined = APIRouter()
+        combined.include_router(api.router)
+        combined.include_router(invites_api.router)
+        return combined
+
+    def get_models(self, **kwargs: Any) -> list[type]:
+        _ = kwargs
+        from giga_agent.models.invite import Invite
+
+        return [Invite]
 
     async def on_startup(self, session: AsyncSession, **kwargs: Any):
         _ = kwargs
