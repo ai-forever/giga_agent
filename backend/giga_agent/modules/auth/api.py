@@ -909,6 +909,19 @@ async def create_user(
                 detail=f"Groups not found: {missing_group_ids_str}",
             )
 
+    # role — источник правды, если задана явно; иначе легаси-вывод из
+    # is_superuser. Создать owner'а нельзя — владение только передаётся
+    # (PATCH существующего пользователя самим owner'ом).
+    explicit_role = "role" in user.model_fields_set
+    if explicit_role and user.role not in ("admin", "member"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="role must be 'admin' or 'member' (owner is transfer-only)",
+        )
+    resolved_role = (
+        user.role if explicit_role else ("admin" if user.is_superuser else "member")
+    )
+
     try:
         db_user = await user_repo.create(
             email=user.email,
@@ -916,7 +929,7 @@ async def create_user(
             first_name=user.first_name,
             last_name=user.last_name,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
+            role=resolved_role,
             commit=False,
         )
 
