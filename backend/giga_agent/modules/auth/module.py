@@ -64,3 +64,10 @@ class AuthModule(BaseModule):
             logger.info(f"Admin user created: {admin_email}:{admin_password}")
         else:
             logger.info("Users exist. Skipping admin creation.")
+
+        # Команда инстанса: системная группа All Members (создание + бэкфилл)
+        # и авто-членство новых пользователей по UserCreatedEvent.
+        from giga_agent.core.team import ensure_all_members_group, ensure_subscribed
+
+        await ensure_all_members_group(session)
+        await ensure_subscribed()

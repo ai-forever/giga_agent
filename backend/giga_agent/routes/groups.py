@@ -158,6 +158,13 @@ async def delete_group(
 ):
     require_superuser(current_user)
     group = await _get_group_or_404(group_id, group_repo)
+    from giga_agent.core.team import is_system_group
+
+    if is_system_group(group):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Системную группу All Members нельзя удалить",
+        )
     await group_repo.delete(group)
 
 
@@ -199,7 +206,14 @@ async def remove_group_user(
     group_repo: Annotated[GroupRepository, Depends(get_group_repository)],
 ):
     require_superuser(current_user)
-    await _get_group_or_404(group_id, group_repo)
+    group = await _get_group_or_404(group_id, group_repo)
+    from giga_agent.core.team import is_system_group
+
+    if is_system_group(group):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Из системной группы All Members нельзя исключать участников",
+        )
     removed = await group_repo.remove_user(group_id, user_id)
     if not removed:
         raise HTTPException(
