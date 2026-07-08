@@ -2,10 +2,12 @@ import uuid
 from collections import defaultdict
 from datetime import timedelta
 from typing import Annotated, Awaitable, Callable
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
 from sqlalchemy import delete, select
@@ -34,6 +36,12 @@ from giga_agent.models.resource_permission import (
 )
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
+from giga_agent.sandbox.access import (
+    SANDBOX_ACCESS_QUERY_PARAM,
+    SANDBOX_ACCESS_TTL_SEC,
+    is_sandbox_access_token_valid,
+    sandbox_access_cookie_name,
+)
 from giga_agent.core.events import event_bus
 from giga_agent.modules.auth.events import UserCreatedEvent, UserEmbeddingChangedEvent
 from giga_agent.models.users import (
@@ -559,25 +567,74 @@ async def logout(response: Response):
     )
 
 
-@router.get("/sandbox-access/{sandbox_id_hex}", status_code=status.HTTP_204_NO_CONTENT)
+def _sandbox_grant_redirect_target(request: Request) -> str:
+    """Path to land on after the capability-cookie exchange.
+
+    Uses the original client URI (forwarded by nginx as ``X-Original-URI``) so
+    the user returns to the page they actually requested — e.g. ``/snake.html``
+    — instead of the sandbox root. The one-time ``__sbx`` token is stripped so
+    the redirect doesn't re-trigger the grant loop.
+
+    Only same-origin, root-relative paths are honored (open-redirect guard);
+    anything with a scheme/host or a protocol-relative ``//`` prefix falls back
+    to ``/``.
+    """
+    original = request.headers.get("x-original-uri") or ""
+    if not original.startswith("/") or original.startswith(("//", "/\\")):
+        return "/"
+
+    parts = urlsplit(original)
+    if parts.scheme or parts.netloc:
+        return "/"
+
+    path = parts.path or "/"
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if key != SANDBOX_ACCESS_QUERY_PARAM
+        ]
+    )
+    return f"{path}?{query}" if query else path
+
+
+def _parse_sandbox_id_hex(sandbox_id_hex: str) -> uuid.UUID:
+    if len(sandbox_id_hex) != 32:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    try:
+        return uuid.UUID(hex=sandbox_id_hex)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+
+@router.get(
+    "/sandbox-access/{sandbox_id_hex}/{port}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 async def verify_sandbox_access(
     sandbox_id_hex: str,
+    port: int,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
     """Auth_request endpoint for the sandbox wildcard subdomain.
 
-    Returns 204 if the cookie-authenticated user owns the sandbox referenced
-    by ``sandbox_id_hex`` (uuid.hex form, 32 hex chars). Otherwise 401 (no/bad
-    cookie), 403 (not owner), or 404 (invalid id / sandbox missing).
-    """
-    if len(sandbox_id_hex) != 32:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    try:
-        sandbox_id = uuid.UUID(hex=sandbox_id_hex)
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    Grants access (204) via either path:
+      * a valid, non-expired capability cookie scoped to this exact
+        ``(sandbox_id, port)`` pair, or
+      * the owner's main session cookie (the user owns the sandbox).
 
+    Otherwise 401 (no/bad credentials), 403 (not owner), or 404 (invalid id /
+    sandbox missing).
+    """
+    sandbox_id = _parse_sandbox_id_hex(sandbox_id_hex)
+
+    # 1. Capability token (port-scoped, time-limited) — preferred, no DB hit.
+    cap_token = request.cookies.get(sandbox_access_cookie_name(sandbox_id_hex))
+    if await is_sandbox_access_token_valid(sandbox_id_hex, port, cap_token):
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    # 2. Fall back to the owner's main session cookie.
     raw_token = request.cookies.get(AUTH_COOKIE_NAME)
     if not raw_token:
         raise HTTPException(
@@ -600,6 +657,47 @@ async def verify_sandbox_access(
     if owner_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/sandbox-grant/{sandbox_id_hex}/{port}")
+async def grant_sandbox_access(
+    sandbox_id_hex: str,
+    port: int,
+    request: Request,
+) -> Response:
+    """Exchange a capability token from the query string for a host-only cookie.
+
+    Validates ``?{SANDBOX_ACCESS_QUERY_PARAM}=<token>`` against Redis for this
+    exact ``(sandbox_id, port)`` pair, sets a per-sandbox host-only cookie, and
+    302-redirects back to the originally requested path (``X-Original-URI`` from
+    nginx, ``__sbx`` stripped) — falling back to ``/`` — so the token disappears
+    from the address bar and is not leaked via Referer. The cookie is then
+    validated on every request by the auth_request endpoint.
+    """
+    _parse_sandbox_id_hex(sandbox_id_hex)
+
+    token = request.query_params.get(SANDBOX_ACCESS_QUERY_PARAM)
+    if not await is_sandbox_access_token_valid(sandbox_id_hex, port, token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired sandbox access token",
+        )
+
+    secure = request.headers.get("x-forwarded-proto", "https") == "https"
+    redirect_target = _sandbox_grant_redirect_target(request)
+    response = RedirectResponse(url=redirect_target, status_code=status.HTTP_302_FOUND)
+    response.set_cookie(
+        key=sandbox_access_cookie_name(sandbox_id_hex),
+        value=token,  # type: ignore[arg-type]
+        max_age=SANDBOX_ACCESS_TTL_SEC,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+        # No domain attribute → host-only: the cookie is scoped to this exact
+        # <port>-sandbox-<hex>.<domain> host and is never sent to siblings.
+    )
+    return response
 
 
 @router.get("/users/me", response_model=UserSelfResponse)

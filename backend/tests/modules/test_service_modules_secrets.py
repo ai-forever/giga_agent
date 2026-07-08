@@ -2,7 +2,7 @@ import unittest
 
 from giga_agent.core.module import collect_module_secrets
 from giga_agent.modules.github import GitHubModule
-from giga_agent.modules.vk import VKModule
+from giga_agent.modules.integrations.vk import VKModule
 from giga_agent.modules.weather import WeatherModule
 
 

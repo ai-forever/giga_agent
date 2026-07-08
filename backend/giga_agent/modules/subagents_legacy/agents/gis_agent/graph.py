@@ -29,6 +29,10 @@ from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_runtime,
     get_user_secret,
 )
+from giga_agent.utils.langgraph_sdk import (
+    get_user_id_from_config,
+    get_user_value_from_config,
+)
 from giga_agent.modules.subagents_legacy.uploads import (
     build_tool_message,
     resolve_upload_prefix,
@@ -121,9 +125,10 @@ async def city_explore(city: str, runtime: ToolRuntime):
         "configurable": {
             "thread_id": thread_id,
             "skip_search": not resolver.has_search_engine,
-            "langgraph_auth_user": dict(
-                runtime.config["configurable"]["langgraph_auth_user"]
-            ),
+            "langgraph_auth_user": {
+                "identity": get_user_id_from_config(runtime.config),
+                "token": get_user_value_from_config(runtime.config, "token"),
+            },
         },
     }
     push_ui_message(

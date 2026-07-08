@@ -397,7 +397,7 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="connector-select">Коннектор</Label>
+        <Label htmlFor="connector-select">Подключение</Label>
         <ConnectorSelect
           id="connector-select"
           value={selectedConnectorId}

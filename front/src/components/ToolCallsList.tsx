@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Minus, Ban, Check, Loader, X } from "lucide-react";
+import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
@@ -11,6 +11,13 @@ import { PROGRESS_AGENTS, TOOL_MAP } from "../config";
 import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
 import { notifyIfHidden } from "../lib/notifications";
+import {
+  compositionFor,
+  compositionFromResult,
+  isResponseWidget,
+  resolveWidget,
+} from "./widgets/registry";
+import { ComposedBoard } from "./widgets/kit";
 
 const THINK_TOOL_NAME = "think";
 
@@ -302,6 +309,7 @@ const TOOL_LABELS: Record<string, string> = {
   create_meme: "Создаёт мем",
   podcast_generate: "Создаёт подкаст",
   multi_tool_use: "Выполняет несколько действий",
+  ask_questions: "Уточняющие вопросы",
 };
 
 const getHost = (url: string): string => {
@@ -894,7 +902,15 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const notifiedDeepResearchIdsRef = useRef<Set<string>>(new Set());
 
-  const visible = toolCalls;
+  // response-widget-результаты (genui-виджеты, MCP-аппы, карточки планировщика)
+  // рендерятся самостоятельными блоками ВНЕ рана (см. MessageList), поэтому не
+  // показываем их строкой здесь — иначе виджет задублируется. ask_questions
+  // тоже рисуется снаружи (live-форма при interrupt или "answered"-карточка).
+  const visible = toolCalls.filter(
+    (tc) =>
+      tc.name !== "ask_questions" &&
+      !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
+  );
 
   useEffect(() => {
     for (const tc of visible) {
@@ -922,17 +938,43 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   return (
     <>
       <div className="flex flex-col gap-0.5">
-        {visible.map((tc) =>
-          tc.name === "run_deep_research" ? (
-            <DeepResearchToolCall
-              key={tc.id ?? tc.name}
-              toolCall={tc}
-              resultMessage={tc.id ? resultsById[tc.id] : undefined}
-              isStreaming={isStreaming}
-              thread={thread}
-              onOpenAttachment={setPreviewFile}
-            />
-          ) : (
+        {visible.map((tc) => {
+          // run_deep_research — особый кейс (глубоко завязан на стриминг).
+          if (tc.name === "run_deep_research") {
+            return (
+              <DeepResearchToolCall
+                key={tc.id ?? tc.name}
+                toolCall={tc}
+                resultMessage={tc.id ? resultsById[tc.id] : undefined}
+                isStreaming={isStreaming}
+                thread={thread}
+                onOpenAttachment={setPreviewFile}
+              />
+            );
+          }
+          // Генеративная доска: композиция из результата (персистентно) или из
+          // thread.values.ui (лайв во время стрима). Provider-agnostic.
+          const result = tc.id ? resultsById[tc.id] : undefined;
+          const composition =
+            compositionFromResult(result) ?? compositionFor(thread, tc.id);
+          if (composition) {
+            return (
+              <ComposedBoard key={tc.id ?? tc.name} composition={composition} />
+            );
+          }
+          // GenUI-виджеты: по маркеру payload результата (provider-agnostic).
+          const Widget = resolveWidget(result);
+          if (Widget) {
+            return (
+              <Widget
+                key={tc.id ?? tc.name}
+                toolCall={tc}
+                resultMessage={tc.id ? resultsById[tc.id] : undefined}
+                isStreaming={isStreaming}
+              />
+            );
+          }
+          return (
             <ToolCallRow
               key={tc.id ?? tc.name}
               toolCall={tc}
@@ -941,15 +983,15 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
               thread={thread}
               onOpenAttachment={setPreviewFile}
             />
-          ),
-        )}
+          );
+        })}
       </div>
 
       <OverlayPortal
         isVisible={!!previewFile}
         onClose={() => setPreviewFile(null)}
       >
-        <div className="bg-card rounded-lg p-2.5">
+        <div className="bg-card rounded-lg p-2.5 w-full">
           {previewFile ? (
             <MessageAttachment
               path={previewFile.sandbox_path ?? previewFile.path}

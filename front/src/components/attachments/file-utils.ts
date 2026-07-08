@@ -7,6 +7,9 @@ export type AttachmentFileType =
   | "video"
   | "html"
   | "text"
+  // Interactive MCP Apps widget — rendered inline by McpUiWidget, not by the
+  // path-based MessageAttachment dispatcher (it carries no file path).
+  | "mcp_ui"
   | "other";
 
 type PathLike =

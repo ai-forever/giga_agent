@@ -1,23 +1,22 @@
 import React, {
-  createContext,
   PropsWithChildren,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useState,
 } from "react";
-import McpServerModal, { MCPTool } from "@/components/mcp/mcp-modal.tsx";
+import { type MCPTool } from "@/components/mcp/mcp-modal.tsx";
 import ContextModal from "@/components/modals/context-modal.tsx";
+import ConnectorsModal, {
+  type ConnectorsTab,
+} from "@/components/mcp/connectors/connectors-modal.tsx";
+import { useConnectors } from "@/components/mcp/connectors/use-connectors.ts";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
-
-export interface ModuleInfo {
-  id: string;
-  label: string;
-  description: string;
-  icon: string;
-}
+import {
+  UserInfoContext,
+  type ModuleInfo,
+} from "@/components/providers/user-info-context.ts";
 
 const readDisabledFromUser = (user: unknown): string[] => {
   const settings = (user as { settings?: unknown } | null | undefined)
@@ -28,25 +27,11 @@ const readDisabledFromUser = (user: unknown): string[] => {
   return raw.filter((x): x is string => typeof x === "string");
 };
 
-type UserInfoContextType = {
-  mcpTools: MCPTool[];
-  setMcpTools: React.Dispatch<React.SetStateAction<MCPTool[]>>;
-  openMcpModal: () => void;
-  closeMcpModal: () => void;
-  openContextModal: () => void;
-  closeContextModal: () => void;
-  enabledModules: Record<string, boolean>;
-  toggleModule: (moduleId: string, enabled: boolean) => Promise<void>;
-  setModulesState: (updates: Record<string, boolean>) => Promise<void>;
-  availableModules: ModuleInfo[];
-  refreshModules: () => void;
-};
-
-const UserInfoContext = createContext<UserInfoContextType | null>(null);
-
 export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
   const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
-  const [mcpModalOpen, setMcpModalOpen] = useState(false);
+  const connectors = useConnectors();
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [connectorsTab, setConnectorsTab] = useState<ConnectorsTab>("catalog");
   const [contextModalOpen, setContextModalOpen] = useState(false);
   const [availableModules, setAvailableModules] = useState<ModuleInfo[]>([]);
   const { token, user, refreshUser } = useAuth();
@@ -81,13 +66,10 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
     void refreshModules();
   }, [refreshModules]);
 
-  const openMcpModal = useCallback(() => {
-    setMcpModalOpen(true);
-  }, [setMcpModalOpen]);
-
-  const closeMcpModal = useCallback(() => {
-    setMcpModalOpen(false);
-  }, [setMcpModalOpen]);
+  const openConnectors = useCallback((tab: ConnectorsTab = "catalog") => {
+    setConnectorsTab(tab);
+    setConnectorsOpen(true);
+  }, []);
 
   const openContextModal = useCallback(() => {
     setContextModalOpen(true);
@@ -150,8 +132,8 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
       value={{
         mcpTools,
         setMcpTools,
-        openMcpModal,
-        closeMcpModal,
+        connectors,
+        openConnectors,
         openContextModal,
         closeContextModal,
         enabledModules,
@@ -162,20 +144,13 @@ export const UserInfoProvider: React.FC<PropsWithChildren> = ({ children }) => {
       }}
     >
       {children}
-      <McpServerModal
-        isOpen={mcpModalOpen}
-        onClose={closeMcpModal}
-        onToolsUpdate={setMcpTools}
+      <ConnectorsModal
+        isOpen={connectorsOpen}
+        onClose={() => setConnectorsOpen(false)}
+        api={connectors}
+        initialTab={connectorsTab}
       />
       <ContextModal isOpen={contextModalOpen} onClose={closeContextModal} />
     </UserInfoContext.Provider>
   );
-};
-
-export const useUserInfo = () => {
-  const context = useContext(UserInfoContext);
-  if (context === null) {
-    throw new Error("useUserInfo must be used within a UserInfoProvider");
-  }
-  return context;
 };

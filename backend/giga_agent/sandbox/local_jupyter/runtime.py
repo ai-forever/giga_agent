@@ -362,6 +362,11 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     def _get_kernel_request_payload(self) -> dict[str, Any] | None:
         return {"name": LOCAL_JUPYTER_KERNEL_NAME}
 
+    def _kernel_startup_timeout(self) -> float | None:
+        return float(
+            get_settings().giga_agent_local_jupyter_kernel_startup_timeout_sec
+        )
+
     async def _before_kernel_create(self, session: Any) -> None:
         del session
         if self.owner_id is None:

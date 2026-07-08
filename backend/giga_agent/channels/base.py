@@ -70,3 +70,21 @@ class Channel(BaseModel, abc.ABC):
     @abc.abstractmethod
     async def restart(self, bot: ChannelBot) -> None:
         raise NotImplementedError
+
+    async def deliver(
+        self,
+        bot: ChannelBot,
+        external_chat_id: str,
+        parts: list[dict[str, Any]],
+        *,
+        token: str,
+        external_user_id: str | None = None,
+    ) -> bool:
+        """Proactively send rendered parts to a chat (not a reply to an update).
+
+        Used by background/scheduled tasks. Channels without outbound support
+        leave this unimplemented.
+        """
+        raise NotImplementedError(
+            f"Channel '{self.type()}' does not support proactive delivery"
+        )

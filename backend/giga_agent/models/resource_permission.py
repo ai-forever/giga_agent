@@ -35,6 +35,7 @@ RESOURCE_TYPES = {
     "rag_collection",
     "sandbox",
     "search_engine",
+    "mcp_server",
 }
 OWNER_TYPES = {"user", "group"}
 PERMISSIONS = {"read", "write"}

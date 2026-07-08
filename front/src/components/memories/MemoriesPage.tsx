@@ -333,8 +333,8 @@ const FilesTab: React.FC = () => {
           if (!open) closeEditor();
         }}
       >
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+          <DialogHeader className="min-w-0">
             <DialogTitle className="font-mono text-base truncate">
               {editor.path}
             </DialogTitle>
@@ -353,7 +353,7 @@ const FilesTab: React.FC = () => {
                 onChange={(e) =>
                   setEditor((prev) => ({ ...prev, content: e.target.value }))
                 }
-                className="min-h-[360px] font-mono text-sm"
+                className="min-h-[280px] w-full min-w-0 flex-1 resize-none overflow-auto font-mono text-sm"
               />
               {editor.error && (
                 <div className="text-sm text-red-500">{editor.error}</div>
@@ -361,7 +361,7 @@ const FilesTab: React.FC = () => {
             </>
           )}
 
-          <DialogFooter className="flex flex-row items-center justify-between sm:justify-between gap-2">
+          <DialogFooter className="flex flex-row flex-wrap items-center justify-between gap-2">
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button

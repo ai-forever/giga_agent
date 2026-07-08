@@ -356,7 +356,7 @@ export const EmbeddingForm: React.FC<EmbeddingFormProps> = ({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="embedding-connector-select">Коннектор</Label>
+        <Label htmlFor="embedding-connector-select">Подключение</Label>
         <ConnectorSelect
           id="embedding-connector-select"
           value={selectedConnectorId}

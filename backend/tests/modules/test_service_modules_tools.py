@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from giga_agent.modules.github.tools import get_pull_request
-from giga_agent.modules.vk.tools import vk_get_posts
+from giga_agent.modules.integrations.vk.tools import vk_get_posts
 from giga_agent.modules.weather.tools import weather
 
 
@@ -46,12 +46,24 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
                 observed["authorization"] = headers["Authorization"]
                 return _FakeHTTPResponse({"id": 123, "html_url": "x"})
 
+        from giga_agent.core.integrations.errors import ReauthRequired
+
+        async def _no_integration(*_a, **_k):
+            raise ReauthRequired("github")
+
         with patch(
             "giga_agent.modules.github.tools.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
             "giga_agent.modules.github.tools.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
+        ), patch(
+            "giga_agent.core.integrations.service.get_access_token",
+            _no_integration,
+        ), patch(
+            "giga_agent.core.integrations.static_provider."
+            "StaticOAuthProvider.store_manual_token",
+            AsyncMock(),
         ), patch("giga_agent.modules.github.tools.httpx.AsyncClient", return_value=_FakeClient()):
             assert get_pull_request.coroutine is not None
             await get_pull_request.coroutine(
@@ -87,15 +99,15 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
                 return _FakeHTTPResponse({"response": {"items": []}})
 
         with patch(
-            "giga_agent.modules.vk.tools.get_session_factory",
+            "giga_agent.modules.integrations.vk.tools.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
-            "giga_agent.modules.vk.tools.UserRepository.get_cached_or_db",
+            "giga_agent.modules.integrations.vk.tools.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
         ), patch(
-            "giga_agent.modules.vk.tools.httpx.AsyncClient",
+            "giga_agent.modules.integrations.vk.tools.httpx.AsyncClient",
             return_value=_FakeClient(),
-        ), patch("giga_agent.modules.vk.tools.asyncio.sleep", AsyncMock()):
+        ), patch("giga_agent.modules.integrations.vk.tools.asyncio.sleep", AsyncMock()):
             assert vk_get_posts.coroutine is not None
             await vk_get_posts.coroutine(
                 domain="club1",
@@ -180,17 +192,24 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
+        from giga_agent.core.integrations.errors import ReauthRequired
+
+        async def _no_token(*_a, **_k):
+            raise ReauthRequired("github")
+
         with patch(
             "giga_agent.modules.github.tools.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
             "giga_agent.modules.github.tools.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
+        ), patch(
+            "giga_agent.core.integrations.service.get_access_token",
+            _no_token,
         ):
             assert get_pull_request.coroutine is not None
-            with self.assertRaisesRegex(
-                ValueError, "GITHUB_PERSONAL_ACCESS_TOKEN"
-            ):
+            # No integration connection and no legacy secret → guides to connect.
+            with self.assertRaisesRegex(ValueError, "GitHub"):
                 await get_pull_request.coroutine(
                     owner="o",
                     repo="r",
@@ -199,14 +218,18 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         with patch(
-            "giga_agent.modules.vk.tools.get_session_factory",
+            "giga_agent.modules.integrations.vk.tools.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
-            "giga_agent.modules.vk.tools.UserRepository.get_cached_or_db",
+            "giga_agent.modules.integrations.vk.tools.UserRepository.get_cached_or_db",
             AsyncMock(return_value=user),
+        ), patch(
+            "giga_agent.core.integrations.service.get_access_token",
+            _no_token,
         ):
             assert vk_get_posts.coroutine is not None
-            with self.assertRaisesRegex(ValueError, "VK_TOKEN"):
+            # No integration connection and no legacy secret → guides to connect.
+            with self.assertRaisesRegex(ValueError, "VK"):
                 await vk_get_posts.coroutine(
                     domain="club1",
                     offset=0,

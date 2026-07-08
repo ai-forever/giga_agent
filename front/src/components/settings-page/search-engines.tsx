@@ -60,7 +60,7 @@ const SearchEngineItem: React.FC<SearchEngineItemProps> = ({
         <span className="font-medium">{engine.name || engine.type}</span>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Тип: {engine.type}</span>
-          {connectorName && <span>Connector: {connectorName}</span>}
+          {connectorName && <span>Подключение: {connectorName}</span>}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -230,7 +230,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
       {selectedType && supportsConnectors && (
         <div className="space-y-1.5">
           <Label htmlFor="search-engine-connector">
-            Коннектор{" "}
+            Подключение{" "}
             {requiresConnector && <span className="text-destructive">*</span>}
           </Label>
           <ConnectorSelect
@@ -250,7 +250,7 @@ const SearchEngineForm: React.FC<SearchEngineFormProps> = ({
 
       {selectedType && !supportsConnectors && (
         <p className="text-sm text-muted-foreground">
-          Для выбранного типа движка коннектор не требуется.
+          Для выбранного типа движка подключение не требуется.
         </p>
       )}
 

@@ -30,8 +30,18 @@ import { toast } from "sonner";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
 import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import { BROWSER_USE_NAME } from "@/config.ts";
+import { useSettings } from "./Settings.tsx";
+import type { QuestionsCardItem } from "./MessageList.tsx";
+import { isResponseWidget } from "./widgets/registry";
+import ResponseWidget, {
+  type ResponseWidgetItem,
+} from "./widgets/ResponseWidget";
+
+const AnsweredQuestionsCard = React.lazy(
+  () => import("./questions/AnsweredQuestionsCard.tsx"),
+);
 
 function getMessageText(message: Message_): string {
   if (Array.isArray(message.content)) {
@@ -72,6 +82,14 @@ interface MessageProps {
   hideToolCalls?: boolean;
   // Показывает только tool calls, не дублируя уже вынесенный content/reasoning.
   hideContent?: boolean;
+  // Вынесенные наружу виджеты/карточки (genui, MCP-аппы, планировщик) — если
+  // шаг состоял только из них, рендерятся отдельным блоком ПОД reasoning/content
+  // этого AI-сообщения через диспетчер ResponseWidget (см. MessageList).
+  leadingResponseWidgets?: ResponseWidgetItem[];
+  // Карточки уже отвеченных уточняющих вопросов (тул ask_questions) —
+  // рендерятся отдельным блоком ПОД reasoning/content этого AI-сообщения
+  // (см. MessageList).
+  answeredQuestions?: QuestionsCardItem[];
 }
 
 // ≈ 10 строк text-xs (12px) при leading-snug (line-height 1.375): 12 * 1.375 * 10 ≈ 165
@@ -209,6 +227,8 @@ const Message: React.FC<MessageProps> = ({
   hideActions = false,
   hideToolCalls = false,
   hideContent = false,
+  leadingResponseWidgets,
+  answeredQuestions,
 }) => {
   // 2) хук для постепенной «печати» чанков
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -391,7 +411,31 @@ const Message: React.FC<MessageProps> = ({
     );
   };
 
+  const interruptType = thread?.interrupt?.value?.type;
+  const isDestructiveConfirm = interruptType === "confirm_destructive";
+  // Лейбл подтверждения по имени тула: деструктив — не только удаление
+  // (mail_send — отправка). Берём из interrupt.value.tools.
+  const destructiveLabel = (() => {
+    const names = (
+      (thread?.interrupt?.value?.tools ?? []) as { name?: string }[]
+    )
+      .map((t) => t?.name || "")
+      .filter(Boolean);
+    if (names.length === 1) {
+      const n = names[0];
+      if (n === "mail_send") return "отправку письма";
+      if (n === "calendar_create_event") return "создание события";
+      if (/_(delete|remove|drop|purge)$/.test(n) || n.includes("delete"))
+        return "удаление";
+    }
+    return "действие";
+  })();
+  const isSystemNotice =
+    message.type === "ai" &&
+    // @ts-ignore — служебное сообщение от инфраструктуры (tool-router и т.п.)
+    message.additional_kwargs?.kind === "system_notice";
   const isCurrentInterruptMessage =
+    !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
     ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
@@ -464,6 +508,19 @@ const Message: React.FC<MessageProps> = ({
     (toolCall) => toolCall.name !== THINK_TOOL_NAME,
   );
 
+  // Tool calls that actually produce a row in ToolCallsList: ask_questions and
+  // response-widget-результаты (genui-виджеты, MCP-аппы, карточки планировщика)
+  // рисуются самостоятельными блоками, поэтому не считаются. Когда таких нет,
+  // reasoning/content рендерятся без обрамляющего tool-контейнера.
+  const displayToolCalls = visibleToolCalls.filter((toolCall) => {
+    const id = (toolCall as any).id as string | undefined;
+    return (
+      toolCall.name !== "ask_questions" &&
+      !isResponseWidget(id ? resultsById?.[id] : undefined)
+    );
+  });
+  const hasToolContainer = hasToolCalls && displayToolCalls.length > 0;
+
   const combinedReasoning = useMemo(() => {
     const parts: string[] = [];
     const reasoning = message.additional_kwargs?.reasoning_content;
@@ -520,7 +577,7 @@ const Message: React.FC<MessageProps> = ({
                 "markdown",
               ].join(" ")}
             >
-              {hasToolCalls ? (
+              {hasToolContainer ? (
                 <div
                   className={
                     noContainer
@@ -553,6 +610,31 @@ const Message: React.FC<MessageProps> = ({
                   </TextMarkdown>
                 </>
               )}
+              {message.type === "ai" &&
+                leadingResponseWidgets &&
+                leadingResponseWidgets.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {leadingResponseWidgets.map((w, i) => (
+                      <ResponseWidget
+                        key={w.toolCall.id ?? `lrw-${i}`}
+                        item={w}
+                        thread={thread}
+                        isStreaming={!!thread?.isLoading}
+                      />
+                    ))}
+                  </div>
+                )}
+              {message.type === "ai" &&
+                answeredQuestions &&
+                answeredQuestions.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    {answeredQuestions.map((item) => (
+                      <React.Suspense key={item.id} fallback={null}>
+                        <AnsweredQuestionsCard data={item.data} />
+                      </React.Suspense>
+                    ))}
+                  </div>
+                )}
               {
                 //@ts-ignore
                 message.additional_kwargs &&
@@ -578,6 +660,11 @@ const Message: React.FC<MessageProps> = ({
               layout
               className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
             >
+              {isDestructiveConfirm && (
+                <span className="mr-auto text-xs font-medium text-red-600">
+                  ⚠️ Подтвердите {destructiveLabel}
+                </span>
+              )}
               <motion.button
                 layout
                 animate={{
@@ -755,5 +842,7 @@ export default React.memo(
     prev.noContainer === next.noContainer &&
     prev.hideActions === next.hideActions &&
     prev.hideToolCalls === next.hideToolCalls &&
-    prev.hideContent === next.hideContent,
+    prev.hideContent === next.hideContent &&
+    prev.leadingResponseWidgets === next.leadingResponseWidgets &&
+    prev.answeredQuestions === next.answeredQuestions,
 );

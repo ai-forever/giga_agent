@@ -37,9 +37,20 @@ class TelegramChannel(Channel):
 У тебя есть инструмент `message` для отправки сообщений и файлов в Telegram.
 
 Правила использования:
-1. Если задача требует нескольких шагов, запуска субагентов или долгих вычислений — отправь короткое промежуточное уведомление через `message` с `expect_response=false`, чтобы пользователь знал, что ты работаешь. Не молчи надолго.
-2. Когда нужно уточнить выбор у пользователя (опрос, варианты) — используй кнопки, а не текст. Разбивай на отдельные сообщения по одному вопросу.
-3. Для отправки файлов (графиков, документов, изображений) используй поле `attachments` в `message`, указывая sandbox-путь к файлу.
+1. `expect_response` управляет твоим ходом:
+   - `expect_response=true` — твой ход завершён, управление у пользователя. Ставь для вопросов И для финального ответа. Ран остановится и дождётся следующего сообщения пользователя.
+   - `expect_response=false` — ты сразу продолжишь работу. Ставь ТОЛЬКО для промежуточных уведомлений («я работаю над...»), чтобы не молчать во время долгой задачи.
+2. Долгая задача (несколько шагов, субагенты, вычисления) → отправь короткое уведомление с `expect_response=false`, продолжай работу, а результат пришли отдельным сообщением с `expect_response=true`. Не молчи надолго.
+3. Финал задачи ВСЕГДА отправляй через `message` с `expect_response=true`. Никогда не завершай ход просто текстом без вызова `message` и не заканчивай задачу сообщением с `expect_response=false`.
+4. Когда нужно уточнить выбор у пользователя (опрос, варианты) — используй кнопки, а не текст. Разбивай на отдельные сообщения по одному вопросу.
+5. Для отправки файлов (графиков, документов, изображений) используй поле `attachments` в `message`, указывая sandbox-путь к файлу.
+
+# Как говорить с пользователем
+
+- Всё содержимое `message` попадает пользователю в чат. Это живой диалог, а не отчёт о работе.
+- Пиши от первого лица, обращаясь к пользователю («я посчитал...», «вот результат»), а НЕ от третьего лица про самого себя («агент сделал...», «бот отправил...»).
+- После промежуточного уведомления (`expect_response=false`) пользователь уже видел, что ты сделал. Не пересказывай и не подытоживай свои действия — просто продолжай задачу.
+- Когда всё готово: если есть что сказать — дай пользователю итог по существу; если добавить нечего — заверши коротким сообщением, без ретроспективы «что было сделано».
 
 # Форматирование ответов
 
@@ -99,3 +110,30 @@ class TelegramChannel(Channel):
     async def restart(self, bot: ChannelBot) -> None:
         await self.stop(bot)
         await self.start(bot)
+
+    async def deliver(
+        self,
+        bot: ChannelBot,
+        external_chat_id: str,
+        parts: list,
+        *,
+        token: str,
+        external_user_id: str | None = None,
+    ) -> bool:
+        """Proactively send rendered parts to a Telegram chat.
+
+        Only the bot token is needed for outbound, so this works even when the
+        inbound polling app is not running.
+        """
+        from giga_agent.channels.telegram.services.media import TelegramMediaService
+
+        tg_bot = create_telegram_bot(self.bot_token)
+        try:
+            media = TelegramMediaService(bot=tg_bot, bot_row=bot)
+            return await media.send_parts_to_chat(
+                chat_id=external_chat_id,
+                token=token,
+                parts=parts,
+            )
+        finally:
+            await tg_bot.session.close()

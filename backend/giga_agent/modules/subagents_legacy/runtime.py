@@ -53,7 +53,7 @@ def get_owner_id_from_runtime(runtime: ToolRuntime) -> uuid.UUID:
         resolver = RuntimeResolver.from_config(runtime.config)
         return resolver.user.id
     except ValueError:
-        user_id = runtime.config["configurable"]["langgraph_auth_user"]["identity"]
+        user_id = get_user_id_from_config(runtime.config)
         return uuid.UUID(user_id) if isinstance(user_id, str) else user_id
 
 

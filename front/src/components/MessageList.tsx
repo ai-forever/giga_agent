@@ -15,6 +15,17 @@ import {
   getPromptSuggestionTitle,
   type PromptSuggestionScenario,
 } from "@/types/prompt-suggestions";
+import { getQuestionsResult } from "./questions/detect";
+import LiveQuestionsForm from "./questions/LiveQuestionsForm";
+import type { QuestionsResult } from "../interfaces.ts";
+import { isResponseWidget } from "./widgets/registry";
+import ResponseWidget, {
+  type ResponseWidgetItem,
+} from "./widgets/ResponseWidget";
+
+const AnsweredQuestionsCard = React.lazy(
+  () => import("./questions/AnsweredQuestionsCard.tsx"),
+);
 
 interface MessageListProps {
   messages: Message_[];
@@ -27,11 +38,27 @@ interface MessageListProps {
 }
 
 const THINK_TOOL_NAME = "think";
+const ASK_QUESTIONS_TOOL_NAME = "ask_questions";
 
-const hasVisibleToolCalls = (m: Message_): boolean => {
+const hasVisibleToolCalls = (
+  m: Message_,
+  resultsById: Record<string, Message_>,
+): boolean => {
   if (m.type !== "ai") return false;
-  const tc = ((m as any).tool_calls ?? []) as Array<{ name: string }>;
-  return tc.some((c) => c.name !== THINK_TOOL_NAME);
+  const tc = ((m as any).tool_calls ?? []) as Array<{
+    name: string;
+    id?: string;
+  }>;
+  // think, response-widget-результаты (genui-виджеты, MCP-аппы, карточки
+  // планировщика) и ask_questions рендерятся ВНЕ рана, поэтому не считаются
+  // видимыми тулами — шаг из одних только них не должен образовывать
+  // схлопывающийся agent-ран (иначе получим пустой ран-бокс).
+  return tc.some(
+    (c) =>
+      c.name !== THINK_TOOL_NAME &&
+      c.name !== ASK_QUESTIONS_TOOL_NAME &&
+      !isResponseWidget(c.id ? resultsById[c.id] : undefined),
+  );
 };
 
 const hasToolCalls = (m: Message_): boolean => {
@@ -58,9 +85,55 @@ const stripThinkingTags = (text: string): string =>
 const hasContentOutsideThinking = (m: Message_): boolean =>
   m.type === "ai" && stripThinkingTags(getMessageText(m)).length > 0;
 
+// Результаты тулов, помеченные как response_widget (genui-виджеты, MCP-аппы,
+// карточки планировщика — см. registry.isResponseWidget). Рендерятся ВНЕ
+// схлопывающегося рана: самостоятельным блоком после рана либо под контентом
+// сообщения (если шаг состоит только из них). Порядок сохраняется; ЧТО рисовать
+// для каждого — решает диспетчер ResponseWidget.
+const collectResponseWidgets = (
+  aiMessages: Message_[],
+  resultsById: Record<string, Message_>,
+): ResponseWidgetItem[] => {
+  const out: ResponseWidgetItem[] = [];
+  for (const m of aiMessages) {
+    for (const c of ((m as any).tool_calls ?? []) as Array<any>) {
+      const result = c.id ? resultsById[c.id] : undefined;
+      if (isResponseWidget(result)) out.push({ toolCall: c, result });
+    }
+  }
+  return out;
+};
+
+// Completed `ask_questions` calls render as a standalone read-only card (the
+// questions asked + how the user answered them), like scheduled-task cards.
+export interface QuestionsCardItem {
+  id: string;
+  data: QuestionsResult;
+}
+
+const collectAnsweredQuestions = (
+  aiMessages: Message_[],
+  resultsById: Record<string, Message_>,
+): QuestionsCardItem[] => {
+  const out: QuestionsCardItem[] = [];
+  for (const m of aiMessages) {
+    for (const c of ((m as any).tool_calls ?? []) as Array<{ id?: string }>) {
+      const result = c.id ? resultsById[c.id] : undefined;
+      const data = getQuestionsResult(result);
+      if (data && c.id) out.push({ id: c.id, data });
+    }
+  }
+  return out;
+};
+
 type RenderItem =
   | { kind: "single"; message: Message_; hideToolCalls?: boolean }
-  | { kind: "run"; aiMessages: Message_[]; key: string };
+  | { kind: "run"; aiMessages: Message_[]; key: string }
+  // Standalone block emitted when ask_questions / a response-widget tool is
+  // called in parallel with a visible tool: the visible tool stays in the run,
+  // the card/widget renders right after it as its own block (see items grouping).
+  | { kind: "questions"; cards: QuestionsCardItem[]; key: string }
+  | { kind: "response"; items: ResponseWidgetItem[]; key: string };
 
 const MessageList: React.FC<MessageListProps> = ({
   messages: messagesProp,
@@ -121,6 +194,21 @@ const MessageList: React.FC<MessageListProps> = ({
     };
     for (const m of renderable) {
       if (hasToolCalls(m)) {
+        // ask_questions и response-widget-результаты прерывают ран.
+        const questionCards = collectAnsweredQuestions([m], resultsById);
+        const responseWidgets = collectResponseWidgets([m], resultsById);
+        const hasCard = questionCards.length > 0 || responseWidgets.length > 0;
+        const hasVisible = hasVisibleToolCalls(m, resultsById);
+
+        // Pure card step (no other visible tool): render the message standalone
+        // with its card/widget under its reasoning/content (attached via the
+        // leading maps below) — [run] [questions/widget] [run].
+        if (hasCard && !hasVisible) {
+          flush();
+          out.push({ kind: "single", message: m });
+          continue;
+        }
+
         if (buffer.length && hasContentOutsideThinking(m)) {
           flush();
           out.push({
@@ -130,8 +218,29 @@ const MessageList: React.FC<MessageListProps> = ({
           });
         }
         buffer.push(m);
-        bufferHasVisibleToolCalls =
-          bufferHasVisibleToolCalls || hasVisibleToolCalls(m);
+        bufferHasVisibleToolCalls = bufferHasVisibleToolCalls || hasVisible;
+
+        // Parallel call: the visible tool stays in the run; close the run right
+        // after this message and emit the card(s)/widget(s) as their own block —
+        // [run …m(tool)] [questions/widget] [run].
+        if (hasCard) {
+          flush();
+          const idKey = m.id ?? out.length;
+          if (responseWidgets.length) {
+            out.push({
+              kind: "response",
+              items: responseWidgets,
+              key: `w-${idKey}`,
+            });
+          }
+          if (questionCards.length) {
+            out.push({
+              kind: "questions",
+              cards: questionCards,
+              key: `q-${idKey}`,
+            });
+          }
+        }
       } else {
         flush();
         out.push({ kind: "single", message: m });
@@ -139,7 +248,40 @@ const MessageList: React.FC<MessageListProps> = ({
     }
     flush();
     return out;
-  }, [renderable]);
+  }, [renderable, resultsById]);
+
+  // Response-widget-результаты рендерятся под контентом того AI-сообщения,
+  // которое их породило (pure-card "single" — оно прерывает ран, см. группировку
+  // выше). Рисуются диспетчером ResponseWidget.
+  const leadingResponseWidgetsByAiId = useMemo(() => {
+    const map = new Map<string, ResponseWidgetItem[]>();
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== "single" || it.message.type !== "ai" || !it.message.id) {
+        continue;
+      }
+      const widgets = collectResponseWidgets([it.message], resultsById);
+      if (widgets.length) map.set(it.message.id, widgets);
+    }
+    return map;
+  }, [items, resultsById]);
+
+  // Answered-questions cards render on the AI message that issued ask_questions —
+  // that message is always a split-point "single" (it interrupts the run, see
+  // items grouping above). The card renders under its reasoning/content (see
+  // Message.tsx).
+  const answeredQuestionsByAiId = useMemo(() => {
+    const map = new Map<string, QuestionsCardItem[]>();
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind !== "single" || it.message.type !== "ai" || !it.message.id) {
+        continue;
+      }
+      const cards = collectAnsweredQuestions([it.message], resultsById);
+      if (cards.length) map.set(it.message.id, cards);
+    }
+    return map;
+  }, [items, resultsById]);
 
   const lastAiId = useMemo(() => {
     for (let i = renderable.length - 1; i >= 0; i--) {
@@ -270,6 +412,37 @@ const MessageList: React.FC<MessageListProps> = ({
             />
           );
         }
+        if (item.kind === "questions") {
+          return (
+            <div
+              key={item.key}
+              className="px-[20px] mb-[20px] flex flex-col gap-2"
+            >
+              {item.cards.map((c) => (
+                <React.Suspense key={c.id} fallback={null}>
+                  <AnsweredQuestionsCard data={c.data} />
+                </React.Suspense>
+              ))}
+            </div>
+          );
+        }
+        if (item.kind === "response") {
+          return (
+            <div
+              key={item.key}
+              className="px-[20px] mb-[20px] flex flex-col gap-2"
+            >
+              {item.items.map((w, i) => (
+                <ResponseWidget
+                  key={w.toolCall.id ?? `${item.key}-${i}`}
+                  item={w}
+                  thread={thread}
+                  isStreaming={!!thread?.isLoading}
+                />
+              ))}
+            </div>
+          );
+        }
         return (
           <Message
             key={item.message.id ?? idx}
@@ -280,9 +453,23 @@ const MessageList: React.FC<MessageListProps> = ({
             isLastAi={item.message.id === lastAiId}
             isLast={idx === items.length - 1}
             hideToolCalls={item.hideToolCalls}
+            leadingResponseWidgets={
+              item.message.id
+                ? leadingResponseWidgetsByAiId.get(item.message.id)
+                : undefined
+            }
+            answeredQuestions={
+              item.message.id
+                ? answeredQuestionsByAiId.get(item.message.id)
+                : undefined
+            }
           />
         );
       })}
+      <LiveQuestionsForm
+        key={`questions-${lastAiId ?? "none"}`}
+        thread={thread}
+      />
       {canShowFollowUps && followUpSuggestions.length > 0 && (
         <div className="px-[20px]">
           <motion.div

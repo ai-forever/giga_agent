@@ -60,7 +60,7 @@ const ImageGeneratorItem: React.FC<ImageGeneratorItemProps> = ({
         <span className="font-medium">{generator.name || generator.type}</span>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>Тип: {generator.type}</span>
-          {connectorName && <span>Connector: {connectorName}</span>}
+          {connectorName && <span>Подключение: {connectorName}</span>}
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -228,7 +228,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
       {selectedType && requiresConnector && (
         <div className="space-y-1.5">
           <Label htmlFor="image-generator-connector">
-            Коннектор <span className="text-destructive">*</span>
+            Подключение <span className="text-destructive">*</span>
           </Label>
           <ConnectorSelect
             id="image-generator-connector"
@@ -246,7 +246,7 @@ const ImageGeneratorForm: React.FC<ImageGeneratorFormProps> = ({
 
       {selectedType && !requiresConnector && (
         <p className="text-sm text-muted-foreground">
-          Для выбранного типа генератора коннектор не требуется.
+          Для выбранного типа генератора подключение не требуется.
         </p>
       )}
 

@@ -1,0 +1,429 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+import httpx
+from langchain.tools import ToolRuntime
+from langchain_core.tools import tool
+
+from giga_agent.core.agent.tool_results import build_widget_tool_message
+from giga_agent.modules.integrations.widget_hint import with_widget_note
+from giga_agent.modules.integrations.tracker_base import (
+    board_payload,
+    composed_group,
+    emit_composed_board,
+    field,
+    make_issue,
+    single_payload,
+)
+from giga_agent.modules.integrations.yandex_tracker.auth import get_tracker_auth
+
+TRACKER_API = "https://api.tracker.yandex.net/v2"
+PROVIDER = "yandex_tracker"
+
+# Ограничение на размер описания задачи, отдаваемого модели, чтобы не забить
+# контекст GigaChat (лимит блока функций жёсткий, экономим везде).
+MAX_DESCRIPTION_CHARS = 2000
+
+_RU_MONTHS = (
+    "янв", "фев", "мар", "апр", "мая", "июн",
+    "июл", "авг", "сен", "окт", "ноя", "дек",
+)
+
+
+def _short_date(iso: str | None) -> str | None:
+    """ISO-дата Трекера → «8 июн» / «8 июн 2025» (формат был на фронте)."""
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    base = f"{dt.day} {_RU_MONTHS[dt.month - 1]}"
+    return base if dt.year == datetime.now(timezone.utc).year else f"{base} {dt.year}"
+
+
+def _headers(token: str, org_id: str) -> dict[str, str]:
+    # Шлём оба заголовка организации: X-Cloud-Org-ID — для организаций Yandex
+    # Cloud, X-Org-ID — для Яндекс 360. Трекер использует подходящий, лишний
+    # игнорирует. Пользователю достаточно указать один org-id.
+    return {
+        "Authorization": f"OAuth {token}",
+        "X-Cloud-Org-ID": org_id,
+        "X-Org-ID": org_id,
+        "Content-Type": "application/json",
+    }
+
+
+def _disp(value: Any) -> Any:
+    """display-имя для ссылочных полей Трекера (status/assignee/priority/...)."""
+    if isinstance(value, dict):
+        return value.get("display") or value.get("key") or value.get("id")
+    return value
+
+
+def _trim_issue(item: dict[str, Any], *, with_description: bool = False) -> dict[str, Any]:
+    """Только полезные модели поля — Трекер отдаёт очень жирные объекты."""
+    queue = item.get("queue")
+    out: dict[str, Any] = {
+        "key": item.get("key"),
+        "summary": item.get("summary"),
+        "status": _disp(item.get("status")),
+        "assignee": _disp(item.get("assignee")),
+        "queue": queue.get("key") if isinstance(queue, dict) else queue,
+        "priority": _disp(item.get("priority")),
+        "updatedAt": item.get("updatedAt"),
+    }
+    if with_description:
+        desc = item.get("description") or ""
+        if len(desc) > MAX_DESCRIPTION_CHARS:
+            desc = desc[:MAX_DESCRIPTION_CHARS] + "…"
+        out["description"] = desc
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def _to_issue(item: dict[str, Any], *, with_description: bool = False) -> dict[str, Any]:
+    """Сырой объект Трекера → нормализованный Issue (фронт-контракт)."""
+    queue = item.get("queue")
+    tag = queue.get("key") if isinstance(queue, dict) else queue
+    fields = [
+        field(_disp(item.get("assignee")), icon="user", label="Исполнитель"),
+        field(_disp(item.get("priority")), icon="flag", label="Приоритет"),
+        field(_short_date(item.get("updatedAt")), icon="clock", label="Обновлено"),
+    ]
+    desc: str | None = None
+    if with_description:
+        raw = item.get("description") or ""
+        if raw:
+            desc = (
+                raw[:MAX_DESCRIPTION_CHARS] + "…"
+                if len(raw) > MAX_DESCRIPTION_CHARS
+                else raw
+            )
+    return make_issue(
+        key=item.get("key"),
+        title=item.get("summary"),
+        provider=PROVIDER,
+        status=_disp(item.get("status")),
+        description=desc,
+        tag=tag,
+        fields=[f for f in fields if f],
+    )
+
+
+@tool(parse_docstring=True)
+async def tracker_search_issues(
+    runtime: ToolRuntime,
+    query: str | None = None,
+    queue: str | None = None,
+    assignee: str | None = None,
+    status: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Ищет задачи в Яндекс.Трекере.
+
+    Можно искать либо строкой запроса на языке Трекера (query), либо фильтрами
+    по очереди/исполнителю/статусу. Возвращает краткий список задач.
+
+    Args:
+        query: Запрос на языке Трекера, например 'Queue: TEST AND Status: Open'.
+        queue: Ключ очереди для фильтра, например "TEST".
+        assignee: Логин исполнителя для фильтра.
+        status: Статус по отображаемому имени, например "в работе", "открыт",
+            "закрыт" (регистр не важен).
+        limit: Сколько задач вернуть (максимум 50).
+    """
+    items = await _fetch_raw(runtime, query, queue, assignee, status, limit)
+    if isinstance(items, dict):
+        return items  # ошибка-валидация
+    return build_widget_tool_message(
+        with_widget_note(board_payload(PROVIDER, [_to_issue(i) for i in items]), runtime),
+        runtime=runtime,
+    )
+
+
+async def _fetch_raw(
+    runtime: ToolRuntime,
+    query: str | None,
+    queue: str | None,
+    assignee: str | None,
+    status: str | None,
+    limit: int,
+) -> list[dict[str, Any]] | dict[str, Any]:
+    """Сырые задачи из Трекера (общий fetch для search и board). Возвращает
+    список raw-объектов либо dict-ошибку."""
+    token, org_id = await get_tracker_auth(runtime)
+    body: dict[str, Any] = {}
+    if query:
+        body["query"] = query
+    else:
+        # Язык запросов из queue/assignee. Статус НЕ кладём ни в filter, ни в
+        # query: filter.status ждёт КЛЮЧ ("inProgress"), а query по Status
+        # регистрозависим — модель шлёт display-имя в любом регистре («в работе»).
+        # Поэтому статус фильтруем в Python ниже, по display-имени без учёта
+        # регистра. Это надёжнее всего.
+        parts: list[str] = []
+        if queue:
+            parts.append(f"Queue: {queue}")
+        if assignee:
+            parts.append(f'Assignee: "{assignee}"')
+        if parts:
+            body["query"] = " AND ".join(parts)
+    if not body:
+        return {
+            "error": "Укажите query или хотя бы один фильтр (queue/assignee/status)."
+        }
+    # При питон-фильтре по статусу берём с запасом, потом режем до limit.
+    per_page = 50 if status else min(limit, 50)
+    params = {"perPage": per_page}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{TRACKER_API}/issues/_search",
+            headers=_headers(token, org_id),
+            params=params,
+            json=body,
+        )
+        resp.raise_for_status()
+        items = resp.json()
+    if status:
+        want = status.strip().lower()
+        items = [
+            i for i in items if (_disp(i.get("status")) or "").strip().lower() == want
+        ]
+    return items[:limit]
+
+
+_GROUP_FIELDS = ("assignee", "status", "priority", "queue")
+_GROUP_TITLES = {
+    "assignee": "исполнителю",
+    "status": "статусу",
+    "priority": "приоритету",
+    "queue": "очереди",
+}
+_NO_VALUE = {
+    "assignee": "Без исполнителя",
+    "status": "Без статуса",
+    "priority": "Без приоритета",
+    "queue": "Без очереди",
+}
+
+
+def _group_label(item: dict[str, Any], group_by: str) -> str:
+    if group_by == "queue":
+        q = item.get("queue")
+        val = q.get("key") if isinstance(q, dict) else q
+    else:
+        val = _disp(item.get(group_by))
+    return val or _NO_VALUE.get(group_by, "—")
+
+
+def _status_accent(label: str) -> str | None:
+    s = label.lower()
+    if any(w in s for w in ("закры", "решён", "решен", "выполн", "done", "closed")):
+        return "success"
+    if any(w in s for w in ("работ", "progress", "review", "тест")):
+        return "info"
+    if any(w in s for w in ("отмен", "отклон", "reject", "cancel")):
+        return "danger"
+    return None
+
+
+def _build_groups(items: list[dict[str, Any]], group_by: str) -> list[dict[str, Any]]:
+    if group_by not in _GROUP_FIELDS:
+        group_by = "status"
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    for it in items:
+        buckets.setdefault(_group_label(it, group_by), []).append(it)
+    groups = [
+        composed_group(
+            label,
+            [_to_issue(r) for r in raws],
+            accent=_status_accent(label) if group_by == "status" else None,
+        )
+        for label, raws in buckets.items()
+    ]
+    groups.sort(key=lambda g: len(g["issues"]), reverse=True)
+    return groups
+
+
+@tool(parse_docstring=True)
+async def tracker_board(
+    runtime: ToolRuntime,
+    group_by: str = "status",
+    query: str | None = None,
+    queue: str | None = None,
+    assignee: str | None = None,
+    status: str | None = None,
+    limit: int = 30,
+) -> dict[str, Any]:
+    """Собирает доску задач, СГРУППИРОВАННУЮ по полю (генеративное представление).
+
+    Вызывай, когда пользователь просит разбить/сгруппировать задачи — по
+    исполнителю, статусу, приоритету или очереди. Доска рисуется виджетом;
+    тебе достаточно вернуть результат, переписывать задачи текстом не нужно.
+
+    Args:
+        group_by: Поле группировки — "assignee", "status", "priority" или "queue".
+        query: Запрос на языке Трекера (как в tracker_search_issues).
+        queue: Ключ очереди для фильтра.
+        assignee: Логин исполнителя для фильтра.
+        status: Статус по отображаемому имени (регистр не важен), напр. "в работе".
+        limit: Сколько задач собрать (максимум 50).
+    """
+    items = await _fetch_raw(runtime, query, queue, assignee, status, limit)
+    if isinstance(items, dict):
+        return items
+    groups = _build_groups(items, group_by)
+    title = f"Задачи по {_GROUP_TITLES.get(group_by, group_by)}"
+    return build_widget_tool_message(
+        with_widget_note(
+            emit_composed_board(runtime, PROVIDER, groups, title=title), runtime
+        ),
+        runtime=runtime,
+    )
+
+
+@tool(parse_docstring=True)
+async def tracker_get_issue(runtime: ToolRuntime, issue_key: str) -> dict[str, Any]:
+    """Возвращает карточку задачи Яндекс.Трекера по её ключу.
+
+    Args:
+        issue_key: Ключ задачи, например "TEST-42".
+    """
+    token, org_id = await get_tracker_auth(runtime)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{TRACKER_API}/issues/{issue_key}",
+            headers=_headers(token, org_id),
+        )
+        resp.raise_for_status()
+        item = resp.json()
+    return build_widget_tool_message(
+        with_widget_note(
+            single_payload(PROVIDER, _to_issue(item, with_description=True)), runtime
+        ),
+        runtime=runtime,
+    )
+
+
+@tool(parse_docstring=True)
+async def tracker_create_issue(
+    runtime: ToolRuntime,
+    queue: str,
+    summary: str,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Создаёт новую задачу в Яндекс.Трекере.
+
+    Args:
+        queue: Ключ очереди, в которой создать задачу, например "TEST".
+        summary: Заголовок задачи.
+        description: Описание задачи (необязательно).
+    """
+    token, org_id = await get_tracker_auth(runtime)
+    body: dict[str, Any] = {"queue": queue, "summary": summary}
+    if description:
+        body["description"] = description
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{TRACKER_API}/issues/",
+            headers=_headers(token, org_id),
+            json=body,
+        )
+        resp.raise_for_status()
+        item = resp.json()
+    return {"status": "created", **_trim_issue(item)}
+
+
+@tool(parse_docstring=True)
+async def tracker_update_issue(
+    runtime: ToolRuntime,
+    issue_key: str,
+    summary: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Изменяет заголовок и/или описание задачи Яндекс.Трекера.
+
+    Args:
+        issue_key: Ключ задачи, например "TEST-42".
+        summary: Новый заголовок (необязательно).
+        description: Новое описание (необязательно).
+    """
+    token, org_id = await get_tracker_auth(runtime)
+    body: dict[str, Any] = {}
+    if summary is not None:
+        body["summary"] = summary
+    if description is not None:
+        body["description"] = description
+    if not body:
+        return {"error": "Нечего менять: укажите summary и/или description."}
+    async with httpx.AsyncClient() as client:
+        resp = await client.patch(
+            f"{TRACKER_API}/issues/{issue_key}",
+            headers=_headers(token, org_id),
+            json=body,
+        )
+        resp.raise_for_status()
+        item = resp.json()
+    return {"status": "updated", **_trim_issue(item)}
+
+
+@tool(parse_docstring=True)
+async def tracker_add_comment(
+    runtime: ToolRuntime, issue_key: str, text: str
+) -> dict[str, Any]:
+    """Добавляет комментарий к задаче Яндекс.Трекера.
+
+    Args:
+        issue_key: Ключ задачи, например "TEST-42".
+        text: Текст комментария.
+    """
+    token, org_id = await get_tracker_auth(runtime)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{TRACKER_API}/issues/{issue_key}/comments",
+            headers=_headers(token, org_id),
+            json={"text": text},
+        )
+        resp.raise_for_status()
+    return {"status": "commented", "issue_key": issue_key}
+
+
+@tool(parse_docstring=True)
+async def tracker_transition(
+    runtime: ToolRuntime, issue_key: str, transition: str
+) -> dict[str, Any]:
+    """Переводит задачу Яндекс.Трекера в другой статус.
+
+    Если переход указан неверно, возвращает список доступных переходов — выбери
+    из него правильный id и вызови инструмент снова.
+
+    Args:
+        issue_key: Ключ задачи, например "TEST-42".
+        transition: Идентификатор перехода, например "close" или "start_progress".
+    """
+    token, org_id = await get_tracker_auth(runtime)
+    async with httpx.AsyncClient() as client:
+        avail = await client.get(
+            f"{TRACKER_API}/issues/{issue_key}/transitions",
+            headers=_headers(token, org_id),
+        )
+        avail.raise_for_status()
+        transitions = avail.json()
+        ids = {t.get("id") for t in transitions}
+        if transition not in ids:
+            return {
+                "error": f"Переход '{transition}' недоступен.",
+                "available": [
+                    {"id": t.get("id"), "display": t.get("display")}
+                    for t in transitions
+                ],
+            }
+        ex = await client.post(
+            f"{TRACKER_API}/issues/{issue_key}/transitions/{transition}/_execute",
+            headers=_headers(token, org_id),
+            json={},
+        )
+        ex.raise_for_status()
+    return {"status": "transitioned", "issue_key": issue_key, "transition": transition}

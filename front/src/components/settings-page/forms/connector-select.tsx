@@ -25,7 +25,7 @@ interface ConnectorSelectProps {
   onValueChange: (connectorId: string) => void;
   /** Connector types this site allows. Drives both filtering and creatable types. */
   allowedTypes: string[];
-  /** Render a "Без коннектора" option (e.g. search engines that don't require one). */
+  /** Render a "Без подключения" option (e.g. search engines that don't require one). */
   allowNone?: boolean;
   disabled?: boolean;
   loading?: boolean;
@@ -49,7 +49,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
   disabled,
   loading,
   id,
-  placeholder = "Выберите коннектор",
+  placeholder = "Выберите подключение",
   className,
   connectors,
   onConnectorsChanged,
@@ -131,7 +131,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
       setSubform("edit");
     } else if (savedMode === "create") {
       toast.info(
-        "Коннектор создан, но неактивен — активируйте его, чтобы выбрать",
+        "Подключение создано, но неактивно — активируйте его, чтобы выбрать",
       );
     }
   };
@@ -152,7 +152,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
             {loading ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
-                Загрузка коннекторов...
+                Загрузка подключений...
               </div>
             ) : (
               <SelectValue placeholder={placeholder} />
@@ -160,7 +160,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
           </SelectTrigger>
           <SelectContent>
             {allowNone && (
-              <SelectItem value={NONE_SENTINEL}>Без коннектора</SelectItem>
+              <SelectItem value={NONE_SENTINEL}>Без подключения</SelectItem>
             )}
             {filteredConnectors.map((connector) => (
               <SelectItem key={connector.id} value={connector.id}>
@@ -173,7 +173,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
             <SelectItem value={CREATE_SENTINEL}>
               <span className="flex items-center gap-2">
                 <Plus className="size-4" />
-                Создать коннектор
+                Создать подключение
               </span>
             </SelectItem>
           </SelectContent>
@@ -189,7 +189,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
           >
             <div className="flex-1 h-px bg-border" />
             <span className="flex items-center gap-1.5">
-              Отредактировать коннектор
+              Отредактировать подключение
               <ChevronDown
                 className={`size-4 transition-transform ${showEdit ? "rotate-180" : ""}`}
               />
@@ -209,7 +209,7 @@ export const ConnectorSelect: React.FC<ConnectorSelectProps> = ({
               className="overflow-hidden"
             >
               <div className="space-y-4 rounded-md border border-border p-4">
-                <h4 className="text-sm font-medium">Новый коннектор</h4>
+                <h4 className="text-sm font-medium">Новое подключение</h4>
                 <ConnectorEditorForm
                   key="create"
                   mode="create"

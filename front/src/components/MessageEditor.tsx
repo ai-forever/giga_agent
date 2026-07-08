@@ -21,7 +21,7 @@ import { Checkpoint, HumanMessage, Message } from "@langchain/langgraph-sdk";
 import OverlayPortal from "./OverlayPortal.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { useParams } from "react-router-dom";
 import { buildContentByPathUrl } from "./attachments/file-utils.ts";

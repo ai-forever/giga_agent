@@ -18,9 +18,10 @@ from giga_agent.conf import GIGA_AGENT_BASE_URL, reset_settings_cache
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.process_supervisor import get_process_supervisor
 
-from ._langgraph_config import build_langgraph_runtime_config
 from ..types import LogLevel
+from ..utils.dotenv import load_dev_env
 from ..utils.secret_key import ensure_dev_secret_key_env
+from ._langgraph_config import build_langgraph_runtime_config
 
 logger = get_logger(__name__)
 
@@ -262,6 +263,10 @@ def dev(
 
     setup_cli_logging(log_level.value.upper())
     os.environ.setdefault("GIGA_AGENT_LOG_LEVEL", log_level.value)
+
+    # Раньше остального: .env → os.environ (наследуется дочерним dev-сервером,
+    # а per-service креды читаются через os.getenv, не через env_file).
+    load_dev_env()
 
     from giga_agent.core.paths import ensure_giga_agent_dir
 

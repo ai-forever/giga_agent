@@ -9,7 +9,6 @@ import { HumanMessage } from "@langchain/langgraph-sdk";
 import * as LucideIcons from "lucide-react";
 import {
   Check,
-  Cog,
   Files,
   FolderOpen,
   Loader2,
@@ -51,7 +50,8 @@ import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
 import { getCollectionName } from "@/components/rag/hooks/use-rag";
-import { useUserInfo } from "@/components/providers/user-info.tsx";
+import { useUserInfo } from "@/components/providers/user-info-context.ts";
+import ConnectorsMenu from "@/components/mcp/connectors/connectors-menu.tsx";
 import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate, useParams } from "react-router-dom";
@@ -192,7 +192,6 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const { settings } = useSettings();
   const {
     mcpTools,
-    openMcpModal,
     enabledModules,
     toggleModule,
     setModulesState,
@@ -807,7 +806,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
         if (thread?.interrupt) {
-          void handleContinue(message ? "comment" : "approve");
+          if (thread.interrupt.value?.type === "questions") {
+            if (message) void handleContinue("comment");
+          } else {
+            void handleContinue(message ? "comment" : "approve");
+          }
         } else {
           handleSend();
         }
@@ -1006,9 +1009,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
             <textarea
               data-onboarding="chat-input"
               placeholder={
-                thread?.interrupt
-                  ? "Принять / Отменить с комментарием…"
-                  : "Введите вашу задачу…"
+                thread?.interrupt?.value?.type === "questions"
+                  ? "Ответьте на вопросы выше или введите комментарий…"
+                  : thread?.interrupt
+                    ? "Принять / Отменить с комментарием…"
+                    : "Введите вашу задачу…"
               }
               ref={textRef}
               rows={1}
@@ -1160,48 +1165,47 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                         )}
                       </div>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={openMcpModal}>
-                      <Cog className={"size-5"} />
-                      <span>MCP</span>
-                    </DropdownMenuItem>
+                    <ConnectorsMenu />
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="gap-2">
                         <Wrench className="size-5" />
-                        <span>Инструменты</span>
+                        <span>Модули</span>
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent className="min-w-[250px] max-h-[50vh] overflow-y-auto p-2 space-y-1">
                         {availableModules.length === 0 && (
                           <div className="px-2 py-3 text-xs text-muted-foreground text-center">
-                            Нет доступных инструментов
+                            Нет доступных модулей
                           </div>
                         )}
-                        {availableModules.map((mod) => (
-                          <div
-                            key={mod.id}
-                            className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <ModuleIcon
-                                name={mod.icon}
-                                className="size-5 shrink-0 text-muted-foreground"
-                              />
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium truncate">
-                                  {mod.label}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {mod.description}
+                        <div>
+                          {availableModules.map((mod) => (
+                            <div
+                              key={mod.id}
+                              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <ModuleIcon
+                                  name={mod.icon}
+                                  className="size-5 shrink-0 text-muted-foreground"
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium truncate">
+                                    {mod.label}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {mod.description}
+                                  </div>
                                 </div>
                               </div>
+                              <Switch
+                                checked={enabledModules[mod.id] !== false}
+                                onCheckedChange={(checked) =>
+                                  toggleModule(mod.id, Boolean(checked))
+                                }
+                              />
                             </div>
-                            <Switch
-                              checked={enabledModules[mod.id] !== false}
-                              onCheckedChange={(checked) =>
-                                toggleModule(mod.id, Boolean(checked))
-                              }
-                            />
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                   </DropdownMenuContent>

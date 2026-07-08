@@ -92,6 +92,10 @@ class ChannelContact(Base):
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Receive results of background/scheduled tasks that specify no explicit targets.
+    is_default_task_recipient: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -138,7 +142,8 @@ class ChannelTypeMeta(BaseModel):
 class ChannelContactApprovalUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    is_approved: bool
+    is_approved: bool | None = None
+    is_default_task_recipient: bool | None = None
 
 
 class ChannelThreadResponse(BaseModel):
@@ -164,6 +169,7 @@ class ChannelContactResponse(BaseModel):
     first_name: str | None = None
     last_name: str | None = None
     is_approved: bool
+    is_default_task_recipient: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -251,12 +257,33 @@ class ChannelBotRepository:
         external_user_id: str | None = None,
     ) -> ChannelThread | None:
         result = await self.db.execute(
-            select(ChannelThread).where(
+            select(ChannelThread)
+            .where(
                 ChannelThread.bot_id == bot_id,
                 ChannelThread.external_chat_id == external_chat_id,
                 self._external_user_clause(
                     ChannelThread.external_user_id, external_user_id
                 ),
+            )
+            .order_by(ChannelThread.updated_at.desc())
+        )
+        rows = list(result.scalars().all())
+        if not rows:
+            return None
+        if len(rows) > 1:
+            # Self-heal legacy duplicates left by a pre-lock race: keep the
+            # freshest mapping and drop the rest so future lookups stay unique.
+            for extra in rows[1:]:
+                await self.db.delete(extra)
+            await self.db.commit()
+        return rows[0]
+
+    async def get_thread_by_langgraph_id(
+        self, langgraph_thread_id: str
+    ) -> ChannelThread | None:
+        result = await self.db.execute(
+            select(ChannelThread).where(
+                ChannelThread.langgraph_thread_id == langgraph_thread_id
             )
         )
         return result.scalar_one_or_none()
@@ -410,6 +437,60 @@ class ChannelBotRepository:
         await self.db.commit()
         await self.db.refresh(contact)
         return contact
+
+    async def set_contact_fields_by_external_id(
+        self,
+        *,
+        bot_id: uuid.UUID,
+        external_chat_id: str,
+        external_user_id: str | None = None,
+        is_approved: bool | None = None,
+        is_default_task_recipient: bool | None = None,
+    ) -> ChannelContact | None:
+        contact = await self.get_contact(
+            bot_id=bot_id,
+            external_chat_id=external_chat_id,
+            external_user_id=external_user_id,
+        )
+        if contact is None:
+            return None
+        if is_approved is not None:
+            contact.is_approved = is_approved
+        if is_default_task_recipient is not None:
+            contact.is_default_task_recipient = is_default_task_recipient
+        await self.db.commit()
+        await self.db.refresh(contact)
+        return contact
+
+    async def list_approved_contacts_for_owner(
+        self, owner_id: uuid.UUID
+    ) -> list[ChannelContact]:
+        """All approved contacts across the owner's bots (possible recipients)."""
+        result = await self.db.execute(
+            select(ChannelContact)
+            .join(ChannelBot, ChannelBot.id == ChannelContact.bot_id)
+            .where(
+                ChannelBot.user_id == owner_id,
+                ChannelContact.is_approved.is_(True),
+            )
+            .order_by(ChannelContact.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_default_recipients_for_owner(
+        self, owner_id: uuid.UUID
+    ) -> list[ChannelContact]:
+        """Approved contacts flagged as default recipients across the owner's bots."""
+        result = await self.db.execute(
+            select(ChannelContact)
+            .join(ChannelBot, ChannelBot.id == ChannelContact.bot_id)
+            .where(
+                ChannelBot.user_id == owner_id,
+                ChannelContact.is_default_task_recipient.is_(True),
+                ChannelContact.is_approved.is_(True),
+            )
+        )
+        return list(result.scalars().all())
 
     async def delete_contact(self, contact: ChannelContact) -> None:
         await self.db.delete(contact)

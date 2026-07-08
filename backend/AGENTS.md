@@ -59,6 +59,10 @@
 - Если модуль добавляет инструменты, используй `async get_tools(user, agent)`.
 - Если модуль добавляет системные инструкции, используй `async get_instructions(user, agent)`.
 - Если модуль требует startup-инициализацию, используй `on_startup(session)`.
+- Для получения пользователя из `config`/`runtime.config` **не обращайся к словарю напрямую** (`config["configurable"]["langgraph_auth_user"]["identity"]`). В Aegra `langgraph_auth_user` приходит как `BaseModel`, а не `dict`, — прямой доступ по ключу упадёт. Используй хелперы из `giga_agent.utils.langgraph_sdk`:
+  - `get_user_id_from_config(config)` — вернёт `identity` (обычно строка UUID; оборачивай в `uuid.UUID(...)` при необходимости);
+  - `get_user_value_from_config(config, "<field>")` — для остальных полей (`token` и т.п.).
+  - Оба хелпера уже корректно разбирают и `BaseModel`, и `dict`.
 
 ## 4. База данных и модели
 

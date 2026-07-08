@@ -142,6 +142,20 @@ from giga_agent.models.project import (
     ProjectRepository,
 )
 
+from giga_agent.models.mcp_server import (
+    McpServer,
+    McpServerCreate,
+    McpServerUpdate,
+    McpServerResponse,
+    McpServerRepository,
+)
+
+from giga_agent.models.oauth_connection import (
+    OAuthConnection,
+    OAuthConnectionRepository,
+    mcp_provider_key,
+)
+
 from giga_agent.models.channel import (
     ChannelBot,
     ChannelThread,
@@ -155,6 +169,15 @@ from giga_agent.models.channel import (
     ChannelThreadResponse,
     ChannelContactResponse,
     ChannelBotRepository,
+)
+
+from giga_agent.models.scheduled_task import (
+    ScheduledTask,
+    DeliveryTarget,
+    ScheduledTaskCreate,
+    ScheduledTaskUpdate,
+    ScheduledTaskResponse,
+    ScheduledTaskRepository,
 )
 
 __all__ = [
@@ -278,6 +301,16 @@ __all__ = [
     "ProjectUpdate",
     "ProjectResponse",
     "ProjectRepository",
+    # MCP servers
+    "McpServer",
+    "McpServerCreate",
+    "McpServerUpdate",
+    "McpServerResponse",
+    "McpServerRepository",
+    # OAuth connections
+    "OAuthConnection",
+    "OAuthConnectionRepository",
+    "mcp_provider_key",
     # Channels
     "ChannelBot",
     "ChannelThread",
@@ -291,4 +324,11 @@ __all__ = [
     "ChannelThreadResponse",
     "ChannelContactResponse",
     "ChannelBotRepository",
+    # Scheduled tasks
+    "ScheduledTask",
+    "DeliveryTarget",
+    "ScheduledTaskCreate",
+    "ScheduledTaskUpdate",
+    "ScheduledTaskResponse",
+    "ScheduledTaskRepository",
 ]
