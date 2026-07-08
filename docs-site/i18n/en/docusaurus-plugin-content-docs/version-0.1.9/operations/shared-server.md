@@ -13,5 +13,5 @@ A shared server needs stricter defaults than a local demo.
 - Change the initial administrator password.
 - Restrict access to administration pages.
 - Review sandbox permissions and Docker socket exposure.
-- Store provider secrets outside documentation and screenshots.
+- Keep provider keys out of server logs and out of anything you share: instructions, screenshots, messages.
 - Decide which users can access files, collections, memory, and tools.

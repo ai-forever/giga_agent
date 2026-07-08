@@ -16,4 +16,4 @@ Some tools call external services. They are not enabled just by installing the p
 
 Yandex Mail, Calendar, and Disk are covered on a separate page — [Yandex services](./yandex-services.md).
 
-Store secrets in the UI or environment, not in documentation or screenshots.
+Keep keys out of server logs and out of anything you share: instructions, screenshots, messages.

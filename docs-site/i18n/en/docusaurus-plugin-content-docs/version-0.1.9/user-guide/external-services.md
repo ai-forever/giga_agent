@@ -14,4 +14,4 @@ Some tools call external services. They are not enabled just by installing the p
 | Weather | `OWM_API_KEY` |
 | Search | Search provider configuration |
 
-Store secrets in the UI or environment, not in documentation or screenshots.
+Keep keys out of server logs and out of anything you share: instructions, screenshots, messages.
