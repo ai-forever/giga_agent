@@ -241,6 +241,8 @@ class BaseAgent(BaseModel):
                 )
 
         # Собираем middleware из модулей
+        from giga_agent.middlewares.usage_tracking import UsageTrackingMiddleware
+
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
             # First: bind run ids into structlog contextvars so every log line
@@ -249,6 +251,7 @@ class BaseAgent(BaseModel):
             RepairMessagesMiddleware(),
             ThreadTitleMiddleware(),
             ToolResultMiddleware(),
+            UsageTrackingMiddleware(),
             *module_middlewares,
         ]
         if get_settings().giga_agent_metrics_enabled:

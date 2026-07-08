@@ -116,6 +116,27 @@ async def revoke_invite(
         await db.commit()
 
 
+# ============ Команда: сводка использования ============
+
+
+@router.get("/team/usage")
+async def team_usage(
+    current_user: Annotated[UserShort, Depends(get_current_active_user)],
+    db: Annotated[AsyncSession, Depends(get_session)],
+    days: int = 30,
+):
+    """Потребление LLM по участникам за период (для страницы «Команда»)."""
+    require_role(current_user, "admin")
+    from giga_agent.models.usage import aggregate_usage
+
+    days = max(1, min(days, 365))
+    rows = await aggregate_usage(db, days=days)
+    return {
+        "days": days,
+        "users": [row.model_dump(mode="json") for row in rows],
+    }
+
+
 # ============ Публичные: вступление по ссылке ============
 
 

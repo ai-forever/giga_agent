@@ -29,8 +29,9 @@ class AuthModule(BaseModule):
     def get_models(self, **kwargs: Any) -> list[type]:
         _ = kwargs
         from giga_agent.models.invite import Invite
+        from giga_agent.models.usage import UsageEvent
 
-        return [Invite]
+        return [Invite, UsageEvent]
 
     async def on_startup(self, session: AsyncSession, **kwargs: Any):
         _ = kwargs
