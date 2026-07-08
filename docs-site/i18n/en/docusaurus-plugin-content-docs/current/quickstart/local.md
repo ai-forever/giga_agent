@@ -5,10 +5,6 @@ description: "Install and run the current repository build."
 
 # Local quickstart
 
-:::info[Current/main]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 Use this path when you want the current repository state rather than the released PyPI package.
 
 ## Requirements

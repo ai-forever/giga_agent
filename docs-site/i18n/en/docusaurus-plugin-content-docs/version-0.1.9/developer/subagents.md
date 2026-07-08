@@ -5,7 +5,7 @@ description: "Compatibility subgraphs in GigaAgent 0.1.9."
 
 # Subagents
 
-In version 0.1.9, compatibility subagents live in `giga_agent.modules.subagents_legacy`.
+Compatibility subagents live in `giga_agent.modules.subagents_legacy`.
 
 | ID | Entry point |
 |---|---|

@@ -11,7 +11,7 @@ A module is a GigaAgent extension unit. It can add routes, database models, migr
 
 Important fields and methods include `id`, `label`, `description`, `icon`, `get_api_router()`, `get_models()`, `_get_tools()` / `get_tools()`, `get_instructions()`, `extend_task()`, `get_secrets()`, `get_middleware()`, `get_subgraphs()`, `is_enabled()`, and `on_startup()`.
 
-## Active modules in current main
+## Active modules
 
 `giga_agent dev` loads 21 modules, in the order of `GigaAgent.get_modules()`: `AuthModule`, `ClarifyModule` (clarifying questions with answer options via the `ask_questions` tool), `ReplModule`, `ImageModule`, `AnalyzeImagesModule`, `IOModule`, `ProjectsModule`, `ScraperModule`, `SearchModule`, `RagModule`, `MemoryModule`, `SkillsModule`, `McpModule` (external MCP servers plus the managed-server catalog in `modules/mcp/catalog.json`), `VKModule`, `YandexDiskModule`, `YandexMailModule`, `YandexCalendarModule`, `WeatherModule`, `DeepResearchModule`, `SchedulerModule` (scheduled tasks created and cancelled from chat), and `SubAgentLegacyModule`.
 

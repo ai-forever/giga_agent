@@ -5,7 +5,7 @@ description: "Deep research and compatibility subgraphs."
 
 # Subagents
 
-Current `main` has `DeepResearchModule` for the `deep_research` subgraph and `SubAgentLegacyModule` for compatibility subgraphs.
+The standard agent has `DeepResearchModule` for the `deep_research` subgraph and `SubAgentLegacyModule` for compatibility subgraphs.
 
 | ID | Source | Entry point |
 |---|---|---|

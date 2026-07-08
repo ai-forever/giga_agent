@@ -5,7 +5,7 @@ description: "Как устроены серверная часть, веб-ин
 
 # Архитектура
 
-GigaAgent из текущей ветки `main` состоит из серверной части на FastAPI, графа выполнения LangGraph, модульной системы и встроенного веб-интерфейса React.
+GigaAgent состоит из серверной части на FastAPI, графа выполнения LangGraph, модульной системы и встроенного веб-интерфейса React.
 
 ## Слои
 
@@ -65,7 +65,7 @@ GigaAgent из текущей ветки `main` состоит из сервер
 giga_agent.agents.run:graph:app
 ```
 
-Текущая ветка `main` регистрирует основной граф `giga_agent`, подграф `deep_research` из `DeepResearchModule` и подграфы субагентов совместимости: `landing`, `presentation`, `meme`, `lean_canvas`, `podcast`.
+Регистрируются основной граф `giga_agent`, подграф `deep_research` из `DeepResearchModule` и подграфы субагентов совместимости: `landing`, `presentation`, `meme`, `lean_canvas`, `podcast`.
 
 ## Подключение внешних сервисов
 

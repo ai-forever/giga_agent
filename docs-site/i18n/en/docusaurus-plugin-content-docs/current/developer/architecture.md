@@ -5,7 +5,7 @@ description: "Backend, UI, graph, modules, and API structure."
 
 # Architecture
 
-The current branch uses a FastAPI backend, a LangGraph execution graph, a module system, and a bundled React UI.
+GigaAgent uses a FastAPI backend, a LangGraph execution graph, a module system, and a bundled React UI.
 
 ## Layers
 
@@ -39,7 +39,7 @@ Some tools return structured results that the web UI renders as interactive widg
 
 ## Graphs and subgraphs
 
-The default graph path is `giga_agent.agents.run:graph:app`. Current `main` registers the main `giga_agent` graph, `deep_research`, and compatibility subgraphs: `landing`, `presentation`, `meme`, `lean_canvas`, and `podcast`.
+The default graph path is `giga_agent.agents.run:graph:app`. The app registers the main `giga_agent` graph, `deep_research`, and compatibility subgraphs: `landing`, `presentation`, `meme`, `lean_canvas`, and `podcast`.
 
 ## API prefixes
 

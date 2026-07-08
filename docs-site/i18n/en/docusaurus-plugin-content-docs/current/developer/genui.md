@@ -35,4 +35,4 @@ A new data provider for an existing widget skips steps 2 and 3 — a normalized 
 
 ## Generative board
 
-Beyond static payloads there are compositions: `emit_composed_board()` from `tracker_base.py` pushes an issue grouping into `thread.values.ui` under the `issue_board_composed` name, and `BoardWidget` renders it live as the run proceeds. Issue status transitions go through the standard `BaseTrackerModule` backend routes, bypassing the model. The current `main` branch has no active trackers; see [Integration modules](./integrations.md) for the contract.
+Beyond static payloads there are compositions: `emit_composed_board()` from `tracker_base.py` pushes an issue grouping into `thread.values.ui` under the `issue_board_composed` name, and `BoardWidget` renders it live as the run proceeds. Issue status transitions go through the standard `BaseTrackerModule` backend routes, bypassing the model. There are no active trackers right now; see [Integration modules](./integrations.md) for the contract.

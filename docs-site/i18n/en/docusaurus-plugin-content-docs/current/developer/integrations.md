@@ -36,4 +36,4 @@ OAuth application credentials come from environment variables (see [Configuratio
 
 ## Trackers
 
-Task services share a common layer, `modules/integrations/tracker_base.py`: a normalized issue contract (`make_issue`), board and single-card payloads, the generative composition `emit_composed_board()`, and the `BaseTrackerModule` base with standard backend routes for status transitions. A provider returning the normalized payload renders with the existing widgets, with no UI changes. The current `main` branch has no active tracker modules — the contract is ready for the next service.
+Task services share a common layer, `modules/integrations/tracker_base.py`: a normalized issue contract (`make_issue`), board and single-card payloads, the generative composition `emit_composed_board()`, and the `BaseTrackerModule` base with standard backend routes for status transitions. A provider returning the normalized payload renders with the existing widgets, with no UI changes. There are no active tracker modules right now — the contract is ready for the next service.

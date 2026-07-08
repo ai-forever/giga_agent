@@ -15,7 +15,7 @@ Open the plus menu next to the message input and choose **Connectors**. The subm
 
 The **Catalog** tab shows cards for every available service: built-in integrations first, then MCP servers. Cards can be searched by name and description and filtered by category: development, documentation, search, shopping, travel, and more.
 
-The MCP catalog of the current `main` branch includes: VkusVill, Tutu.ru, Bitrix24, GitHub, DeepWiki, Context7, Excalidraw, Hugging Face, Tavily Search, Sentry, and Replicate. The catalog contents come from `modules/mcp/catalog.json`, so the list may change between builds.
+The MCP catalog includes: VkusVill, Tutu.ru, Bitrix24, GitHub, DeepWiki, Context7, Excalidraw, Hugging Face, Tavily Search, Sentry, and Replicate. The catalog contents come from `modules/mcp/catalog.json`, so the list may change between builds.
 
 ## Connecting a service
 
