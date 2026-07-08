@@ -69,7 +69,7 @@ const LLMItem: React.FC<LLMItemProps> = ({
 };
 
 export const LLMSettings: React.FC = () => {
-  const { user, refreshLLMs } = useAuth();
+  const { user, refreshLLMs, refreshUser } = useAuth();
   const confirm = useConfirm();
   const canManagePermissions = Boolean(user?.is_superuser);
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
@@ -149,6 +149,7 @@ export const LLMSettings: React.FC = () => {
       toast.success("Модель удалена");
       fetchLLMs();
       void refreshLLMs();
+      void refreshUser();
     } catch {
       // handled globally
     } finally {
@@ -241,6 +242,7 @@ export const LLMSettings: React.FC = () => {
 
       fetchLLMs();
       void refreshLLMs();
+      void refreshUser();
     } catch {
       // handled globally
     } finally {
