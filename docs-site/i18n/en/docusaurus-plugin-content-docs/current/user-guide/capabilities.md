@@ -20,10 +20,10 @@ GigaAgent combines a base UI with optional capabilities. Most useful scenarios n
 | Image generation | No | Image generator provider. |
 | Image analysis | No | Vision-capable model. |
 | Web search | No | Search provider. |
-| GitHub | No | `GITHUB_PERSONAL_ACCESS_TOKEN`. |
-| VK | No | `VK_TOKEN`. |
+| [GitHub](./connectors.md) | No | The GitHub server from the connectors catalog and its token. |
+| VK | No | A VK connection in the connectors catalog; the legacy `VK_TOKEN` also works. |
 | Weather | No | `OWM_API_KEY`. |
 | Subagents | Partly | Model and scenario-specific secrets. |
-| MCP tools | No | Tools passed by the UI for the current dialog. |
+| [Connectors](./connectors.md) | No | Services and MCP servers connected through the catalog. |
 
 For a shared server, set a long `GIGA_AGENT_SECRET_KEY`, change the initial admin password, and configure sandbox access conservatively.

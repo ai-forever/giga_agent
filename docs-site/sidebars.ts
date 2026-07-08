@@ -30,11 +30,11 @@ const sidebars: SidebarsConfig = {
         'user-guide/capabilities',
         'user-guide/files-and-artifacts',
         'user-guide/tools',
+        'user-guide/connectors',
         'user-guide/rag',
         'user-guide/memory',
         'user-guide/images',
         'user-guide/external-services',
-        'user-guide/mcp',
       ],
     },
     {
