@@ -33,6 +33,8 @@ const sidebars: SidebarsConfig = {
         'user-guide/connectors',
         'user-guide/yandex-services',
         'user-guide/widgets',
+        'user-guide/scheduler',
+        'user-guide/channels',
         'user-guide/rag',
         'user-guide/memory',
         'user-guide/images',
