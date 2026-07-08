@@ -31,6 +31,8 @@ const sidebars: SidebarsConfig = {
         'user-guide/files-and-artifacts',
         'user-guide/tools',
         'user-guide/connectors',
+        'user-guide/yandex-services',
+        'user-guide/widgets',
         'user-guide/rag',
         'user-guide/memory',
         'user-guide/images',

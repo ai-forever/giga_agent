@@ -25,5 +25,7 @@ GigaAgent combines a base UI with optional capabilities. Most useful scenarios n
 | Weather | No | `OWM_API_KEY`. |
 | Subagents | Partly | Model and scenario-specific secrets. |
 | [Connectors](./connectors.md) | No | Services and MCP servers connected through the catalog. |
+| [Yandex services](./yandex-services.md) | No | A Yandex OAuth application set up by the administrator and a service connected in the catalog. |
+| [Chat widgets](./widgets.md) | Yes | A connected service whose data the widget shows. |
 
 For a shared server, set a long `GIGA_AGENT_SECRET_KEY`, change the initial admin password, and configure sandbox access conservatively.
