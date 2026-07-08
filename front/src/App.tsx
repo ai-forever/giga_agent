@@ -26,6 +26,7 @@ import { Toaster } from "@/components/ui/sonner.tsx";
 import MemoriesPage from "@/components/memories/MemoriesPage.tsx";
 import ProjectPage from "@/components/projects/ProjectPage.tsx";
 import LoginPage from "@/components/auth/LoginPage.tsx";
+import JoinPage from "@/components/auth/JoinPage.tsx";
 import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
@@ -165,6 +166,7 @@ const AppRoutes: React.FC<{
         />
         <Route path="/admin-panel/users" element={<AdminPanelPage />} />
         <Route path="/admin-panel/groups" element={<AdminPanelPage />} />
+        <Route path="/admin-panel/invites" element={<AdminPanelPage />} />
       </Routes>
     );
   },
@@ -207,6 +209,7 @@ const App: React.FC = () => {
                       <SkillsProvider>
                         <Routes>
                           <Route path="/login" element={<LoginPage />} />
+                          <Route path="/join/:token" element={<JoinPage />} />
                           <Route
                             path="/*"
                             element={
