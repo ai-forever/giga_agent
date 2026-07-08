@@ -101,9 +101,32 @@ const AdminUsersTab: React.FC = () => {
     }
   }, []);
 
+  // Потребление LLM за 30 дней (страница «Команда»): user_id → агрегат.
+  const [usageByUser, setUsageByUser] = useState<
+    Record<string, { requests: number; input_tokens: number; output_tokens: number }>
+  >({});
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const data = await apiClient.get<{
+        users: {
+          user_id: string;
+          requests: number;
+          input_tokens: number;
+          output_tokens: number;
+        }[];
+      }>(`${API_AGENT_PREFIX}/auth/team/usage?days=30`);
+      setUsageByUser(
+        Object.fromEntries(data.users.map((u) => [u.user_id, u])),
+      );
+    } catch {
+      // Не критично для списка пользователей.
+    }
+  }, []);
+
   useEffect(() => {
-    void Promise.all([fetchUsers(), fetchGroups()]);
-  }, [fetchUsers, fetchGroups]);
+    void Promise.all([fetchUsers(), fetchGroups(), fetchUsage()]);
+  }, [fetchUsers, fetchGroups, fetchUsage]);
 
   const groupOptions = useMemo(
     () =>
@@ -282,6 +305,7 @@ const AdminUsersTab: React.FC = () => {
                 <TableHead>Имя</TableHead>
                 <TableHead>Роль</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead>Токены (30д)</TableHead>
                 <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
@@ -302,13 +326,35 @@ const AdminUsersTab: React.FC = () => {
                     <TableCell>{fullName || "-"}</TableCell>
                     <TableCell>
                       <Badge variant={u.is_superuser ? "default" : "outline"}>
-                        {u.is_superuser ? "Admin" : "User"}
+                        {u.role ?? (u.is_superuser ? "admin" : "member")}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant={u.is_active ? "default" : "secondary"}>
                         {u.is_active ? "Активен" : "Неактивен"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const usage = usageByUser[u.id];
+                        if (!usage) {
+                          return (
+                            <span className="text-muted-foreground">—</span>
+                          );
+                        }
+                        const total =
+                          usage.input_tokens + usage.output_tokens;
+                        return (
+                          <span
+                            title={`Запросов: ${usage.requests} · вход: ${usage.input_tokens.toLocaleString("ru-RU")} · выход: ${usage.output_tokens.toLocaleString("ru-RU")}`}
+                          >
+                            {total.toLocaleString("ru-RU")}
+                            <span className="text-xs text-muted-foreground ml-1">
+                              ({usage.requests} запр.)
+                            </span>
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

@@ -5,6 +5,7 @@ export type AdminUser = {
   last_name: string | null;
   is_active: boolean;
   is_superuser: boolean;
+  role?: "owner" | "admin" | "member";
   settings: Record<string, unknown> | null;
   secrets: Record<string, unknown> | null;
   llm_id: string | null;

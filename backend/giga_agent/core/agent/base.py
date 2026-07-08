@@ -235,11 +235,14 @@ class BaseAgent(BaseModel):
                 )
 
         # Собираем middleware из модулей
+        from giga_agent.middlewares.usage_tracking import UsageTrackingMiddleware
+
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
             RepairMessagesMiddleware(),
             ThreadTitleMiddleware(),
             ToolResultMiddleware(),
+            UsageTrackingMiddleware(),
             *module_middlewares,
         ]
 
