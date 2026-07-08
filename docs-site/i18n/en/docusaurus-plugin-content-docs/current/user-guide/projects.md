@@ -5,10 +5,6 @@ description: "Group conversations around shared instructions and a dedicated kno
 
 # Projects
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 A project groups related conversations around shared instructions and its own knowledge base. Any chat can be bound to a project, and the agent in that chat then receives the project instructions and, if configured, its knowledge base.
 
 ## What a project contains

@@ -5,10 +5,6 @@ description: "Interactive cards in agent replies: mail, calendar, files."
 
 # Chat widgets
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 The agent renders results of some tools as interactive cards right in the reply. A widget beats a retelling: the data is visible at once, and actions run without extra chat messages.
 
 ## Available widgets

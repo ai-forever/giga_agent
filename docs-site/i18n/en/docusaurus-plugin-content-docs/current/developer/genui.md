@@ -5,10 +5,6 @@ description: "The data-to-widget contract between the backend and the UI."
 
 # GenUI: widgets
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 The UI picks a widget by the `widget` marker in a tool result. The tool name plays no part in routing, so any data provider returning a normalized payload renders with an existing widget, with no UI changes.
 
 ## Registry

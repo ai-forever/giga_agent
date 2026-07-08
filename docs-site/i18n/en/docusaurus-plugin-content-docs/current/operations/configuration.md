@@ -5,10 +5,6 @@ description: "Environment variables and defaults."
 
 # Configuration
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 Environment variable names are kept as code because they are used in commands and `.env` files.
 
 ## Base settings

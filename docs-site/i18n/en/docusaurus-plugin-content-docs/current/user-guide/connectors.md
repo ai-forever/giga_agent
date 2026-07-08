@@ -5,10 +5,6 @@ description: "Connecting external services and MCP servers through the in-chat c
 
 # Connectors
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 A connector is an external service that adds tools to the agent. Connectors come in two kinds: [MCP](https://modelcontextprotocol.io/) servers and built-in integrations — Yandex Mail, Yandex Calendar, Yandex Disk, VK. All of them are managed in one place: the connectors catalog.
 
 ## Where to find it

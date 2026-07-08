@@ -5,10 +5,6 @@ description: "Backend, UI, graph, modules, and API structure."
 
 # Architecture
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 The current branch uses a FastAPI backend, a LangGraph execution graph, a module system, and a bundled React UI.
 
 ## Layers

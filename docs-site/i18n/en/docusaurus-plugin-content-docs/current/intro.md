@@ -5,10 +5,6 @@ description: "What GigaAgent is and where to start."
 
 # GigaAgent overview
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 GigaAgent is a modular agent framework with a FastAPI backend, a LangGraph execution graph, and a bundled React web UI. The `giga_agent dev` command starts a local server on port `9090` and serves both the API and the UI.
 
 ## Main parts

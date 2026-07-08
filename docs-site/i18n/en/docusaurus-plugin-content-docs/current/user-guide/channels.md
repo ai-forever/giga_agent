@@ -5,10 +5,6 @@ description: "Talking to the agent through Telegram."
 
 # Channels
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 A channel is a way to talk to the agent outside the web UI. Telegram is supported now: the agent replies in private and group chats through a connected bot. The channel design is extensible, and the channel type is chosen at creation time.
 
 ## Setup

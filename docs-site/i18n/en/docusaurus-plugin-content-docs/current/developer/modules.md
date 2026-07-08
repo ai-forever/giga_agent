@@ -5,10 +5,6 @@ description: "Active modules and the BaseModule contract."
 
 # Modules
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 A module is a GigaAgent extension unit. It can add routes, database models, migrations, tools, system instructions, secrets, middleware, subgraphs, and startup handlers.
 
 ## BaseModule contract

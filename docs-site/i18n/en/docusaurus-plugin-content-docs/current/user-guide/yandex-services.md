@@ -5,10 +5,6 @@ description: "How the agent works with Yandex Mail, Yandex Calendar, and Yandex 
 
 # Yandex services
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 The agent can read and send mail, manage a calendar, and work with files on Disk on behalf of your Yandex account. Services are enabled one by one: each connects through the [connectors catalog](./connectors.md) via OAuth, and access can be revoked at any moment on the Connected tab.
 
 Prerequisite: a server administrator specifies the Yandex OAuth application credentials in the [configuration](../operations/configuration.md) beforehand. This is a one-time application setup; after it, users connect with a button.

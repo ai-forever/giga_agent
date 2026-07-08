@@ -5,10 +5,6 @@ description: "Deferred and recurring background tasks of the agent."
 
 # Scheduled tasks
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 The agent runs tasks in the background on a schedule: once at a given time ("tomorrow at 9, prepare a weather summary") or periodically ("collect weekly results every Monday"). A task is phrased as an ordinary chat request — the agent calls the right tool itself and confirms the scheduling.
 
 ## Creating a task

@@ -5,10 +5,6 @@ description: "Deep research and compatibility subgraphs."
 
 # Subagents
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 Current `main` has `DeepResearchModule` for the `deep_research` subgraph and `SubAgentLegacyModule` for compatibility subgraphs.
 
 | ID | Source | Entry point |

@@ -5,10 +5,6 @@ description: "How external-service integrations work and how to build one."
 
 # Integration modules
 
-:::info[Current documentation]
-This page describes the current `main` branch. For the stable PyPI package, switch to version **0.1.9 (PyPI)**.
-:::
-
 An external-service integration is an ordinary agent module from the `modules/integrations/` package, extended with a connection provider. The module contributes tools; the provider describes the card in the connectors catalog and the authorization method. Yandex Mail, Yandex Calendar, Yandex Disk, and VK are built this way.
 
 ## Connection provider

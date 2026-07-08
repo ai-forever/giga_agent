@@ -5,10 +5,6 @@ description: "What GigaAgent 0.1.9 is and where to start."
 
 # GigaAgent overview
 
-:::info[Stable PyPI documentation]
-This page describes the published PyPI package `giga-agent==0.1.9`. For the repository state, switch to version **main**.
-:::
-
 `giga-agent==0.1.9` is a modular agent package. It installs as `giga-agent`, exposes the `giga_agent` command, and serves both the API and the bundled web UI through `giga_agent dev` on port `9090`.
 
 ## Main parts
