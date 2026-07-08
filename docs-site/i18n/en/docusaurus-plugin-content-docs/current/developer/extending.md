@@ -21,6 +21,10 @@ class MyModule(BaseModule):
 
 Register the module in `GigaAgent.get_modules()` or pass it when creating a custom agent instance. Keep `id` unique.
 
+## Integrations and widgets
+
+Ready-made layers exist for external services and visual results: an integration module with a connection provider enters the connectors catalog automatically (see [Integration modules](./integrations.md)), and a tool returning a payload with the `widget` marker renders as a card in the chat (see [GenUI](./genui.md)).
+
 ## Before documenting a new capability
 
 1. Verify that the module is registered.

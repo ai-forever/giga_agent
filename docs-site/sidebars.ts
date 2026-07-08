@@ -49,6 +49,8 @@ const sidebars: SidebarsConfig = {
         'developer/runtime-resolver',
         'developer/modules',
         'developer/tools',
+        'developer/integrations',
+        'developer/genui',
         'developer/subagents',
         'developer/extending',
       ],
