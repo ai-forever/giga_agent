@@ -7,6 +7,7 @@ import {
   Plus,
   Trash2,
   ChevronDown,
+  X,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -195,6 +196,9 @@ export const GeneralSettings: React.FC = () => {
   const [filledAgentSecrets, setFilledAgentSecrets] = useState<
     Record<string, boolean>
   >({});
+  const [clearedAgentSecrets, setClearedAgentSecrets] = useState<
+    Record<string, boolean>
+  >({});
   const [defaultLLM, setDefaultLLM] = useState<string>(NO_LLM_VALUE);
   const [fastLLM, setFastLLM] = useState<string>(FAST_LLM_INHERIT_VALUE);
   const [currentImageGenerator, setCurrentImageGenerator] = useState<string>(
@@ -235,6 +239,7 @@ export const GeneralSettings: React.FC = () => {
     setSecrets(parseSettingsSecrets(settings.contextSecrets));
     setAgentSecretsValues(parsedSecrets.values);
     setFilledAgentSecrets(parsedSecrets.filled);
+    setClearedAgentSecrets({});
   }, [user, agentSecretMeta]);
 
   // Синхронизируем локальную тему с themeMode из провайдера
@@ -386,6 +391,23 @@ export const GeneralSettings: React.FC = () => {
       ...prev,
       [name]: value,
     }));
+    setClearedAgentSecrets((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+  };
+
+  const clearAgentSecret = (name: string) => {
+    setAgentSecretsValues((prev) => ({
+      ...prev,
+      [name]: "",
+    }));
+    setClearedAgentSecrets((prev) => ({
+      ...prev,
+      [name]: true,
+    }));
   };
 
   const handlePassSecretFocus = (name: string) => {
@@ -402,7 +424,11 @@ export const GeneralSettings: React.FC = () => {
 
   const handlePassSecretBlur = (name: string) => {
     setAgentSecretsValues((prev) => {
-      if (!filledAgentSecrets[name] || (prev[name] ?? "").trim()) {
+      if (
+        !filledAgentSecrets[name] ||
+        clearedAgentSecrets[name] ||
+        (prev[name] ?? "").trim()
+      ) {
         return prev;
       }
       return {
@@ -461,6 +487,10 @@ export const GeneralSettings: React.FC = () => {
           const isCurrentlyFilled = Boolean(
             currentUserSecrets.filled[secretMeta.name],
           );
+          if (isCurrentlyFilled && clearedAgentSecrets[secretMeta.name]) {
+            changedAgentSecrets[secretMeta.name] = "";
+            continue;
+          }
           if (
             isCurrentlyFilled &&
             (!nextValue || nextValue === PASS_SECRET_MASK)
@@ -834,23 +864,45 @@ export const GeneralSettings: React.FC = () => {
                               }
                             />
                           ) : (
-                            <SecretInput
-                              id={`agent-secret-${secretMeta.name}`}
-                              placeholder="Введите значение API-ключа"
-                              value={agentSecretsValues[secretMeta.name] ?? ""}
-                              onFocus={() =>
-                                handlePassSecretFocus(secretMeta.name)
-                              }
-                              onBlur={() =>
-                                handlePassSecretBlur(secretMeta.name)
-                              }
-                              onChange={(e) =>
-                                updateAgentSecretValue(
-                                  secretMeta.name,
-                                  e.target.value,
-                                )
-                              }
-                            />
+                            <div className="relative">
+                              <SecretInput
+                                id={`agent-secret-${secretMeta.name}`}
+                                placeholder="Введите значение API-ключа"
+                                className="pr-9"
+                                value={
+                                  agentSecretsValues[secretMeta.name] ?? ""
+                                }
+                                onFocus={() =>
+                                  handlePassSecretFocus(secretMeta.name)
+                                }
+                                onBlur={() =>
+                                  handlePassSecretBlur(secretMeta.name)
+                                }
+                                onChange={(e) =>
+                                  updateAgentSecretValue(
+                                    secretMeta.name,
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                              {(filledAgentSecrets[secretMeta.name] ||
+                                (agentSecretsValues[secretMeta.name] ?? "")
+                                  .length > 0) &&
+                                !clearedAgentSecrets[secretMeta.name] && (
+                                  <button
+                                    type="button"
+                                    aria-label="Удалить API-ключ"
+                                    title="Удалить API-ключ"
+                                    className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center justify-center size-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() =>
+                                      clearAgentSecret(secretMeta.name)
+                                    }
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                )}
+                            </div>
                           )}
                         </div>
                       </div>
