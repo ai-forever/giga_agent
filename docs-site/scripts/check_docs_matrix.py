@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Check published docs structure parity across stable/current and RU/EN."""
+"""Check published docs RU/EN structure parity within each docs version.
+
+Stable and current sidebars are allowed to differ: features shipped after the
+stable release are documented only in current, and pages retired from current
+may legitimately stay in stable. RU and EN must expose the same page set
+within every version.
+"""
 
 from __future__ import annotations
 
@@ -65,26 +71,34 @@ def main() -> None:
 
     current_ids = current_sidebar_ids(site)
     stable_ids = versioned_sidebar_ids(site, version)
-    if current_ids != stable_ids:
-        errors.append(
-            "current and stable sidebars differ: "
-            f"current-only={sorted(set(current_ids)-set(stable_ids))}, "
-            f"stable-only={sorted(set(stable_ids)-set(current_ids))}"
-        )
 
-    roots = {
-        "ru-current": site / "docs",
-        "ru-stable": site / f"versioned_docs/version-{version}",
-        "en-current": site / "i18n/en/docusaurus-plugin-content-docs/current",
-        "en-stable": site / f"i18n/en/docusaurus-plugin-content-docs/version-{version}",
+    matrix = {
+        "current": (
+            current_ids,
+            {
+                "ru-current": site / "docs",
+                "en-current": site / "i18n/en/docusaurus-plugin-content-docs/current",
+            },
+        ),
+        "stable": (
+            stable_ids,
+            {
+                "ru-stable": site / f"versioned_docs/version-{version}",
+                "en-stable": site
+                / f"i18n/en/docusaurus-plugin-content-docs/version-{version}",
+            },
+        ),
     }
-    for label, root in roots.items():
-        if not root.is_dir():
-            errors.append(f"missing docs matrix root {label}: {root.relative_to(site)}")
-            continue
-        missing = [doc_id for doc_id in current_ids if not doc_exists(root, doc_id)]
-        if missing:
-            errors.append(f"{label} missing published docs: {missing}")
+    for _, (ids, roots) in matrix.items():
+        for label, root in roots.items():
+            if not root.is_dir():
+                errors.append(
+                    f"missing docs matrix root {label}: {root.relative_to(site)}"
+                )
+                continue
+            missing = [doc_id for doc_id in ids if not doc_exists(root, doc_id)]
+            if missing:
+                errors.append(f"{label} missing published docs: {missing}")
 
     # Maintenance-only pages must stay out of sidebar parity unless deliberately published.
     maintenance = site / "docs/examples/_maintenance/screenshot-provenance.md"
@@ -94,8 +108,11 @@ def main() -> None:
     if errors:
         fail(errors)
 
-    print("✅ Documentation matrix has matching published page IDs across RU/EN and stable/current.")
-    print(f"  checked docs: {len(current_ids)}")
+    print("✅ Documentation matrix has matching RU/EN page IDs within each version.")
+    print(f"  current docs: {len(current_ids)}, stable docs: {len(stable_ids)}")
+    cur_only = sorted(set(current_ids) - set(stable_ids))
+    if cur_only:
+        print(f"  current-only (features shipped after {version}): {cur_only}")
 
 
 if __name__ == "__main__":
