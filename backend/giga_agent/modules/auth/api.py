@@ -188,6 +188,17 @@ def require_superuser(current_user: UserShort) -> None:
         )
 
 
+def require_role(current_user: UserShort, minimum: str) -> None:
+    """Проверка роли по иерархии member < admin < owner."""
+    from giga_agent.models.users import role_at_least
+
+    if not role_at_least(current_user.role, minimum):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
 def _collect_runtime_grant_targets_from_user_model(
     user_model: User,
 ) -> set[tuple[str, uuid.UUID]]:
@@ -979,11 +990,40 @@ async def patch_user_by_id(
             "is_superuser" in body.model_fields_set
             and body.is_superuser != user.is_superuser
         )
+        or ("role" in body.model_fields_set and body.role != user.role)
     )
     if user_id == current_user.id and changes_current_user_flags:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Cannot change is_active or is_superuser for current user",
+        )
+
+    # Защита владельца: менять роль/активность owner'а может только сам owner
+    # (свои флаги и так менять нельзя — правило выше). Назначить owner'ом
+    # другого пользователя может тоже только текущий owner (передача владения).
+    from giga_agent.models.users import (
+        ROLE_OWNER,
+        role_implies_superuser,
+    )
+
+    touches_protected = (
+        "role" in body.model_fields_set
+        or "is_active" in body.model_fields_set
+        or "is_superuser" in body.model_fields_set
+    )
+    if touches_protected and user.role == ROLE_OWNER and current_user.role != ROLE_OWNER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can modify the owner account",
+        )
+    if (
+        "role" in body.model_fields_set
+        and body.role == ROLE_OWNER
+        and current_user.role != ROLE_OWNER
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can transfer ownership",
         )
 
     if "email" in body.model_fields_set:
@@ -1019,13 +1059,27 @@ async def patch_user_by_id(
             )
         user.is_active = body.is_active
 
-    if "is_superuser" in body.model_fields_set:
+    # role — источник правды; is_superuser поддерживается синхронно.
+    # Легаси-путь: если пришёл только is_superuser (старый фронт), выводим
+    # роль из него (True → admin, False → member; owner так не разжаловать —
+    # защищено проверками выше).
+    if "role" in body.model_fields_set:
+        if body.role is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="role must not be null",
+            )
+        user.role = body.role
+        user.is_superuser = role_implies_superuser(body.role)
+    elif "is_superuser" in body.model_fields_set:
         if body.is_superuser is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="is_superuser must not be null",
             )
         user.is_superuser = body.is_superuser
+        if user.role != ROLE_OWNER:
+            user.role = "admin" if body.is_superuser else "member"
 
     if "experimental_mode" in body.model_fields_set:
         if body.experimental_mode is None:

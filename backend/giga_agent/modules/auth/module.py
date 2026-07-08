@@ -42,6 +42,7 @@ class AuthModule(BaseModule):
                 hashed_password=hashed_password,
                 is_active=True,
                 is_superuser=True,
+                role="owner",  # первый пользователь инстанса — владелец команды
                 first_name="Admin",
             )
 
