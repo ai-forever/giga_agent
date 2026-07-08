@@ -28,6 +28,24 @@ Environment variable names are kept as code because they are used in commands an
 
 `GIGA_AGENT_TOOL_MAX_SIZE`, `GIGA_AGENT_ENABLE_THINK_TOOL`, `GIGA_AGENT_ENABLE_MULTI_TOOL_USE`, `GIGA_AGENT_SCRAPER_TOTAL_CONCURRENCY`, and `GIGA_AGENT_QDRANT_POOL_SIZE` control tool output, service tools, scraping, and vector storage behavior.
 
+## Yandex OAuth application
+
+Yandex integrations ([Mail, Calendar, Disk](../user-guide/yandex-services.md)) connect via OAuth. An administrator registers an application once at [oauth.yandex.ru](https://oauth.yandex.ru/) and provides its credentials through environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `YANDEX_OAUTH_CLIENT_ID` | The application identifier; shared by Calendar and Disk. |
+| `YANDEX_OAUTH_CLIENT_SECRET` | The application secret. |
+| `YANDEX_OAUTH_REDIRECT_URI` | An optional explicit callback address; without it, the address is assembled from `GIGA_AGENT_BASE_URL` and the API prefix. |
+| `YANDEX_OAUTH_CLIENT_ID_YANDEX_MAIL` | A separate application for Mail: Yandex requires its own application for the mail scope. Without this pair, Mail uses the shared credentials above. |
+| `YANDEX_OAUTH_CLIENT_SECRET_YANDEX_MAIL` | The mail application secret. |
+
+Until the variables are set, the OAuth connect button in the [connectors catalog](../user-guide/connectors.md) stays inactive, and the service cards explain how to enable the application. Integrations keep working on manual tokens.
+
+## Channels
+
+Channel bots ([Telegram](../user-guide/channels.md)) are created in **Settings → Channels**: the channel type and the bot token are set in the form, with no environment variables involved. Contact access is granted manually — the bot stays silent until a contact is approved.
+
 ## Per-user limits
 
 | Variable | Default | Purpose |

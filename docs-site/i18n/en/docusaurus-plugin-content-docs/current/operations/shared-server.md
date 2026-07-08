@@ -15,3 +15,5 @@ A shared server needs stricter defaults than a local demo.
 - Review sandbox permissions and Docker socket exposure.
 - Store provider secrets outside documentation and screenshots.
 - Decide which users can access files, collections, memory, and tools.
+
+External-service connections made through the [connectors catalog](../user-guide/connectors.md) are personal: OAuth tokens are stored per user, so colleagues get no access to each other's mail or files. The Yandex OAuth application credentials and channel bots remain shared; remember that in a [Telegram channel](../user-guide/channels.md) the agent acts without tool-call confirmations, so approve contacts carefully.
