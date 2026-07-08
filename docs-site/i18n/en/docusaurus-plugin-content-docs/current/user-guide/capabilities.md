@@ -10,7 +10,7 @@ GigaAgent combines a base UI with optional capabilities. Most useful scenarios n
 | Capability | Works immediately? | Required setup |
 |---|---:|---|
 | Sign in to the UI | Yes | Nothing for local setup. |
-| Chat | No | Connector and language model. |
+| Chat | No | Connection and language model. |
 | Streaming output | Yes, after model selection | Language model. |
 | [Projects](./projects.md) | Yes | Nothing for project instructions; embeddings for the project knowledge base. |
 | File upload | Yes | User permissions; processing may need tools or a model. |

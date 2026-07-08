@@ -11,7 +11,7 @@ If startup reports that `GIGA_AGENT_SECRET_KEY` is missing, set it for shared se
 
 ## Chat opens but messages fail
 
-Check that a connector exists, a language model is created and selected, provider credentials are valid, the server uses `/api`, and required providers are configured.
+Check that a connection to a model provider exists, a language model is created and selected, provider credentials are valid, the server uses `/api`, and required providers are configured.
 
 ## RAG returns no results
 

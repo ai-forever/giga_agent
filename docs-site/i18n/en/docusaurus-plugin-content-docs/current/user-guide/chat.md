@@ -24,5 +24,5 @@ Stopping frees an active execution thread. The number of simultaneously active c
 ## Practical tips
 
 - Configure a default model before the first real chat.
-- Keep secrets in connectors or environment variables, not in messages.
+- Keep secrets in connections or environment variables, not in messages.
 - If a tool is unavailable, check the related provider and user permissions.

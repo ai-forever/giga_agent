@@ -43,6 +43,6 @@ description: "Как GigaAgent выбирает языковую модель, �
 
 ## Файл настройки командной строки
 
-`giga_agent.conf.json` использует понятные поля: `llm`, `fast_llm`, `embedding`, `sandbox`, `search_engine`, `image_generator`, `user_settings`. Для коннектора и модели используется поле `__type` и настройки провайдера.
+`giga_agent.conf.json` использует понятные поля: `llm`, `fast_llm`, `embedding`, `sandbox`, `search_engine`, `image_generator`, `user_settings`. Для подключения (в коде — connector) и модели используется поле `__type` и настройки провайдера.
 
 Секреты из `giga_agent.conf.json` не должны попадать в систему контроля версий.

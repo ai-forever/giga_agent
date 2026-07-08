@@ -14,13 +14,13 @@ Open `http://localhost:9090` and use the initial local administrator account:
 - `admin@example.com`
 - `giga_agent_admin`
 
-## 2. Add a connector
+## 2. Add a connection
 
-Open **Settings → Connectors** and add a provider connection. A connector stores access parameters such as keys, base URLs, and provider-specific options.
+Open **Settings → Connections** and add a provider connection. A connection stores access parameters such as keys, base URLs, and provider-specific options.
 
 ## 3. Add a language model
 
-Open **Settings → LLMs**, create a model linked to the connector, then select it in **Settings → General** as the default model.
+Open **Settings → LLMs**, create a model linked to the connection, then select it in **Settings → General** as the default model.
 
 ## 4. Send a short message
 

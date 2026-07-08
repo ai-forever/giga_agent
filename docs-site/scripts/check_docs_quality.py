@@ -23,6 +23,8 @@ ADMONITION_BAD_TITLE_RE = re.compile(
     re.M,
 )
 GLOSSARY_RE = re.compile(r"\b(workflow|build|deploy|current-main|upcoming|runtime|sandbox|tools|frontend|backend|legacy)\b", re.I)
+# Термины, запрещённые только в current: в 0.1.9 UI пакета так и называется.
+CURRENT_ONLY_GLOSSARY_RE = re.compile(r"\b(коннектор\w*)\b", re.I)
 FENCED_BLOCK_RE = re.compile(r"```.*?```", re.S)
 MARKDOWN_LINK_TARGET_RE = re.compile(r"\]\([^)]+\)")
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -122,7 +124,10 @@ def main() -> None:
             if str(rel).startswith(("docs/", "versioned_docs/")):
                 glossary_text = FENCED_BLOCK_RE.sub("", text)
                 glossary_text = MARKDOWN_LINK_TARGET_RE.sub("]", glossary_text)
-                for m in GLOSSARY_RE.finditer(glossary_text):
+                matches = list(GLOSSARY_RE.finditer(glossary_text))
+                if str(rel).startswith("docs/"):
+                    matches += list(CURRENT_ONLY_GLOSSARY_RE.finditer(glossary_text))
+                for m in matches:
                     line_start = glossary_text.rfind("\n", 0, m.start()) + 1
                     line_end = glossary_text.find("\n", m.end())
                     if line_end == -1:
