@@ -12,7 +12,7 @@
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
 
 <p align="center">
-  <a href="https://trashchenkov.github.io/giga_agent/">
+  <a href="https://ai-forever.github.io/giga_agent/">
     <img src="https://img.shields.io/badge/%F0%9F%93%96%20Документация-online-dc2626?style=for-the-badge&logo=docusaurus&logoColor=white" alt="Документация GigaAgent">
   </a>
 </p>
@@ -472,7 +472,7 @@ Runtime компоненты регистрируются динамически
 
 ## Дополнительные материалы
 
-- 📖 Полная документация: <https://trashchenkov.github.io/giga_agent/>
+- 📖 Полная документация: <https://ai-forever.github.io/giga_agent/>
 - Субагенты: [SUBAGENTS.md](SUBAGENTS.md)
 - Инструменты: [TOOLS.md](TOOLS.md)
 - Observability для локального запуска: [docs/configuration/observability-local.md](docs/configuration/observability-local.md)
