@@ -13,4 +13,4 @@ MCP tools add external actions to a specific dialog or message. The backend can 
 - User permissions and sandbox rules still apply on the backend.
 - If the UI does not pass a tool, the agent cannot call it for that turn.
 
-Developers can read more in [Tools](../developer/tools.md).
+Developers can read more in [Developer tools](../developer/tools.md).
