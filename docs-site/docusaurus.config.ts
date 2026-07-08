@@ -8,6 +8,12 @@ import docsVersionData from './docs-version.json';
 // (.github/workflows/check-docs-version.yml).
 const DOCS_VERSION = docsVersionData.version;
 
+// Владелец и имя репозитория берутся из окружения GitHub Actions, поэтому
+// сайт собирается с верными адресами и в форке, и в основном репозитории.
+const [GH_OWNER, GH_REPO] = (
+  process.env.GITHUB_REPOSITORY ?? 'trashchenkov/giga_agent'
+).split('/');
+
 const config: Config = {
   title: 'GigaAgent',
   tagline: 'Документация по универсальному AI-агенту на FastAPI, LangGraph и React',
@@ -21,10 +27,10 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://trashchenkov.github.io',
-  baseUrl: '/giga_agent/',
-  organizationName: 'trashchenkov',
-  projectName: 'giga_agent',
+  url: `https://${GH_OWNER}.github.io`,
+  baseUrl: `/${GH_REPO}/`,
+  organizationName: GH_OWNER,
+  projectName: GH_REPO,
 
   onBrokenLinks: 'throw',
   markdown: {
@@ -48,7 +54,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/trashchenkov/giga_agent/tree/main/docs-site/',
+          editUrl: `https://github.com/${GH_OWNER}/${GH_REPO}/tree/main/docs-site/`,
           lastVersion: '0.1.9',
           versions: {
             current: {
@@ -106,7 +112,7 @@ const config: Config = {
         },
         {type: 'localeDropdown', position: 'right'},
         {
-          href: 'https://github.com/trashchenkov/giga_agent',
+          href: `https://github.com/${GH_OWNER}/${GH_REPO}`,
           label: 'GitHub',
           position: 'right',
         },
@@ -141,7 +147,7 @@ const config: Config = {
         {
           title: 'Проект',
           items: [
-            {label: 'GitHub', href: 'https://github.com/trashchenkov/giga_agent'},
+            {label: 'GitHub', href: `https://github.com/${GH_OWNER}/${GH_REPO}`},
           ],
         },
       ],
