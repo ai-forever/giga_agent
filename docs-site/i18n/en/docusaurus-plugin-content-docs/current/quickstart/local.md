@@ -5,7 +5,7 @@ description: "Install and run the current repository build."
 
 # Local quickstart
 
-Use this path when you want the current repository state rather than the released PyPI package.
+Use this path to run GigaAgent from the repository source.
 
 ## Requirements
 

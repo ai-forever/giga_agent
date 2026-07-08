@@ -1,6 +1,6 @@
 ---
 title: "Обзор GigaAgent"
-description: "Что такое GigaAgent в текущей ветке main, как он запускается и куда идти дальше."
+description: "Что такое GigaAgent, как он запускается и куда идти дальше."
 ---
 
 # Обзор GigaAgent

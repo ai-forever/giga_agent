@@ -1,6 +1,6 @@
 ---
 title: "Projects"
-description: "Group conversations around shared instructions and a dedicated knowledge base on the current main branch."
+description: "Group conversations around shared instructions and a dedicated knowledge base."
 ---
 
 # Projects
