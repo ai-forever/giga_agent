@@ -21,7 +21,7 @@ GigaAgent is a modular agent framework with a FastAPI backend, a LangGraph execu
 
 Useful work requires a configured language model. Depending on user settings, the agent can use chat streaming with clarifying questions, files, RAG, long-term memory, agent skills, deep research, images, code execution, weather, search, and legacy subagents kept for compatibility (landing page, presentation, meme, and more).
 
-External services connect through the [connectors catalog](./user-guide/connectors.md): MCP servers, [Yandex Mail, Calendar, and Disk](./user-guide/yandex-services.md), VK, GitHub. Results of some tools render as [chat widgets](./user-guide/widgets.md). The agent also runs [scheduled tasks](./user-guide/scheduler.md) with delivery to a [Telegram channel](./user-guide/channels.md).
+External services connect through the [connectors catalog](./user-guide/connectors.md): [MCP servers](./user-guide/connectors.md#catalog), [Yandex Mail, Calendar, and Disk](./user-guide/yandex-services.md), [VK](./user-guide/external-services.md), [GitHub](./user-guide/external-services.md). Results of some tools render as [chat widgets](./user-guide/widgets.md). The agent also runs [scheduled tasks](./user-guide/scheduler.md) with delivery to a [Telegram channel](./user-guide/channels.md).
 
 ## Start here
 
