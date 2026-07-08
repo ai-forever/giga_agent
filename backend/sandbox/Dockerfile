@@ -92,7 +92,8 @@ COPY startup_scripts .ipython/profile_default/startup
 COPY server/requirements.txt /root/.server/sandbox_server/requirements.txt
 RUN uv pip install --no-cache -r /root/.server/sandbox_server/requirements.txt
 COPY server/ /root/.server/sandbox_server/
-ENV PYTHONPATH=/root/.server:$PYTHONPATH
+COPY VERSION /root/.server/VERSION
+ENV PYTHONPATH=/root/.server
 RUN printf '#!/bin/sh\nexec python -m sandbox_server "$@"\n' \
         > /usr/local/bin/sandbox-server && \
     chmod +x /usr/local/bin/sandbox-server

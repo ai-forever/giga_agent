@@ -24,6 +24,7 @@ from giga_agent.core.paths import ensure_giga_agent_dir
 from giga_agent.models.sandbox import SandboxStatus
 from giga_agent.sandbox.access import revoke_sandbox_access_tokens
 from giga_agent.sandbox.api_backed import APIBackedSandbox
+from giga_agent.sandbox.base import RuntimeReconcileOutcome
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.local_docker.constants import (
     BUCKET_PREFIX,
@@ -52,6 +53,8 @@ if TYPE_CHECKING:
     from giga_agent.models.users import UserShort
 
 logger = get_logger(__name__)
+
+_MB = 1024 * 1024
 
 
 @SandboxRegistry.register("local_docker")
@@ -664,6 +667,121 @@ class LocalDockerSandbox(
 
     async def is_up(self) -> bool:
         return await self._is_container_up()
+
+    # ------------------------------------------------------------------
+    # settings reconciliation (live container vs desired settings)
+    # ------------------------------------------------------------------
+
+    async def reconcile_runtime_settings(self) -> RuntimeReconcileOutcome:
+        """Свести реально запущенный контейнер с желаемыми настройками.
+
+        Холодные поля (image, shm, ulimits, readonly rootfs, auto-remove) в
+        Docker нельзя поменять у существующего контейнера → RECREATE. Горячие
+        (mem/cpu/pids) применяем на лету через POST /containers/{id}/update и
+        возвращаем HOT_UPDATED. Ошибки инспекта/апдейта не должны ронять
+        пользовательский ран — логируем и возвращаем NOOP.
+        """
+        try:
+            await self._ensure_container_connected()
+            assert self._container is not None
+            self._container.reload()
+            attrs = self._container.attrs or {}
+        except Exception:
+            logger.warning(
+                "Failed to inspect sandbox container for settings reconcile "
+                "(sandbox_id=%s); skipping",
+                self.sandbox_id,
+                exc_info=True,
+            )
+            return RuntimeReconcileOutcome.NOOP
+
+        host = attrs.get("HostConfig") or {}
+        config = attrs.get("Config") or {}
+
+        if self._cold_settings_drift(host=host, config=config):
+            logger.info(
+                "Sandbox %s cold settings drift detected (recreate required)",
+                self.sandbox_id,
+            )
+            return RuntimeReconcileOutcome.RECREATE
+
+        desired_hot = self._desired_hot_resources()
+        current_hot = {
+            "Memory": host.get("Memory"),
+            "MemoryReservation": host.get("MemoryReservation"),
+            "NanoCpus": host.get("NanoCpus"),
+            "PidsLimit": host.get("PidsLimit"),
+        }
+        if all(current_hot.get(k) == v for k, v in desired_hot.items()):
+            return RuntimeReconcileOutcome.NOOP
+
+        try:
+            self._live_update_resources(desired_hot)
+        except Exception:
+            logger.warning(
+                "Failed to live-update sandbox container resources "
+                "(sandbox_id=%s); leaving container as-is",
+                self.sandbox_id,
+                exc_info=True,
+            )
+            return RuntimeReconcileOutcome.NOOP
+
+        logger.info(
+            "Sandbox %s hot resources live-updated: %s",
+            self.sandbox_id,
+            desired_hot,
+        )
+        return RuntimeReconcileOutcome.HOT_UPDATED
+
+    def _desired_hot_resources(self) -> dict[str, int]:
+        return {
+            "Memory": self.memory_limit_mb * _MB,
+            "MemoryReservation": self.memory_reservation_mb * _MB,
+            "NanoCpus": int(self.vcpu * 1_000_000_000),
+            "PidsLimit": self.pids_limit,
+        }
+
+    def _cold_settings_drift(self, *, host: dict, config: dict) -> bool:
+        if (config.get("Image") or "") != self.image:
+            return True
+        if host.get("ShmSize") != self.shm_size_mb * _MB:
+            return True
+        if bool(host.get("ReadonlyRootfs")) != self.enforce_readonly_rootfs:
+            return True
+        # not_remove=True → контейнер создаётся без --rm (AutoRemove=False)
+        if bool(host.get("AutoRemove")) != (not self.not_remove):
+            return True
+        if not self._nofile_ulimit_matches(host.get("Ulimits") or []):
+            return True
+        return False
+
+    def _nofile_ulimit_matches(self, ulimits: list) -> bool:
+        for item in ulimits:
+            if isinstance(item, dict) and item.get("Name") == "nofile":
+                return (
+                    item.get("Soft") == self.nofile_soft
+                    and item.get("Hard") == self.nofile_hard
+                )
+        return False
+
+    def _live_update_resources(self, resources: dict[str, int]) -> None:
+        """Применить горячие ресурсы к живому контейнеру одним запросом.
+
+        Обёртка docker-py container.update() в 7.1.0 не пробрасывает
+        PidsLimit/NanoCpus (и в upstream main тоже), поэтому шлём сырой POST
+        через низкоуровневый APIClient. _url/_post_json/_raise_for_status —
+        внутренний, но стабильный API docker-py.
+        """
+        api = self._client.api
+        res = api._post_json(
+            api._url("/containers/{0}/update", self.external_id),
+            data=dict(resources),
+        )
+        api._raise_for_status(res)
+        try:
+            self._container.reload()
+        except DockerException:
+            pass
 
     # ------------------------------------------------------------------
     # reconnect / connection state

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 import signal
 import time
 import uuid
@@ -26,6 +27,11 @@ _STATUS_RUNNING = "running"
 _STATUS_COMPLETED = "completed"
 _STATUS_FAILED = "failed"
 _POLL_INTERVAL_SEC = 0.1
+# как часто сторож проверяет размер лога (runaway-вывод); чаще status-поллинга
+# не нужно, но достаточно часто, чтобы ограничить перерастание лимита
+_SIZE_POLL_INTERVAL_SEC = 0.2
+# сколько головы лога сохранить после kill'а по лимиту (для диагностики)
+_LOG_HEAD_KEEP_BYTES = 4096
 
 
 def _utc_now_iso() -> str:
@@ -50,9 +56,12 @@ class ShellSession:
     status: str = _STATUS_RUNNING
     exit_code: int | None = None
     ended_at_iso: str | None = None
+    ended_monotonic: float | None = None
     elapsed_ms: int | None = None
     last_delivered_offset: int = 0
+    log_capped: bool = False
     _waiter: asyncio.Task | None = field(default=None)
+    _guard: asyncio.Task | None = field(default=None)
 
     @property
     def pid(self) -> int | None:
@@ -108,6 +117,8 @@ class ShellManager:
         if block_until_ms < 0:
             raise ValueError("block_until_ms must be >= 0")
 
+        self._gc()
+
         cwd = (working_directory or self._settings.workdir).strip() or self._settings.workdir
         shell_id = uuid.uuid4().hex
         session_dir = self._root / shell_id
@@ -143,6 +154,8 @@ class ShellManager:
             log_handle=log_handle,
         )
         session._waiter = asyncio.create_task(self._await_exit(session))
+        if self._settings.max_log_bytes > 0:
+            session._guard = asyncio.create_task(self._size_guard(session))
         self._sessions[shell_id] = session
 
         deadline = time.monotonic() + block_until_ms / 1000.0
@@ -152,16 +165,23 @@ class ShellManager:
             await asyncio.sleep(_POLL_INTERVAL_SEC)
 
         size = session.output_size()
-        output_text = self._read_range(session.output_path, 0, size)
+        output_text, truncated = self._read_range(
+            session.output_path, 0, size, self._settings.max_inline_read_bytes
+        )
         session.last_delivered_offset = size
 
         backgrounded = session.status == _STATUS_RUNNING
-        await_hint = (
-            f'Процесс продолжает выполняться. Вызови await_shell(shell_id="{shell_id}") '
-            "для чтения нового вывода."
-            if backgrounded
-            else None
-        )
+        hints: list[str] = []
+        if session.log_capped:
+            hints.append(self._cap_note())
+        if truncated:
+            hints.append(self._truncation_note(session.output_path))
+        if backgrounded:
+            hints.append(
+                f'Процесс продолжает выполняться. Вызови await_shell(shell_id="{shell_id}") '
+                "для чтения нового вывода."
+            )
+        await_hint = " ".join(hints) if hints else None
         return ShellRunResult(
             shell_id=shell_id,
             status=session.status,  # type: ignore[arg-type]
@@ -199,20 +219,25 @@ class ShellManager:
                 read_full_log_hint="Shell-сессия не найдена.",
             )
 
+        cap = self._settings.max_inline_read_bytes
         compiled = re.compile(pattern) if pattern else None
         start_offset = session.last_delivered_offset
         deadline = time.monotonic() + block_until_ms / 1000.0
         matched = False
         scan_offset = start_offset
-        accumulated = ""
+        # скользящее окно поиска: держим только последние `cap` символов, чтобы
+        # не держать весь лог в памяти (паттерн, растянутый шире окна, не найдём —
+        # для 20 МБ окна это нереалистично)
+        tail = ""
 
         while True:
             if compiled is not None:
                 size = session.output_size()
                 if size > scan_offset:
-                    accumulated += self._read_range(session.output_path, scan_offset, size)
+                    chunk, _ = self._read_range(session.output_path, scan_offset, size, cap)
                     scan_offset = size
-                matched = compiled.search(accumulated) is not None
+                    tail = (tail + chunk)[-cap:]
+                matched = compiled.search(tail) is not None
             if (
                 session.status != _STATUS_RUNNING
                 or matched
@@ -223,8 +248,16 @@ class ShellManager:
             await asyncio.sleep(_POLL_INTERVAL_SEC)
 
         end_offset = session.output_size()
-        delta = self._read_range(session.output_path, start_offset, end_offset)
+        delta, truncated = self._read_range(session.output_path, start_offset, end_offset, cap)
         session.last_delivered_offset = end_offset
+
+        read_full_log_hint = (
+            f"Если нужен весь лог — прочитай output.log через /v1/files: {session.output_path}"
+        )
+        if truncated:
+            read_full_log_hint = f"{self._truncation_note(session.output_path)} {read_full_log_hint}"
+        if session.log_capped:
+            read_full_log_hint = f"{self._cap_note()} {read_full_log_hint}"
 
         return ShellAwaitResult(
             shell_id=shell_id,
@@ -234,9 +267,7 @@ class ShellManager:
             output_path=session.output_path,
             exit_code=session.exit_code,
             elapsed_ms=session.elapsed_ms,
-            read_full_log_hint=(
-                f"Если нужен весь лог — прочитай output.log через /v1/files: {session.output_path}"
-            ),
+            read_full_log_hint=read_full_log_hint,
         )
 
     # ------------------------------------------------------------------ #
@@ -282,11 +313,53 @@ class ShellManager:
     # internals
     # ------------------------------------------------------------------ #
 
+    async def _size_guard(self, session: ShellSession) -> None:
+        """Убить команду, если её лог перерос ``max_log_bytes`` (runaway-вывод),
+        и усечь лог до головы. Это поллинг, а не жёсткая граница: между опросами
+        лог может немного перерасти лимит (особенно на tmpfs), но неограниченного
+        роста не будет."""
+        cap = self._settings.max_log_bytes
+        if cap <= 0:
+            return
+        try:
+            while session.status == _STATUS_RUNNING:
+                if session.output_size() >= cap:
+                    session.log_capped = True
+                    await self.kill(session.shell_id)
+                    await asyncio.to_thread(self._truncate_log, session)
+                    return
+                await asyncio.sleep(_SIZE_POLL_INTERVAL_SEC)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+
+    def _truncate_log(self, session: ShellSession) -> None:
+        """Оставить только голову лога + пометку, освободив диск. Вызывается
+        после ``kill`` — процесс уже мёртв, а ``log_handle`` закрыт в
+        ``_await_exit``, поэтому файл можно безопасно перезаписать."""
+        try:
+            with open(session.output_path, "rb") as handle:
+                head = handle.read(_LOG_HEAD_KEEP_BYTES)
+            with open(session.output_path, "wb") as handle:
+                handle.write(head)
+                handle.write(self._cap_note().encode("utf-8"))
+        except OSError:
+            pass
+
+    def _cap_note(self) -> str:
+        mb = max(1, self._settings.max_log_bytes // (1024 * 1024))
+        return (
+            f"\n\n[SANDBOX] Команда убита: вывод превысил ~{mb} МБ (runaway output). "
+            "Сохранена только голова лога.\n"
+        )
+
     async def _await_exit(self, session: ShellSession) -> None:
         code = await session.proc.wait()
         session.exit_code = code
         session.status = _STATUS_COMPLETED if code == 0 else _STATUS_FAILED
         session.ended_at_iso = _utc_now_iso()
+        session.ended_monotonic = time.monotonic()
         session.elapsed_ms = _elapsed_ms(session.started_monotonic)
         try:
             session.log_handle.flush()
@@ -294,13 +367,57 @@ class ShellManager:
         except Exception:
             pass
 
-    def _read_range(self, path: str, start: int, end: int) -> str:
+    def _read_range(
+        self, path: str, start: int, end: int, max_bytes: int | None = None
+    ) -> tuple[str, bool]:
+        """Прочитать [start, end). Если диапазон больше ``max_bytes`` — вернуть
+        только последние ``max_bytes`` байт (хвост) и ``truncated=True``. Полный
+        лог всегда доступен потоково через /v1/files."""
         if end <= start:
-            return ""
+            return "", False
+        read_start = start
+        truncated = False
+        if max_bytes is not None and 0 < max_bytes < (end - start):
+            read_start = end - max_bytes
+            truncated = True
         try:
             with open(path, "rb") as handle:
-                handle.seek(start)
-                data = handle.read(end - start)
+                handle.seek(read_start)
+                data = handle.read(end - read_start)
         except FileNotFoundError:
-            return ""
-        return data.decode("utf-8", errors="replace")
+            return "", False
+        return data.decode("utf-8", errors="replace"), truncated
+
+    def _truncation_note(self, output_path: str) -> str:
+        mb = max(1, self._settings.max_inline_read_bytes // (1024 * 1024))
+        return (
+            f"Вывод усечён до последних ~{mb} МБ; полный лог через /v1/files: {output_path}."
+        )
+
+    def _gc(self) -> None:
+        """Удалить завершённые сессии старше TTL и сверх лимита количества
+        (из памяти и с диска). Running-сессии не трогаем."""
+        ttl = self._settings.shell_session_ttl_sec
+        max_completed = self._settings.max_completed_shell_sessions
+        now = time.monotonic()
+        completed = [
+            s
+            for s in self._sessions.values()
+            if s.status != _STATUS_RUNNING and s.ended_monotonic is not None
+        ]
+        stale: set[str] = set()
+        if ttl > 0:
+            stale.update(
+                s.shell_id for s in completed if now - (s.ended_monotonic or 0.0) >= ttl
+            )
+        if max_completed > 0:
+            alive = sorted(
+                (s for s in completed if s.shell_id not in stale),
+                key=lambda s: s.ended_monotonic or 0.0,
+            )
+            overflow = len(alive) - max_completed
+            if overflow > 0:
+                stale.update(s.shell_id for s in alive[:overflow])
+        for shell_id in stale:
+            self._sessions.pop(shell_id, None)
+            shutil.rmtree(self._root / shell_id, ignore_errors=True)

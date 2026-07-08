@@ -42,8 +42,18 @@ class Settings:
     default_kernel_name: str = "python3"
     kernel_startup_timeout_sec: int = 60
     max_kernels: int = 0  # 0 = без лимита; иначе LRU-эвикция
+    # take-over: сколько ждать мягкого прерывания (SIGINT) текущего выполнения,
+    # прежде чем жёстко рестартить процесс kernel'а под новый запрос
+    preempt_timeout_sec: int = 5
     # --- shell ---
     shell_sessions_root: str = "/tmp/.sandbox_api/shell_sessions"
+    # GC завершённых shell-сессий (память + логи в /tmp растут иначе бесконечно)
+    shell_session_ttl_sec: int = 3600
+    max_completed_shell_sessions: int = 200
+    # runaway-вывод: если лог команды перерастает лимит — команда убивается,
+    # а лог усекается до головы (0 = без лимита). Поллинг, не жёсткая граница:
+    # между опросами лог может немного перерасти лимит.
+    max_log_bytes: int = 256 * 1024 * 1024
     # --- skills (FS-backed; только для нативного провайдера sandbox_api) ---
     skills_root: str = "/root/.skills"
     # верхний предел разовой отдачи вывода shell/файла в память (для не-stream веток)
@@ -78,9 +88,15 @@ def get_settings() -> Settings:
         default_kernel_name=_str("SANDBOX_DEFAULT_KERNEL", "python3"),
         kernel_startup_timeout_sec=_int("SANDBOX_KERNEL_STARTUP_TIMEOUT_SEC", 60),
         max_kernels=_int("SANDBOX_MAX_KERNELS", 0),
+        preempt_timeout_sec=_int("SANDBOX_PREEMPT_TIMEOUT_SEC", 5),
         shell_sessions_root=_str(
             "SANDBOX_SHELL_SESSIONS_ROOT", "/tmp/.sandbox_api/shell_sessions"
         ),
+        shell_session_ttl_sec=_int("SANDBOX_SHELL_SESSION_TTL_SEC", 3600),
+        max_completed_shell_sessions=_int(
+            "SANDBOX_MAX_COMPLETED_SHELL_SESSIONS", 200
+        ),
+        max_log_bytes=_int("SANDBOX_MAX_LOG_BYTES", 256 * 1024 * 1024),
         max_inline_read_bytes=_int("SANDBOX_MAX_INLINE_READ_BYTES", 20 * 1024 * 1024),
         idle_timeout_sec=_int("SANDBOX_IDLE_TIMEOUT_SEC", 0),
         request_log=_str("SANDBOX_REQUEST_LOG", "true").lower() != "false",

@@ -74,10 +74,16 @@ async def _idle_watchdog(app: FastAPI) -> None:
         return
     while True:
         await asyncio.sleep(min(30, settings.idle_timeout_sec))
-        idle_for = time.time() - app.state.last_activity
+        now = time.time()
+        idle_for = now - app.state.last_activity
         pool: KernelPool = app.state.kernel_pool
         shells: ShellManager = app.state.shell_manager
-        busy = bool(pool.list()) or bool(shells.list(only_running=True))
+        # kernel «занят» только если по нему была активность в пределах таймаута,
+        # а не по факту существования (иначе один живой kernel = вечный busy).
+        kernels_active = any(
+            now - e.last_activity_at < settings.idle_timeout_sec for e in pool.list()
+        )
+        busy = kernels_active or bool(shells.list(only_running=True))
         if idle_for >= settings.idle_timeout_sec and not busy:
             # мягкое самоубийство: SIGINT текущему процессу -> graceful shutdown
             import os
@@ -280,6 +286,12 @@ async def execute_ws(websocket: WebSocket, kernel_id: str):
                 pending = str(reply.get("value", ""))
     except WebSocketDisconnect:
         await gen.aclose()
+        # клиент отвалился во время выполнения -> прерываем kernel, чтобы
+        # брошенная ячейка (напр. while True) не молотила CPU в фоне
+        try:
+            await pool.interrupt(entry.kernel_id)
+        except Exception:
+            pass
         log_event("run_code", kernel_id=entry.kernel_id, status="client_disconnect",
                   ms=round((time.monotonic() - started) * 1000, 1), chunks=n_chunks)
         return

@@ -29,9 +29,14 @@ SANDBOX_API_TOKEN=<secret> python -m sandbox_server
 | `SANDBOX_DEFAULT_KERNEL` | `python3` | kernelspec по умолчанию |
 | `SANDBOX_KERNEL_STARTUP_TIMEOUT_SEC` | `60` | таймаут готовности kernel'а |
 | `SANDBOX_MAX_KERNELS` | `0` | `>0` включает LRU-эвикцию kernel'ов |
+| `SANDBOX_PREEMPT_TIMEOUT_SEC` | `5` | take-over: сколько ждать мягкого прерывания (SIGINT) занятого kernel'а перед жёстким рестартом процесса |
 | `SANDBOX_SHELL_SESSIONS_ROOT` | `/tmp/.sandbox_api/shell_sessions` | где хранятся логи shell |
-| `SANDBOX_IDLE_TIMEOUT_SEC` | `0` | `>0` — self-shutdown по бездействию |
-| `SANDBOX_REQUEST_LOG` | `true` | access-логи uvicorn |
+| `SANDBOX_SHELL_SESSION_TTL_SEC` | `3600` | TTL завершённых shell-сессий (память+логи чистятся GC); `0` — не по TTL |
+| `SANDBOX_MAX_COMPLETED_SHELL_SESSIONS` | `200` | лимит числа завершённых shell-сессий (LRU-эвикция сверх лимита); `0` — без лимита |
+| `SANDBOX_MAX_LOG_BYTES` | `268435456` | лимит размера лога одной shell-команды (runaway-вывод): при превышении команда убивается, лог усекается до головы; `0` — без лимита. Поллинг (~0.2с), не жёсткая граница |
+| `SANDBOX_MAX_INLINE_READ_BYTES` | `20971520` | верхний предел разовой отдачи вывода shell в память (усечение до хвоста; полный лог — через `/v1/files`) |
+| `SANDBOX_IDLE_TIMEOUT_SEC` | `0` | `>0` — self-shutdown по бездействию (учитывает активность kernel'ов, не факт их существования) |
+| `SANDBOX_REQUEST_LOG` | `true` | уровень собственного structured-лога (`info`/`warning`); uvicorn access-log всегда выключен — он утекал бы `?token=` в логи |
 
 ## API
 
@@ -57,6 +62,15 @@ SANDBOX_API_TOKEN=<secret> python -m sandbox_server
 
 Формат чанков совпадает с `giga_agent.sandbox.jupyter.run_code`, поэтому клиент
 `SandboxAPISandbox.run_code` просто `json.loads` и `yield`.
+
+**Take-over (вытеснение).** Kernel исполняет код последовательно. Если приходит
+новый `execute`, а на kernel'е уже что-то выполняется, сервер **вытесняет**
+текущее выполнение: шлёт `SIGINT` (мягко, состояние сохраняется), и если за
+`SANDBOX_PREEMPT_TIMEOUT_SEC` ячейка не прервалась (напр. C-цикл/блокирующий
+I/O) — жёстко рестартит процесс kernel'а (состояние теряется) и сразу запускает
+новый код. Таким образом «запустить код снова» работает как надёжная кнопка
+«стоп-и-замени» — отдельный interrupt не требуется. При обрыве WebSocket сервер
+тоже шлёт `SIGINT`, чтобы брошенная ячейка не молотила CPU в фоне.
 
 ### Shell (нативный реестр)
 - `POST /v1/shell` `{command, working_directory?, block_until_ms?, description?, envs?}` → `ShellRunResult`

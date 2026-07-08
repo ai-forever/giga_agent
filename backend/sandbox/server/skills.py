@@ -15,13 +15,17 @@ runtime-листинг), а формат манифеста — giga_agent.modul
 
 from __future__ import annotations
 
-import io
+import asyncio
+import contextlib
+import os
 import re
 import shutil
 import tarfile
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import aiofiles
 from fastapi import (
     APIRouter,
     Depends,
@@ -144,7 +148,7 @@ class SkillsManager:
     # -- install (from a streamed tar archive) --
 
     def install_from_tar(
-        self, owner_id: str | None, skill_name: str, tar_bytes: bytes
+        self, owner_id: str | None, skill_name: str, tar_path: str
     ) -> SkillInstalledResponse:
         skill_name = _validate_skill_name(skill_name)
         dest = self._skill_dir(owner_id, skill_name)
@@ -153,7 +157,7 @@ class SkillsManager:
             shutil.rmtree(dest)
         dest.mkdir(parents=True, exist_ok=True)
         try:
-            with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:*") as tar:
+            with tarfile.open(name=tar_path, mode="r:*") as tar:
                 # filter="data" (py3.12) блокирует абсолютные пути, ".." и спецфайлы
                 tar.extractall(path=dest, filter="data")
         except tarfile.TarError as exc:
@@ -260,11 +264,29 @@ async def install_skill(
     owner_id: str | None = Query(default=None),
 ):
     """Загрузить/заменить скилл. Тело запроса — tar/tar.gz архив с файлами
-    скилла (SKILL.md в корне, опционально scripts/, references/ и т.д.)."""
-    body = await request.body()
-    if not body:
-        raise HTTPException(status_code=400, detail="empty request body (expected tar archive)")
-    return _mgr(request).install_from_tar(owner_id, skill_name, body)
+    скилла (SKILL.md в корне, опционально scripts/, references/ и т.д.).
+
+    Тело стримится во временный файл, а не грузится целиком в память —
+    распаковка идёт с диска."""
+    fd, tmp_path = tempfile.mkstemp(prefix="skill-", suffix=".tar")
+    os.close(fd)
+    written = 0
+    try:
+        async with aiofiles.open(tmp_path, "wb") as handle:
+            async for chunk in request.stream():
+                if chunk:
+                    await handle.write(chunk)
+                    written += len(chunk)
+        if written == 0:
+            raise HTTPException(
+                status_code=400, detail="empty request body (expected tar archive)"
+            )
+        return await asyncio.to_thread(
+            _mgr(request).install_from_tar, owner_id, skill_name, tmp_path
+        )
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(tmp_path)
 
 
 @router.get("/{skill_name}/files", response_model=SkillFilesResponse)

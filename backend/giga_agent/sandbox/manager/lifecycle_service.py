@@ -16,7 +16,7 @@ from giga_agent.models.sandbox import (
     SandboxSnapshot,
     SandboxStatus,
 )
-from giga_agent.sandbox.base import BaseSandbox
+from giga_agent.sandbox.base import BaseSandbox, RuntimeReconcileOutcome
 from giga_agent.sandbox.manager.errors import (
     SandboxBusyError,
     SandboxNotFoundError,
@@ -201,6 +201,65 @@ class SandboxLifecycleService:
         )
         assert isinstance(result, BaseSandbox)
         return result
+
+    async def _recreate_unlocked(
+        self, sandbox: Sandbox, *, reason: str
+    ) -> BaseSandbox:
+        """Пересоздать внешний ресурс под свежие холодные настройки.
+
+        В отличие от обычного stop, ПРИНУДИТЕЛЬНО удаляет контейнер и чистит
+        connection-state даже при preserve_runtime_state_on_stop()=True
+        (провайдер с not_remove=True) — иначе _start_unlocked → up()
+        переиспользует старый контейнер со старыми настройками. Затем
+        _start_unlocked поднимает свежий контейнер.
+
+        Должен вызываться под lifecycle-локом (как и _start_unlocked).
+        """
+        provider = sandbox.provider
+        runtime = self._runtime_factory.build(provider, sandbox)
+
+        if sandbox.status != SandboxStatus.STOPPING:
+            await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPING)
+
+        try:
+            await runtime.stop()
+        except Exception:
+            logger.warning(
+                "Failed to stop sandbox %s before recreate (reason=%s)",
+                sandbox.id,
+                reason,
+                exc_info=True,
+            )
+
+        external_id = sandbox.external_id or (sandbox.settings or {}).get(
+            "external_id"
+        )
+        if external_id:
+            try:
+                await type(runtime).remove_external_runtime(str(external_id))
+            except Exception:
+                logger.warning(
+                    "Failed to remove sandbox container %s before recreate",
+                    external_id,
+                    exc_info=True,
+                )
+
+        # Безусловно чистим connection-state (обходим
+        # preserve_runtime_state_on_stop), чтобы up() создал новый контейнер.
+        connection_keys = set(runtime.get_connection_settings().keys())
+        sandbox.settings = {
+            k: v
+            for k, v in (sandbox.settings or {}).items()
+            if k not in connection_keys
+        }
+        sandbox.external_id = None
+        await self._sandbox_repo.set_status(sandbox, SandboxStatus.STOPPED)
+        await SandboxRepository.cache_invalidate_pair(
+            owner_id=sandbox.owner_id,
+            provider_id=sandbox.provider_id,
+        )
+
+        return await self._start_unlocked(sandbox.id)
 
     @staticmethod
     def _clear_runtime_connection_state(
@@ -509,6 +568,16 @@ class SandboxLifecycleService:
                     sandbox_fresh.provider, sandbox_fresh
                 )
                 if await runtime.is_up():
+                    outcome = await runtime.reconcile_runtime_settings()
+                    if outcome is RuntimeReconcileOutcome.RECREATE:
+                        logger.info(
+                            "Sandbox %s: cold settings changed, recreating",
+                            sandbox_fresh.id,
+                        )
+                        return await self._recreate_unlocked(
+                            sandbox_fresh,
+                            reason="provider_settings_recreate",
+                        )
                     await self._sandbox_repo.touch(sandbox_fresh.id)
                     return runtime
 

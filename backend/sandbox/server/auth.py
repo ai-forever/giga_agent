@@ -22,7 +22,8 @@ def _extract_bearer(authorization: str | None) -> str | None:
     parts = authorization.split(" ", 1)
     if len(parts) == 2 and parts[0].lower() == "bearer":
         return parts[1].strip()
-    return authorization.strip()
+    # без схемы Bearer заголовок не считаем токеном (fallback — ?token=)
+    return None
 
 
 def _token_ok(candidate: str | None) -> bool:

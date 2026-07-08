@@ -108,11 +108,12 @@ class KernelPool:
         self, kernel_id: str | None, **create_kwargs: Any
     ) -> KernelEntry:
         if kernel_id:
-            entry = self._entries.get(kernel_id)
-            if entry is not None and self._mkm.get_kernel(kernel_id) is not None:
-                self._entries.move_to_end(kernel_id)
-                entry.last_activity_at = time.time()
-                return entry
+            async with self._lock:
+                entry = self._entries.get(kernel_id)
+                if entry is not None and self._safe_get_km(kernel_id) is not None:
+                    self._entries.move_to_end(kernel_id)
+                    entry.last_activity_at = time.time()
+                    return entry
         return await self.create(**create_kwargs)
 
     def list(self) -> list[KernelEntry]:
@@ -130,32 +131,46 @@ class KernelPool:
         km = self._safe_get_km(kernel_id)
         if km is None or entry is None:
             return False
-        await km.restart_kernel(now=False)
-        try:
-            entry.client.stop_channels()
-        except Exception:
-            pass
-        entry.client = km.client()
-        entry.client.start_channels()
-        await entry.client.wait_for_ready(
-            timeout=self._settings.kernel_startup_timeout_sec
-        )
-        entry.execution_count = 0
-        entry.last_activity_at = time.time()
+        # под entry.lock: не подменяем client, пока in-flight execute читает из него
+        async with entry.lock:
+            await km.restart_kernel(now=False)
+            try:
+                entry.client.stop_channels()
+            except Exception:
+                pass
+            entry.client = km.client()
+            entry.client.start_channels()
+            await entry.client.wait_for_ready(
+                timeout=self._settings.kernel_startup_timeout_sec
+            )
+            entry.execution_count = 0
+            entry.last_activity_at = time.time()
         return True
 
     async def delete(self, kernel_id: str) -> bool:
         async with self._lock:
             entry = self._entries.pop(kernel_id, None)
-            if entry is not None:
-                try:
-                    entry.client.stop_channels()
-                except Exception:
-                    pass
+        if entry is None:
             if self._safe_get_km(kernel_id) is None:
-                return entry is not None
+                return False
             await self._mkm.shutdown_kernel(kernel_id, now=True)
             return True
+        # прерываем текущее выполнение, чтобы execute быстро отпустил entry.lock,
+        # затем под локом рвём каналы и глушим kernel (без гонки с execute)
+        km = self._safe_get_km(kernel_id)
+        if km is not None:
+            try:
+                await km.interrupt_kernel()
+            except Exception:
+                pass
+        async with entry.lock:
+            try:
+                entry.client.stop_channels()
+            except Exception:
+                pass
+            if self._safe_get_km(kernel_id) is not None:
+                await self._mkm.shutdown_kernel(kernel_id, now=True)
+        return True
 
     async def shutdown_all(self) -> None:
         for entry in list(self._entries.values()):
@@ -184,8 +199,13 @@ class KernelPool:
         """Выполнить код, стримя чанки. Значение из ``asend()`` уходит как
         ответ на ``input_request`` (интерактивный stdin)."""
         code = inject_env_prelude(code, envs)
-        client = entry.client
-        async with entry.lock:
+        # take-over: новый запрос вытесняет текущее выполнение на этом kernel'е
+        # (kernel исполняет код последовательно; «запусти снова» = стоп-и-замени).
+        if entry.lock.locked():
+            await self._preempt(entry)
+        await entry.lock.acquire()
+        try:
+            client = entry.client
             entry.last_activity_at = time.time()
             msg_id = client.execute(
                 code, allow_stdin=allow_stdin, stop_on_error=True
@@ -237,10 +257,60 @@ class KernelPool:
 
                 if not handled:
                     await asyncio.sleep(0)
+        finally:
+            entry.lock.release()
 
     # ------------------------------------------------------------------ #
     # internal helpers
     # ------------------------------------------------------------------ #
+
+    async def _preempt(self, entry: KernelEntry) -> None:
+        """Вытеснить текущее выполнение на ``entry``, чтобы новый запрос занял
+        kernel сразу. Мягко (SIGINT); если за ``preempt_timeout_sec`` лок не
+        освободился (SIGINT не берёт C-циклы/блокирующий I/O) — жёстко рестартим
+        процесс kernel'а и пересобираем client. По выходу: лок свободен,
+        ``entry.client`` жив и готов к работе."""
+        km = self._safe_get_km(entry.kernel_id)
+        if km is None:
+            return
+        # 1) мягко: SIGINT -> KeyboardInterrupt в ячейке -> execute сам завершится
+        try:
+            await km.interrupt_kernel()
+        except Exception:
+            pass
+        if await self._wait_lock_free(entry, self._settings.preempt_timeout_sec):
+            return  # client цел, состояние kernel'а сохранено
+        # 2) жёстко: рестарт процесса рвёт каналы -> текущий execute уходит в
+        #    fatal и отпускает лок; после этого пересобираем client (состояние
+        #    kernel'а при этом теряется — осознанный компромисс)
+        try:
+            await km.restart_kernel(now=True)
+        except Exception:
+            pass
+        await self._wait_lock_free(entry, self._settings.kernel_startup_timeout_sec)
+        async with entry.lock:
+            try:
+                entry.client.stop_channels()
+            except Exception:
+                pass
+            entry.client = km.client()
+            entry.client.start_channels()
+            await entry.client.wait_for_ready(
+                timeout=self._settings.kernel_startup_timeout_sec
+            )
+            entry.execution_count = 0
+            entry.last_activity_at = time.time()
+
+    @staticmethod
+    async def _wait_lock_free(entry: KernelEntry, timeout: float) -> bool:
+        """Дождаться освобождения ``entry.lock`` (текущий execute завершится и
+        отпустит его). True — освободился в срок, False — таймаут."""
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while entry.lock.locked():
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(0.05)
+        return True
 
     def _safe_get_km(self, kernel_id: str) -> Any:
         try:

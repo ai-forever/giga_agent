@@ -16,7 +16,10 @@ def main() -> None:
         host=settings.host,
         port=settings.port,
         log_level="info" if settings.request_log else "warning",
-        access_log=settings.request_log,
+        # uvicorn access-log выключен: он пишет полный path с query-строкой, куда
+        # WS-клиенты кладут ?token=<secret>. Свой structured HTTP-лог (app.py,
+        # log_event "http") токен не пишет.
+        access_log=False,
         ws_max_size=32 * 1024 * 1024,  # соответствует WS_MAX_SIZE в jupyter.py
     )
 

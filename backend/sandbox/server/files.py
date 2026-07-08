@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import os
+import secrets
 import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -55,13 +57,17 @@ def _parse_range(range_header: str | None, size: int) -> tuple[int, int] | None:
     if "-" not in spec:
         return None
     start_s, end_s = spec.split("-", 1)
-    if start_s == "":  # суффиксный диапазон: bytes=-N
-        n = int(end_s)
-        if n <= 0:
-            return (0, 0)
-        return (max(0, size - n), size)
-    start = int(start_s)
-    end = int(end_s) + 1 if end_s else size
+    # По RFC 7233 некорректный Range игнорируется (отдаём полное тело), не 500
+    try:
+        if start_s == "":  # суффиксный диапазон: bytes=-N
+            n = int(end_s)
+            if n <= 0:
+                return (0, 0)
+            return (max(0, size - n), size)
+        start = int(start_s)
+        end = int(end_s) + 1 if end_s else size
+    except ValueError:
+        return None
     end = min(end, size)
     if start >= size or start < 0 or start >= end:
         raise HTTPException(
@@ -72,13 +78,21 @@ def _parse_range(range_header: str | None, size: int) -> tuple[int, int] | None:
     return (start, end)
 
 
+def _regular_file_size(local: Path) -> int | None:
+    """Размер обычного файла или None (не существует / не файл). Блокирующие
+    stat-вызовы держим в одном хелпере, чтобы гонять его через to_thread."""
+    if not local.is_file():
+        return None
+    return local.stat().st_size
+
+
 @router.get("")
 async def read_file(request: Request, path: str = Query(...)):
     local = _resolve(path)
-    if not local.exists() or not local.is_file():
+    size = await asyncio.to_thread(_regular_file_size, local)
+    if size is None:
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
     settings = get_settings()
-    size = local.stat().st_size
     media_type = mimetypes.guess_type(local.name)[0] or "application/octet-stream"
     inline = local.suffix.lower() in {".html", ".htm"}
     disposition = "inline" if inline else "attachment"
@@ -113,31 +127,39 @@ async def read_file(request: Request, path: str = Query(...)):
 @router.put("", response_model=WrittenResponse)
 async def write_file(request: Request, path: str = Query(...)):
     local = _resolve(path)
-    local.parent.mkdir(parents=True, exist_ok=True)
+    if await asyncio.to_thread(local.is_dir):
+        raise HTTPException(status_code=400, detail="path is a directory")
+    await asyncio.to_thread(lambda: local.parent.mkdir(parents=True, exist_ok=True))
+    # атомарная запись: пишем во временный файл рядом и os.replace в конце,
+    # чтобы обрыв стрима не оставил битый/полузатёртый целевой файл
+    tmp = local.parent / f".{local.name}.tmp-{secrets.token_hex(8)}"
     written = 0
-    async with aiofiles.open(local, "wb") as handle:
-        async for chunk in request.stream():
-            if chunk:
-                await handle.write(chunk)
-                written += len(chunk)
+    try:
+        async with aiofiles.open(tmp, "wb") as handle:
+            async for chunk in request.stream():
+                if chunk:
+                    await handle.write(chunk)
+                    written += len(chunk)
+        await asyncio.to_thread(os.replace, tmp, local)
+    except BaseException:
+        await asyncio.to_thread(lambda: tmp.unlink(missing_ok=True))
+        raise
     return WrittenResponse(path=str(local), size=written)
 
 
 @router.head("")
 async def head_file(path: str = Query(...)):
     local = _resolve(path)
-    if not local.exists() or not local.is_file():
+    size = await asyncio.to_thread(_regular_file_size, local)
+    if size is None:
         return Response(status_code=404)
-    size = local.stat().st_size
     return Response(
         status_code=200,
         headers={"Accept-Ranges": "bytes", "Content-Length": str(size)},
     )
 
 
-@router.get("/stat", response_model=FileStat)
-async def stat_file(path: str = Query(...)):
-    local = _resolve(path)
+def _stat_payload(local: Path) -> FileStat:
     if not local.exists():
         return FileStat(path=str(local), exists=False)
     st = local.stat()
@@ -150,16 +172,22 @@ async def stat_file(path: str = Query(...)):
     )
 
 
+@router.get("/stat", response_model=FileStat)
+async def stat_file(path: str = Query(...)):
+    local = _resolve(path)
+    return await asyncio.to_thread(_stat_payload, local)
+
+
 @router.delete("")
 async def delete_file(path: str = Query(...), recursive: bool = Query(False)):
     local = _resolve(path)
-    if local.is_dir():
+    if await asyncio.to_thread(local.is_dir):
         if not recursive:
             raise HTTPException(
                 status_code=400,
                 detail="path is a directory; pass recursive=true to delete it",
             )
-        shutil.rmtree(local, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, local, True)
         return JSONResponse({"path": str(local), "deleted": True})
     try:
         await aiofiles.os.remove(local)
@@ -168,11 +196,7 @@ async def delete_file(path: str = Query(...), recursive: bool = Query(False)):
     return JSONResponse({"path": str(local), "deleted": True})
 
 
-@router.get("/list", response_model=DirListing)
-async def list_dir(path: str = Query(...)):
-    local = _resolve(path)
-    if not local.is_dir():
-        raise HTTPException(status_code=404, detail=f"Directory not found: {path}")
+def _scan_dir(local: Path) -> list[DirEntry]:
     entries: list[DirEntry] = []
     with os.scandir(local) as it:
         for e in it:
@@ -183,11 +207,20 @@ async def list_dir(path: str = Query(...)):
                 continue
             entries.append(DirEntry(name=e.name, is_dir=is_dir, size=size))
     entries.sort(key=lambda x: (not x.is_dir, x.name.lower()))
+    return entries
+
+
+@router.get("/list", response_model=DirListing)
+async def list_dir(path: str = Query(...)):
+    local = _resolve(path)
+    if not await asyncio.to_thread(local.is_dir):
+        raise HTTPException(status_code=404, detail=f"Directory not found: {path}")
+    entries = await asyncio.to_thread(_scan_dir, local)
     return DirListing(path=str(local), entries=entries)
 
 
 @router.post("/mkdir")
 async def mkdir(path: str = Query(...)):
     local = _resolve(path)
-    local.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(lambda: local.mkdir(parents=True, exist_ok=True))
     return JSONResponse({"path": str(local), "created": True})

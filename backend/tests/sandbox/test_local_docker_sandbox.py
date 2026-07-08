@@ -257,6 +257,108 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(await runtime.is_up())
 
+    _MB = 1024 * 1024
+
+    def _reconcile_runtime(self):
+        with patch(
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+            return_value=types.SimpleNamespace(),
+        ):
+            runtime = LocalDockerSandbox(
+                max_active_sandboxes=1,
+                image="giga/sandbox:1.0",
+                memory_limit_mb=512,
+                memory_reservation_mb=256,
+                vcpu=1.0,
+                pids_limit=200,
+                shm_size_mb=64,
+                nofile_soft=1024,
+                nofile_hard=2048,
+                enforce_readonly_rootfs=False,
+                not_remove=False,
+            )
+        runtime.external_id = "container-1"
+        runtime._ensure_container_connected = AsyncMock(return_value=None)
+        api = types.SimpleNamespace(
+            _url=Mock(return_value="/containers/container-1/update"),
+            _post_json=Mock(return_value=Mock()),
+            _raise_for_status=Mock(),
+        )
+        runtime._client = types.SimpleNamespace(api=api)
+        return runtime, api
+
+    def _matching_attrs(self):
+        return {
+            "Config": {"Image": "giga/sandbox:1.0"},
+            "HostConfig": {
+                "Memory": 512 * self._MB,
+                "MemoryReservation": 256 * self._MB,
+                "NanoCpus": 1_000_000_000,
+                "PidsLimit": 200,
+                "ShmSize": 64 * self._MB,
+                "ReadonlyRootfs": False,
+                "AutoRemove": True,  # not_remove=False → --rm
+                "Ulimits": [{"Name": "nofile", "Soft": 1024, "Hard": 2048}],
+            },
+        }
+
+    async def test_reconcile_noop_when_config_matches(self):
+        from giga_agent.sandbox.base import RuntimeReconcileOutcome
+
+        runtime, api = self._reconcile_runtime()
+        runtime._container = types.SimpleNamespace(
+            reload=Mock(), attrs=self._matching_attrs()
+        )
+
+        outcome = await runtime.reconcile_runtime_settings()
+
+        self.assertIs(outcome, RuntimeReconcileOutcome.NOOP)
+        api._post_json.assert_not_called()
+
+    async def test_reconcile_hot_update_on_memory_change(self):
+        from giga_agent.sandbox.base import RuntimeReconcileOutcome
+
+        runtime, api = self._reconcile_runtime()
+        attrs = self._matching_attrs()
+        attrs["HostConfig"]["Memory"] = 256 * self._MB  # дрейф лимита памяти
+        runtime._container = types.SimpleNamespace(reload=Mock(), attrs=attrs)
+
+        outcome = await runtime.reconcile_runtime_settings()
+
+        self.assertIs(outcome, RuntimeReconcileOutcome.HOT_UPDATED)
+        api._post_json.assert_called_once()
+        body = api._post_json.call_args.kwargs["data"]
+        self.assertEqual(body["Memory"], 512 * self._MB)
+        self.assertEqual(body["MemoryReservation"], 256 * self._MB)
+        self.assertEqual(body["NanoCpus"], 1_000_000_000)
+        self.assertEqual(body["PidsLimit"], 200)
+
+    async def test_reconcile_recreate_on_image_change(self):
+        from giga_agent.sandbox.base import RuntimeReconcileOutcome
+
+        runtime, api = self._reconcile_runtime()
+        attrs = self._matching_attrs()
+        attrs["Config"]["Image"] = "giga/sandbox:0.9"  # холодное поле
+        runtime._container = types.SimpleNamespace(reload=Mock(), attrs=attrs)
+
+        outcome = await runtime.reconcile_runtime_settings()
+
+        self.assertIs(outcome, RuntimeReconcileOutcome.RECREATE)
+        api._post_json.assert_not_called()
+
+    async def test_reconcile_recreate_on_shm_change(self):
+        from giga_agent.sandbox.base import RuntimeReconcileOutcome
+
+        runtime, api = self._reconcile_runtime()
+        attrs = self._matching_attrs()
+        attrs["HostConfig"]["ShmSize"] = 128 * self._MB  # холодное поле
+        runtime._container = types.SimpleNamespace(reload=Mock(), attrs=attrs)
+
+        outcome = await runtime.reconcile_runtime_settings()
+
+        self.assertIs(outcome, RuntimeReconcileOutcome.RECREATE)
+        api._post_json.assert_not_called()
+
     async def test_cleanup_orphans_returns_remove_for_unbound_container(self):
         sandbox_id = uuid.uuid4()
         provider_id = uuid.uuid4()
