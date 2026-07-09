@@ -129,6 +129,9 @@ services:
       DOCKER_HOST: ${DOCKER_HOST:-unix:///var/run/docker.sock}
       GIGA_AGENT_PROJECT_ROOT: /.giga_agent
       GIGA_AGENT_PUBLIC_BASE_DOMAIN: ${GIGA_AGENT_PUBLIC_BASE_DOMAIN:-}
+      GIGA_AGENT_EXPERIMENTAL_MODE: ${GIGA_AGENT_EXPERIMENTAL_MODE:-False}
+      GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL: ${GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL:-GigaChat-3-Ultra}
+      GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL: ${GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL:-GigaChat-3-Pro}
     volumes:
       - ./backend/langgraph.json:/app/config/langgraph.json:ro
       - ./deployments/aegra-startup.sh:/app/deployments/aegra-startup.sh:ro

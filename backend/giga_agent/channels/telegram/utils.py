@@ -17,6 +17,7 @@ from giga_agent.channels.telegram.message_tool import (
 )
 from giga_agent.conf import GIGA_AGENT_PREFIX_API, get_settings
 from giga_agent.modules.auth.security import create_access_token
+from giga_agent.utils.messages import strip_thinking
 
 _ATTACHMENT_RE = re.compile(r"!?\[([^\]]*)\]\(attachment:(/?[^)]+)\)")
 
@@ -67,7 +68,7 @@ def _make_token(user_id: uuid.UUID, email: str) -> str:
 
 
 def _strip_thinking(text: str) -> str:
-    return re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.DOTALL).strip()
+    return strip_thinking(text)
 
 
 def _extract_attachments(text: str) -> tuple[str, list[str]]:

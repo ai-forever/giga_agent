@@ -289,6 +289,23 @@ const MessageList: React.FC<MessageListProps> = ({
     }
     return null;
   }, [renderable]);
+
+  // id последнего AI-сообщения КАЖДОГО хода (перед следующим human или в конце
+  // треда). В экспериментальном режиме только на них показывается кнопка экспорта
+  // (см. Message.tsx): [Human][AI][Tool][AI✓][Human][AI][AI✓].
+  const turnFinalAiIds = useMemo(() => {
+    const ids = new Set<string>();
+    let lastAi: string | null | undefined = null;
+    for (const m of renderable) {
+      if (m.type === "ai") lastAi = m.id;
+      else if (m.type === "human") {
+        if (lastAi) ids.add(lastAi);
+        lastAi = null;
+      }
+    }
+    if (lastAi) ids.add(lastAi);
+    return ids;
+  }, [renderable]);
   const activeThreadId =
     routeThreadId ??
     ((thread as any)?.threadId as string | undefined) ??
@@ -452,6 +469,9 @@ const MessageList: React.FC<MessageListProps> = ({
             resultsById={resultsById}
             isLastAi={item.message.id === lastAiId}
             isLast={idx === items.length - 1}
+            isTurnFinalAi={
+              item.message.id ? turnFinalAiIds.has(item.message.id) : false
+            }
             hideToolCalls={item.hideToolCalls}
             leadingResponseWidgets={
               item.message.id
@@ -496,7 +516,11 @@ const MessageList: React.FC<MessageListProps> = ({
         </div>
       )}
       <ChatError thread={thread} />
-      <ThinkingIndicator messages={messages} thread={thread} />
+      <ThinkingIndicator
+        messages={messages}
+        thread={thread}
+        threadId={activeThreadId}
+      />
     </div>
   );
 };

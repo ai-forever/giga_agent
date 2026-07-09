@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
-import { ragEnabled } from "@/config.ts";
+import { EXPERIMENTAL_MODE, ragEnabled } from "@/config.ts";
 import { useTheme } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import type { Thread } from "@langchain/langgraph-sdk";
@@ -190,9 +190,11 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const loadMoreControllerRef = useRef<AbortController | null>(null);
   const currentGraphId = useMemo(
     () =>
-      settings.showChatType === "channels"
-        ? "giga_agent_channel"
-        : "giga_agent",
+      EXPERIMENTAL_MODE
+        ? "giga_agent_experimental"
+        : settings.showChatType === "channels"
+          ? "giga_agent_channel"
+          : "giga_agent",
     [settings.showChatType],
   );
 

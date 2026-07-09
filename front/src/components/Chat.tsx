@@ -4,32 +4,36 @@ import { ArrowDown } from "lucide-react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 import { GraphState } from "../interfaces";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { Client } from "@langchain/langgraph-sdk";
 import { persistStoppedAiMessage } from "@/lib/stopped-message.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { API_BASE_URL } from "@/config.ts";
+import { API_BASE_URL, EXPERIMENTAL_MODE } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
 import {
   hideThrowingThreadGetters,
   suppressPhantomBreakpointInterrupt,
 } from "@/lib/thread-history";
 import { BranchesProvider } from "@/hooks/useBranches";
+import { ActivityPanelProvider } from "@/components/experimental/ActivityPanelProvider";
 import type { PromptSuggestionScenario } from "@/types/prompt-suggestions";
 
 interface ChatProps {
   onThreadIdChange?: (threadId: string) => void;
   onThreadReady?: (thread: UseStream<GraphState>) => void;
   onRequestReload?: () => void;
+  /** Граф/ассистент, к которому подключается стрим. По умолчанию основной агент. */
+  assistantId?: string;
 }
 
 const Chat: React.FC<ChatProps> = ({
   onThreadIdChange,
   onThreadReady,
   onRequestReload,
+  assistantId = "giga_agent",
 }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
@@ -42,7 +46,7 @@ const Chat: React.FC<ChatProps> = ({
   const checkpointEventRef = useRef<((data: any) => void) | null>(null);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
-    assistantId: "giga_agent",
+    assistantId,
     messagesKey: "messages",
     reconnectOnMount: true,
     threadId: threadId === undefined ? null : threadId,
@@ -523,6 +527,7 @@ const Chat: React.FC<ChatProps> = ({
   }, [stableMessages.length]);
 
   return (
+    <ActivityPanelProvider>
     <SelectedAttachmentsProvider>
       <BranchesProvider
         thread={thread}
@@ -537,6 +542,17 @@ const Chat: React.FC<ChatProps> = ({
           ].join(" ")}
           ref={containerRef}
         >
+          {EXPERIMENTAL_MODE && (thread.values as any)?.inner_thread_id && (
+            <Link
+              to={`/dev/threads/${(thread.values as any).inner_thread_id}`}
+              target="_blank"
+              rel="noreferrer"
+              title="Открыть оригинальный тред giga_agent (dev)"
+              className="self-end mr-2 mt-1 text-xs text-muted-foreground/70 underline hover:text-foreground print:hidden z-1000"
+            >
+              dev: оригинальный тред ↗
+            </Link>
+          )}
           <div
             className={[
               stableMessages.length || isThreadLoading
@@ -587,6 +603,7 @@ const Chat: React.FC<ChatProps> = ({
         </div>
       </BranchesProvider>
     </SelectedAttachmentsProvider>
+    </ActivityPanelProvider>
   );
 };
 

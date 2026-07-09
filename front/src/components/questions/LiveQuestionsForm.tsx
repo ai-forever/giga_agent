@@ -6,6 +6,12 @@ import type {
   GraphTemplate,
   QuestionAnswer,
 } from "../../interfaces.ts";
+import {
+  appendAskQuestionsResult,
+  buildAnsweredResult,
+  buildCommentResult,
+  findCarrierToolCallId,
+} from "./optimistic.ts";
 
 /**
  * Active `ask_questions` interrupt form, rendered standalone in the message flow
@@ -27,10 +33,19 @@ const LiveQuestionsForm: React.FC<{
 
   if (!questions?.length || handled || thread?.isLoading) return null;
 
+  // Носитель tool_call: в обычном чате AI-сообщение с ask_questions уже в
+  // messages; в обёртке его нет — id берём из interrupt value, а носителя
+  // синтезирует оптимистика.
+  const carrierToolCallId = findCarrierToolCallId(thread?.messages ?? []);
+  const toolCallId = carrierToolCallId ?? interrupt?.tool_call_id;
+  const append = (result: Parameters<typeof appendAskQuestionsResult>[2]) =>
+    appendAskQuestionsResult(toolCallId, Boolean(carrierToolCallId), result);
+
   const handleSubmit = (answers: QuestionAnswer[]) => {
     setHandled(true);
     thread?.submit(undefined, {
       command: { resume: { type: "questions", answers } },
+      optimisticValues: append(buildAnsweredResult(questions, answers)),
       onDisconnect: "continue",
     });
   };
@@ -39,6 +54,7 @@ const LiveQuestionsForm: React.FC<{
     setHandled(true);
     thread?.submit(undefined, {
       command: { resume: { type: "comment", message: "" } },
+      optimisticValues: append(buildCommentResult("")),
       onDisconnect: "continue",
     });
   };

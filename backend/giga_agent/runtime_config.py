@@ -10,6 +10,7 @@ from fastapi.responses import Response
 
 from giga_agent.conf import (
     GIGA_AGENT_BASE_URL,
+    GIGA_AGENT_EXPERIMENTAL_MODE,
     GIGA_AGENT_PREFIX_API,
     GIGA_AGENT_RUNTIME_LOCAL,
     GIGA_AGENT_SKIP_ONBOARDING,
@@ -71,6 +72,7 @@ def build_runtime_config(request: Request) -> dict[str, object]:
         "apiAgentBasePath": f"{api_base_path}{GIGA_AGENT_PREFIX_API}",
         "runtimeLocal": GIGA_AGENT_RUNTIME_LOCAL,
         "skipOnboarding": GIGA_AGENT_SKIP_ONBOARDING,
+        "experimentalMode": GIGA_AGENT_EXPERIMENTAL_MODE,
         "stt": _stt_capability(),
     }
     if GIGA_AGENT_BASE_URL:

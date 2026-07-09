@@ -1,3 +1,4 @@
+from giga_agent.agents.experimental.module import ExperimentalModule
 from giga_agent.core.agent.base import BaseAgent
 from giga_agent.core.module import BaseModule
 from giga_agent.memory.module import MemoryModule
@@ -47,4 +48,5 @@ class GigaAgent(BaseAgent):
             DeepResearchModule(),
             SchedulerModule(),
             SubAgentLegacyModule(),
+            ExperimentalModule(),
         ]

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./components/Chat";
+import ExperimentalChat from "./components/ExperimentalChat";
+import { EXPERIMENTAL_MODE } from "@/config.ts";
 import { SettingsProvider, useSettings } from "./components/Settings.tsx";
 import {
   BrowserRouter,
@@ -124,12 +126,13 @@ const AppRoutes: React.FC<{
   onRequestReload: () => void;
 }> = React.memo(
   ({ reloadKey, onThreadIdChange, onThreadReady, onRequestReload }) => {
+    const ChatComponent = EXPERIMENTAL_MODE ? ExperimentalChat : Chat;
     return (
       <Routes>
         <Route
           path="/"
           element={
-            <Chat
+            <ChatComponent
               key={reloadKey}
               onThreadIdChange={onThreadIdChange}
               onThreadReady={onThreadReady}
@@ -140,8 +143,37 @@ const AppRoutes: React.FC<{
         <Route
           path="/threads/:threadId"
           element={
+            <ChatComponent
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        {/*
+          Dev-маршрут: всегда рендерит ОРИГИНАЛЬНЫЙ Chat (assistant "giga_agent"),
+          даже в экспериментальном режиме. Нужен, чтобы посмотреть сырой inner-тред
+          (id берётся из state внешнего треда: inner_thread_id) в обычном UI.
+        */}
+        <Route
+          path="/dev"
+          element={
             <Chat
               key={reloadKey}
+              assistantId="giga_agent"
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route
+          path="/dev/threads/:threadId"
+          element={
+            <Chat
+              key={reloadKey}
+              assistantId="giga_agent"
               onThreadIdChange={onThreadIdChange}
               onThreadReady={onThreadReady}
               onRequestReload={onRequestReload}

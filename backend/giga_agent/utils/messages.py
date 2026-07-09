@@ -1,4 +1,15 @@
+import re
+
 from langchain_core.messages import ToolMessage
+
+_THINKING_RE = re.compile(r"<thinking>.*?</thinking>", flags=re.DOTALL)
+
+
+def strip_thinking(text: str) -> str:
+    """Удалить приватные ``<thinking>...</thinking>`` блоки из текста ответа."""
+    if not text:
+        return ""
+    return _THINKING_RE.sub("", text).strip()
 
 
 def filter_tool_messages(messages):

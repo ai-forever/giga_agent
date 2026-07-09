@@ -3,22 +3,21 @@
   "dependencies": [
     "."
   ],
-  "env": ".env",
   "graphs": {
     "giga_agent": "giga_agent.agents.run:graph",
     "giga_agent_channel": "giga_agent.agents.run:graph",
+    "deep_research": "giga_agent.modules.deep_research.graph:graph",
     "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
     "presentation": "giga_agent.modules.subagents_legacy.agents.presentation_agent.graph:graph",
     "meme": "giga_agent.modules.subagents_legacy.agents.meme_agent.graph:graph",
     "lean_canvas": "giga_agent.modules.subagents_legacy.agents.lean_canvas:app",
     "podcast": "giga_agent.modules.subagents_legacy.agents.podcast.graph:graph",
-    "deep_research": "giga_agent.modules.deep_research.graph:graph"
+    "giga_agent_experimental": "giga_agent.agents.experimental.graph:graph"
   },
   "auth": {
     "path": "giga_agent.modules.auth.langgraph_auth:auth"
   },
   "http": {
-    "app": "giga_agent.agents.run:app",
-    "mount_prefix": "/api"
+    "app": "giga_agent.agents.run:app"
   }
 }

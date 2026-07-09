@@ -85,6 +85,15 @@ class Settings(BaseSettings):
         False, alias="GIGA_AGENT_SKIP_STARTUP_MIGRATIONS"
     )
     giga_agent_skip_onboarding: bool = Field(False, alias="GIGA_AGENT_SKIP_ONBOARDING")
+    giga_agent_experimental_mode: bool = Field(
+        False, alias="GIGA_AGENT_EXPERIMENTAL_MODE"
+    )
+    giga_agent_experimental_rewrite_model: str = Field(
+        "GigaChat-3-Ultra", alias="GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL"
+    )
+    giga_agent_experimental_status_model: str = Field(
+        "GigaChat-3-Pro", alias="GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL"
+    )
     giga_agent_stt_runtime: str = Field("salute", alias="GIGA_AGENT_STT_RUNTIME")
     giga_agent_startup_migrations_lock_key: str = Field(
         "startup:migrations:lock",
@@ -705,6 +714,13 @@ GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS = (
 )
 GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
 GIGA_AGENT_SKIP_ONBOARDING = get_settings().giga_agent_skip_onboarding
+GIGA_AGENT_EXPERIMENTAL_MODE = get_settings().giga_agent_experimental_mode
+GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL = (
+    get_settings().giga_agent_experimental_rewrite_model
+)
+GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL = (
+    get_settings().giga_agent_experimental_status_model
+)
 GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY = (
     get_settings().giga_agent_startup_migrations_lock_key
 )
