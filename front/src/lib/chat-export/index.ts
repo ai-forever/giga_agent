@@ -56,6 +56,17 @@ export async function exportChat(
   title: string,
 ): Promise<void> {
   const safeTitle = title.replace(/[/\\?%*:|"<>]/g, "_").slice(0, 80) || "chat";
+
+  if (format === "json") {
+    // Raw dump of the full dialogue exactly as stored (all messages,
+    // including thinking, tool calls and tool results). No transformation.
+    const blob = new Blob([JSON.stringify(messages, null, 2)], {
+      type: "application/json",
+    });
+    downloadBlob(blob, `${safeTitle}.json`);
+    return;
+  }
+
   const { exportable, bundle: bundleList } =
     await prepareMessagesForExport(messages);
   const hasBundle = bundleList.length > 0;

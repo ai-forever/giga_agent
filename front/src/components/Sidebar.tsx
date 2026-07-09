@@ -1130,6 +1130,13 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                                         >
                                           Markdown
                                         </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onSelect={() =>
+                                            handleThreadExport(t, "json")
+                                          }
+                                        >
+                                          JSON
+                                        </DropdownMenuItem>
                                       </DropdownMenuSubContent>
                                     </DropdownMenuSub>
                                     <DropdownMenuSeparator />
@@ -1335,6 +1342,11 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                                   onSelect={() => handleThreadExport(t, "md")}
                                 >
                                   Markdown
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => handleThreadExport(t, "json")}
+                                >
+                                  JSON
                                 </DropdownMenuItem>
                               </DropdownMenuSubContent>
                             </DropdownMenuSub>
