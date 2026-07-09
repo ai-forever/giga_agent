@@ -12,18 +12,21 @@ export interface OnboardingState {
   setup_seen: boolean;
   chat_feature_tour_seen: boolean;
   response_attachment_tip_seen: boolean;
+  sandbox_settings_seen: boolean;
 }
 
 const DEFAULT_ONBOARDING_STATE: OnboardingState = {
   setup_seen: false,
   chat_feature_tour_seen: false,
   response_attachment_tip_seen: false,
+  sandbox_settings_seen: false,
 };
 
 const COMPLETED_ONBOARDING_STATE: OnboardingState = {
   setup_seen: true,
   chat_feature_tour_seen: true,
   response_attachment_tip_seen: true,
+  sandbox_settings_seen: true,
 };
 
 function parseJson(raw: string | null): unknown {
@@ -78,6 +81,7 @@ export function getOnboardingState(): OnboardingState {
       chat_feature_tour_seen: parsed.chat_feature_tour_seen === true,
       response_attachment_tip_seen:
         parsed.response_attachment_tip_seen === true,
+      sandbox_settings_seen: parsed.sandbox_settings_seen === true,
     };
   }
 
