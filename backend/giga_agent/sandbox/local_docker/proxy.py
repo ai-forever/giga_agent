@@ -159,6 +159,23 @@ class PortProxyMixin:
         docker_network = self._docker_network()
         base_domain = settings.giga_agent_public_base_domain
 
+        redirect_base = settings.giga_agent_sandbox_port_redirect_base
+        base_url = settings.giga_agent_base_url
+        if redirect_base and base_url and docker_network is not None:
+            # Cross-domain mode: the app and the sandboxes live on different
+            # domains. Return a clean same-origin link on the app domain; the
+            # /sandbox-redirect endpoint verifies the owner, mints a capability
+            # token, and 302-redirects to
+            # https://{port}-sandbox-{hex}.{redirect_base}/?__sbx=<token>.
+            await self._ensure_container_connected()
+            self._ensure_hex_alias(docker_network)
+            sandbox_hex = self.sandbox_id.hex
+            api = settings.giga_agent_prefix_api
+            return (
+                f"{base_url.rstrip('/')}/api{api}"
+                f"/sandbox-redirect/{sandbox_hex}/{port}"
+            )
+
         if docker_network is not None and base_domain:
             await self._ensure_container_connected()
             self._ensure_hex_alias(docker_network)

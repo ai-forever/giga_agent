@@ -16,6 +16,7 @@ from giga_agent.routes.llms import router as llms_router
 from giga_agent.routes.models_config import router as models_config_router
 from giga_agent.routes.rate_limits import router as rate_limits_router
 from giga_agent.routes.resource_permissions import router as resource_permissions_router
+from giga_agent.routes.sandbox_redirect import router as sandbox_redirect_router
 from giga_agent.routes.sandboxes import router as sandboxes_router
 from giga_agent.routes.search_engines import router as search_engines_router
 from giga_agent.routes.stt import router as stt_router
@@ -29,6 +30,7 @@ router.include_router(embeddings_router)
 router.include_router(llms_router)
 router.include_router(models_config_router)
 router.include_router(sandboxes_router)
+router.include_router(sandbox_redirect_router)
 router.include_router(files_router)
 router.include_router(generators_router)
 router.include_router(search_engines_router)
@@ -52,6 +54,7 @@ __all__ = [
     "llms_router",
     "models_config_router",
     "sandboxes_router",
+    "sandbox_redirect_router",
     "files_router",
     "generators_router",
     "search_engines_router",

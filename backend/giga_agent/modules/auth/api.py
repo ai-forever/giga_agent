@@ -65,6 +65,26 @@ AUTH_COOKIE_NAME = "access_token"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
 
+def _app_session_cookie_domain() -> str | None:
+    """Domain for the app session cookie.
+
+    In cross-domain sandbox mode (``GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE``
+    set) the app and the sandboxes are on different domains, so the session
+    cookie must NOT be scoped to ``giga_agent_public_base_domain`` (that is the
+    sandbox domain) — the browser would reject it on the app host. Default to a
+    host-only cookie (``None``); an explicit ``GIGA_AGENT_APP_COOKIE_DOMAIN``
+    overrides. In the normal (same-domain) mode, keep the previous behaviour:
+    scope the cookie to ``giga_agent_public_base_domain`` so it is shared with
+    the ``*-sandbox-*`` subdomains.
+    """
+    settings = get_settings()
+    if settings.giga_agent_app_cookie_domain:
+        return settings.giga_agent_app_cookie_domain
+    if settings.giga_agent_sandbox_port_redirect_base:
+        return None
+    return settings.giga_agent_public_base_domain
+
+
 # ============ Dependency для получения репозитория ============
 
 
@@ -546,7 +566,7 @@ async def login_for_access_token(
         data={"sub": user.email, "user_id": str(user.id)},
         expires_delta=access_token_expires,
     )
-    cookie_domain = get_settings().giga_agent_public_base_domain
+    cookie_domain = _app_session_cookie_domain()
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=access_token,
@@ -561,7 +581,7 @@ async def login_for_access_token(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response):
-    cookie_domain = get_settings().giga_agent_public_base_domain
+    cookie_domain = _app_session_cookie_domain()
     response.delete_cookie(
         key=AUTH_COOKIE_NAME, path="/", domain=cookie_domain,
     )

@@ -56,6 +56,22 @@ class Settings(BaseSettings):
         False,
         alias="GIGA_AGENT_PUBLISH_CLOUDFLARE_TUNNEL",
     )
+    # Cross-domain sandbox port mode: when set (e.g. "gigapp.ru"), ``open_port``
+    # returns a same-origin link on the app domain (built from
+    # ``GIGA_AGENT_BASE_URL``) that redirects to
+    # ``https://{port}-sandbox-{hex}.{this}/?__sbx=<token>``. Presence enables
+    # the mode.
+    giga_agent_sandbox_port_redirect_base: str | None = Field(
+        None,
+        alias="GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE",
+    )
+    # Domain for the app session cookie in cross-domain mode. Empty -> host-only
+    # cookie bound to the app host (correct default when app and sandboxes live
+    # on different domains).
+    giga_agent_app_cookie_domain: str | None = Field(
+        None,
+        alias="GIGA_AGENT_APP_COOKIE_DOMAIN",
+    )
     giga_agent_host: str | None = Field(None, alias="GIGA_AGENT_HOST")
     giga_agent_port: str | None = Field(None, alias="GIGA_AGENT_PORT")
 
@@ -464,7 +480,12 @@ class Settings(BaseSettings):
         cleaned = value.strip()
         return cleaned or None
 
-    @field_validator("giga_agent_public_base_domain", mode="after")
+    @field_validator(
+        "giga_agent_public_base_domain",
+        "giga_agent_sandbox_port_redirect_base",
+        "giga_agent_app_cookie_domain",
+        mode="after",
+    )
     @classmethod
     def _normalize_public_base_domain(cls, value: str | None) -> str | None:
         if value is None:
