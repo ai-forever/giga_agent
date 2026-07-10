@@ -270,7 +270,7 @@ def _get_rewrite_llm() -> GigaChat:
         _rewrite_llm = GigaChat(
             model=GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL,
             verify_ssl_certs=False,
-            profanity_check=False,
+            profanity_check=True,
             streaming=True
         )
     return _rewrite_llm
