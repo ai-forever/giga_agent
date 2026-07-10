@@ -187,16 +187,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     collectionsLoading,
     activateCollection,
     deactivateCollection,
-    deactivateAllCollections,
   } = useRagContext();
   const { settings } = useSettings();
-  const {
-    mcpTools,
-    enabledModules,
-    toggleModule,
-    setModulesState,
-    availableModules,
-  } = useUserInfo();
+  const { mcpTools, enabledModules, toggleModule, availableModules } =
+    useUserInfo();
   const {
     skills,
     selectedSkills,
@@ -365,30 +359,16 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   }, [message, isMobileDevice]);
 
   const applySuggestion = useCallback(
-    async (
-      suggestion: PromptSuggestionScenario,
-      options?: { fromStartSuggestions?: boolean; isRecommendation?: boolean },
-    ) => {
+    async (suggestion: PromptSuggestionScenario) => {
       const trimmed = suggestion.text.trim();
       if (!trimmed) return;
-
-      const shouldClear =
-        options?.fromStartSuggestions && !options?.isRecommendation;
-
-      if (shouldClear) {
-        setDeepResearchForced(false);
-        clearSelectedSkills();
-        deactivateAllCollections();
-      }
 
       if (suggestion.deepResearchForced !== undefined) {
         setDeepResearchForced(suggestion.deepResearchForced);
       }
 
       if (suggestion.skills) {
-        if (!shouldClear) {
-          clearSelectedSkills();
-        }
+        clearSelectedSkills();
         suggestion.skills.forEach((name) => toggleSkill(name, true));
       }
 
@@ -421,25 +401,12 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
         }
       });
 
-      if (shouldClear) {
-        const moduleUpdates: Record<string, boolean> = {};
-        availableModules.forEach((mod) => {
-          moduleUpdates[mod.id] = false;
-        });
-        if (suggestion.modules) {
-          Object.entries(suggestion.modules).forEach(([moduleId, enabled]) => {
-            moduleUpdates[moduleId] = enabled;
-          });
-        }
-        void setModulesState(moduleUpdates);
-      } else {
-        if (suggestion.modules) {
-          void Promise.all(
-            Object.entries(suggestion.modules).map(([moduleId, enabled]) =>
-              toggleModule(moduleId, enabled),
-            ),
-          );
-        }
+      if (suggestion.modules) {
+        void Promise.all(
+          Object.entries(suggestion.modules).map(([moduleId, enabled]) =>
+            toggleModule(moduleId, enabled),
+          ),
+        );
       }
     },
     [
@@ -447,13 +414,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       clearSelectedSkills,
       collections,
       deactivateCollection,
-      deactivateAllCollections,
       getCollections,
       initialFetch,
       initialSearchExecuted,
       toggleModule,
-      setModulesState,
-      availableModules,
       toggleSkill,
     ],
   );
@@ -1400,12 +1364,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                   <button
                     key={`${prompt.text}-${idx}`}
                     type="button"
-                    onClick={() =>
-                      void applySuggestion(prompt, {
-                        fromStartSuggestions: true,
-                        isRecommendation: false,
-                      })
-                    }
+                    onClick={() => void applySuggestion(prompt)}
                     className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
                   >
                     {getPromptSuggestionTitle(prompt)}
@@ -1425,16 +1384,10 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                       key={`${prompt.text}-${idx}`}
                       type="button"
                       onClick={() =>
-                        void applySuggestion(
-                          {
-                            text: prompt.text,
-                            title: prompt.title,
-                          },
-                          {
-                            fromStartSuggestions: true,
-                            isRecommendation: true,
-                          },
-                        )
+                        void applySuggestion({
+                          text: prompt.text,
+                          title: prompt.title,
+                        })
                       }
                       className="w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted cursor-pointer"
                     >
