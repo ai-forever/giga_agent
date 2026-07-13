@@ -1,0 +1,45 @@
+.heroBanner {
+  padding: 5rem 0;
+  text-align: center;
+  color: #fff;
+  background: radial-gradient(circle at 28% 18%, rgba(220, 38, 38, 0.38) 0, transparent 46%),
+    linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 58%, #3a1414 100%);
+}
+
+.heroLogo {
+  width: 320px;
+  max-width: 80%;
+  height: auto;
+  margin-bottom: 1.5rem;
+}
+
+.subtitle {
+  max-width: 760px;
+  margin: 1rem auto 0;
+  font-size: 1.25rem;
+  line-height: 1.6;
+}
+
+.buttons {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.card {
+  height: 100%;
+  padding: 1.5rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 16px;
+  background: var(--ifm-background-surface-color);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 8%);
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 3rem 1rem;
+  }
+}

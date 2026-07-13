@@ -11,6 +11,12 @@
 [English](https://www.zdoc.app/en/ai-forever/giga_agent) | 
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
 
+<p align="center">
+  <a href="https://ai-forever.github.io/giga_agent/">
+    <img src="https://img.shields.io/badge/%F0%9F%93%96%20Документация-online-dc2626?style=for-the-badge&logo=docusaurus&logoColor=white" alt="Документация GigaAgent">
+  </a>
+</p>
+
 **GigaAgent может решать самые разные задачи, используя более 30 встроенных инструментов и субагентов.**
 
 [![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/ai-forever/giga_agent/tree/main)
@@ -23,12 +29,13 @@ GigaAgent разработан в рамках проекта [GigaChain](https:
 GigaAgent умеет:
 
 - работать с разными моделями, [доступными в LangChain](https://python.langchain.com/docs/integrations/chat/#all-chat-models): GigaChat, ChatGPT, Anthropic и другими
-- исполнять код в чате с помощью в REPL-среды, подобной [блокнотам Jupyter](https://jupyter.org/)
-- обмениваться данными со сторонними сервисами: VK, GitHub, 2GIS и другими
+- исполнять код в чате с помощью REPL-среды, подобной [блокнотам Jupyter](https://jupyter.org/)
+- подключать внешние сервисы через каталог коннекторов: Яндекс.Почту, Календарь и Диск, VK, GitHub и другие серверы MCP
 - использовать инструменты для анализа данных, генерации изображений, создания презентаций и лендингов
-- генерировать изображения с помощью разных провайдеров: GigaChat, FusionBrain, OpenAI;
+- генерировать изображения с помощью разных провайдеров: GigaChat, FusionBrain, OpenAI
+- показывать результаты интерактивными виджетами в чате: письма, календарь, файлы
+- выполнять задачи по расписанию и отвечать в Telegram через каналы
 - работать локально или в облаке, с помощью Docker
-- использовать ваши MCP-тулы
 - применять знания из ваших документов с помощью RAG
 
 ## Демо
@@ -44,28 +51,13 @@ GigaAgent умеет:
 Примеры работы субагентов, а также подробная информация о них — в разделе [Субагенты](SUBAGENTS.md).
 Описание доступных инструментов и процесса создания новых инструментов можно найти в разделе [Инструменты в GigaAgent](TOOLS.md)
 
-## Содержание
-
-- [Быстрый старт](#быстрый-старт)
-- [Функциональные возможности](#функциональные-возможности)
-- [Конфигурация](#конфигурация)
-- [Запуск через Docker](#запуск-через-docker)
-- [Технологический стек](#технологический-стек)
-- [Архитектура](#архитектура)
-- [Структура проекта](#структура-проекта)
-- [Troubleshooting](#troubleshooting)
-- [Для разработчиков](#для-разработчиков)
-- [Дополнительные материалы](#дополнительные-материалы)
-- [Contributing](#contributing)
-- [License](#license)
-
 ## Быстрый старт
 
 1. Установите пакет:
   ```bash
    uv add giga_agent
   ```
-  Для локального sandbox через Jupyter установите optional extra:
+  Для локальной изолированной среды через Jupyter установите дополнение:
   ```bash
    pip install -U "giga-agent[jupyter]"
   ```
@@ -83,195 +75,11 @@ GigaAgent умеет:
 - `admin@example.com`
 - `giga_agent_admin`
 
-Для начала работы с агентом настройте следующие интеграции в настройках пользователя:
-- Коннекторы (используются в LLM / Embeddings)
-- LLM
-- Embeddings
-- Sandbox
-
-## Функциональные возможности
-
-### 💬 Chat & Agent System
-
-- **Streaming Chat** — диалог с AI-агентом
-- **Thread Management** — история диалогов
-- **Message Branching** — ветвление диалогов для экспериментов
-- **File Attachments** — поддержка изображений, документов, аудио, видео
-- **Tool Visualization** — визуализация выполнения инструментов в UI
-- **Auto-approve Mode** — автоматическое подтверждение использования инструментов
-
-### 🔧 Встроенные модули
-
-GigaAgent включает **13 готовых модулей** для разных задач:
-
-
-| Модуль             | ID                 | Описание                                                                         |
-| ------------------ | ------------------ | -------------------------------------------------------------------------------- |
-| **Auth**           | `auth`             | Аутентификация, управление пользователями и группами                             |
-| **REPL**           | `repl`             | Выполнение Python и shell команд в sandbox                                       |
-| **Image**          | `image`            | Генерация изображений (GigaChat, FusionBrain, OpenAI)                            |
-| **Analyze Images** | `analyze_images`   | Анализ изображений через multimodal LLM                                          |
-| **Search**         | `search`           | Веб-поиск через                                                         |
-| **Scraper**        | `scraper`          | Извлечение контента с веб-страниц (Jina AI Reader)                               |
-| **RAG**            | `rag`              | Retrieval Augmented Generation с векторным поиском                               |
-| **GitHub**         | `github`           | Интеграция с GitHub API                                                          |
-| **VK**             | `vk`               | Интеграция с VK API                                                              |
-| **Weather**        | `weather`          | Получение прогноза погоды                                                        |
-| **Mem0**           | `mem_zero_memory`  | Долговременная память агента                                                     |
-| **Subagents**      | `subagents_legacy` | Специализированные субагенты (landing, presentation, meme, podcast, lean_canvas) |
-| **MCP**            | `frontend_mcp`     | Вызов MCP-тулов на стороне фронтенда пользователя                                                |
-
-
-### 🐳 Sandbox Providers
-
-Изолированные окружения для безопасного выполнения кода:
-
-#### Local Docker
-
-- **Описание:** Контейнеры на локальной машине или VPS
-- **Использование:** Локальная разработка и self-hosted deployment
-- **Настройка:**
-  - Образ: `mikelarg/code-interpreter:0.0.5`
-  - Resource limits (CPU, memory, PIDs)
-  - Доступ: только superuser
-- **Преимущества:** Полный контроль, без внешних зависимостей
-- **Недостатки:** Требует Docker daemon на хосте
-
-#### E2B Cloud
-
-- **Описание:** Облачные sandboxes от [e2b.dev](https://e2b.dev/)
-- **Использование:** Production-ready решение без инфраструктуры
-- **Настройка:** Требуется API ключ E2B
-- **Преимущества:** Автомасштабирование, управляемая инфраструктура
-- **Недостатки:** Зависимость от внешнего сервиса
-
-#### Local Jupyter
-
-- **Описание:** Singleton Jupyter server на машине хоста с выполнением кода через локальный Python
-- **Установка:** `pip install -U "giga-agent[jupyter]"`
-- **Создание provider:** только superuser
-- **Использование provider:** может быть доступно другим пользователям по ACL/шарингу
-- **Критичное предупреждение:** пользователи, которым доступен такой provider, получают доступ к хостовой машине. Это включает выполнение кода и чтение файлов хоста через `local_jupyter`.
-- **Рекомендация:** используйте только в доверенной среде и не шарьте `local_jupyter` provider недоверенным пользователям
-
-### 🤖 Субагенты (Legacy)
-
-Специализированные агенты для прикладных задач:
-
-
-| Субагент         | Описание                        | Graph ID       |
-| ---------------- | ------------------------------- | -------------- |
-| **Landing**      | Генерация лендинговых страниц   | `landing`      |
-| **Presentation** | Создание презентаций            | `presentation` |
-| **Meme**         | Генерация мемов с изображениями | `meme`         |
-| **Podcast**      | Создание подкастов из текста    | `podcast`      |
-| **Lean Canvas**  | Описание бизнес-модели стартапа | `lean_canvas`  |
-
-
-См. [SUBAGENTS.md](SUBAGENTS.md) для подробностей.
-
-### 📚 RAG (Retrieval Augmented Generation)
-
-- **Document Collections** — организация знаний по коллекциям
-- **Multiple Formats** — поддержка PDF, DOCX, TXT, Markdown, HTML
-- **Vector Search** — семантический поиск через Qdrant
-- **Permissions** — настройка доступа к коллекциям
-
-### 🔐 Управление доступом
-
-- **User Management** — создание и управление пользователями
-- **Groups** — объединение пользователей в группы
-- **Resource Permissions (ACL)** — детальный контроль доступа к ресурсам:
-  - Read access — просмотр
-  - Owner — полный контроль
-- **JWT Tokens** — безопасная аутентификация через cookie или Bearer header
-- **Superuser Role** — административные привилегии (создание local sandbox providers, admin panel)
-
-### 🔌 Интеграции
-
-**LLM Providers:**
-
-- OpenAI (GPT-4, GPT-3.5)
-- GigaChat
-- Anthropic (Claude)
-- Любые модели через LangChain
-
-**Embedding Models:**
-
-- OpenAI Embeddings
-- GigaChat Embeddings
-
-**External Services:**
-
-- Tavily — веб-поиск
-- Jina AI — web scraping
-- GitHub API — работа с репозиториями
-- VK API — социальная сеть
-
-**Vector Store:**
-
-- Qdrant — для RAG и Mem0
-
-### 🧪 REPL Environment
-
-Выполнение кода прямо в чате:
-
-- **Python REPL** — полноценный Python interpreter
-- **Shell Commands** — выполнение bash команд
-- **File Operations** — работа с файлами внутри sandbox
-- **Nested Tool Calls** — LLM tools доступны из Python кода
-- **Persistent Context** — сохранение переменных между вызовами
-
-### 🎨 Генерация изображений
-
-Поддержка множественных провайдеров:
-
-- GigaChat (Kandinsky)
-- FusionBrain (Kandinsky)
-- OpenAI (DALL-E)
-
-## Конфигурация
-
-### Минимум для старта
-
-Для локального `giga_agent dev` дополнительная конфигурация может не требоваться.
-Если нужны предсказуемые значения в окружении, задайте:
-
-```bash
-export GIGA_AGENT_SECRET_KEY="replace_with_secure_value"
-export GIGA_AGENT_ADMIN_EMAIL="admin@your-domain.com"
-export GIGA_AGENT_ADMIN_PASSWORD="your_strong_password"
-```
-
-Поведение admin-инициализации:
-
-- если пользователей нет, создается первый admin из `GIGA_AGENT_ADMIN_EMAIL` / `GIGA_AGENT_ADMIN_PASSWORD`;
-- если пользователи уже есть, авто-создание admin пропускается.
-
-### Advanced env (runtime/integration)
-
-В расширенной конфигурации обычно настраиваются:
-
-- sandbox/runtime параметры;
-- docker-ориентированные env;
-- БД/кэш/векторное хранилище;
-- tracing/observability параметры.
-
-Детальный env-референс: [docs/configuration/env.md](docs/configuration/env.md)
+Для первого ответа агента откройте настройки и добавьте подключение к провайдеру моделей (вкладка «Подключения»), затем языковую модель. Для работы с документами и памятью понадобятся Embeddings, для выполнения кода — Sandbox. Пошагово: [Первый чат](https://ai-forever.github.io/giga_agent/docs/next/quickstart/first-chat).
 
 ## Запуск через Docker
 
-Docker-сценарий оставляем как второй quick start (для self-hosted/операционного запуска).
-
-### Отличие от `pip + dev`
-
-- `pip + dev`: самый быстрый локальный запуск для разработки и проверки.
-- standalone Docker image: тот же простой запуск через `giga_agent dev`, но внутри контейнера; использует SQLite и хранит данные в `/data/.giga_agent`.
-- `docker compose`: более инфраструктурный сценарий с отдельными сервисами (nginx/postgres/redis/qdrant и т.д.).
-
-### Standalone image
-
-CI собирает standalone image из `deployments/quickstart/Dockerfile`. Он запускает UI и API одним процессом на порту `9090`.
+Standalone-образ запускает UI и API одним процессом на порту `9090`, использует SQLite и хранит данные в `/data/.giga_agent`:
 
 ```bash
 docker run --rm -it \
@@ -280,54 +88,25 @@ docker run --rm -it \
   ghcr.io/<owner>/<repo>:latest
 ```
 
-После запуска откройте:
-
-```text
-http://localhost:9090
-```
-
-### Docker compose
-
-Compose-сценарий использует `deployments/local/Dockerfile` как backend-компонент и поднимает отдельные сервисы для self-hosted/операционного запуска.
-
-### Быстрые шаги
-
-1. Подготовьте `.env`:
-  ```bash
-   cp .env.example .env
-  ```
-   Минимально проверьте/заполните:
-  - `GIGA_AGENT_SECRET_KEY`
-  - `GIGA_AGENT_HOST_PROJECT_PATH` (абсолютный путь до репозитория на хосте; важен для local docker sandbox)
-  - `GIGA_AGENT_LOCAL_JUPYTER_WORKING_DIR` / `GIGA_AGENT_LOCAL_JUPYTER_FILES_PATH` при необходимости переопределить директории singleton Jupyter server
-2. (Опционально) скачайте image для code interpreter:
-  ```bash
-   docker image pull mikelarg/code-interpreter:0.0.5
-  ```
-3. Соберите и поднимите сервисы:
-  ```bash
-   make build
-   make up
-  ```
-4. Откройте UI:
-  ```text
-   http://localhost:8123
-  ```
-
-### Перезапуск после обновления репозитория
+Docker Compose поднимает отдельные сервисы (nginx, PostgreSQL, Redis, Qdrant) для самостоятельного размещения:
 
 ```bash
-make down
+cp .env.example .env   # заполните минимум GIGA_AGENT_SECRET_KEY
 make build
-make up
+make up                # UI на http://localhost:8123
 ```
 
-Для dev-варианта compose:
+Подробности и переменные окружения: [Запуск через Docker](https://ai-forever.github.io/giga_agent/docs/next/quickstart/docker) и [env-референс](docs/configuration/env.md).
 
-```bash
-make build_dev
-make up_dev
-```
+## Документация
+
+Полная документация живёт на отдельном сайте — <https://ai-forever.github.io/giga_agent/> — в двух версиях (стабильный пакет PyPI и текущая ветка `main`) и на двух языках:
+
+- [Быстрый старт](https://ai-forever.github.io/giga_agent/docs/next/quickstart/local) — установка, первый чат, Docker
+- [Руководство пользователя](https://ai-forever.github.io/giga_agent/docs/next/user-guide/chat) — чат, проекты, коннекторы, сервисы Яндекса, виджеты, задачи по расписанию, каналы
+- [Возможности и требования](https://ai-forever.github.io/giga_agent/docs/next/user-guide/capabilities) — что работает сразу и что нужно настроить
+- [Разработчикам](https://ai-forever.github.io/giga_agent/docs/next/developer/architecture) — архитектура, модули, интеграции, GenUI
+- [Эксплуатация](https://ai-forever.github.io/giga_agent/docs/next/operations/configuration) — конфигурация, изолированная среда, совместный сервер, устранение неполадок
 
 ## Технологический стек
 
@@ -339,7 +118,7 @@ make up_dev
 - **[SQLAlchemy 2.0](https://www.sqlalchemy.org/)** — async ORM с поддержкой SQLite и PostgreSQL
 - **[Alembic](https://alembic.sqlalchemy.org/)** — система миграций с multi-scope поддержкой
 - **Redis** — кэширование и distributed locks (через [cashews](https://github.com/Krukov/cashews))
-- **[Qdrant](https://qdrant.tech/)** — векторное хранилище для RAG и Mem0
+- **[Qdrant](https://qdrant.tech/)** — векторное хранилище для RAG и памяти
 - **[E2B](https://e2b.dev/)** — облачные sandboxes для безопасного выполнения кода
 - **Docker SDK** — управление локальными sandbox-контейнерами
 - **Jupyter Server** — optional extra `giga-agent[jupyter]` для admin-only `local_jupyter` sandbox с одним singleton-процессом на агент
@@ -360,84 +139,6 @@ make up_dev
 - **Nginx** — reverse proxy для production
 - **PostgreSQL** — production база данных (dual-database: LangGraph + app)
 - **SQLite** — development база данных
-
-## Архитектура
-
-### Ключевые принципы
-
-#### 1. Модульная система
-
-Каждый модуль (`BaseModule`) — независимый plugin:
-
-- **Собственные миграции** — таблицы с auto-префиксом модуля
-- **Независимые инструменты** — tools для агента
-- **Собственные API endpoints** — автоматический роутинг
-- **Инструкции и middleware** — настройка поведения агента
-
-#### 2. Dual-Database Strategy
-
-**Development (local):**
-
-- SQLite с `aiosqlite` драйвером
-- Файловая БД в `.giga_agent/`
-- Batch-режим для миграций
-
-**Production (docker):**
-
-- Две отдельные PostgreSQL базы:
-  1. **LangGraph DB** — state checkpoints, thread history
-  2. **Application DB** — метаданные, пользователи, конфигурация (asyncpg)
-
-#### 3. Registry Pattern
-
-Runtime компоненты регистрируются динамически:
-
-- **Connectors** — подключения к внешним сервисам (OpenAI, GigaChat, Tavily)
-- **LLMs** — языковые модели с валидацией настроек
-- **Embeddings** — модели векторизации
-- **Sandbox Providers** — окружения выполнения кода
-- **Image Generators** — генераторы изображений
-- **Search Engines** — поисковые движки
-
-#### 4. Sandbox Execution
-
-Безопасное выполнение Python-кода/Shell комманд в изолированных окружениях:
-
-**Local Docker:**
-
-- Контейнеры на локальной машине или VPS
-- Resource limits (CPU, memory, PIDs)
-- Volume mounts для файлов
-- Только для superuser (security)
-
-**E2B Cloud:**
-
-- Облачные sandboxes (e2b.dev)
-- Автомасштабирование
-- API-based управление
-
-#### 5. Background Tasks
-
-Фоновые процессы с Redis-координацией для multi-instance deployment:
-
-- **Idle Sweeper** — останавливает неактивные sandboxes
-- **Orphan Sweeper** — удаляет "осиротевшие" ресурсы
-
-#### 6. Security & ACL
-
-- **JWT Authentication** — cookie + Bearer token
-- **Resource-level permissions** — read/edit/owner access
-- **Group-based access control** — разделение доступа по группам
-- **bcrypt** — хеширование паролей
-
-## Troubleshooting
-
-- UI не открывается:
-  - проверьте, что dev-сервер запущен на `localhost:9090` (pip режим) или что `make up` поднял nginx на `8123` (docker режим).
-- Не удается залогиниться:
-  - если это первый запуск, используйте дефолтные креды или проверьте `GIGA_AGENT_ADMIN_EMAIL` / `GIGA_AGENT_ADMIN_PASSWORD`;
-- Не видны провайдеры/инструменты:
-  - проверьте env-конфиг и настройки в UI (`/settings/`*).
 
 ## Для разработчиков
 
@@ -464,10 +165,14 @@ Runtime компоненты регистрируются динамически
   giga_agent export-langgraph-json
   ```
 
+Об устройстве модулей, инструментов и точках расширения — в [разделе для разработчиков](https://ai-forever.github.io/giga_agent/docs/next/developer/architecture).
+
 ## Дополнительные материалы
 
+- 📖 Полная документация: <https://ai-forever.github.io/giga_agent/>
 - Субагенты: [SUBAGENTS.md](SUBAGENTS.md)
 - Инструменты: [TOOLS.md](TOOLS.md)
+- Env-референс: [docs/configuration/env.md](docs/configuration/env.md)
 - Observability для локального запуска: [docs/configuration/observability-local.md](docs/configuration/observability-local.md)
 
 ## Contributing

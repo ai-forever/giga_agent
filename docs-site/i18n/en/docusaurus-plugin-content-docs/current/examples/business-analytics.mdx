@@ -1,0 +1,24 @@
+import ScreenshotCarousel from '@site/src/components/ScreenshotCarousel';
+
+# Business analytics over CSV
+
+GigaAgent can help inspect operational data: routes, delivery speed, revenue, margin, and bottlenecks.
+
+## Requirements
+
+- Running GigaAgent.
+- Configured language model connection.
+- Available REPL/Python sandbox.
+- CSV without secrets or personal data.
+
+## Prompt example
+
+```text
+I uploaded a delivery CSV. Find the most profitable and most problematic routes, compare delivery speed and revenue, build charts, and suggest five margin improvements.
+```
+
+## Expected result
+
+Expect data-quality checks, route or category tables, several charts, risks, opportunities, and recommendations tied to the data.
+
+<ScreenshotCarousel items={[{src:'/img/examples/business-analytics/logistics-speed-revenue.png',title:'Speed and revenue',caption:'Charts comparing operational metrics.'},{src:'/img/examples/business-analytics/logistics-route-profit.png',title:'Routes and profit',caption:'Historical run with several visualizations.'},{src:'/img/examples/business-analytics/logistics-recommendations.png',title:'Management conclusions',caption:'Final recommendation block.'}]} />

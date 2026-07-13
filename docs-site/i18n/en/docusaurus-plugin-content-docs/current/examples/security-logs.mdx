@@ -1,0 +1,27 @@
+---
+title: "Security log analysis"
+description: "Triage suspicious events in logs."
+---
+
+# Security log analysis
+
+GigaAgent can help with first-pass log triage: find suspicious events, group them by source, and prepare administrator recommendations.
+
+## Requirements
+
+- Running GigaAgent.
+- Configured language model connection.
+- Available REPL/Python sandbox.
+- Anonymized or synthetic logs for public demos.
+
+## Prompt example
+
+```text
+I uploaded auth.log. Find suspicious IPs and users, show peak error hours, identify password-guessing patterns, suggest protections, and write a short admin report.
+```
+
+## Expected result
+
+Expect suspicious source tables, time distribution, clear criteria, and recommendations such as rate limiting, fail2ban, MFA, and key rotation.
+
+No gallery is published for this scenario until screenshots are rebuilt from synthetic logs.

@@ -1,0 +1,41 @@
+/**
+ * Палитра под фирменный стиль GigaAgent: монохромные поверхности
+ * (как в веб-интерфейсе) и красный акцент (Tailwind red-600 ≈ #dc2626,
+ * соответствует --destructive во фронтенде: oklch(0.577 0.245 27.325)).
+ */
+
+:root {
+  --ifm-color-primary: #dc2626;
+  --ifm-color-primary-dark: #c62222;
+  --ifm-color-primary-darker: #bb2020;
+  --ifm-color-primary-darkest: #991b1b;
+  --ifm-color-primary-light: #e23b3b;
+  --ifm-color-primary-lighter: #e54747;
+  --ifm-color-primary-lightest: #ea6a6a;
+
+  /* Светлые поверхности GigaAgent: oklch(0.95 0 0) / oklch(0.97 0 0). */
+  --ifm-background-color: #f0f0f0;
+  --ifm-background-surface-color: #f6f6f6;
+
+  --ifm-code-font-size: 95%;
+  --ifm-heading-font-weight: 700;
+  --docusaurus-highlighted-code-line-bg: rgba(220, 38, 38, 0.12);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #f05252;
+  --ifm-color-primary-dark: #ef4444;
+  --ifm-color-primary-darker: #e53e3e;
+  --ifm-color-primary-darkest: #dc2626;
+  --ifm-color-primary-light: #f26d6d;
+  --ifm-color-primary-lighter: #f47979;
+  --ifm-color-primary-lightest: #f89a9a;
+
+  /* Тёмные поверхности GigaAgent: oklch(0.1822 0 0) / oklch(0.2393 0 0). */
+  --ifm-background-color: #1d1d1d;
+  --ifm-background-surface-color: #2b2b2b;
+  --ifm-navbar-background-color: #1d1d1d;
+  --ifm-footer-background-color: #161616;
+
+  --docusaurus-highlighted-code-line-bg: rgba(240, 82, 82, 0.2);
+}

@@ -1,0 +1,23 @@
+import ScreenshotCarousel from '@site/src/components/ScreenshotCarousel';
+
+# VK and social listening
+
+This scenario shows how GigaAgent can analyze comments and user signals: clean texts, group similar comments, find themes, and prepare recommendations.
+
+## Requirements
+
+- Running GigaAgent.
+- Configured language model connection.
+- VK access for live data, or an anonymized CSV/JSON file for reproducible public examples.
+
+## Prompt example
+
+```text
+Analyze comments from the uploaded CSV: remove duplicates, find themes, visualize clusters, list user pains, and recommend actions for the product team.
+```
+
+## Expected result
+
+The result should include clusters, counts, anonymized examples, a chart or map, and prioritized recommendations.
+
+<ScreenshotCarousel items={[{src:'/img/examples/vk-social-listening/samokat-title.png',title:'Comment report',caption:'Historical report layout.'},{src:'/img/examples/vk-social-listening/samokat-recommendations.png',title:'Recommendations',caption:'Final page with product conclusions.'},{src:'/img/examples/vk-social-listening/vk-cluster-bars.png',title:'Cluster distribution',caption:'Visual analysis of comment groups.'},{src:'/img/examples/vk-social-listening/vk-umap.png',title:'Similarity map',caption:'Historical two-dimensional cluster visualization.'}]} />

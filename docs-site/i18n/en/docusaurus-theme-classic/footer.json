@@ -1,0 +1,58 @@
+{
+  "link.title.Документация": {
+    "message": "Docs",
+    "description": "The title of the footer links column with title=Документация in the footer"
+  },
+  "link.title.Разработчикам": {
+    "message": "Developers",
+    "description": "The title of the footer links column with title=Разработчикам in the footer"
+  },
+  "link.title.Эксплуатация": {
+    "message": "Operations",
+    "description": "The title of the footer links column with title=Эксплуатация in the footer"
+  },
+  "link.title.Проект": {
+    "message": "Project",
+    "description": "The title of the footer links column with title=Проект in the footer"
+  },
+  "link.item.label.Обзор": {
+    "message": "Overview",
+    "description": "The label of footer link with label=Обзор linking to /docs/intro"
+  },
+  "link.item.label.Быстрый старт": {
+    "message": "Quickstart",
+    "description": "The label of footer link with label=Быстрый старт linking to /docs/quickstart/local"
+  },
+  "link.item.label.Руководство пользователя": {
+    "message": "User guide",
+    "description": "The label of footer link with label=Руководство пользователя linking to /docs/user-guide/chat"
+  },
+  "link.item.label.Архитектура": {
+    "message": "Architecture",
+    "description": "The label of footer link with label=Архитектура linking to /docs/developer/architecture"
+  },
+  "link.item.label.Расширение": {
+    "message": "Extending",
+    "description": "The label of footer link with label=Расширение linking to /docs/developer/extending"
+  },
+  "link.item.label.Конфигурация": {
+    "message": "Configuration",
+    "description": "The label of footer link with label=Конфигурация linking to /docs/operations/configuration"
+  },
+  "link.item.label.Sandbox и безопасность": {
+    "message": "Sandbox and security",
+    "description": "The label of footer link with label=Sandbox и безопасность linking to /docs/operations/sandbox-security"
+  },
+  "link.item.label.Troubleshooting": {
+    "message": "Troubleshooting",
+    "description": "The label of footer link with label=Troubleshooting linking to /docs/operations/troubleshooting"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to https://github.com/trashchenkov/giga_agent"
+  },
+  "copyright": {
+    "message": "© 2026 GigaAgent contributors. Built with Docusaurus.",
+    "description": "The footer copyright"
+  }
+}

@@ -1,0 +1,61 @@
+.screenshotCarousel {
+  margin-top: 2rem;
+  padding: 1rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 16px;
+  background: var(--ifm-background-surface-color);
+}
+
+.screenshotCarousel__note {
+  margin: 0 0 1rem;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.95rem;
+}
+
+.screenshotCarousel__track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 360px);
+  gap: 1rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding-bottom: 0.5rem;
+}
+
+.screenshotCarousel__card {
+  margin: 0;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 14px;
+  background: var(--ifm-card-background-color);
+  overflow: hidden;
+  scroll-snap-align: start;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.screenshotCarousel__card img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  object-position: top;
+  background: #101827;
+}
+
+.screenshotCarousel__card figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  font-size: 0.9rem;
+}
+
+.screenshotCarousel__card figcaption span {
+  color: var(--ifm-color-emphasis-700);
+}
+
+@media (max-width: 720px) {
+  .screenshotCarousel__track {
+    grid-auto-columns: minmax(240px, 82vw);
+  }
+}
