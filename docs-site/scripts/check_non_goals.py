@@ -9,16 +9,18 @@ import sys
 
 ALLOWED_PREFIXES = (
     "docs-site/",
+    "README.md",
     ".github/workflows/check-docs-version.yml",
     ".github/workflows/deploy-docs.yml",
 )
 FORBIDDEN_PREFIXES = ("backend/", "front/")
-FORBIDDEN_EXACT = {"README.md"}
 # Untracked build/download artifacts created by the docs-contracts workflow
 # (e.g. the `giga-agent` wheel extracted into `_pkg/` for the PyPI contract
 # check). They are not part of the change set and must not fail the scope guard.
 IGNORED_UNTRACKED_PREFIXES = ("_pkg/",)
-FORBIDDEN_MEDIA_PARTS = ("docs-site/static/img/examples/", "docs/images/examples/")
+# Gallery images are cleaned historical screenshots; replacing an existing one
+# silently is forbidden. Adding new files is a normal documentation change.
+PROTECTED_MEDIA_PARTS = ("docs-site/static/img/examples/", "docs/images/examples/")
 
 
 def fail(errors: list[str]) -> None:
@@ -48,12 +50,24 @@ def base_ref(repo: pathlib.Path) -> str:
     return "main"
 
 
-def changed_files(repo: pathlib.Path) -> list[str]:
+def changed_files(repo: pathlib.Path) -> tuple[list[str], list[str]]:
+    """Return (all changed paths, paths of modified/renamed tracked files)."""
     try:
         out = subprocess.check_output(
-            ["git", "diff", "--name-only", f"{base_ref(repo)}...HEAD"], cwd=repo, text=True
+            ["git", "diff", "--name-status", f"{base_ref(repo)}...HEAD"],
+            cwd=repo,
+            text=True,
         )
-        files = [line.strip() for line in out.splitlines() if line.strip()]
+        files: list[str] = []
+        modified: list[str] = []
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            status, path = parts[0], parts[-1]
+            files.append(path)
+            if status[:1] in {"M", "R"}:
+                modified.append(path)
         # Include unstaged/staged files for local verification before commit.
         out2 = subprocess.check_output(
             ["git", "status", "--short", "--untracked-files=all"], cwd=repo, text=True
@@ -68,7 +82,7 @@ def changed_files(repo: pathlib.Path) -> list[str]:
                 continue
             if path and path not in files:
                 files.append(path)
-        return files
+        return files, modified
     except subprocess.CalledProcessError as exc:
         raise SystemExit(exc.returncode) from exc
 
@@ -79,17 +93,18 @@ def main() -> None:
         sys.exit(2)
     repo = pathlib.Path(sys.argv[1]).resolve()
     errors: list[str] = []
-    files = changed_files(repo)
+    files, modified = changed_files(repo)
     for path in files:
-        if path in FORBIDDEN_EXACT:
-            errors.append(f"root README rewrite is out of scope: {path}")
         if path.startswith(FORBIDDEN_PREFIXES):
             errors.append(f"backend/front behavior path is out of scope: {path}")
-        if any(part in path for part in FORBIDDEN_MEDIA_PARTS):
-            errors.append(f"screenshot/example media regeneration is out of scope: {path}")
-        if not path.startswith(ALLOWED_PREFIXES) and path not in FORBIDDEN_EXACT:
+        if not path.startswith(ALLOWED_PREFIXES):
             # Planning files are outside product repo and normally don't appear here.
             errors.append(f"unexpected changed path outside docs scope: {path}")
+    for path in modified:
+        if any(part in path for part in PROTECTED_MEDIA_PARTS):
+            errors.append(
+                f"existing gallery screenshot must not be replaced silently: {path}"
+            )
 
     workflow = (repo / ".github/workflows/deploy-docs.yml").read_text(encoding="utf-8")
     for required in ["branches: [main]", "docs-site/**", "npm ci", "npm run typecheck", "npm run build", "upload-pages-artifact"]:
