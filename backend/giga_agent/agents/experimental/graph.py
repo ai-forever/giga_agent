@@ -44,6 +44,7 @@ from giga_agent.conf import (
     GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL,
     GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL,
 )
+from giga_agent.modules.projects.utils import resolve_project_id
 from giga_agent.utils.langgraph_sdk import client_session
 from giga_agent.utils.messages import strip_thinking
 from giga_agent.utils.thread_metadata import update_thread_metadata
@@ -746,6 +747,21 @@ async def kickoff(state: ExperimentalState, config) -> dict:
         if key in outer_conf:
             inner_configurable[key] = outer_conf[key]
 
+    # Контекст проекта (инструкции + knowledge-коллекция) разворачивается в
+    # giga_agent из project_id, а resolve_project_id читает его из metadata
+    # ТЕКУЩЕГО треда. Inner-ран крутится в отдельном скрытом треде, поэтому
+    # переносим project_id внешнего треда в metadata inner-треда — иначе проект
+    # до реального агента не доходит. Метадата треда (в отличие от configurable)
+    # переживает interrupt/resume ask_questions, где project_id иначе бы терялся.
+    project_id = None
+    with contextlib.suppress(Exception):
+        project_id = await resolve_project_id(config)
+    if project_id is not None:
+        # Быстрый путь: resolve_project_id в inner-ране проверит configurable
+        # раньше фолбэка на metadata треда (экономит один threads.get). Источник
+        # истины — metadata inner-треда (переживает resume), configurable нет.
+        inner_configurable["project_id"] = str(project_id)
+
     inner_thread_id = state.get("inner_thread_id")
     # Граница активности: сколько inner-сообщений уже есть ДО этого хода (реюз
     # треда). Фиксируем ДО runs.create (он добавит нового human) — тогда тулы
@@ -753,15 +769,16 @@ async def kickoff(state: ExperimentalState, config) -> dict:
     inner_baseline = 0
     async with client_session(config) as client:
         if not inner_thread_id:
-            thread = await client.threads.create(
-                metadata={
-                    "experimental_inner": True,
-                    # Фоновый ран без UI одобрения — гоняем giga_agent автономно,
-                    # чтобы серверные тул-колы выполнялись без interrupt (флаг
-                    # живёт в metadata треда и переживает resume).
-                    "auto_approve": True,
-                },
-            )
+            inner_metadata: dict[str, Any] = {
+                "experimental_inner": True,
+                # Фоновый ран без UI одобрения — гоняем giga_agent автономно,
+                # чтобы серверные тул-колы выполнялись без interrupt (флаг
+                # живёт в metadata треда и переживает resume).
+                "auto_approve": True,
+            }
+            if project_id is not None:
+                inner_metadata["project_id"] = str(project_id)
+            thread = await client.threads.create(metadata=inner_metadata)
             inner_thread_id = thread["thread_id"]
         else:
             with contextlib.suppress(Exception):

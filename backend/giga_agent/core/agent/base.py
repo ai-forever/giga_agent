@@ -39,6 +39,10 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger, setup_cli_logging
 from giga_agent.core.migrations import apply_migrations
 from giga_agent.core.module import BaseModule
+from giga_agent.core.observability.http_logging import (
+    RequestLoggingContextMiddleware,
+)
+from giga_agent.middlewares.logging_context import LoggingContextMiddleware
 from giga_agent.middlewares.repair_messages import RepairMessagesMiddleware
 from giga_agent.middlewares.thread_title import ThreadTitleMiddleware
 from giga_agent.middlewares.tool_result import ToolResultMiddleware
@@ -192,6 +196,8 @@ class BaseAgent(BaseModel):
                 await shutdown_pool()
 
         self._app = FastAPI(lifespan=_lifespan)
+        # Per-request logging context (request_id/method/path) for custom routes.
+        self._app.add_middleware(RequestLoggingContextMiddleware)
         self._app.state.agent = self
         from giga_agent.sandbox.local_jupyter.manager import (
             get_local_jupyter_server_manager,
@@ -237,11 +243,19 @@ class BaseAgent(BaseModel):
         # Собираем middleware из модулей
         module_middlewares = self._get_module_middlewares()
         all_middleware = [
+            # First: bind run ids into structlog contextvars so every log line
+            # produced by the middlewares/nodes below is tagged with them.
+            LoggingContextMiddleware(),
             RepairMessagesMiddleware(),
             ThreadTitleMiddleware(),
             ToolResultMiddleware(),
             *module_middlewares,
         ]
+        if get_settings().giga_agent_metrics_enabled:
+            from giga_agent.middlewares.metrics import MetricsMiddleware
+
+            # Insert right after logging so token/tool/run metrics wrap the loop.
+            all_middleware.insert(1, MetricsMiddleware())
 
         self._graph = create_graph(self, middleware=all_middleware)
 

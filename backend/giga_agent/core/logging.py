@@ -87,6 +87,7 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
         handler.setFormatter(stdlib_logging.Formatter("%(message)s"))
         renderer = structlog.processors.JSONRenderer(sort_keys=True, ensure_ascii=False)
         processors = [
+            structlog.contextvars.merge_contextvars,
             structlog.stdlib.filter_by_level,
             structlog.stdlib.add_logger_name,
             structlog.stdlib.add_log_level,
@@ -112,6 +113,7 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
         # so uvicorn/dictConfig can't force dict/JSON formatting for our records.
         renderer = structlog.dev.ConsoleRenderer(colors=True, sort_keys=True)
         processors = [
+            structlog.contextvars.merge_contextvars,
             structlog.stdlib.filter_by_level,
             structlog.stdlib.PositionalArgumentsFormatter(remove_positional_args=False),
             structlog.processors.UnicodeDecoder(),

@@ -19,6 +19,7 @@ dependencies = [
     "alembic>=1.13.0,<2.0.0",
     "typer[all]~=0.24.1",
     "structlog>=24.0.0,<25.0.0",
+    "prometheus-client>=0.20.0,<1.0.0",
     "pydantic[email]>=2.0.0,<3.0.0",
     "pydantic-settings>=2.0.0,<3.0.0",
     "aiosqlite~=0.21.0",

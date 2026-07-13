@@ -24,6 +24,12 @@ def get_password_hash(password: str) -> str:
     return hashed_bytes.decode('utf-8')
 
 
+# Фиктивный хэш для выравнивания тайминга логина: когда аккаунт не найден, всё равно
+# прогоняем verify_password против него, чтобы время ответа не выдавало, существует ли
+# email (тайминг-enumeration). Считается один раз при импорте.
+_DUMMY_PASSWORD_HASH = get_password_hash("giga-agent-dummy-password")
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     settings = get_settings()
     to_encode = data.copy()

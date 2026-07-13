@@ -36,6 +36,12 @@ from giga_agent.models.resource_permission import (
 )
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
+from giga_agent.modules.auth.login_throttle import (
+    check_login_throttle,
+    get_client_ip,
+    record_login_failure,
+    reset_login,
+)
 from giga_agent.sandbox.access import (
     SANDBOX_ACCESS_QUERY_PARAM,
     SANDBOX_ACCESS_TTL_SEC,
@@ -546,15 +552,35 @@ async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ):
-    user = await user_repo.get_by_email(form_data.username)
-    if not user or not security.verify_password(
-        form_data.password, user.hashed_password
-    ):
+    # Идентификатор для ключа троттла (login_throttle нормализует его внутри: strip+lower).
+    # Для поиска в БД используем form_data.username как есть — регистр email не трогаем,
+    # чтобы не сломать вход аккаунтам со смешанным регистром.
+    username = form_data.username
+    client_ip = get_client_ip(request)
+    # Проверяем троттл ДО bcrypt: экономим CPU и не даём тайминг-сигнал.
+    await check_login_throttle(username, client_ip)
+
+    user = await user_repo.get_by_email(username)
+    if not user:
+        # Аккаунта нет: всё равно прогоняем bcrypt против фиктивного хэша, чтобы время
+        # ответа не выдавало существование email. Неудачу НЕ записываем — иначе перебор
+        # случайных email засадит Redis мусорными ключами (cache-fill).
+        security.verify_password(form_data.password, security._DUMMY_PASSWORD_HASH)
+        ok = False
+    else:
+        ok = security.verify_password(form_data.password, user.hashed_password)
+
+    if not ok:
+        if user:
+            await record_login_failure(username, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Успех — сбрасываем счётчики неудач.
+    await reset_login(username, client_ip)
     access_token_expires = (
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         if ACCESS_TOKEN_EXPIRE_MINUTES

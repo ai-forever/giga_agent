@@ -1,0 +1,47 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Discover all containers via the Docker API and stream their logs.
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Use the compose SERVICE name (stable across projects/dev/prod) as
+      # `container`, not the docker container name (which carries a project
+      # prefix + index, e.g. giga_agent_dev-giga-agent-1).
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: container
+      # Fallback to the raw container name when there is no compose label.
+      - source_labels: [container, __meta_docker_container_name]
+        regex: ";/(.*)"
+        target_label: container
+      - source_labels: [__meta_docker_container_log_stream]
+        target_label: stream
+    pipeline_stages:
+      # Only giga-agent emits structlog JSON — parse it there and promote just
+      # the low-cardinality `level` to a label. run_id/thread_id/user_id stay
+      # inside the JSON line and are queried via `| json` (keeping Loki labels
+      # low-cardinality on purpose).
+      - match:
+          selector: '{container="giga-agent"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  logger: logger
+                  ts: timestamp
+            - labels:
+                level:
+            - timestamp:
+                source: ts
+                format: RFC3339Nano
+                action_on_failure: fudge

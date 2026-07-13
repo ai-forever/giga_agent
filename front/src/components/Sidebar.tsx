@@ -82,6 +82,11 @@ interface SidebarProps {
 }
 
 const LAST_SEEN_STORAGE_KEY = "sidebar_thread_last_seen_v1";
+// graph_id проектных чатов: в experimental-режиме — обёртка, иначе обычный агент.
+// Каналов у проектов нет, поэтому это НЕ currentGraphId (тот учитывает channels).
+const PROJECT_GRAPH_ID = EXPERIMENTAL_MODE
+  ? "giga_agent_experimental"
+  : "giga_agent";
 const THREADS_PAGE_SIZE = 50;
 const THREADS_POLL_INTERVAL_MS = 20_000;
 
@@ -630,7 +635,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: true }));
       try {
         const list = await langGraphClient.threads.search({
-          metadata: { project_id: projectId },
+          // Проектные чаты — это обычные чаты (не каналы), поэтому фильтруем по
+          // giga_agent / giga_agent_experimental в зависимости от режима, а не по
+          // currentGraphId (тот в channels-режиме = giga_agent_channel).
+          metadata: { project_id: projectId, graph_id: PROJECT_GRAPH_ID },
           limit: 50,
           sortBy: "updated_at",
           sortOrder: "desc",
@@ -695,7 +703,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     closeSidebarOnMobile();
     try {
       const t = await langGraphClient.threads.create({
-        metadata: { project_id: projectId, graph_id: "giga_agent" },
+        metadata: { project_id: projectId, graph_id: PROJECT_GRAPH_ID },
       });
       // Optimistically prepend so the chat appears under the project right away.
       setProjectThreads((prev) => {

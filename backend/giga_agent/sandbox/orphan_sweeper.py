@@ -8,6 +8,7 @@ from cashews.exceptions import LockedError
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.core.observability.metrics import SANDBOX_EVENTS
 from giga_agent.sandbox.manager import SandboxManager
 
 logger = get_logger(__name__)
@@ -85,6 +86,11 @@ class OrphanSandboxSweeper:
                         concurrency=self.concurrency
                     )
                     if cleaned:
+                        for provider_type, reaped in cleaned.items():
+                            if reaped:
+                                SANDBOX_EVENTS.labels(
+                                    provider=provider_type, event="orphan_reaped"
+                                ).inc(len(reaped))
                         logger.info(
                             "Orphan sandbox sweeper applied cleanup for provider types: %s",
                             sorted(cleaned.keys()),

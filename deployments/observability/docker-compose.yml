@@ -1,0 +1,112 @@
+# Observability stack (metrics + logs), separate from the main compose.
+#
+# Joins the main stack's network as EXTERNAL, so bring the main stack up first
+# (it creates the network), then:
+#   docker compose -f deployments/observability/docker-compose.yml up -d
+#
+# For the dev stack set GIGA_AGENT_DOCKER_NETWORK=giga-agent-net-dev.
+# Only Grafana is published to the host (:3000).
+
+networks:
+  giga-agent-net:
+    name: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net}
+    external: true
+
+volumes:
+  grafana-data: { driver: local }
+  prometheus-data: { driver: local }
+  loki-data: { driver: local }
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks: [giga-agent-net]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus, loki]
+    networks: [giga-agent-net]
+
+  loki:
+    image: grafana/loki:3.1.1
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+    networks: [giga-agent-net]
+
+  promtail:
+    image: grafana/promtail:3.1.1
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+    networks: [giga-agent-net]
+
+  # NOTE: cAdvisor and node-exporter need Linux cgroups; they yield full metrics
+  # on the Linux prod host. On macOS Docker Desktop coverage is partial.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks: [giga-agent-net]
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    # Plain :ro for cross-platform (Docker Desktop rejects rslave). On a Linux
+    # host add ",rslave" to also see nested host mounts.
+    volumes:
+      - /:/host:ro
+    networks: [giga-agent-net]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis://langgraph-redis:6379"
+    networks: [giga-agent-net]
+
+  postgres-exporter-aegra:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@langgraph-postgres:5432/aegra?sslmode=disable"
+    networks: [giga-agent-net]
+
+  postgres-exporter-app:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@giga-agent-postgres:5432/postgres?sslmode=disable"
+    networks: [giga-agent-net]

@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     )
     giga_agent_log_format: str | None = Field(None, alias="GIGA_AGENT_LOG_FORMAT")
     giga_agent_log_json: bool = Field(False, alias="GIGA_AGENT_LOG_JSON")
+    giga_agent_metrics_enabled: bool = Field(
+        False, alias="GIGA_AGENT_METRICS_ENABLED"
+    )
     giga_agent_gigachat_from_env: bool = Field(
         False, alias="GIGA_AGENT_GIGACHAT_FROM_ENV"
     )
@@ -129,6 +132,30 @@ class Settings(BaseSettings):
     )
 
     giga_agent_auth_algorithm: str = Field("HS256", alias="GIGA_AGENT_AUTH_ALGORITHM")
+    # Имя доверенного однозначного заголовка с реальным IP клиента (в проде "X-Client-IP",
+    # который оператор пробрасывает с edge). Не задан → берём request.client.host (TCP-пир,
+    # подделать нельзя — безопасный дефолт). X-Forwarded-For здесь не поддерживаем: его левый
+    # элемент подделываем.
+    giga_agent_client_ip_header: str | None = Field(
+        None, alias="GIGA_AGENT_CLIENT_IP_HEADER"
+    )
+    # Троттлинг логина против брутфорса. Счётчик неудач на паре (email, IP) в Redis (cashews):
+    # два яруса — быстрый (всплески) и медленный (суточный потолок). См. modules/auth/login_throttle.py.
+    giga_agent_login_throttle_enabled: bool = Field(
+        True, alias="GIGA_AGENT_LOGIN_THROTTLE_ENABLED"
+    )
+    giga_agent_login_throttle_fast_max: int = Field(
+        5, alias="GIGA_AGENT_LOGIN_THROTTLE_FAST_MAX"
+    )
+    giga_agent_login_throttle_fast_window_sec: int = Field(
+        60, alias="GIGA_AGENT_LOGIN_THROTTLE_FAST_WINDOW_SEC"
+    )
+    giga_agent_login_throttle_slow_max: int = Field(
+        20, alias="GIGA_AGENT_LOGIN_THROTTLE_SLOW_MAX"
+    )
+    giga_agent_login_throttle_slow_window_sec: int = Field(
+        3600, alias="GIGA_AGENT_LOGIN_THROTTLE_SLOW_WINDOW_SEC"
+    )
     giga_agent_admin_email: str = Field(
         "admin@example.com",
         alias="GIGA_AGENT_ADMIN_EMAIL",

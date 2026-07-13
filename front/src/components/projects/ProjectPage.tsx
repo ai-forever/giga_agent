@@ -22,11 +22,17 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { API_BASE_URL } from "@/config.ts";
+import { API_BASE_URL, EXPERIMENTAL_MODE } from "@/config.ts";
 import { refreshThreads } from "@/lib/events";
 
 import { deleteProject, getProject, Project, updateProject } from "./api";
 import KnowledgeSection from "./KnowledgeSection";
+
+// graph_id проектных чатов — совпадает с PROJECT_GRAPH_ID в Sidebar: в
+// experimental-режиме проекты работают с обёрткой giga_agent_experimental.
+const PROJECT_GRAPH_ID = EXPERIMENTAL_MODE
+  ? "giga_agent_experimental"
+  : "giga_agent";
 
 const errorDetail = (e: unknown, fallback: string): string => {
   if (e instanceof ApiError) return e.message || fallback;
@@ -87,7 +93,9 @@ const ProjectPage: React.FC = () => {
       setThreadsLoading(true);
       try {
         const result = await langGraphClient.threads.search({
-          metadata: { project_id: projectId },
+          // См. PROJECT_GRAPH_ID: в experimental-режиме показываем только
+          // экспериментальные треды проекта, иначе — обычные.
+          metadata: { project_id: projectId, graph_id: PROJECT_GRAPH_ID },
           limit: 50,
           sortBy: "updated_at",
           sortOrder: "desc",
@@ -168,7 +176,11 @@ const ProjectPage: React.FC = () => {
       const t = await langGraphClient.threads.create({
         metadata: {
           project_id: project.id,
-          graph_id: "giga_agent",
+          // В experimental-режиме сайдбар/чат работают с обёрткой
+          // giga_agent_experimental — проектный тред должен нести тот же
+          // graph_id, иначе он не подхватится (и kickoff не перенесёт
+          // project_id на скрытый inner-тред giga_agent).
+          graph_id: PROJECT_GRAPH_ID,
         },
       });
       refreshThreads();
