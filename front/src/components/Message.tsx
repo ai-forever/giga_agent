@@ -819,6 +819,9 @@ const Message: React.FC<MessageProps> = ({
                     <DropdownMenuItem onSelect={() => handleExport("md")}>
                       Markdown
                     </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => handleExport("json")}>
+                      JSON
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>

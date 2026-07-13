@@ -46,4 +46,4 @@ export interface PreparedExport {
   bundle: ExportBundleFile[];
 }
 
-export type ExportFormat = "pdf" | "docx" | "md";
+export type ExportFormat = "pdf" | "docx" | "md" | "json";
