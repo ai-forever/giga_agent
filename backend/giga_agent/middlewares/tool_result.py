@@ -554,7 +554,12 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
-        if all(action.get("name") in {"think", "ask_questions"} for action in actions):
+        if all(
+            action.get("name") in {"think", "ask_questions", "build_skill"}
+            for action in actions
+        ):
+            # build_skill runs its own accept/deny interrupt inside the tool, so
+            # skip the generic approval gate to avoid confirming twice.
             return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]

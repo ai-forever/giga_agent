@@ -413,6 +413,9 @@ const Message: React.FC<MessageProps> = ({
 
   const interruptType = thread?.interrupt?.value?.type;
   const isDestructiveConfirm = interruptType === "confirm_destructive";
+  const isBuildSkillConfirm = interruptType === "confirm_build_skill";
+  const buildSkillName = (thread?.interrupt?.value?.skill?.name ??
+    "") as string;
   // Лейбл подтверждения по имени тула: деструктив — не только удаление
   // (mail_send — отправка). Берём из interrupt.value.tools.
   const destructiveLabel = (() => {
@@ -438,7 +441,9 @@ const Message: React.FC<MessageProps> = ({
     !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
-    ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+    ["approve", "tool_call", "confirm_build_skill"].includes(
+      thread.interrupt.value.type,
+    ) &&
     // @ts-ignore
     !!message.tool_calls?.length &&
     thread?.messages.at(-1)?.id === message.id;
@@ -663,6 +668,11 @@ const Message: React.FC<MessageProps> = ({
               {isDestructiveConfirm && (
                 <span className="mr-auto text-xs font-medium text-red-600">
                   ⚠️ Подтвердите {destructiveLabel}
+                </span>
+              )}
+              {isBuildSkillConfirm && (
+                <span className="mr-auto text-xs font-medium text-muted-foreground">
+                  Создать навык{buildSkillName ? ` «${buildSkillName}»` : ""}?
                 </span>
               )}
               <motion.button

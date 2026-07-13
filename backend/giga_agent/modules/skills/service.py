@@ -128,6 +128,61 @@ class SkillsService:
             await self.invalidate_list_cache(owner_id)
             return skill
 
+    async def create_from_content(
+        self,
+        owner_id: uuid.UUID,
+        skill_md: str,
+        sandbox: BaseSandbox,
+        extra_files: dict[str, str] | None = None,
+    ) -> Skill:
+        """Create a skill from an in-memory SKILL.md (+ optional extra files).
+
+        Used by the agent's `build_skill` tool: the model authors the manifest
+        based on the conversation, the user approves it, and it is persisted as
+        an ``agent``-sourced skill.
+        """
+        parsed = parse_skill_md(skill_md)
+
+        with tempfile.TemporaryDirectory(prefix="skill_build_") as tmpdir:
+            skill_root = Path(tmpdir)
+            (skill_root / "SKILL.md").write_text(skill_md, encoding="utf-8")
+            for rel_path, content in (extra_files or {}).items():
+                self._write_extra_skill_file(skill_root, rel_path, content)
+
+            existing = await self.repo.get_by_owner_and_name(owner_id, parsed.name)
+            if existing:
+                await sandbox.remove_skill_files(owner_id, existing.storage_path)
+                await self.repo.delete(existing)
+
+            storage_path = await sandbox.install_skill_files(
+                owner_id, parsed.name, skill_root
+            )
+            skill = await self.repo.create(
+                owner_id=owner_id,
+                name=parsed.name,
+                description=parsed.description,
+                source_type=SkillSourceType.AGENT,
+                storage_path=storage_path,
+                metadata_=parsed.metadata,
+            )
+            if skill is None:
+                raise SkillInstallError(
+                    f"Skill '{parsed.name}' already exists for this user"
+                )
+            await self.invalidate_list_cache(owner_id)
+            return skill
+
+    @staticmethod
+    def _write_extra_skill_file(skill_root: Path, rel_path: str, content: str) -> None:
+        clean = rel_path.strip().lstrip("/")
+        if not clean or is_skill_manifest_filename(Path(clean).name):
+            return
+        target = (skill_root / clean).resolve()
+        if not str(target).startswith(str(skill_root.resolve()) + os.sep):
+            raise SkillInstallError(f"Invalid skill file path: {rel_path}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
     async def install_builtin(
         self,
         owner_id: uuid.UUID,

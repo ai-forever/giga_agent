@@ -10,8 +10,51 @@ from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.skill import SkillRepository, SkillSourceType
 from giga_agent.models.users import User
-from giga_agent.modules.skills.service import SkillsService
+from giga_agent.modules.skills.service import SkillInstallError, SkillsService
 from giga_agent.sandbox.base import BaseSandbox, RuntimeSkillInfo
+
+
+class FakeInstallSandbox(BaseSandbox):
+    """Minimal sandbox that stores installed skill files in memory."""
+
+    installed: dict[str, dict[str, str]] = Field(default_factory=dict)
+    removed_storage_paths: list[str] = Field(default_factory=list)
+
+    async def up(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def is_up(self) -> bool:
+        return True
+
+    def supports_runtime_skill_listing(self) -> bool:
+        return False
+
+    async def install_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        skill_name: str,
+        source_dir,
+    ) -> str:
+        _ = owner_id
+        source = Path(source_dir)
+        files: dict[str, str] = {}
+        for path in sorted(source.rglob("*")):
+            if path.is_file():
+                files[str(path.relative_to(source))] = path.read_text(encoding="utf-8")
+        self.installed[skill_name] = files
+        return f"skills/{skill_name}"
+
+    async def remove_skill_files(
+        self,
+        owner_id: uuid.UUID,
+        storage_path: str,
+    ) -> None:
+        _ = owner_id
+        self.removed_storage_paths.append(storage_path)
+        self.installed.pop(storage_path.split("/")[-1], None)
 
 
 class FakeRuntimeSkillSandbox(BaseSandbox):
@@ -243,6 +286,80 @@ Instructions.
         await service.remove_skill(owner_id, summaries[0].id, sandbox)
 
         self.assertEqual(sandbox.removed_storage_paths, ["skills/runtime-skill"])
+
+    async def test_create_from_content_persists_agent_skill(self) -> None:
+        user = await self._create_user("skill-builder@example.com")
+        skill_md = """---
+name: my-workflow
+description: A reusable workflow captured from chat
+---
+
+# Steps
+
+1. Do the thing.
+2. Do the other thing.
+"""
+        sandbox = FakeInstallSandbox()
+
+        async with self.session_factory() as session:
+            service = SkillsService(session)
+            skill = await service.create_from_content(user.id, skill_md, sandbox)
+
+        self.assertEqual(skill.name, "my-workflow")
+        self.assertEqual(skill.description, "A reusable workflow captured from chat")
+        self.assertEqual(skill.source_type, SkillSourceType.AGENT)
+        self.assertTrue(skill.is_enabled)
+        self.assertEqual(skill.storage_path, "skills/my-workflow")
+        self.assertIn("SKILL.md", sandbox.installed["my-workflow"])
+
+    async def test_create_from_content_replaces_existing_skill(self) -> None:
+        user = await self._create_user("skill-builder-replace@example.com")
+        sandbox = FakeInstallSandbox()
+        first_md = """---
+name: dup-skill
+description: first
+---
+
+First body.
+"""
+        second_md = """---
+name: dup-skill
+description: second
+---
+
+Second body.
+"""
+
+        async with self.session_factory() as session:
+            service = SkillsService(session)
+            await service.create_from_content(user.id, first_md, sandbox)
+            replaced = await service.create_from_content(user.id, second_md, sandbox)
+
+            self.assertEqual(replaced.description, "second")
+            self.assertIn("skills/dup-skill", sandbox.removed_storage_paths)
+
+            summaries = await service.list_skills(user.id)
+            names = [s.name for s in summaries]
+            self.assertEqual(names.count("dup-skill"), 1)
+
+    async def test_create_from_content_rejects_invalid_manifest(self) -> None:
+        user = await self._create_user("skill-builder-invalid@example.com")
+        sandbox = FakeInstallSandbox()
+
+        async with self.session_factory() as session:
+            service = SkillsService(session)
+            with self.assertRaises(ValueError):
+                await service.create_from_content(
+                    user.id,
+                    "no frontmatter here",
+                    sandbox,
+                )
+
+    async def test_write_extra_skill_file_blocks_path_escape(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with self.assertRaises(SkillInstallError):
+                SkillsService._write_extra_skill_file(root, "../evil.txt", "content")
 
     async def test_db_list_skills_uses_cache_until_invalidated(self) -> None:
         user = await self._create_user("skills-cache@example.com")
