@@ -6,17 +6,23 @@ import difflib
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
-from giga_agent.modules.skills.service import SkillNotFoundError, SkillsService
+from giga_agent.modules.skills.parser import SkillParseError, parse_skill_md
+from giga_agent.modules.skills.service import (
+    SkillInstallError,
+    SkillNotFoundError,
+    SkillsService,
+)
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 logger = get_logger(__name__)
 
 TOOL_NAME = "read_skill_manifest"
+BUILD_SKILL_TOOL_NAME = "build_skill"
 
 
 async def _build_fuzzy_skill_suggestions(
@@ -146,3 +152,123 @@ async def read_skill_manifest(
             parts.append(f"- {f.sandbox_path}")
 
     return _build_tool_result(runtime=runtime, content="\n".join(parts))
+
+
+def _build_build_skill_result(
+    *,
+    runtime: ToolRuntime,
+    content: str,
+    is_error: bool = False,
+) -> Command:
+    tool_message_kwargs: dict = {
+        "tool_call_id": runtime.tool_call_id,
+        "content": content,
+        "name": BUILD_SKILL_TOOL_NAME,
+        "additional_kwargs": {"tool_name": BUILD_SKILL_TOOL_NAME},
+    }
+    if is_error:
+        tool_message_kwargs["status"] = "error"
+    return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
+
+
+@tool(parse_docstring=False, extras={"repl_save": False})
+async def build_skill(
+    skill_md: str,
+    runtime: ToolRuntime,
+):
+    """
+    Создаёт новый переиспользуемый навык (Skill) из наработанного в диалоге
+    контекста. Передай ПОЛНОЕ содержимое файла SKILL.md с YAML-фронтматтером:
+
+        ---
+        name: my-skill
+        description: Краткое описание, когда применять навык
+        ---
+
+        # Инструкции
+        ...подробные пошаговые инструкции...
+
+    Требования к `name`: строчные латинские буквы, цифры и дефисы
+    (`^[a-z][a-z0-9-]*[a-z0-9]$`). Тело — это инструкция для будущих запусков,
+    поэтому пиши его самодостаточно и по делу.
+
+    ВАЖНО: навык будет сохранён ТОЛЬКО после явного подтверждения пользователем
+    (accept/deny). Вызывай инструмент только когда пользователь попросил
+    сохранить навык или согласился на предложение его создать.
+    """
+    if runtime is None:
+        return "Error: ToolRuntime is required"
+
+    try:
+        parsed = parse_skill_md(skill_md)
+    except SkillParseError as e:
+        return _build_build_skill_result(
+            runtime=runtime,
+            content=(
+                f"Не удалось разобрать SKILL.md: {e}. Исправь фронтматтер/имя и "
+                "вызови build_skill снова."
+            ),
+            is_error=True,
+        )
+
+    decision = interrupt(
+        {
+            "type": "confirm_build_skill",
+            "skill": {
+                "name": parsed.name,
+                "description": parsed.description,
+                "body": parsed.body,
+            },
+        }
+    )
+
+    if not isinstance(decision, dict) or decision.get("type") != "approve":
+        comment = ""
+        if isinstance(decision, dict):
+            comment = decision.get("message") or ""
+        suffix = f' Комментарий пользователя: "{comment}"' if comment else ""
+        return _build_build_skill_result(
+            runtime=runtime,
+            content=(
+                f"Пользователь отклонил создание навыка '{parsed.name}'. "
+                f"Не сохраняй навык и уточни, что нужно изменить.{suffix}"
+            ),
+        )
+
+    try:
+        owner_id, sandbox = await _resolve_owner_and_runtime(runtime)
+    except Exception as e:
+        logger.warning("%s: failed to resolve runtime: %s", BUILD_SKILL_TOOL_NAME, e)
+        return _build_build_skill_result(
+            runtime=runtime,
+            content=f"Error resolving sandbox: {e}",
+            is_error=True,
+        )
+
+    factory = await get_session_factory()
+    async with factory() as session:
+        svc = SkillsService(session)
+        try:
+            skill = await svc.create_from_content(owner_id, skill_md, sandbox)
+        except SkillInstallError as e:
+            return _build_build_skill_result(
+                runtime=runtime,
+                content=f"Не удалось сохранить навык: {e}",
+                is_error=True,
+            )
+        except Exception as e:
+            logger.error("%s failed: %s", BUILD_SKILL_TOOL_NAME, e, exc_info=True)
+            return _build_build_skill_result(
+                runtime=runtime,
+                content=f"Ошибка при сохранении навыка: {e}",
+                is_error=True,
+            )
+
+    return _build_build_skill_result(
+        runtime=runtime,
+        content=(
+            f"Навык '{skill.name}' успешно создан и включён. "
+            "Он доступен в списке навыков и может быть вызван через "
+            "read_skill_manifest."
+        ),
+    )

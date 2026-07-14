@@ -17,11 +17,12 @@ from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
 from giga_agent.modules.skills.api import router as skills_router
 from giga_agent.modules.skills.prompts import (
+    SKILLS_BUILDER_HINT,
     SKILLS_EXPLICIT_ACTIVATION_HINT,
     SKILLS_SYSTEM_PROMPT_HEADER,
 )
 from giga_agent.modules.skills.service import SkillsService
-from giga_agent.modules.skills.tools import read_skill_manifest
+from giga_agent.modules.skills.tools import build_skill, read_skill_manifest
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 logger = get_logger(__name__)
@@ -36,7 +37,7 @@ class SkillsModule(BaseModule):
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent
-        return [read_skill_manifest]
+        return [read_skill_manifest, build_skill]
 
     @staticmethod
     async def _resolve_sandbox(config: RunnableConfig | None):
@@ -72,14 +73,16 @@ class SkillsModule(BaseModule):
             return None
 
         enabled = [s for s in skills if s.is_enabled]
-        if not enabled:
-            return None
 
-        lines = [SKILLS_SYSTEM_PROMPT_HEADER]
-        for s in enabled:
-            desc = s.description or "(no description)"
-            lines.append(f"- `{s.name}` — {desc}")
-        lines.append("")
+        lines: list[str] = []
+        if enabled:
+            lines.append(SKILLS_SYSTEM_PROMPT_HEADER)
+            for s in enabled:
+                desc = s.description or "(no description)"
+                lines.append(f"- `{s.name}` — {desc}")
+            lines.append("")
+
+        lines.append(SKILLS_BUILDER_HINT)
 
         return "\n".join(lines)
 

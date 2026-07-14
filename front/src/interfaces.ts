@@ -65,9 +65,11 @@ export interface GraphInterrupt {
     | "comment"
     | "tool_call"
     | "questions"
-    | "confirm_destructive";
+    | "confirm_destructive"
+    | "confirm_build_skill";
   tools?: ToolCall[];
   questions?: Question[];
+  skill?: { name?: string; description?: string };
 }
 
 export interface GraphTemplate extends BagTemplate {

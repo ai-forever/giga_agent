@@ -64,6 +64,7 @@ const SOURCE_LABELS: Record<string, string> = {
   builtin: "Встроенный",
   upload: "Загружен",
   local_dir: "Локальный",
+  agent: "Создан агентом",
 };
 
 const SkillItem: React.FC<{
