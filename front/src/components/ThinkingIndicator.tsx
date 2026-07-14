@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Message as Message_ } from "@langchain/langgraph-sdk";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "../interfaces.ts";
-import { EXPERIMENTAL_MODE } from "@/config.ts";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { useActivityPanel } from "./experimental/ActivityPanelProvider";
 
 interface ThinkingProps {
@@ -41,6 +41,7 @@ function commonPrefixLen(a: string, b: string): number {
 
 const ThinkingIndicator = ({ messages, thread, threadId }: ThinkingProps) => {
   const { openForThread, close, isOpen } = useActivityPanel();
+  const { experimentalActive } = useExperimentalMode();
   const isLoading = !!thread?.isLoading;
   const lastIsAi =
     messages.length > 0 && messages[messages.length - 1].type === "ai";
@@ -48,9 +49,9 @@ const ThinkingIndicator = ({ messages, thread, threadId }: ThinkingProps) => {
   // прячем, как только пришло AI-сообщение (прежнее поведение).
   const active =
     isLoading &&
-    (EXPERIMENTAL_MODE || (messages.length > 0 && !lastIsAi));
+    (experimentalActive || (messages.length > 0 && !lastIsAi));
 
-  const status = EXPERIMENTAL_MODE ? readExperimentalStatus(thread) : null;
+  const status = experimentalActive ? readExperimentalStatus(thread) : null;
   const target = status || "Думаю…";
 
   // «Печатная машинка» только для экспериментальных статусов: при новом статусе
@@ -68,7 +69,7 @@ const ThinkingIndicator = ({ messages, thread, threadId }: ThinkingProps) => {
   };
 
   useEffect(() => {
-    if (!EXPERIMENTAL_MODE) return;
+    if (!experimentalActive) return;
     if (!active) {
       // Сброс между ранами, чтобы следующий статус печатался с нуля.
       clearTimer();
@@ -91,17 +92,17 @@ const ThinkingIndicator = ({ messages, thread, threadId }: ThinkingProps) => {
       setDisplayed(target.slice(0, n));
       if (n >= target.length) clearTimer();
     }, TYPE_MS);
-  }, [target, active]);
+  }, [target, active, experimentalActive]);
 
   useEffect(() => () => clearTimer(), []);
 
   if (!active) return null;
 
-  const text = EXPERIMENTAL_MODE ? displayed : "Думаю…";
+  const text = experimentalActive ? displayed : "Думаю…";
 
   // В экспериментальном режиме клик по статусу открывает панель активности
   // (живой список действий текущего рана тянется из кэша по threadId).
-  const clickable = EXPERIMENTAL_MODE && !!threadId;
+  const clickable = experimentalActive && !!threadId;
 
   return (
     <div

@@ -11,7 +11,8 @@ import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { Client } from "@langchain/langgraph-sdk";
 import { persistStoppedAiMessage } from "@/lib/stopped-message.ts";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { API_BASE_URL, EXPERIMENTAL_MODE } from "@/config.ts";
+import { API_BASE_URL } from "@/config.ts";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { refreshThreads } from "@/lib/events";
 import {
   hideThrowingThreadGetters,
@@ -38,6 +39,7 @@ const Chat: React.FC<ChatProps> = ({
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { token } = useAuth();
+  const { experimentalActive, hideAdvanced } = useExperimentalMode();
   const suppressNextThreadLoadingRef = useRef(false);
   const suppressedThreadIdRef = useRef<string | null>(null);
   const suppressedThreadLoadingStartedRef = useRef(false);
@@ -528,81 +530,83 @@ const Chat: React.FC<ChatProps> = ({
 
   return (
     <ActivityPanelProvider>
-    <SelectedAttachmentsProvider>
-      <BranchesProvider
-        thread={thread}
-        threadId={threadId}
-        isNewThread={isNewThread}
-        checkpointEventRef={checkpointEventRef}
-      >
-        <div
-          className={[
-            "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
-            !stableMessages.length ? "justify-center" : "",
-          ].join(" ")}
-          ref={containerRef}
+      <SelectedAttachmentsProvider>
+        <BranchesProvider
+          thread={thread}
+          threadId={threadId}
+          isNewThread={isNewThread}
+          checkpointEventRef={checkpointEventRef}
         >
-          {EXPERIMENTAL_MODE && (thread.values as any)?.inner_thread_id && (
-            <Link
-              to={`/dev/threads/${(thread.values as any).inner_thread_id}`}
-              target="_blank"
-              rel="noreferrer"
-              title="Открыть оригинальный тред giga_agent (dev)"
-              className="self-end mr-2 mt-1 text-xs text-muted-foreground/70 underline hover:text-foreground print:hidden z-1000"
-            >
-              dev: оригинальный тред ↗
-            </Link>
-          )}
           <div
             className={[
-              stableMessages.length || isThreadLoading
-                ? "grow flex-1 p-7 max-[900px]:p-0"
-                : "",
-              "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
+              "flex grow flex-col w-full bg-card print:overflow-visible max-[900px]:justify-between",
+              !stableMessages.length ? "justify-center" : "",
             ].join(" ")}
+            ref={containerRef}
           >
-            {!isThreadLoading && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
-              >
-                <MessageList
-                  messages={stableMessages ?? []}
-                  thread={thread}
-                  threadId={threadId}
-                  maybeAutoScroll={maybeAutoScroll}
-                  onSelectSuggestion={(suggestion) =>
-                    setPrefillPayload({ suggestion, nonce: Date.now() })
-                  }
-                />
-              </motion.div>
-            )}
-          </div>
-
-          {showScrollBtn && stableMessages.length > 0 && (
-            <button
-              type="button"
-              onClick={scrollToBottom}
-              title="Прокрутить вниз"
-              aria-label="Прокрутить вниз"
-              className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
-              style={{
-                backdropFilter: "blur(2px)",
-              }}
+            {experimentalActive &&
+              !hideAdvanced &&
+              (thread.values as any)?.inner_thread_id && (
+                <Link
+                  to={`/dev/threads/${(thread.values as any).inner_thread_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Открыть оригинальный тред giga_agent (dev)"
+                  className="self-end mr-2 mt-1 text-xs text-muted-foreground/70 underline hover:text-foreground print:hidden z-1000"
+                >
+                  dev: оригинальный тред ↗
+                </Link>
+              )}
+            <div
+              className={[
+                stableMessages.length || isThreadLoading
+                  ? "grow flex-1 p-7 max-[900px]:p-0"
+                  : "",
+                "max-w-[900px] w-full  mx-auto flex-col bg-card text-card-foreground rounded-lg max-[900px]:shadow-none max-[900px]:flex-1",
+              ].join(" ")}
             >
-              <ArrowDown className="size-4" strokeWidth={1.75} />
-            </button>
-          )}
-          <InputArea
-            // @ts-ignore
-            thread={thread}
-            prefillPayload={prefillPayload}
-          />
-          <div ref={bottomSentinelRef} style={{ height: 1 }} />
-        </div>
-      </BranchesProvider>
-    </SelectedAttachmentsProvider>
+              {!isThreadLoading && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2, duration: 0.24, ease: "easeOut" }}
+                >
+                  <MessageList
+                    messages={stableMessages ?? []}
+                    thread={thread}
+                    threadId={threadId}
+                    maybeAutoScroll={maybeAutoScroll}
+                    onSelectSuggestion={(suggestion) =>
+                      setPrefillPayload({ suggestion, nonce: Date.now() })
+                    }
+                  />
+                </motion.div>
+              )}
+            </div>
+
+            {showScrollBtn && stableMessages.length > 0 && (
+              <button
+                type="button"
+                onClick={scrollToBottom}
+                title="Прокрутить вниз"
+                aria-label="Прокрутить вниз"
+                className="sticky bottom-[150px] self-center z-9 flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/80 py-[10px] text-foreground/80 shadow-[0_2px_10px_rgba(0,0,0,0.08)] transition-all hover:text-foreground hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)] dark:bg-input/80 cursor-pointer print:hidden animate-in fade-in duration-150"
+                style={{
+                  backdropFilter: "blur(2px)",
+                }}
+              >
+                <ArrowDown className="size-4" strokeWidth={1.75} />
+              </button>
+            )}
+            <InputArea
+              // @ts-ignore
+              thread={thread}
+              prefillPayload={prefillPayload}
+            />
+            <div ref={bottomSentinelRef} style={{ height: 1 }} />
+          </div>
+        </BranchesProvider>
+      </SelectedAttachmentsProvider>
     </ActivityPanelProvider>
   );
 };

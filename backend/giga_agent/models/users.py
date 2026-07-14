@@ -35,6 +35,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
+    experimental_mode: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -130,6 +131,7 @@ class UserBase(BaseModel):
     last_name: Optional[str] = None
     is_active: bool = True
     is_superuser: bool = False
+    experimental_mode: bool = True
     settings: Optional[dict] = None
     secrets: Optional[dict] = None
     image_generator_id: Optional[uuid.UUID] = None
@@ -235,6 +237,7 @@ class AdminUserUpdate(BaseModel):
     last_name: str | None = None
     is_active: bool | None = None
     is_superuser: bool | None = None
+    experimental_mode: bool | None = None
 
 
 # ============ Repository ============

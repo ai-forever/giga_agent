@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { GeneralSettings } from "./general";
 import { LLMSettings } from "./llms";
 import { EmbeddingsSettings } from "./embeddings";
@@ -25,20 +26,37 @@ const SETTINGS_TABS = [
 
 type SettingsTab = (typeof SETTINGS_TABS)[number];
 
+// Вкладки, которые скрываем у не-админов в экспериментальном режиме
+// (модельные/инфраструктурные настройки — за них отвечает обёртка).
+const ADVANCED_TABS: SettingsTab[] = [
+  "llm",
+  "embedding",
+  "connectors",
+  "image",
+  "search",
+  "sandbox",
+];
+
 const isSettingsTab = (value: string | undefined): value is SettingsTab =>
   value !== undefined && SETTINGS_TABS.includes(value as SettingsTab);
 
 const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const { tab } = useParams<{ tab?: string }>();
+  const { hideAdvanced } = useExperimentalMode();
 
   if (!isSettingsTab(tab)) {
     return <Navigate to="/settings/general" replace />;
   }
 
+  // Прямой заход по URL на скрытую вкладку — редирект на «Основные».
+  if (hideAdvanced && ADVANCED_TABS.includes(tab)) {
+    return <Navigate to="/settings/general" replace />;
+  }
+
   const activeTab = tab;
 
-  const tabs: { id: SettingsTab; label: string }[] = [
+  const allTabs: { id: SettingsTab; label: string }[] = [
     { id: "general", label: "Основные" },
     { id: "llm", label: "LLM" },
     { id: "embedding", label: "Embeddings" },
@@ -49,6 +67,9 @@ const SettingsPage: React.FC = () => {
     { id: "channels", label: "Каналы" },
     { id: "skills", label: "Скиллы" },
   ];
+  const tabs = allTabs.filter(
+    (t) => !hideAdvanced || !ADVANCED_TABS.includes(t.id),
+  );
 
   const renderContent = () => {
     switch (activeTab) {

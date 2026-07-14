@@ -95,7 +95,7 @@ function mergeLocalServer(s: LocalServer): UnifiedServer {
 }
 
 export function useConnectors(): UseConnectorsResult {
-  const { user, refreshUser } = useAuth();
+  const { token, user, refreshUser } = useAuth();
   const [connectors, setConnectors] = useState<UnifiedServer[]>([]);
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [moduleCatalog, setModuleCatalog] = useState<ModuleCatalogEntry[]>([]);
@@ -140,11 +140,21 @@ export function useConnectors(): UseConnectorsResult {
     }
   }, []);
 
+  // Загрузка привязана к токену: провайдер монтируется выше ProtectedRoute
+  // (в т.ч. на /login), поэтому без этой зависимости эффект отрабатывал бы
+  // один раз без токена и не перезапускался после логина — коннекторы
+  // появлялись бы только после полной перезагрузки страницы.
   useEffect(() => {
+    if (!token) return;
     void reloadCatalog();
-  }, [reloadCatalog]);
+  }, [token, reloadCatalog]);
 
   useEffect(() => {
+    if (!token) {
+      setConnectors([]);
+      setConfigPath(null);
+      return;
+    }
     void reload();
     if (RUNTIME_LOCAL) {
       apiClient
@@ -152,7 +162,7 @@ export function useConnectors(): UseConnectorsResult {
         .then((r) => setConfigPath(r.path))
         .catch(() => {});
     }
-  }, [reload]);
+  }, [token, reload]);
 
   const toggleActive = useCallback(
     async (id: string, isActive: boolean) => {

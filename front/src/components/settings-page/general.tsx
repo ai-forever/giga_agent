@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { useTheme, ThemeMode } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { API_AGENT_PREFIX } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { z } from "zod";
@@ -179,6 +180,7 @@ const dedupeAgentSecretsMeta = (
 export const GeneralSettings: React.FC = () => {
   const { themeMode } = useTheme();
   const { user, refreshUser } = useAuth();
+  const { hideAdvanced } = useExperimentalMode();
 
   const [llmList, setLlmList] = useState<LLMResponse[]>([]);
   const [imageGeneratorList, setImageGeneratorList] = useState<
@@ -565,130 +567,143 @@ export const GeneralSettings: React.FC = () => {
             </SelectContent>
           </Select>
         </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label className="block grow-1" htmlFor="default-llm-select">
-            <div>Модель по умолчанию</div>
-            <p className="text-sm text-muted-foreground mt-2">
-              Выберите LLM, которая будет использоваться по умолчанию
-            </p>
-          </Label>
-          <Select
-            value={defaultLLM}
-            onValueChange={setDefaultLLM}
-            disabled={loadingLLMs}
-          >
-            <SelectTrigger id="default-llm-select" className="w-full">
-              <SelectValue
-                placeholder={loadingLLMs ? "Загрузка..." : "Выберите LLM"}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_LLM_VALUE}>Не выбрана</SelectItem>
-              {llmList.map((llm) => (
-                <SelectItem key={llm.id} value={llm.id}>
-                  {llm.name || llm.model_id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label className="block grow-1" htmlFor="fast-llm-select">
-            <div>Быстрая модель</div>
-            <p className="text-sm text-muted-foreground mt-2">
-              Используется в быстрых и вспомогательных задачах. Если не выбрана,
-              наследуется основная модель.
-            </p>
-          </Label>
-          <Select
-            value={fastLLM}
-            onValueChange={setFastLLM}
-            disabled={loadingLLMs}
-          >
-            <SelectTrigger id="fast-llm-select" className="w-full">
-              <SelectValue
-                placeholder={loadingLLMs ? "Загрузка..." : "Выберите LLM"}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={FAST_LLM_INHERIT_VALUE}>
-                ({selectedDefaultLlmLabel})
-              </SelectItem>
-              {llmList.map((llm) => (
-                <SelectItem key={llm.id} value={llm.id}>
-                  {llm.name || llm.model_id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label
-            className="block grow-1"
-            htmlFor="default-image-generator-select"
-          >
-            <div>Image generator</div>
-            <p className="text-sm text-muted-foreground mt-2">
-              Выберите генератор изображений по умолчанию
-            </p>
-          </Label>
-          <Select
-            value={currentImageGenerator}
-            onValueChange={setCurrentImageGenerator}
-            disabled={loadingImageGenerators}
-          >
-            <SelectTrigger
-              id="default-image-generator-select"
-              className="w-full"
-            >
-              <SelectValue
-                placeholder={
-                  loadingImageGenerators ? "Загрузка..." : "Не выбран"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_IMAGE_GENERATOR_VALUE}>
-                Не выбран
-              </SelectItem>
-              {imageGeneratorList.map((generator) => (
-                <SelectItem key={generator.id} value={generator.id}>
-                  {generator.name || generator.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
-          <Label
-            className="block grow-1"
-            htmlFor="default-search-engine-select"
-          >
-            <div>Search engine</div>
-            <p className="text-sm text-muted-foreground mt-2">
-              Выберите поисковый движок по умолчанию
-            </p>
-          </Label>
-          <Select
-            value={currentSearchEngine}
-            onValueChange={setCurrentSearchEngine}
-            disabled={loadingSearchEngines}
-          >
-            <SelectTrigger id="default-search-engine-select" className="w-full">
-              <SelectValue
-                placeholder={loadingSearchEngines ? "Загрузка..." : "Не выбран"}
-              />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_SEARCH_ENGINE_VALUE}>Не выбран</SelectItem>
-              {searchEngineList.map((engine) => (
-                <SelectItem key={engine.id} value={engine.id}>
-                  {engine.name || engine.type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Модель/движки скрыты у не-админов в экспериментальном режиме —
+            выбором управляет обёртка. */}
+        {!hideAdvanced && (
+          <>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+              <Label className="block grow-1" htmlFor="default-llm-select">
+                <div>Модель по умолчанию</div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Выберите LLM, которая будет использоваться по умолчанию
+                </p>
+              </Label>
+              <Select
+                value={defaultLLM}
+                onValueChange={setDefaultLLM}
+                disabled={loadingLLMs}
+              >
+                <SelectTrigger id="default-llm-select" className="w-full">
+                  <SelectValue
+                    placeholder={loadingLLMs ? "Загрузка..." : "Выберите LLM"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_LLM_VALUE}>Не выбрана</SelectItem>
+                  {llmList.map((llm) => (
+                    <SelectItem key={llm.id} value={llm.id}>
+                      {llm.name || llm.model_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+              <Label className="block grow-1" htmlFor="fast-llm-select">
+                <div>Быстрая модель</div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Используется в быстрых и вспомогательных задачах. Если не
+                  выбрана, наследуется основная модель.
+                </p>
+              </Label>
+              <Select
+                value={fastLLM}
+                onValueChange={setFastLLM}
+                disabled={loadingLLMs}
+              >
+                <SelectTrigger id="fast-llm-select" className="w-full">
+                  <SelectValue
+                    placeholder={loadingLLMs ? "Загрузка..." : "Выберите LLM"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FAST_LLM_INHERIT_VALUE}>
+                    ({selectedDefaultLlmLabel})
+                  </SelectItem>
+                  {llmList.map((llm) => (
+                    <SelectItem key={llm.id} value={llm.id}>
+                      {llm.name || llm.model_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+              <Label
+                className="block grow-1"
+                htmlFor="default-image-generator-select"
+              >
+                <div>Image generator</div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Выберите генератор изображений по умолчанию
+                </p>
+              </Label>
+              <Select
+                value={currentImageGenerator}
+                onValueChange={setCurrentImageGenerator}
+                disabled={loadingImageGenerators}
+              >
+                <SelectTrigger
+                  id="default-image-generator-select"
+                  className="w-full"
+                >
+                  <SelectValue
+                    placeholder={
+                      loadingImageGenerators ? "Загрузка..." : "Не выбран"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_IMAGE_GENERATOR_VALUE}>
+                    Не выбран
+                  </SelectItem>
+                  {imageGeneratorList.map((generator) => (
+                    <SelectItem key={generator.id} value={generator.id}>
+                      {generator.name || generator.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-center">
+              <Label
+                className="block grow-1"
+                htmlFor="default-search-engine-select"
+              >
+                <div>Search engine</div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Выберите поисковый движок по умолчанию
+                </p>
+              </Label>
+              <Select
+                value={currentSearchEngine}
+                onValueChange={setCurrentSearchEngine}
+                disabled={loadingSearchEngines}
+              >
+                <SelectTrigger
+                  id="default-search-engine-select"
+                  className="w-full"
+                >
+                  <SelectValue
+                    placeholder={
+                      loadingSearchEngines ? "Загрузка..." : "Не выбран"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_SEARCH_ENGINE_VALUE}>
+                    Не выбран
+                  </SelectItem>
+                  {searchEngineList.map((engine) => (
+                    <SelectItem key={engine.id} value={engine.id}>
+                      {engine.name || engine.type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        )}
 
         <div className="flex items-center gap-2 pt-2">
           <button
@@ -733,130 +748,138 @@ export const GeneralSettings: React.FC = () => {
                   />
                 </section>
 
-                <section className="space-y-3">
-                  <div>
-                    <h3 className="font-medium text-sm">API-ключи модулей</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Ключи, которые запрашиваются активными модулями агента.
-                    </p>
-                  </div>
-
-                  {loadingAgentSecrets && (
-                    <div className="text-sm text-muted-foreground">
-                      Загрузка API-ключей...
+                {!hideAdvanced && (
+                  <section className="space-y-3">
+                    <div>
+                      <h3 className="font-medium text-sm">API-ключи модулей</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Ключи, которые запрашиваются активными модулями агента.
+                      </p>
                     </div>
-                  )}
 
-                  {!loadingAgentSecrets && agentSecretMeta.length === 0 && (
-                    <div className="text-sm text-muted-foreground">
-                      Модули не запросили API-ключи.
-                    </div>
-                  )}
+                    {loadingAgentSecrets && (
+                      <div className="text-sm text-muted-foreground">
+                        Загрузка API-ключей...
+                      </div>
+                    )}
 
-                  <div className="space-y-3">
-                    {agentSecretMeta.map((secretMeta) => (
-                      <div
-                        key={secretMeta.name}
-                        className="border rounded-lg p-3 bg-muted/40"
-                      >
-                        <div className="grid gap-3 md:grid-cols-2 md:items-center">
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`agent-secret-${secretMeta.name}`}>
-                              {secretMeta.name}
-                            </Label>
-                            {secretMeta.description && (
-                              <p className="text-sm text-muted-foreground">
-                                {secretMeta.description}
-                              </p>
+                    {!loadingAgentSecrets && agentSecretMeta.length === 0 && (
+                      <div className="text-sm text-muted-foreground">
+                        Модули не запросили API-ключи.
+                      </div>
+                    )}
+
+                    <div className="space-y-3">
+                      {agentSecretMeta.map((secretMeta) => (
+                        <div
+                          key={secretMeta.name}
+                          className="border rounded-lg p-3 bg-muted/40"
+                        >
+                          <div className="grid gap-3 md:grid-cols-2 md:items-center">
+                            <div className="space-y-1.5">
+                              <Label
+                                htmlFor={`agent-secret-${secretMeta.name}`}
+                              >
+                                {secretMeta.name}
+                              </Label>
+                              {secretMeta.description && (
+                                <p className="text-sm text-muted-foreground">
+                                  {secretMeta.description}
+                                </p>
+                              )}
+                            </div>
+                            {secretMeta.type === "llm_id" ? (
+                              <Select
+                                value={
+                                  (
+                                    agentSecretsValues[secretMeta.name] ?? ""
+                                  ).trim() || NO_SECRET_LLM_VALUE
+                                }
+                                onValueChange={(value) =>
+                                  updateAgentSecretValue(
+                                    secretMeta.name,
+                                    value === NO_SECRET_LLM_VALUE ? "" : value,
+                                  )
+                                }
+                              >
+                                <SelectTrigger
+                                  id={`agent-secret-${secretMeta.name}`}
+                                  className="w-full"
+                                >
+                                  <SelectValue placeholder="Выберите LLM" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={NO_SECRET_LLM_VALUE}>
+                                    Не выбрана
+                                  </SelectItem>
+                                  {llmList.map((llm) => (
+                                    <SelectItem key={llm.id} value={llm.id}>
+                                      {llm.name || llm.model_id}
+                                    </SelectItem>
+                                  ))}
+                                  {(
+                                    agentSecretsValues[secretMeta.name] ?? ""
+                                  ).trim() &&
+                                    !llmList.some(
+                                      (llm) =>
+                                        llm.id ===
+                                        (
+                                          agentSecretsValues[secretMeta.name] ??
+                                          ""
+                                        ).trim(),
+                                    ) && (
+                                      <SelectItem
+                                        value={(
+                                          agentSecretsValues[secretMeta.name] ??
+                                          ""
+                                        ).trim()}
+                                      >
+                                        Недоступная LLM
+                                      </SelectItem>
+                                    )}
+                                </SelectContent>
+                              </Select>
+                            ) : secretMeta.type === "text" ? (
+                              <Input
+                                id={`agent-secret-${secretMeta.name}`}
+                                placeholder="Введите значение"
+                                value={
+                                  agentSecretsValues[secretMeta.name] ?? ""
+                                }
+                                onChange={(e) =>
+                                  updateAgentSecretValue(
+                                    secretMeta.name,
+                                    e.target.value,
+                                  )
+                                }
+                              />
+                            ) : (
+                              <SecretInput
+                                id={`agent-secret-${secretMeta.name}`}
+                                placeholder="Введите значение API-ключа"
+                                value={
+                                  agentSecretsValues[secretMeta.name] ?? ""
+                                }
+                                onFocus={() =>
+                                  handlePassSecretFocus(secretMeta.name)
+                                }
+                                onBlur={() =>
+                                  handlePassSecretBlur(secretMeta.name)
+                                }
+                                onChange={(e) =>
+                                  updateAgentSecretValue(
+                                    secretMeta.name,
+                                    e.target.value,
+                                  )
+                                }
+                              />
                             )}
                           </div>
-                          {secretMeta.type === "llm_id" ? (
-                            <Select
-                              value={
-                                (
-                                  agentSecretsValues[secretMeta.name] ?? ""
-                                ).trim() || NO_SECRET_LLM_VALUE
-                              }
-                              onValueChange={(value) =>
-                                updateAgentSecretValue(
-                                  secretMeta.name,
-                                  value === NO_SECRET_LLM_VALUE ? "" : value,
-                                )
-                              }
-                            >
-                              <SelectTrigger
-                                id={`agent-secret-${secretMeta.name}`}
-                                className="w-full"
-                              >
-                                <SelectValue placeholder="Выберите LLM" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value={NO_SECRET_LLM_VALUE}>
-                                  Не выбрана
-                                </SelectItem>
-                                {llmList.map((llm) => (
-                                  <SelectItem key={llm.id} value={llm.id}>
-                                    {llm.name || llm.model_id}
-                                  </SelectItem>
-                                ))}
-                                {(
-                                  agentSecretsValues[secretMeta.name] ?? ""
-                                ).trim() &&
-                                  !llmList.some(
-                                    (llm) =>
-                                      llm.id ===
-                                      (
-                                        agentSecretsValues[secretMeta.name] ??
-                                        ""
-                                      ).trim(),
-                                  ) && (
-                                    <SelectItem
-                                      value={(
-                                        agentSecretsValues[secretMeta.name] ??
-                                        ""
-                                      ).trim()}
-                                    >
-                                      Недоступная LLM
-                                    </SelectItem>
-                                  )}
-                              </SelectContent>
-                            </Select>
-                          ) : secretMeta.type === "text" ? (
-                            <Input
-                              id={`agent-secret-${secretMeta.name}`}
-                              placeholder="Введите значение"
-                              value={agentSecretsValues[secretMeta.name] ?? ""}
-                              onChange={(e) =>
-                                updateAgentSecretValue(
-                                  secretMeta.name,
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          ) : (
-                            <SecretInput
-                              id={`agent-secret-${secretMeta.name}`}
-                              placeholder="Введите значение API-ключа"
-                              value={agentSecretsValues[secretMeta.name] ?? ""}
-                              onFocus={() =>
-                                handlePassSecretFocus(secretMeta.name)
-                              }
-                              onBlur={() =>
-                                handlePassSecretBlur(secretMeta.name)
-                              }
-                              onChange={(e) =>
-                                updateAgentSecretValue(
-                                  secretMeta.name,
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          )}
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
                 <section className="space-y-3">
                   <div className="flex items-center justify-between">

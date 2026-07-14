@@ -3,7 +3,7 @@ import { Trash2, Loader2, Plus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 
-import { API_AGENT_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX, EXPERIMENTAL_MODE } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { useConfirm } from "@/components/providers/confirm.tsx";
@@ -38,6 +38,7 @@ type UserFormState = {
   last_name: string;
   is_active: boolean;
   is_superuser: boolean;
+  experimental_mode: boolean;
   group_ids: string[];
   copy_owner_runtime_ids: boolean;
   copy_owner_module_secrets: boolean;
@@ -50,6 +51,7 @@ const initialFormState: UserFormState = {
   last_name: "",
   is_active: true,
   is_superuser: false,
+  experimental_mode: true,
   group_ids: [],
   copy_owner_runtime_ids: false,
   copy_owner_module_secrets: false,
@@ -143,6 +145,9 @@ const AdminUsersTab: React.FC = () => {
         last_name: form.last_name || null,
         is_active: form.is_active,
         is_superuser: form.is_superuser,
+        ...(EXPERIMENTAL_MODE
+          ? { experimental_mode: form.experimental_mode }
+          : {}),
         group_ids: form.group_ids,
         copy_owner_runtime_ids: form.copy_owner_runtime_ids,
         copy_owner_module_secrets: form.copy_owner_module_secrets,
@@ -190,6 +195,7 @@ const AdminUsersTab: React.FC = () => {
       last_name: user.last_name ?? "",
       is_active: user.is_active,
       is_superuser: user.is_superuser,
+      experimental_mode: user.experimental_mode,
       group_ids: [],
       copy_owner_runtime_ids: false,
       copy_owner_module_secrets: false,
@@ -208,6 +214,10 @@ const AdminUsersTab: React.FC = () => {
       is_active: editForm.is_active,
       is_superuser: editForm.is_superuser,
     };
+
+    if (EXPERIMENTAL_MODE) {
+      body.experimental_mode = editForm.experimental_mode;
+    }
 
     if (isChangePassword) {
       body.password = editForm.password;
@@ -440,6 +450,18 @@ const AdminUsersTab: React.FC = () => {
                 />
                 Суперпользователь
               </label>
+              {EXPERIMENTAL_MODE && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={form.experimental_mode}
+                    onCheckedChange={(checked) =>
+                      setForm({ ...form, experimental_mode: checked })
+                    }
+                    disabled={creating}
+                  />
+                  Экспериментальный режим
+                </label>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -630,6 +652,18 @@ const AdminUsersTab: React.FC = () => {
                 />
                 Суперпользователь
               </label>
+              {EXPERIMENTAL_MODE && (
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={editForm.experimental_mode}
+                    onCheckedChange={(checked) =>
+                      setEditForm({ ...editForm, experimental_mode: checked })
+                    }
+                    disabled={updating}
+                  />
+                  Экспериментальный режим
+                </label>
+              )}
             </div>
 
             {editingUserId === currentUser?.id && (

@@ -22,17 +22,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/components/providers/auth.tsx";
-import { API_BASE_URL, EXPERIMENTAL_MODE } from "@/config.ts";
+import { API_BASE_URL } from "@/config.ts";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { refreshThreads } from "@/lib/events";
 
 import { deleteProject, getProject, Project, updateProject } from "./api";
 import KnowledgeSection from "./KnowledgeSection";
-
-// graph_id проектных чатов — совпадает с PROJECT_GRAPH_ID в Sidebar: в
-// experimental-режиме проекты работают с обёрткой giga_agent_experimental.
-const PROJECT_GRAPH_ID = EXPERIMENTAL_MODE
-  ? "giga_agent_experimental"
-  : "giga_agent";
 
 const errorDetail = (e: unknown, fallback: string): string => {
   if (e instanceof ApiError) return e.message || fallback;
@@ -44,6 +39,12 @@ const ProjectPage: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const { token } = useAuth();
+  const { experimentalActive } = useExperimentalMode();
+  // graph_id проектных чатов — совпадает с projectGraphId в Sidebar: в
+  // experimental-режиме проекты работают с обёрткой giga_agent_experimental.
+  const projectGraphId = experimentalActive
+    ? "giga_agent_experimental"
+    : "giga_agent";
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,9 +94,9 @@ const ProjectPage: React.FC = () => {
       setThreadsLoading(true);
       try {
         const result = await langGraphClient.threads.search({
-          // См. PROJECT_GRAPH_ID: в experimental-режиме показываем только
+          // См. projectGraphId: в experimental-режиме показываем только
           // экспериментальные треды проекта, иначе — обычные.
-          metadata: { project_id: projectId, graph_id: PROJECT_GRAPH_ID },
+          metadata: { project_id: projectId, graph_id: projectGraphId },
           limit: 50,
           sortBy: "updated_at",
           sortOrder: "desc",
@@ -109,7 +110,7 @@ const ProjectPage: React.FC = () => {
         if (!signal?.aborted) setThreadsLoading(false);
       }
     },
-    [projectId, langGraphClient],
+    [projectId, langGraphClient, projectGraphId],
   );
 
   useEffect(() => {
@@ -180,7 +181,7 @@ const ProjectPage: React.FC = () => {
           // giga_agent_experimental — проектный тред должен нести тот же
           // graph_id, иначе он не подхватится (и kickoff не перенесёт
           // project_id на скрытый inner-тред giga_agent).
-          graph_id: PROJECT_GRAPH_ID,
+          graph_id: projectGraphId,
         },
       });
       refreshThreads();

@@ -15,8 +15,10 @@ import mimetypes
 import os
 import secrets
 import shutil
+import unicodedata
 from collections.abc import AsyncIterator
 from pathlib import Path
+from urllib.parse import quote
 
 import aiofiles
 import aiofiles.os
@@ -30,9 +32,25 @@ from .models import DirEntry, DirListing, FileStat, WrittenResponse
 router = APIRouter(prefix="/v1/files", tags=["files"], dependencies=[Depends(require_token)])
 
 
+def _content_disposition(disposition: str, filename: str) -> str:
+    """Собрать заголовок ``Content-Disposition`` c поддержкой не-ASCII имён.
+
+    Starlette кодирует заголовки в latin-1, поэтому имя с кириллицей нельзя
+    класть прямо в ``filename=``. По RFC 6266/5987 отдаём ASCII-фолбэк в
+    ``filename=`` и UTF-8 percent-encoded вариант в ``filename*``.
+    """
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace('"', "'")
+    encoded = quote(filename, safe="")
+    return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
+
+
 def _resolve(path: str) -> Path:
     if not path or not path.strip():
         raise HTTPException(status_code=400, detail="path is required")
+    # Канонизируем Unicode в NFC, чтобы имя с составными символами (напр. ``ё``
+    # как ``е`` + U+0308 в NFD с macOS) записывалось и искалось в одной форме —
+    # иначе read/head/stat промахиваются мимо только что записанного файла.
+    path = unicodedata.normalize("NFC", path)
     return Path(path).expanduser()
 
 
@@ -98,7 +116,7 @@ async def read_file(request: Request, path: str = Query(...)):
     disposition = "inline" if inline else "attachment"
     base_headers = {
         "Accept-Ranges": "bytes",
-        "Content-Disposition": f'{disposition}; filename="{local.name}"',
+        "Content-Disposition": _content_disposition(disposition, local.name),
     }
 
     rng = _parse_range(request.headers.get("range"), size)

@@ -16,3 +16,13 @@ export const getActivity = (
     // Поллинг: сетевые сбои не показываем тостом.
     showError: false,
   });
+
+/**
+ * Удалить экспериментальный тред вместе со скрытым inner-тредом.
+ *
+ * Прямое `threads.delete` через SDK удалило бы только внешний тред, оставив
+ * inner-тред реального агента осиротевшим. Эта ручка удаляет оба (см.
+ * ExperimentalModule / api.delete_thread).
+ */
+export const deleteExperimentalThread = (threadId: string): Promise<void> =>
+  apiClient.delete<void>(`${ACTIVITY_API_PREFIX}/thread/${threadId}`);

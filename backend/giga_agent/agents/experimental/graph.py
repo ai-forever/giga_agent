@@ -228,12 +228,23 @@ async def _forget_activity(thread_id: str) -> None:
 _ACTIVE_RUN_STATUSES = {"pending", "running"}
 
 REWRITE_SYSTEM = (
-    "Ты — редактор-корректор. Тебе дают текст ответа ассистента. "
-    "Верни ЕГО ЖЕ, но: исправь опечатки и орфографические/пунктуационные ошибки, "
-    "сделай формулировки естественными и «более русскими» (без канцелярита и калек). "
-    "СТРОГО сохрани смысл, язык, форматирование Markdown, ссылки, код и вставки "
-    "изображений/файлов вида ![...](attachment:...). Ничего не добавляй от себя, "
-    "не отвечай на текст и не комментируй — верни только отредактированную версию."
+    "Ты — корректор. Тебе дают текст ответа ассистента — верни ЕГО ЖЕ, "
+    "исправив ТОЛЬКО явные ошибки: опечатки, орфографию, пунктуацию, "
+    "согласование слов. Правь МИНИМАЛЬНО: не перефразируй нормальные "
+    "предложения, не меняй стиль, порядок и структуру. Если ошибок нет — "
+    "верни текст без изменений. "
+    "Убери случайно вставленные посреди текста иероглифы и другие "
+    "нелатинские/некириллические символы-артефакты, не несущие смысла "
+    "(частый сбой генерации). Но НЕ трогай осмысленный текст на других "
+    "языках, если он к месту. "
+    "НИКОГДА не меняй: смысл, факты, числа, даты, имена, названия, термины, "
+    "цитаты, язык текста. "
+    "ТОЧНО сохрани форматирование: Markdown (заголовки, списки, таблицы, "
+    "жирный/курсив), код и код-блоки, формулы ($...$ и $$...$$), ссылки, "
+    "эмодзи, а также вставки вида ![...](attachment:...) — их не трогай. "
+    "Верни ТОЛЬКО исправленный текст: без вступлений, комментариев, "
+    "пояснений и без обрамления кавычками или ```. Не отвечай на текст и "
+    "не продолжай его."
 )
 
 STATUS_SYSTEM = (
@@ -272,7 +283,8 @@ def _get_rewrite_llm() -> GigaChat:
             model=GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL,
             verify_ssl_certs=False,
             profanity_check=True,
-            streaming=True
+            streaming=True,
+            timeout=60
         )
     return _rewrite_llm
 
@@ -378,9 +390,14 @@ async def _rewrite_ai(text: str) -> AIMessage:
     внешнего графа. Ручной astream «съедал» токены локально — во фронт они не шли.
     """
     llm = _get_rewrite_llm()
-    resp = await llm.ainvoke(
-        [SystemMessage(content=REWRITE_SYSTEM), HumanMessage(content=text)]
-    )
+    try:
+        resp = await llm.with_retry(stop_after_attempt=2).ainvoke(
+            [SystemMessage(content=REWRITE_SYSTEM), HumanMessage(content=text)]
+        )
+    except Exception:
+        # Редактор упал (напр. profanity_check / сетевой сбой) — не роняем ход,
+        # отдаём оригинальный ответ агента как есть.
+        return AIMessage(content=text, additional_kwargs={"rendered": True})
     content = resp.content if isinstance(resp.content, str) and resp.content else text
     return AIMessage(
         content=content,

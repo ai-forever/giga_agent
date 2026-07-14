@@ -1027,6 +1027,14 @@ async def patch_user_by_id(
             )
         user.is_superuser = body.is_superuser
 
+    if "experimental_mode" in body.model_fields_set:
+        if body.experimental_mode is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="experimental_mode must not be null",
+            )
+        user.experimental_mode = body.experimental_mode
+
     await db.commit()
     await db.refresh(user)
     await UserRepository.invalidate_cache(user.id)

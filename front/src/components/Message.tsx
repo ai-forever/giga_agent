@@ -31,7 +31,8 @@ import { useSelectedAttachments } from "../hooks/SelectedAttachmentsContext.tsx"
 import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info-context.ts";
-import { BROWSER_USE_NAME, EXPERIMENTAL_MODE } from "@/config.ts";
+import { BROWSER_USE_NAME } from "@/config.ts";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import type { QuestionsCardItem } from "./MessageList.tsx";
 import { isResponseWidget } from "./widgets/registry";
 import ResponseWidget, {
@@ -242,6 +243,7 @@ const Message: React.FC<MessageProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
+  const { experimentalActive } = useExperimentalMode();
 
   const handleExport = async (format: ExportFormat) => {
     if (!thread || isExporting) return;
@@ -555,7 +557,7 @@ const Message: React.FC<MessageProps> = ({
   // В ExperimentalChat убираем нижний отступ у маркера активности и у всех
   // AI-сообщений, кроме последнего (чтобы промежуточные ответы шли плотно).
   const noBottomMargin =
-    EXPERIMENTAL_MODE &&
+    experimentalActive &&
     (isActivityMarker || (message.type === "ai" && !isLastAi));
 
   return (
@@ -784,7 +786,7 @@ const Message: React.FC<MessageProps> = ({
               message.type === "ai" ? "justify-start" : "justify-end",
             ].join(" ")}
           >
-            {message.type === "human" && (
+            {message.type === "human" && !experimentalActive && (
               <button
                 disabled={
                   !thread || thread.isLoading || branches.initialLoading
@@ -811,7 +813,7 @@ const Message: React.FC<MessageProps> = ({
             {message.type === "ai" && !rawHasToolCalls && (
               <>
                 {/* В экспериментальном режиме кнопку перезагрузки скрываем. */}
-                {!EXPERIMENTAL_MODE && (
+                {!experimentalActive && (
                   <button
                     disabled={
                       !thread || thread.isLoading || branches.initialLoading
@@ -824,7 +826,7 @@ const Message: React.FC<MessageProps> = ({
                 )}
                 {/* Экспорт: обычно у каждого AI, в экспериментальном — только у
                     последнего AI хода. */}
-                {(!EXPERIMENTAL_MODE || isTurnFinalAi) && (
+                {(!experimentalActive || isTurnFinalAi) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
