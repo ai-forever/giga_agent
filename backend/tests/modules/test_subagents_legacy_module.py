@@ -113,10 +113,7 @@ class SubagentsLegacyModuleTests(unittest.IsolatedAsyncioTestCase):
                     "lean_canvas",
                     "city_explore",
                     "podcast_generate",
-                    "create_landing",
-                    "generate_presentation",
                     "create_meme",
-                    "researcher_agent",
                 ]
             ),
         )

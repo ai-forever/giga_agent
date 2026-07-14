@@ -53,11 +53,12 @@ class ChannelsRouterTests(unittest.TestCase):
             first_name=None,
             last_name=None,
             is_approved=True,
+            is_default_task_recipient=False,
             created_at=now,
             updated_at=now,
         )
         self.repo.get_by_id = AsyncMock(return_value=bot)
-        self.repo.set_contact_approved_by_external_id = AsyncMock(
+        self.repo.set_contact_fields_by_external_id = AsyncMock(
             return_value=updated_contact
         )
 
@@ -73,11 +74,12 @@ class ChannelsRouterTests(unittest.TestCase):
         self.assertEqual(payload["chat_type"], "supergroup")
         self.assertEqual(payload["chat_title"], "GigaAgent Team")
         self.repo.get_by_id.assert_awaited_once_with(bot.id)
-        self.repo.set_contact_approved_by_external_id.assert_awaited_once_with(
+        self.repo.set_contact_fields_by_external_id.assert_awaited_once_with(
             bot_id=bot.id,
             external_chat_id=updated_contact.external_chat_id,
             external_user_id=None,
-            approved=True,
+            is_approved=True,
+            is_default_task_recipient=None,
         )
 
 

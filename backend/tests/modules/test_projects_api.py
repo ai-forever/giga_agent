@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base, get_session
 from giga_agent.models.rag import RagCollection, RagCollectionsRepository
 from giga_agent.modules.auth.api import get_current_active_user
@@ -19,6 +20,7 @@ class ProjectsAPITests(unittest.IsolatedAsyncioTestCase):
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        setup_cache()
 
         self.app = FastAPI()
         self.app.include_router(router, prefix="/projects")
@@ -127,6 +129,7 @@ class ProjectsAPIWithCollectionTests(unittest.IsolatedAsyncioTestCase):
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        setup_cache()
 
         self.app = FastAPI()
         self.app.include_router(router, prefix="/projects")
@@ -156,14 +159,31 @@ class ProjectsAPIWithCollectionTests(unittest.IsolatedAsyncioTestCase):
                 metadata=metadata,
             )
 
-        self._patcher = patch(
-            "giga_agent.modules.rag.api.collections.create_collection_for_user",
-            new=fake_create,
-        )
-        self._patcher.start()
+        # The real delete_collection purges sandbox files + Qdrant chunks before
+        # dropping the row; neither backend exists in this test, so stub it down
+        # to just the DB-row delete (the cascade behavior under test).
+        async def fake_delete(*, db, collection):
+            repo = RagCollectionsRepository(db)
+            await repo.delete(
+                owner_id=collection.owner_id, collection_id=collection.id
+            )
+
+        self._patchers = [
+            patch(
+                "giga_agent.modules.rag.api.collections.create_collection_for_user",
+                new=fake_create,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.delete_collection",
+                new=fake_delete,
+            ),
+        ]
+        for patcher in self._patchers:
+            patcher.start()
 
     async def asyncTearDown(self) -> None:
-        self._patcher.stop()
+        for patcher in self._patchers:
+            patcher.stop()
         await self.engine.dispose()
 
     async def _count_collections(self) -> int:

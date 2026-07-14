@@ -239,3 +239,99 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(paths, ["/bucket/recent.png"])
+
+
+_SANDBOX_HEX = "ab" * 16  # 32 hex chars
+
+
+class InjectSandboxAccessTokensTests(unittest.IsolatedAsyncioTestCase):
+    def _service(self, bot_row):
+        bot = types.SimpleNamespace()
+        return TelegramMediaService(bot=bot, bot_row=bot_row)
+
+    @staticmethod
+    def _session_factory():
+        class _Ctx:
+            async def __aenter__(self_inner):
+                return object()
+
+            async def __aexit__(self_inner, *exc):
+                return False
+
+        return AsyncMock(return_value=lambda: _Ctx())
+
+    def _patches(self, *, settings, owner_id):
+        repo = types.SimpleNamespace(
+            get_owner_id_by_sandbox_cached=AsyncMock(return_value=owner_id),
+        )
+        return (
+            patch(
+                "giga_agent.channels.telegram.services.media.get_settings",
+                return_value=settings,
+            ),
+            patch(
+                "giga_agent.channels.telegram.services.media.get_session_factory",
+                self._session_factory(),
+            ),
+            patch(
+                "giga_agent.channels.telegram.services.media.SandboxRepository",
+                return_value=repo,
+            ),
+            patch(
+                "giga_agent.channels.telegram.services.media.mint_sandbox_access_token",
+                AsyncMock(return_value="TESTTOKEN"),
+            ),
+        )
+
+    async def test_redirect_link_rewritten_to_direct_url_with_token(self):
+        bot_row = _bot_row()
+        service = self._service(bot_row)
+        settings = types.SimpleNamespace(
+            giga_agent_public_base_domain=None,
+            giga_agent_sandbox_port_redirect_base="gigapp.ru",
+        )
+        text = (
+            "Открыл порт: "
+            f"https://app.example.com/api/v1/sandbox-redirect/{_SANDBOX_HEX}/8501"
+        )
+        p1, p2, p3, p4 = self._patches(settings=settings, owner_id=bot_row.user_id)
+        with p1, p2, p3, p4:
+            result = await service.inject_sandbox_access_tokens(text)
+
+        self.assertIn(
+            f"https://8501-sandbox-{_SANDBOX_HEX}.gigapp.ru/?__sbx=TESTTOKEN",
+            result,
+        )
+        self.assertNotIn("/sandbox-redirect/", result)
+
+    async def test_redirect_link_foreign_owner_untouched(self):
+        bot_row = _bot_row()
+        service = self._service(bot_row)
+        settings = types.SimpleNamespace(
+            giga_agent_public_base_domain=None,
+            giga_agent_sandbox_port_redirect_base="gigapp.ru",
+        )
+        url = f"https://app.example.com/api/v1/sandbox-redirect/{_SANDBOX_HEX}/8501"
+        # Different owner → no token, link left as-is.
+        p1, p2, p3, p4 = self._patches(settings=settings, owner_id=uuid.uuid4())
+        with p1, p2, p3, p4:
+            result = await service.inject_sandbox_access_tokens(url)
+
+        self.assertEqual(result, url)
+
+    async def test_direct_url_still_gets_token(self):
+        bot_row = _bot_row()
+        service = self._service(bot_row)
+        settings = types.SimpleNamespace(
+            giga_agent_public_base_domain="gigapp.ru",
+            giga_agent_sandbox_port_redirect_base=None,
+        )
+        url = f"https://8501-sandbox-{_SANDBOX_HEX}.gigapp.ru/"
+        p1, p2, p3, p4 = self._patches(settings=settings, owner_id=bot_row.user_id)
+        with p1, p2, p3, p4:
+            result = await service.inject_sandbox_access_tokens(url)
+
+        self.assertEqual(
+            result,
+            f"https://8501-sandbox-{_SANDBOX_HEX}.gigapp.ru/?__sbx=TESTTOKEN",
+        )

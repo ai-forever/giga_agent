@@ -36,7 +36,7 @@ class BaseAgentLocalJupyterManagerTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.vectorstores.qdrant.shutdown_qdrant_client",
             AsyncMock(return_value=None),
         ), patch(
-            "giga_agent.core.agent.base.get_channel_manager",
+            "giga_agent.channels.manager.get_channel_manager",
             return_value=channel_manager,
         ):
             agent = BaseAgent(modules=[], tools=[])

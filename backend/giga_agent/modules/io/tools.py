@@ -429,7 +429,7 @@ def _build_io_command(
     is_error: bool = False,
 ) -> Command:
     tool_message_kwargs: dict = {
-        "tool_call_id": runtime.tool_call_id,
+        "tool_call_id": getattr(runtime, "tool_call_id", "") or "",
         "content": content,
         "name": tool_name,
         "additional_kwargs": {"tool_name": tool_name},

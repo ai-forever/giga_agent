@@ -275,7 +275,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload["content"], "")
         self.assertFalse(payload["expect_response"])
-        self.assertIn("expect_response=False", payload["message"])
+        self.assertIn("Уведомление доставлено пользователю", payload["message"])
         self.assertNotIn("telegram_chat_id", payload)
 
     async def test_resume_pending_message_tool_builds_tool_result_payload(self):
@@ -681,6 +681,8 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
+        client.aclose = AsyncMock()
+
         app.access_service.register_contact = AsyncMock()
         app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-1")
         app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[pending_call])
@@ -810,6 +812,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
                     },
                 ),
             ),
+            aclose=AsyncMock(),
         )
 
         @asynccontextmanager
@@ -875,7 +878,8 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
                         ],
                     }
                 )
-            )
+            ),
+            aclose=AsyncMock(),
         )
 
         @asynccontextmanager
@@ -965,7 +969,8 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
                         [{"run_id": "run-1", "status": "running"}],
                     ]
                 ),
-            )
+            ),
+            aclose=AsyncMock(),
         )
 
         @asynccontextmanager
@@ -1101,6 +1106,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
                     ]
                 ),
             ),
+            aclose=AsyncMock(),
         )
 
         @asynccontextmanager

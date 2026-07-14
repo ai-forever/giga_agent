@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from giga_agent.cli.commands.dev import _ensure_dev_secret_key_env
+from giga_agent.cli.utils.secret_key import ensure_dev_secret_key_env
 
 
 class DevSecretKeyEnvTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class DevSecretKeyEnvTests(unittest.TestCase):
             with patch.dict(
                 os.environ, {"GIGA_AGENT_SECRET_KEY": "env-secret"}, clear=True
             ):
-                _ensure_dev_secret_key_env()
+                ensure_dev_secret_key_env()
 
             self.assertEqual(secret_file.read_text(encoding="utf-8"), "file-secret\n")
 
@@ -29,7 +29,7 @@ class DevSecretKeyEnvTests(unittest.TestCase):
                 "giga_agent.core.paths.ensure_giga_agent_dir",
                 return_value=root,
             ):
-                _ensure_dev_secret_key_env()
+                ensure_dev_secret_key_env()
                 self.assertEqual(os.environ["GIGA_AGENT_SECRET_KEY"], "file-secret")
 
     def test_generates_secret_when_file_does_not_exist(self):
@@ -41,7 +41,7 @@ class DevSecretKeyEnvTests(unittest.TestCase):
                 "giga_agent.core.paths.ensure_giga_agent_dir",
                 return_value=root,
             ):
-                _ensure_dev_secret_key_env()
+                ensure_dev_secret_key_env()
                 generated = os.environ["GIGA_AGENT_SECRET_KEY"]
                 self.assertTrue(secret_file.exists())
                 self.assertEqual(
@@ -59,7 +59,7 @@ class DevSecretKeyEnvTests(unittest.TestCase):
                 "giga_agent.core.paths.ensure_giga_agent_dir",
                 return_value=root,
             ):
-                _ensure_dev_secret_key_env()
+                ensure_dev_secret_key_env()
                 generated = os.environ["GIGA_AGENT_SECRET_KEY"]
                 self.assertEqual(
                     secret_file.read_text(encoding="utf-8"), f"{generated}\n"

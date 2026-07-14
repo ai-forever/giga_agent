@@ -139,6 +139,24 @@ def sandbox_url_pattern(base_domain: str) -> "re.Pattern[str]":
     )
 
 
+def sandbox_redirect_url_pattern() -> "re.Pattern[str]":
+    """Regex matching the same-origin ``…/sandbox-redirect/{hex}/{port}`` link.
+
+    In cross-domain mode (``GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE`` set)
+    ``open_port`` hands the model a clean link on the app domain that 302s to
+    the real sandbox URL after verifying the owner's session cookie. That link
+    is owner-only, so when it is forwarded to a cookie-less surface (Telegram)
+    it must be rewritten into the direct sandbox URL with a capability token —
+    the same target the redirect endpoint would produce. This matches the link
+    regardless of the app host/prefix in front of ``/sandbox-redirect/``.
+    """
+    return re.compile(
+        r"https?://[^\s)>\]\"'<]*?/sandbox-redirect/"
+        r"(?P<hex>[a-f0-9]{32})/(?P<port>\d+)"
+        r"(?:[/?#][^\s)>\]\"'<]*)?"
+    )
+
+
 def append_sandbox_access_token_to_url(url: str, token: str) -> str:
     """Return ``url`` with a ``__sbx`` capability token added to its query.
 

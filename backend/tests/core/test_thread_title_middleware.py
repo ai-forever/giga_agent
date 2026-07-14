@@ -14,26 +14,23 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         middleware = ThreadTitleMiddleware()
         state = {"messages": [HumanMessage(content="Сделай план проекта")]}
         config = {
-            "metadata": {"thread_title": "Уже есть"},
             "configurable": {
                 "thread_id": "t-1",
                 "langgraph_auth_user": {"identity": str(uuid.uuid4())},
             },
         }
 
-        client = types.SimpleNamespace(
-            threads=types.SimpleNamespace(
-                get=AsyncMock(return_value={"metadata": {"thread_title": "Уже есть"}}),
-                update=AsyncMock(),
-            )
-        )
-
+        update = AsyncMock()
         with patch(
-            "giga_agent.middlewares.thread_title.get_client", return_value=client
+            "giga_agent.middlewares.thread_title.get_thread_metadata",
+            AsyncMock(return_value={"thread_title": "Уже есть"}),
+        ), patch(
+            "giga_agent.middlewares.thread_title.update_thread_metadata",
+            update,
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
 
-        client.threads.update.assert_not_awaited()
+        update.assert_not_awaited()
 
     async def test_generates_and_saves_title_once(self):
         middleware = ThreadTitleMiddleware()
@@ -58,13 +55,6 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             }
         }
 
-        client = types.SimpleNamespace(
-            threads=types.SimpleNamespace(
-                get=AsyncMock(return_value={"metadata": {}}),
-                update=AsyncMock(),
-            )
-        )
-
         llm = types.SimpleNamespace(
             ainvoke=AsyncMock(
                 return_value=AIMessage(content='{"thread_title":"Выбор ноутбука"}')
@@ -73,8 +63,13 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         llm.with_config = Mock(return_value=llm)
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
+        update = AsyncMock()
         with patch(
-            "giga_agent.middlewares.thread_title.get_client", return_value=client
+            "giga_agent.middlewares.thread_title.get_thread_metadata",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.middlewares.thread_title.update_thread_metadata",
+            update,
         ), patch.object(
             RuntimeResolver,
             "get_fast_llm_runtime",
@@ -82,10 +77,10 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
 
-        client.threads.update.assert_awaited_once()
-        args, kwargs = client.threads.update.await_args
-        self.assertEqual(args[0], "t-2")
-        self.assertEqual(kwargs["metadata"]["thread_title"], "Выбор ноутбука")
+        update.assert_awaited_once()
+        args, kwargs = update.await_args
+        self.assertEqual(args[1], "t-2")
+        self.assertEqual(args[2]["thread_title"], "Выбор ноутбука")
 
     async def test_fallback_to_first_three_words_when_llm_not_json(self):
         middleware = ThreadTitleMiddleware()
@@ -109,21 +104,19 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             }
         }
 
-        client = types.SimpleNamespace(
-            threads=types.SimpleNamespace(
-                get=AsyncMock(return_value={"metadata": {}}),
-                update=AsyncMock(),
-            )
-        )
-
         llm = types.SimpleNamespace(
             ainvoke=AsyncMock(return_value=AIMessage(content="Выбор ноутбука"))
         )
         llm.with_config = Mock(return_value=llm)
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
+        update = AsyncMock()
         with patch(
-            "giga_agent.middlewares.thread_title.get_client", return_value=client
+            "giga_agent.middlewares.thread_title.get_thread_metadata",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.middlewares.thread_title.update_thread_metadata",
+            update,
         ), patch.object(
             RuntimeResolver,
             "get_fast_llm_runtime",
@@ -131,7 +124,7 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
 
-        client.threads.update.assert_awaited_once()
-        args, kwargs = client.threads.update.await_args
-        self.assertEqual(args[0], "t-3")
-        self.assertEqual(kwargs["metadata"]["thread_title"], "Помоги выбрать ноутбук")
+        update.assert_awaited_once()
+        args, kwargs = update.await_args
+        self.assertEqual(args[1], "t-3")
+        self.assertEqual(args[2]["thread_title"], "Помоги выбрать ноутбук")

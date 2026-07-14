@@ -1,7 +1,6 @@
 import types
 import unittest
 import uuid
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 from giga_agent.generators.image.grok.generator import GrokImagineImageGen
@@ -37,29 +36,20 @@ class ImageModuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_module_enabled_with_current_generator(self):
         module = ImageModule()
         user = types.SimpleNamespace(id=uuid.uuid4(), image_generator_id=uuid.uuid4())
-        record = types.SimpleNamespace(
-            id=user.image_generator_id,
-            owner_id=user.id,
-            type="openai",
-            is_active=True,
+        config = {"configurable": {}}
+        resolver = types.SimpleNamespace(
+            has_image_generator=True,
+            get_image_generator=AsyncMock(return_value=_RuntimeStub()),
         )
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
         with patch(
-            "giga_agent.modules.image.module.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRegistry.get",
-            return_value=_RuntimeStub,
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ):
-            tools = await module.get_tools(user=user, agent=object())
-            instructions = await module.get_instructions(user=user, agent=object())
+            tools = await module.get_tools(user=user, agent=object(), config=config)
+            instructions = await module.get_instructions(
+                user=user, agent=object(), config=config
+            )
 
         self.assertEqual(len(tools), 1)
         self.assertEqual(tools[0].name, "provider_image_tool")
@@ -69,20 +59,20 @@ class ImageModuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_module_returns_no_tools_for_invalid_generator_ref(self):
         module = ImageModule()
         user = types.SimpleNamespace(id=uuid.uuid4(), image_generator_id=uuid.uuid4())
-
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
+        config = {"configurable": {}}
+        resolver = types.SimpleNamespace(
+            has_image_generator=False,
+            get_image_generator=AsyncMock(),
+        )
 
         with patch(
-            "giga_agent.modules.image.module.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRepository.get_cached_or_db",
-            AsyncMock(return_value=None),
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ):
-            tools = await module.get_tools(user=user, agent=object())
-            instructions = await module.get_instructions(user=user, agent=object())
+            tools = await module.get_tools(user=user, agent=object(), config=config)
+            instructions = await module.get_instructions(
+                user=user, agent=object(), config=config
+            )
 
         self.assertEqual(tools, [])
         self.assertIsNone(instructions)
@@ -90,28 +80,19 @@ class ImageModuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_module_exposes_grok_specific_tool(self):
         module = ImageModule()
         user = types.SimpleNamespace(id=uuid.uuid4(), image_generator_id=uuid.uuid4())
-        record = types.SimpleNamespace(
-            id=user.image_generator_id,
-            owner_id=user.id,
-            type="grok_imagine",
-            is_active=True,
+        config = {"configurable": {}}
+        resolver = types.SimpleNamespace(
+            has_image_generator=True,
+            get_image_generator=AsyncMock(
+                return_value=GrokImagineImageGen(api_key="test-key")
+            ),
         )
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
         with patch(
-            "giga_agent.modules.image.module.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRegistry.get",
-            return_value=GrokImagineImageGen,
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ):
-            tools = await module.get_tools(user=user, agent=object())
+            tools = await module.get_tools(user=user, agent=object(), config=config)
 
         tool_names = {tool.name for tool in tools}
         self.assertIn("gen_image", tool_names)
@@ -120,28 +101,19 @@ class ImageModuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_module_exposes_nano_banana_specific_tool(self):
         module = ImageModule()
         user = types.SimpleNamespace(id=uuid.uuid4(), image_generator_id=uuid.uuid4())
-        record = types.SimpleNamespace(
-            id=user.image_generator_id,
-            owner_id=user.id,
-            type="nano_banana",
-            is_active=True,
+        config = {"configurable": {}}
+        resolver = types.SimpleNamespace(
+            has_image_generator=True,
+            get_image_generator=AsyncMock(
+                return_value=NanoBananaImageGen(api_key="test-key")
+            ),
         )
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
         with patch(
-            "giga_agent.modules.image.module.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.modules.image.module.ImageGeneratorRegistry.get",
-            return_value=NanoBananaImageGen,
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ):
-            tools = await module.get_tools(user=user, agent=object())
+            tools = await module.get_tools(user=user, agent=object(), config=config)
 
         tool_names = {tool.name for tool in tools}
         self.assertIn("gen_image", tool_names)

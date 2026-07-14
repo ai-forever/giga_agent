@@ -31,6 +31,7 @@ from giga_agent.models.sandbox import SandboxRepository
 from giga_agent.sandbox.access import (
     append_sandbox_access_token_to_url,
     mint_sandbox_access_token,
+    sandbox_redirect_url_pattern,
     sandbox_url_pattern,
 )
 
@@ -71,17 +72,44 @@ class TelegramMediaService:
         per-``(sandbox, port)`` token is appended here — by code, not by the
         model, which composes the query unreliably. Only sandboxes owned by this
         bot's user get a token; foreign or unknown URLs are left untouched.
+
+        Two URL shapes are handled:
+
+        * Direct nginx URLs ``https://{port}-sandbox-{hex}.{public_base_domain}/``
+          — the token is appended in place.
+        * Cross-domain redirect links ``…/sandbox-redirect/{hex}/{port}`` (mode
+          ``GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE``) — these are owner-only
+          (session-cookie gated), so they are rewritten into the direct sandbox
+          URL on ``{redirect_base}`` with a token, i.e. the exact target the
+          redirect endpoint would 302 to, but usable without a cookie.
         """
-        if not text or "-sandbox-" not in text:
+        if not text:
             return text
-        base_domain = get_settings().giga_agent_public_base_domain
-        if not base_domain:
+        settings = get_settings()
+        base_domain = settings.giga_agent_public_base_domain
+        redirect_base = settings.giga_agent_sandbox_port_redirect_base
+
+        direct_pattern = (
+            sandbox_url_pattern(base_domain)
+            if base_domain and "-sandbox-" in text
+            else None
+        )
+        redirect_pattern = (
+            sandbox_redirect_url_pattern()
+            if redirect_base and "/sandbox-redirect/" in text
+            else None
+        )
+        if direct_pattern is None and redirect_pattern is None:
             return text
-        pattern = sandbox_url_pattern(base_domain)
-        pairs = {
-            (match.group("hex"), int(match.group("port")))
-            for match in pattern.finditer(text)
-        }
+
+        pairs: set[tuple[str, int]] = set()
+        for pattern in (direct_pattern, redirect_pattern):
+            if pattern is None:
+                continue
+            pairs.update(
+                (match.group("hex"), int(match.group("port")))
+                for match in pattern.finditer(text)
+            )
         if not pairs:
             return text
 
@@ -104,13 +132,30 @@ class TelegramMediaService:
         if not tokens:
             return text
 
-        def _replace(match: "re.Match[str]") -> str:
-            token = tokens.get((match.group("hex"), int(match.group("port"))))
-            if not token:
-                return match.group(0)
-            return append_sandbox_access_token_to_url(match.group(0), token)
+        if direct_pattern is not None:
 
-        return pattern.sub(_replace, text)
+            def _replace_direct(match: "re.Match[str]") -> str:
+                token = tokens.get((match.group("hex"), int(match.group("port"))))
+                if not token:
+                    return match.group(0)
+                return append_sandbox_access_token_to_url(match.group(0), token)
+
+            text = direct_pattern.sub(_replace_direct, text)
+
+        if redirect_pattern is not None:
+
+            def _replace_redirect(match: "re.Match[str]") -> str:
+                sandbox_hex = match.group("hex")
+                port = int(match.group("port"))
+                token = tokens.get((sandbox_hex, port))
+                if not token:
+                    return match.group(0)
+                url = f"https://{port}-sandbox-{sandbox_hex}.{redirect_base}/"
+                return append_sandbox_access_token_to_url(url, token)
+
+            text = redirect_pattern.sub(_replace_redirect, text)
+
+        return text
 
     async def upload_tg_file(
         self,

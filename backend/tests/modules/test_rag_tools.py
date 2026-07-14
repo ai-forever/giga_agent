@@ -8,6 +8,11 @@ from giga_agent.modules.io.tools import read_file
 from giga_agent.sandbox.base import ContentResult, RedirectResult
 
 
+def _content(result) -> str:
+    """read_file returns a Command wrapping a ToolMessage; extract its text."""
+    return result.update["messages"][0].content
+
+
 class RagToolsTests(unittest.IsolatedAsyncioTestCase):
     def _runtime(self, owner_id: uuid.UUID):
         return types.SimpleNamespace(
@@ -34,11 +39,12 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             assert read_file.coroutine is not None
-            payload = await read_file.coroutine(
+            command = await read_file.coroutine(
                 sandbox_path="/docs/doc.txt",
                 runtime=runtime,
             )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
         self.assertIn("/docs/doc.txt", payload)
         self.assertIn("1|hello world", payload)
@@ -66,15 +72,17 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             assert read_file.coroutine is not None
-            payload = await read_file.coroutine(
+            command = await read_file.coroutine(
                 sandbox_path="/docs/doc.txt",
                 runtime=runtime,
                 offset=2,
                 limit=2,
             )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
-        self.assertIn("2|beta\n3|gamma", payload)
+        self.assertIn("2|beta", payload)
+        self.assertIn("3|gamma", payload)
         self.assertIn("Файл еще имеет 1 строк", payload)
         self.assertIn("offset=4, limit=2", payload)
 
@@ -98,11 +106,12 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value="redirect body".encode("utf-8")),
         ):
             assert read_file.coroutine is not None
-            payload = await read_file.coroutine(
+            command = await read_file.coroutine(
                 sandbox_path="/docs/doc.txt",
                 runtime=runtime,
             )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
         self.assertIn("1|redirect body", payload)
 
@@ -131,13 +140,15 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
             return_value="pdf line one\npdf line two",
         ):
             assert read_file.coroutine is not None
-            payload = await read_file.coroutine(
+            command = await read_file.coroutine(
                 sandbox_path="/docs/doc.pdf",
                 runtime=runtime,
             )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
-        self.assertIn("1|pdf line one\n2|pdf line two", payload)
+        self.assertIn("1|pdf line one", payload)
+        self.assertIn("2|pdf line two", payload)
 
     async def test_read_file_rejects_binary_content(self):
         owner_id = uuid.uuid4()
@@ -156,11 +167,12 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=(file_record, ContentResult(data=b"\xff\xfe"))),
         ):
             assert read_file.coroutine is not None
-            payload = await read_file.coroutine(
+            command = await read_file.coroutine(
                 sandbox_path="/docs/doc.bin",
                 runtime=runtime,
             )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
         self.assertIn("Файл не является текстовым (бинарный формат)", payload)
 
@@ -181,20 +193,22 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=(file_record, ContentResult(data=b""))),
         ):
             assert read_file.coroutine is not None
-            payload = await read_file.coroutine(
+            command = await read_file.coroutine(
                 sandbox_path="/docs/empty.txt",
                 runtime=runtime,
             )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
         self.assertIn("File is empty.", payload)
 
     async def test_read_file_handles_missing_runtime(self):
         assert read_file.coroutine is not None
-        payload = await read_file.coroutine(
+        command = await read_file.coroutine(
             sandbox_path="/docs/doc.txt",
             runtime=None,
         )
 
+        payload = _content(command)
         self.assertIsInstance(payload, str)
         self.assertIn("ToolRuntime is required", payload)

@@ -1,4 +1,3 @@
-import types
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -15,19 +14,16 @@ def _state_with_tool_call(name: str, mcp_tools=None):
     return {"messages": [msg], "mcp_tools": mcp_tools or []}
 
 
-def _client_mock():
-    return types.SimpleNamespace(
-        threads=types.SimpleNamespace(update=AsyncMock())
-    )
-
-
 class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
     async def test_skips_interrupt_when_auto_approve_in_metadata(self):
         middleware = ToolResultMiddleware()
         state = _state_with_tool_call("python")
-        config = {"metadata": {"auto_approve": True}, "configurable": {}}
+        config = {"metadata": {}, "configurable": {}}
 
         with patch(
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={"auto_approve": True}),
+        ), patch(
             "giga_agent.middlewares.tool_result.interrupt"
         ) as interrupt_mock:
             result = await middleware.after_model(
@@ -37,13 +33,17 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
         interrupt_mock.assert_not_called()
         self.assertIsNone(result)
 
-    async def test_configurable_overrides_metadata(self):
+    async def test_after_model_reads_auto_approve_from_thread_metadata(self):
+        # after_model honors the live thread metadata; configurable no longer
+        # participates (the sync into metadata happens in before_agent).
         middleware = ToolResultMiddleware()
         state = _state_with_tool_call("python")
-        # metadata says off, but the active run passes auto_approve=True.
-        config = {"metadata": {"auto_approve": False}, "configurable": {"auto_approve": True}}
+        config = {"metadata": {}, "configurable": {"auto_approve": False}}
 
         with patch(
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={"auto_approve": True}),
+        ), patch(
             "giga_agent.middlewares.tool_result.interrupt"
         ) as interrupt_mock:
             result = await middleware.after_model(
@@ -59,6 +59,9 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
         config = {"metadata": {}, "configurable": {}}
 
         with patch(
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={}),
+        ), patch(
             "giga_agent.middlewares.tool_result.interrupt",
             return_value={"type": "approve"},
         ) as interrupt_mock:
@@ -69,9 +72,12 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
     async def test_frontend_actions_always_interrupt_even_with_auto_approve(self):
         middleware = ToolResultMiddleware()
         state = _state_with_tool_call("my_mcp", mcp_tools=[{"name": "my_mcp"}])
-        config = {"metadata": {"auto_approve": True}, "configurable": {"auto_approve": True}}
+        config = {"metadata": {}, "configurable": {}}
 
         with patch(
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={"auto_approve": True}),
+        ), patch(
             "giga_agent.middlewares.tool_result.interrupt",
             return_value={"type": "approve"},
         ) as interrupt_mock:
@@ -90,17 +96,20 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
             "metadata": {"thread_id": "t-1"},
             "configurable": {"thread_id": "t-1", "auto_approve": True},
         }
-        client = _client_mock()
+        update = AsyncMock()
 
         with patch(
-            "giga_agent.middlewares.tool_result.get_client", return_value=client
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.middlewares.tool_result.update_thread_metadata", update
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
-        client.threads.update.assert_awaited_once()
-        args, kwargs = client.threads.update.await_args
-        self.assertEqual(args[0], "t-1")
-        self.assertEqual(kwargs["metadata"], {"auto_approve": True})
+        update.assert_awaited_once()
+        args, kwargs = update.await_args
+        self.assertEqual(args[1], "t-1")
+        self.assertEqual(args[2], {"auto_approve": True})
 
     async def test_updates_metadata_when_value_changed(self):
         middleware = ToolResultMiddleware()
@@ -108,16 +117,19 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
             "metadata": {"thread_id": "t-1", "auto_approve": True},
             "configurable": {"thread_id": "t-1", "auto_approve": False},
         }
-        client = _client_mock()
+        update = AsyncMock()
 
         with patch(
-            "giga_agent.middlewares.tool_result.get_client", return_value=client
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={"auto_approve": True}),
+        ), patch(
+            "giga_agent.middlewares.tool_result.update_thread_metadata", update
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
-        client.threads.update.assert_awaited_once()
-        _, kwargs = client.threads.update.await_args
-        self.assertEqual(kwargs["metadata"], {"auto_approve": False})
+        update.assert_awaited_once()
+        args, _ = update.await_args
+        self.assertEqual(args[2], {"auto_approve": False})
 
     async def test_noop_when_already_in_sync(self):
         middleware = ToolResultMiddleware()
@@ -125,14 +137,17 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
             "metadata": {"thread_id": "t-1", "auto_approve": True},
             "configurable": {"thread_id": "t-1", "auto_approve": True},
         }
-        client = _client_mock()
+        update = AsyncMock()
 
         with patch(
-            "giga_agent.middlewares.tool_result.get_client", return_value=client
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={"auto_approve": True}),
+        ), patch(
+            "giga_agent.middlewares.tool_result.update_thread_metadata", update
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
-        client.threads.update.assert_not_awaited()
+        update.assert_not_awaited()
 
     async def test_noop_on_resume_when_configurable_absent(self):
         # On resume configurable.auto_approve is absent — leave metadata untouched.
@@ -141,26 +156,32 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
             "metadata": {"thread_id": "t-1", "auto_approve": True},
             "configurable": {"thread_id": "t-1"},
         }
-        client = _client_mock()
+        update = AsyncMock()
 
         with patch(
-            "giga_agent.middlewares.tool_result.get_client", return_value=client
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={"auto_approve": True}),
+        ), patch(
+            "giga_agent.middlewares.tool_result.update_thread_metadata", update
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
-        client.threads.update.assert_not_awaited()
+        update.assert_not_awaited()
 
     async def test_noop_for_temporary_thread(self):
         middleware = ToolResultMiddleware()
         config = {"metadata": {}, "configurable": {"auto_approve": True}}
-        client = _client_mock()
+        update = AsyncMock()
 
         with patch(
-            "giga_agent.middlewares.tool_result.get_client", return_value=client
+            "giga_agent.middlewares.tool_result.get_thread_metadata",
+            AsyncMock(return_value={}),
+        ), patch(
+            "giga_agent.middlewares.tool_result.update_thread_metadata", update
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
-        client.threads.update.assert_not_awaited()
+        update.assert_not_awaited()
 
 
 if __name__ == "__main__":

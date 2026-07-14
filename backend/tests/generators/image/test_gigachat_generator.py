@@ -147,7 +147,9 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
                 "Authorization": "Bearer token-from-connector",
             },
         )
-        token_cache_mock.assert_awaited_once_with(connector, api_object=llm_stub)
+        token_cache_mock.assert_awaited_once_with(
+            connector, api_object=llm_stub, force_refresh=False
+        )
 
     async def test_cleanup_closes_client(self):
         llm_stub, connector, token_cache_mock = _make_stubs()
@@ -174,11 +176,7 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
         gen = GigaChatImageGen()
         # cleanup should not raise even if init was never called
         await gen.cleanup()
-        token_cache_mock.assert_awaited_once_with(
-            connector,
-            api_object=llm_stub,
-            force_refresh=False,
-        )
+        self.assertIsNone(gen._client)
 
     async def test_skip_cache_token_refreshes_uncached_after_401(self):
         gigachat_client = types.SimpleNamespace(

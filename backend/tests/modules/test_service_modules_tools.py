@@ -4,7 +4,6 @@ import uuid
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
-from giga_agent.modules.github.tools import get_pull_request
 from giga_agent.modules.integrations.vk.tools import vk_get_posts
 from giga_agent.modules.weather.tools import weather
 
@@ -23,57 +22,6 @@ class _FakeHTTPResponse:
 
 
 class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
-    async def test_github_tool_uses_token_from_user_secrets(self):
-        owner_id = uuid.uuid4()
-        runtime = types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
-        )
-        user = types.SimpleNamespace(id=owner_id, secrets={"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_test"})
-        observed: dict[str, str] = {}
-
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
-        class _FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return False
-
-            async def get(self, url, headers=None, params=None):
-                observed["authorization"] = headers["Authorization"]
-                return _FakeHTTPResponse({"id": 123, "html_url": "x"})
-
-        from giga_agent.core.integrations.errors import ReauthRequired
-
-        async def _no_integration(*_a, **_k):
-            raise ReauthRequired("github")
-
-        with patch(
-            "giga_agent.modules.github.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.github.tools.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.core.integrations.service.get_access_token",
-            _no_integration,
-        ), patch(
-            "giga_agent.core.integrations.static_provider."
-            "StaticOAuthProvider.store_manual_token",
-            AsyncMock(),
-        ), patch("giga_agent.modules.github.tools.httpx.AsyncClient", return_value=_FakeClient()):
-            assert get_pull_request.coroutine is not None
-            await get_pull_request.coroutine(
-                owner="o",
-                repo="r",
-                pull_number=1,
-                runtime=runtime,
-            )
-
-        self.assertEqual(observed["authorization"], "Bearer ghp_test")
 
     async def test_vk_tool_uses_token_from_user_secrets(self):
         owner_id = uuid.uuid4()
@@ -196,26 +144,6 @@ class ServiceModulesToolsTests(unittest.IsolatedAsyncioTestCase):
 
         async def _no_token(*_a, **_k):
             raise ReauthRequired("github")
-
-        with patch(
-            "giga_agent.modules.github.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.modules.github.tools.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.core.integrations.service.get_access_token",
-            _no_token,
-        ):
-            assert get_pull_request.coroutine is not None
-            # No integration connection and no legacy secret → guides to connect.
-            with self.assertRaisesRegex(ValueError, "GitHub"):
-                await get_pull_request.coroutine(
-                    owner="o",
-                    repo="r",
-                    pull_number=1,
-                    runtime=runtime,
-                )
 
         with patch(
             "giga_agent.modules.integrations.vk.tools.get_session_factory",

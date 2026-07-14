@@ -44,7 +44,7 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
             ) as run_migrations, patch.object(
                 BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
             ) as run_hooks, patch(
-                "giga_agent.core.agent.base.get_channel_manager",
+                "giga_agent.channels.manager.get_channel_manager",
                 return_value=channel_manager,
             ):
                 async with agent.app.router.lifespan_context(agent.app):
@@ -70,7 +70,7 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
             ), patch.object(
                 BaseAgent, "run_startup_hooks", AsyncMock()
             ) as run_hooks, patch(
-                "giga_agent.core.agent.base.get_channel_manager",
+                "giga_agent.channels.manager.get_channel_manager",
                 return_value=channel_manager,
             ):
                 with self.assertRaises(RuntimeError):

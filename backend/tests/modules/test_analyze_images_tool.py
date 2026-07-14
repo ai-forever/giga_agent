@@ -12,12 +12,16 @@ from PIL import Image
 
 
 class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
-    def _runtime(self, owner_id: uuid.UUID, *, user=None, llm_runtime=None):
+    def _runtime(
+        self, owner_id: uuid.UUID, *, user=None, llm_runtime=None, fast_llm_runtime=None
+    ):
         config = {"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
         if user is not None:
             resolver = RuntimeResolver(user)
             if llm_runtime is not None:
                 resolver._cache["llm"] = llm_runtime
+            if fast_llm_runtime is not None:
+                resolver._cache["fast_llm"] = fast_llm_runtime
             config["configurable"]["runtime_resolver"] = resolver
         return types.SimpleNamespace(
             config=config,
@@ -34,7 +38,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_happy_path(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="image analysis"),
@@ -79,7 +83,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_when_file_not_found(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         runtime = self._runtime(owner_id, user=user)
 
         @asynccontextmanager
@@ -103,7 +107,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_when_user_has_no_llm(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=None)
+        user = types.SimpleNamespace(id=owner_id, llm_id=None, fast_llm_id=None)
         runtime = self._runtime(owner_id, user=user)
 
         @asynccontextmanager
@@ -123,7 +127,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             assert analyze_image.coroutine is not None
-            with self.assertRaisesRegex(ValueError, "llm_id"):
+            with self.assertRaisesRegex(ValueError, "не поддерживает"):
                 await analyze_image.coroutine(
                     image_path="/runs/test/image.png",
                     prompt="describe",
@@ -132,12 +136,22 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_when_runtime_has_no_capability(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: False,
             model_id="model",
         )
-        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
+        # The tool falls back to fast_llm; seed it too so no capable LLM exists.
+        fast_llm_runtime = types.SimpleNamespace(
+            can_analyze_image=lambda: False,
+            model_id="fast-model",
+        )
+        runtime = self._runtime(
+            owner_id,
+            user=user,
+            llm_runtime=llm_runtime,
+            fast_llm_runtime=fast_llm_runtime,
+        )
 
         @asynccontextmanager
         async def _session_context():
@@ -165,7 +179,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_downloads_redirect_content(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="analysis"),
@@ -200,7 +214,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_converts_plotly_json_before_analysis(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="chart analysis"),
@@ -250,7 +264,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_raises_for_non_plotly_json(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         runtime = self._runtime(owner_id, user=user)
 
         @asynccontextmanager
@@ -282,7 +296,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_analyze_image_converts_plotly_json_by_path_when_mime_is_generic(self):
         owner_id = uuid.uuid4()
-        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4())
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
             can_analyze_image=lambda: True,
             analyze_image=AsyncMock(return_value="chart analysis"),

@@ -46,6 +46,7 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             stop=AsyncMock(side_effect=RuntimeError("daemon down")),
             is_up=AsyncMock(return_value=False),
             get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
+            preserve_runtime_state_on_stop=lambda: False,
         )
         self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
             return_value=sandbox
@@ -186,6 +187,7 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         runtime = types.SimpleNamespace(
             is_up=AsyncMock(return_value=False),
             get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
+            preserve_runtime_state_on_stop=lambda: False,
         )
         self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
             return_value=sandbox
@@ -212,6 +214,7 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         runtime = types.SimpleNamespace(
             is_up=AsyncMock(side_effect=RuntimeError("provider unavailable")),
             get_connection_settings=lambda: {"external_id": "ext-1"},
+            preserve_runtime_state_on_stop=lambda: False,
         )
         self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
             return_value=sandbox
@@ -388,7 +391,8 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_apply_set_status_action_clears_runtime_connection_state(self):
         sandbox = self._sandbox(status=SandboxStatus.RUNNING)
         runtime = types.SimpleNamespace(
-            get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234}
+            get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
+            preserve_runtime_state_on_stop=lambda: False,
         )
         self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
         self.service._runtime_factory = types.SimpleNamespace(build=Mock(return_value=runtime))

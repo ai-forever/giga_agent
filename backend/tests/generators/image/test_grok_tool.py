@@ -40,15 +40,18 @@ class GrokImagineToolTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
+        resolver = types.SimpleNamespace(
+            user=user,
+            has_image_generator=True,
+            get_image_generator=AsyncMock(return_value=generator),
+        )
+
         with patch(
             "giga_agent.generators.image.grok.tool.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
-            "giga_agent.generators.image.grok.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.generators.image.grok.tool.ImageGeneratorManager.resolve_by_id",
-            AsyncMock(return_value=generator),
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ), patch(
             "giga_agent.generators.image.grok.tool.SandboxManager.read_file_by_path_for_user",
             AsyncMock(
@@ -102,15 +105,18 @@ class GrokImagineToolTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
+        resolver = types.SimpleNamespace(
+            user=user,
+            has_image_generator=True,
+            get_image_generator=AsyncMock(return_value=generator),
+        )
+
         with patch(
             "giga_agent.generators.image.grok.tool.get_session_factory",
             AsyncMock(return_value=lambda: _session_context()),
         ), patch(
-            "giga_agent.generators.image.grok.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.generators.image.grok.tool.ImageGeneratorManager.resolve_by_id",
-            AsyncMock(return_value=generator),
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ), patch(
             "giga_agent.generators.image.grok.tool.SandboxManager.read_file_by_path_for_user",
             AsyncMock(

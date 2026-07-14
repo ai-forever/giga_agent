@@ -138,7 +138,9 @@ class ChatDeepSeekWithReplayTests(unittest.TestCase):
         assistant = next(d for d in payload["messages"] if d["role"] == "assistant")
         self.assertEqual(assistant.get("reasoning_content"), "Thinking...")
 
-    def test_no_reasoning_content_unchanged(self):
+    def test_no_reasoning_content_set_to_empty(self):
+        # Assistant messages without reasoning (e.g. few-shot examples) get an
+        # explicit empty reasoning_content so the API accepts the follow-up.
         ai_msg = AIMessage(content="Plain answer.")
         messages = [HumanMessage(content="Q"), ai_msg]
         base_payload = {
@@ -150,7 +152,7 @@ class ChatDeepSeekWithReplayTests(unittest.TestCase):
 
         payload = self._run_payload(messages, base_payload)
         assistant = next(d for d in payload["messages"] if d["role"] == "assistant")
-        self.assertNotIn("reasoning_content", assistant)
+        self.assertEqual(assistant.get("reasoning_content"), "")
 
     def test_tool_call_loop_scenario(self):
         """model (with reasoning) → tool → second model call preserves reasoning."""

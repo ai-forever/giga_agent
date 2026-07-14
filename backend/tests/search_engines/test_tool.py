@@ -1,8 +1,6 @@
 import types
 import unittest
-import uuid
-from contextlib import asynccontextmanager
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 
 from giga_agent.search_engines.tool import search
 
@@ -13,75 +11,48 @@ class SearchToolTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await search.coroutine(queries=["q1"], runtime=None)
 
-    async def test_search_tool_raises_when_user_missing(self):
-        owner_id = uuid.uuid4()
-        runtime = types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
-        )
+    async def test_search_tool_raises_when_resolver_missing(self):
+        # No RuntimeResolver injected into config -> from_config raises ValueError.
+        runtime = types.SimpleNamespace(config={"configurable": {}})
 
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
-
-        with patch(
-            "giga_agent.search_engines.tool.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.search_engines.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=None),
-        ):
-            assert search.coroutine is not None
-            with self.assertRaises(ValueError):
-                await search.coroutine(queries=["q1"], runtime=runtime)
+        assert search.coroutine is not None
+        with self.assertRaises(ValueError):
+            await search.coroutine(queries=["q1"], runtime=runtime)
 
     async def test_search_tool_raises_when_engine_not_selected(self):
-        owner_id = uuid.uuid4()
-        runtime = types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
+        runtime = types.SimpleNamespace(config={"configurable": {}})
+        resolver = types.SimpleNamespace(
+            has_search_engine=False,
+            get_search_engine=AsyncMock(),
         )
-        user = types.SimpleNamespace(id=owner_id, search_engine_id=None)
-
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
 
         with patch(
-            "giga_agent.search_engines.tool.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.search_engines.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ):
             assert search.coroutine is not None
             with self.assertRaises(ValueError):
                 await search.coroutine(queries=["q1"], runtime=runtime)
 
-    async def test_search_tool_returns_manager_result(self):
-        owner_id = uuid.uuid4()
-        runtime = types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
-        )
-        user = types.SimpleNamespace(id=owner_id, search_engine_id=uuid.uuid4())
+        resolver.get_search_engine.assert_not_awaited()
+
+    async def test_search_tool_returns_engine_result(self):
+        runtime = types.SimpleNamespace(config={"configurable": {}})
         engine = types.SimpleNamespace(
             search=AsyncMock(return_value=[{"query": "q1", "result": {"ok": True}}])
         )
-
-        @asynccontextmanager
-        async def _session_context():
-            yield object()
+        resolver = types.SimpleNamespace(
+            has_search_engine=True,
+            get_search_engine=AsyncMock(return_value=engine),
+        )
 
         with patch(
-            "giga_agent.search_engines.tool.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.search_engines.tool.UserRepository.get_cached_or_db",
-            AsyncMock(return_value=user),
-        ), patch(
-            "giga_agent.search_engines.tool.SearchEngineManager.resolve_by_id",
-            AsyncMock(return_value=engine),
-        ) as mocked_resolve:
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
+        ):
             assert search.coroutine is not None
             result = await search.coroutine(queries=["q1"], runtime=runtime)
 
-        mocked_resolve.assert_awaited_once_with(user.search_engine_id, session=ANY)
+        resolver.get_search_engine.assert_awaited_once_with()
+        engine.search.assert_awaited_once_with(["q1"])
         self.assertEqual(result, [{"query": "q1", "result": {"ok": True}}])

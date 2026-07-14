@@ -1,44 +1,39 @@
 import types
 import unittest
-import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from giga_agent.generators.image.tool import _resolve_generator_for_user
+from giga_agent.generators.image.tool import _resolve_generator
 
 
 class ImageToolResolveTests(unittest.IsolatedAsyncioTestCase):
-    async def test_resolve_generator_delegates_to_manager(self):
-        gen_id = uuid.uuid4()
-        user = types.SimpleNamespace(image_generator_id=gen_id)
-        session = object()
+    async def test_resolve_generator_delegates_to_resolver(self):
         fake_generator = object()
+        resolver = MagicMock()
+        resolver.has_image_generator = True
+        resolver.get_image_generator = AsyncMock(return_value=fake_generator)
+        runtime = types.SimpleNamespace(config={"configurable": {}})
 
         with patch(
-            "giga_agent.generators.image.tool.ImageGeneratorManager.resolve_by_id",
-            AsyncMock(return_value=fake_generator),
-        ) as mocked_resolve:
-            resolved = await _resolve_generator_for_user(user, session=session)
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
+        ) as mocked_from_config:
+            resolved = await _resolve_generator(runtime)
 
-        mocked_resolve.assert_awaited_once_with(gen_id, session=session)
+        mocked_from_config.assert_called_once_with(runtime.config)
+        resolver.get_image_generator.assert_awaited_once_with()
         self.assertIs(resolved, fake_generator)
 
-    async def test_resolve_generator_raises_when_id_not_selected(self):
-        user = types.SimpleNamespace(image_generator_id=None)
-        session = object()
-
-        with self.assertRaisesRegex(ValueError, "не выбран генератор"):
-            await _resolve_generator_for_user(user, session=session)
-
-    async def test_resolve_generator_does_not_open_session_factory(self):
-        gen_id = uuid.uuid4()
-        user = types.SimpleNamespace(image_generator_id=gen_id)
-        session = object()
+    async def test_resolve_generator_raises_when_generator_not_selected(self):
+        resolver = MagicMock()
+        resolver.has_image_generator = False
+        resolver.get_image_generator = AsyncMock()
+        runtime = types.SimpleNamespace(config={"configurable": {}})
 
         with patch(
-            "giga_agent.generators.image.tool.get_session_factory",
-            AsyncMock(side_effect=AssertionError("must not be called")),
-        ), patch(
-            "giga_agent.generators.image.tool.ImageGeneratorManager.resolve_by_id",
-            AsyncMock(return_value=object()),
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
         ):
-            await _resolve_generator_for_user(user, session=session)
+            with self.assertRaisesRegex(ValueError, "не выбран генератор"):
+                await _resolve_generator(runtime)
+
+        resolver.get_image_generator.assert_not_awaited()
