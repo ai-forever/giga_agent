@@ -414,3 +414,137 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sandbox.status, SandboxStatus.STOPPED)
         self.assertEqual(sandbox.settings, {"keep": "yes"})
         self.assertIsNone(sandbox.external_id)
+
+
+    async def test_recreate_unlocked_force_removes_and_restarts(self):
+        sandbox = self._sandbox(status=SandboxStatus.RUNNING)
+
+        class _FakeRuntime:
+            removed: list = []
+
+            def __init__(self):
+                self.stop = AsyncMock()
+
+            def get_connection_settings(self):
+                return {"external_id": "ext-1", "host_port": 1234}
+
+            @classmethod
+            async def remove_external_runtime(cls, external_id):
+                cls.removed.append(external_id)
+
+        runtime = _FakeRuntime()
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+        started = types.SimpleNamespace(name="fresh-runtime")
+        self.service._start_unlocked = AsyncMock(return_value=started)  # type: ignore[method-assign]
+
+        with patch(
+            "giga_agent.sandbox.manager.lifecycle_service.SandboxRepository.cache_invalidate_pair",
+            AsyncMock(return_value=None),
+        ):
+            result = await self.service._recreate_unlocked(
+                sandbox, reason="provider_settings_recreate"
+            )
+
+        self.assertIs(result, started)
+        # контейнер принудительно удалён (даже если бы был not_remove)
+        self.assertIn("ext-1", _FakeRuntime.removed)
+        runtime.stop.assert_awaited_once()
+        # connection-state вычищен, но пользовательские ключи сохранены
+        self.assertEqual(sandbox.settings, {"keep": "yes"})
+        self.assertIsNone(sandbox.external_id)
+        statuses = [
+            call.args[1]
+            for call in self.service._sandbox_repo.set_status.await_args_list
+        ]
+        self.assertEqual(statuses, [SandboxStatus.STOPPING, SandboxStatus.STOPPED])
+        self.service._start_unlocked.assert_awaited_once_with(sandbox.id)
+
+    def _running_local_runtime(self):
+        with patch(
+            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+            return_value=types.SimpleNamespace(),
+        ):
+            return LocalDockerSandbox(max_active_sandboxes=1)
+
+    async def test_ensure_running_recreates_on_cold_settings_change(self):
+        from giga_agent.sandbox.base import RuntimeReconcileOutcome
+
+        sandbox = self._sandbox(status=SandboxStatus.RUNNING)
+        sandbox.provider = types.SimpleNamespace(type="local_docker")
+        runtime = self._running_local_runtime()
+        resolved = types.SimpleNamespace(sandbox=sandbox)
+        self.service._resolve = types.SimpleNamespace(
+            get_or_create_for_user=AsyncMock(return_value=resolved)
+        )
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
+        self.service._sandbox_repo.touch = AsyncMock()
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+        recreated = self._running_local_runtime()
+        self.service._recreate_unlocked = AsyncMock(return_value=recreated)  # type: ignore[method-assign]
+
+        async def _run(_sandbox_id, action):
+            return await action()
+
+        self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
+
+        with patch.object(
+            LocalDockerSandbox, "is_up", AsyncMock(return_value=True)
+        ), patch.object(
+            LocalDockerSandbox,
+            "reconcile_runtime_settings",
+            AsyncMock(return_value=RuntimeReconcileOutcome.RECREATE),
+        ):
+            result = await self.service.ensure_running_for_user(
+                user_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+            )
+
+        self.assertIs(result, recreated)
+        self.service._recreate_unlocked.assert_awaited_once()
+        self.service._sandbox_repo.touch.assert_not_awaited()
+
+    async def test_ensure_running_touches_and_reuses_on_hot_update(self):
+        from giga_agent.sandbox.base import RuntimeReconcileOutcome
+
+        sandbox = self._sandbox(status=SandboxStatus.RUNNING)
+        sandbox.provider = types.SimpleNamespace(type="local_docker")
+        runtime = self._running_local_runtime()
+        resolved = types.SimpleNamespace(sandbox=sandbox)
+        self.service._resolve = types.SimpleNamespace(
+            get_or_create_for_user=AsyncMock(return_value=resolved)
+        )
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
+        self.service._sandbox_repo.touch = AsyncMock()
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+        self.service._recreate_unlocked = AsyncMock()  # type: ignore[method-assign]
+
+        async def _run(_sandbox_id, action):
+            return await action()
+
+        self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
+
+        with patch.object(
+            LocalDockerSandbox, "is_up", AsyncMock(return_value=True)
+        ), patch.object(
+            LocalDockerSandbox,
+            "reconcile_runtime_settings",
+            AsyncMock(return_value=RuntimeReconcileOutcome.HOT_UPDATED),
+        ):
+            result = await self.service.ensure_running_for_user(
+                user_id=sandbox.owner_id,
+                provider_id=sandbox.provider_id,
+            )
+
+        self.assertIs(result, runtime)
+        self.service._sandbox_repo.touch.assert_awaited_once_with(sandbox.id)
+        self.service._recreate_unlocked.assert_not_awaited()

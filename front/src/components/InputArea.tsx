@@ -46,6 +46,11 @@ import {
   RemoveButton,
 } from "./Attachments.tsx";
 import { FileData, GraphState, GraphTemplate } from "../interfaces.ts";
+import {
+  appendAskQuestionsResult,
+  buildCommentResult,
+  findCarrierToolCallId,
+} from "./questions/optimistic.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
@@ -56,6 +61,7 @@ import { useSkills } from "@/components/providers/skills.tsx";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate, useParams } from "react-router-dom";
 import { useThreadAutoApprove } from "@/hooks/useThreadAutoApprove";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { useThreadProject } from "@/components/projects/useThreadProject";
 import {
   DropdownMenu,
@@ -150,6 +156,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const navigate = useNavigate();
   const { threadId } = useParams<{ threadId?: string }>();
   const { autoApprove, setAutoApprove } = useThreadAutoApprove(threadId);
+  const { experimentalActive, hideAdvanced } = useExperimentalMode();
   const { project: threadProject } = useThreadProject(threadId);
   const [message, setMessage] = useState("");
   const [isMobileDevice, setIsMobileDevice] = useState(
@@ -293,7 +300,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),
-              auto_approve: autoApprove,
+              auto_approve: experimentalActive || autoApprove,
             },
           },
         },
@@ -314,6 +321,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       selectedSkillNames,
       clearSelectedSkills,
       autoApprove,
+      experimentalActive,
     ],
   );
   const handleContinueThread = useCallback(
@@ -762,6 +770,29 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     [mcpTools, setMessage, handleContinueThread, message, thread?.interrupt],
   );
 
+  // Свободный ответ на вопросы из поля ввода = comment-resume. В отличие от
+  // handleContinue → handleContinueThread (тот оптимистично рисует <decline>),
+  // здесь оптимистика строит ту же карточку ask_questions (skipped + comment),
+  // что коммитит бэкенд (interrupt_node) — совпадают id и контент, без мелькания.
+  const handleQuestionsComment = useCallback(
+    (text: string) => {
+      const interruptValue = thread?.interrupt?.value;
+      const carrierToolCallId = findCarrierToolCallId(thread?.messages ?? []);
+      const toolCallId = carrierToolCallId ?? interruptValue?.tool_call_id;
+      thread?.submit(undefined, {
+        command: { resume: { type: "comment", message: text } },
+        optimisticValues: appendAskQuestionsResult(
+          toolCallId,
+          Boolean(carrierToolCallId),
+          buildCommentResult(text),
+        ),
+        onDisconnect: "continue",
+      });
+      setMessage("");
+    },
+    [thread, setMessage],
+  );
+
   // Сохранение частичного AI-ответа живёт в onStop у useStream (Chat.tsx):
   // только там доступны финальные values стрима — любой снимок/реф на этой
   // стороне отстаёт от экрана на последние чанки.
@@ -783,6 +814,17 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   }, [thread?.isLoading]);
 
   const handleSend = () => {
+    // При активном interrupt поле ввода отвечает НА НЕГО, а не шлёт новый ран
+    // (та же логика, что в handleKeyDown): вопросы → свободный comment, прочее →
+    // comment/approve.
+    if (thread?.interrupt) {
+      if (thread.interrupt.value?.type === "questions") {
+        if (message.trim()) handleQuestionsComment(message);
+      } else {
+        void handleContinue(message.trim() ? "comment" : "approve");
+      }
+      return;
+    }
     if (!message.trim() && uploads.length === 0) return;
     const attachments = uploads.map((u) => u.data).filter(Boolean);
     void handleSendMessage(message, attachments as any);
@@ -807,7 +849,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       if (!thread?.isLoading && !isUploading) {
         if (thread?.interrupt) {
           if (thread.interrupt.value?.type === "questions") {
-            if (message) void handleContinue("comment");
+            if (message.trim()) handleQuestionsComment(message);
           } else {
             void handleContinue(message ? "comment" : "approve");
           }
@@ -1276,7 +1318,9 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
               </div>
               <div className="self-end mb-1 shrink-0 flex items-center gap-1">
                 <TokenUsageIndicator messages={thread?.messages ?? []} />
-                <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+                {!hideAdvanced && (
+                  <ModelPicker disabled={thread?.isLoading || isMCPLoading} />
+                )}
               </div>
               <div>{renderInputActions()}</div>
             </div>
@@ -1320,16 +1364,21 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
               </div>
             </div>
           </div>
-          <label
-            data-onboarding="autonomy-switch"
-            className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
-          >
-            <span>Автономность</span>
-            <Switch
-              checked={autoApprove}
-              onCheckedChange={(checked) => setAutoApprove(checked)}
-            />
-          </label>
+          {/* В экспериментальном режиме автономность всегда включена (граф
+              форсит auto_approve на сервере), поэтому у не-админов тумблер
+              скрываем. */}
+          {!hideAdvanced && (
+            <label
+              data-onboarding="autonomy-switch"
+              className="absolute top-0 right-0 flex items-center gap-2 select-none text-[11px] text-muted-foreground leading-none"
+            >
+              <span>Автономность</span>
+              <Switch
+                checked={autoApprove}
+                onCheckedChange={(checked) => setAutoApprove(checked)}
+              />
+            </label>
+          )}
         </div>
 
         <div

@@ -1,12 +1,9 @@
 """E2BSandbox — E2B Cloud-backed Jupyter sandbox runtime."""
 
-import asyncio
 import os
 import secrets
 import shlex
-import time
 import uuid
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, Optional
 
@@ -14,10 +11,11 @@ from cashews import cache
 
 from pydantic import Field, PrivateAttr
 
+from giga_agent.conf import get_settings
 from giga_agent.core.logging import get_logger
-from giga_agent.sandbox.e2b.constants import JUPYTER_PORT, S3_MOUNT_PREFIX
+from giga_agent.sandbox.api_backed import APIBackedSandbox
+from giga_agent.sandbox.e2b.constants import S3_MOUNT_PREFIX
 from giga_agent.sandbox.e2b.files import S3FilesMixin
-from giga_agent.sandbox.e2b.shell import E2BShellMixin
 from giga_agent.sandbox.jupyter import JupyterSandbox
 from giga_agent.sandbox.registry import SandboxRegistry
 
@@ -25,7 +23,7 @@ logger = get_logger(__name__)
 
 
 @SandboxRegistry.register("e2b")
-class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
+class E2BSandbox(APIBackedSandbox, S3FilesMixin, JupyterSandbox):
     """
     Песочница на базе E2B Cloud.
 
@@ -64,29 +62,25 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
 
     # --- Connection settings (сохраняются после up, восстанавливаются из БД) ---
     external_id: Optional[str] = Field(default=None, description="E2B sandbox ID")
-    jupyter_token: Optional[str] = Field(default=None, description="Jupyter auth token")
 
-    # Override: base_url вычисляется после создания sandbox
-    base_url: str = Field(
-        default="", description="Base URL (set after sandbox creation)"
-    )
+    # Наследуется от JupyterSandbox как required — здесь не используется
+    # (кернелы/шелл/файлы идут через SandboxAPI), держим пустым.
+    base_url: str = Field(default="", description="unused (legacy)")
 
     # Исключаем connection-поля из provider settings schema
-    _runtime_fields = JupyterSandbox._runtime_fields | {"jupyter_token", "owner_id"}
+    _runtime_fields = APIBackedSandbox._runtime_fields | {"owner_id"}
 
     # --- Private ---
     _e2b_sandbox: Any = PrivateAttr(default=None)
     _s3_prefix_ready: bool = PrivateAttr(default=False)
 
-    def model_post_init(self, __context: Any) -> None:
-        if self.jupyter_token:
-            self._token = self.jupyter_token
-
     def get_connection_settings(self) -> dict:
-        return {
-            "external_id": self.external_id,
-            "jupyter_token": self._token,
-        }
+        settings: dict[str, Any] = {"external_id": self.external_id}
+        if self.api_base_url:
+            settings["api_base_url"] = self.api_base_url
+        if self.api_token:
+            settings["api_token"] = self.api_token
+        return settings
 
     def current_workdir(self) -> str | None:
         return "/root"
@@ -161,17 +155,20 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
     # ------------------------------------------------------------------
 
     async def up(self) -> None:
-        """Create E2B sandbox and mount S3. Jupyter is started lazily."""
+        """Create E2B sandbox, mount S3, start the in-guest SandboxAPI server."""
         from e2b import AsyncSandbox
 
-        self._token = secrets.token_urlsafe(13)
-        self.jupyter_token = self._token
+        settings = get_settings()
+        api_port = settings.giga_agent_sandbox_api_port
+        self.api_token = secrets.token_urlsafe(24)
 
         envs = {
-            "JUPYTER_TOKEN": self._token,
             "MATPLOTLIBRC": "/root/.config/matplotlib/.matplotlibrc",
             "AWSACCESSKEYID": self.aws_access_key_id,
             "AWSSECRETACCESSKEY": self.aws_secret_access_key,
+            "SANDBOX_API_TOKEN": self.api_token,
+            "SANDBOX_API_PORT": str(api_port),
+            "SANDBOX_WORKDIR": self.current_workdir() or "/root",
         }
 
         logger.info(f"Creating E2B sandbox (template={self.template})...")
@@ -189,9 +186,31 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
         await self._ensure_user_prefix_exists()
         await self._mount_s3()
 
-        host = self._e2b_sandbox.get_host(JUPYTER_PORT)
-        self.base_url = f"https://{host}"
-        logger.info(f"E2B sandbox ready, Jupyter will be at: {self.base_url}")
+        await self._start_sandbox_api_server()
+        self.api_base_url = f"https://{self._e2b_sandbox.get_host(api_port)}"
+        await self._ensure_api_server_ready()
+        logger.info(f"E2B SandboxAPI ready at: {self.api_base_url}")
+
+    async def _start_sandbox_api_server(self) -> None:
+        await self._ensure_e2b_sandbox_connected()
+        logger.info("Starting SandboxAPI server in E2B sandbox...")
+        # Логи в файл — читаемы через files-API (у e2b нет docker logs).
+        await self._e2b_sandbox.commands.run(
+            "sandbox-server-supervised > /tmp/sandbox-server.log 2>&1",
+            background=True,
+            user="root",
+        )
+
+    async def _ensure_api_server_ready(self) -> None:
+        ok = await self._wait_for_sandbox_api(
+            get_settings().giga_agent_sandbox_api_startup_timeout_sec
+        )
+        if not ok:
+            raise RuntimeError(
+                "SandboxAPI server did not become healthy in the e2b sandbox. "
+                "Пересобери e2b-шаблон из образа с sandbox-server "
+                f"(template={self.template})."
+            )
 
     async def _mount_s3(self) -> None:
         owner_id = self._require_owner_id()
@@ -227,85 +246,6 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
             logger.info("S3 mounted successfully")
 
     # ------------------------------------------------------------------
-    # lazy Jupyter start (triggered by run_code)
-    # ------------------------------------------------------------------
-
-    async def _is_jupyter_ready(self) -> bool:
-        if not self.base_url:
-            return False
-        return await super().is_up()
-
-    async def _start_jupyter_server(self) -> None:
-        await self._ensure_e2b_sandbox_connected()
-        logger.info("Starting Jupyter Server in E2B sandbox...")
-        await self._e2b_sandbox.commands.run(
-            f"jupyter server --ip=0.0.0.0 --port={JUPYTER_PORT} > /dev/null 2>&1",
-            background=True,
-        )
-
-    async def _wait_for_jupyter(self, timeout_seconds: int = 15) -> None:
-        start_time = time.time()
-        while True:
-            if await self._is_jupyter_ready():
-                logger.info("Jupyter is up and connected")
-                return
-
-            if time.time() - start_time > timeout_seconds:
-                raise TimeoutError(
-                    f"Jupyter did not start within {timeout_seconds} seconds"
-                )
-            logger.debug("Waiting for Jupyter...")
-            await asyncio.sleep(1)
-
-    async def _ensure_jupyter_ready(self) -> bool:
-        if await self._is_jupyter_ready():
-            return False
-        await self._start_jupyter_server()
-        await self._wait_for_jupyter()
-        return True
-
-    async def run_code(
-        self,
-        code: str,
-        kernel_id: str | None = None,
-        *,
-        allow_stdin: bool = True,
-        envs: dict[str, str] | None = None,
-        **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Any], str]:
-        jupyter_started = await self._ensure_jupyter_ready()
-        effective_kernel_id = kernel_id
-        if jupyter_started:
-            logger.info(
-                "Jupyter was started lazily for E2B sandbox %s; resetting kernel state",
-                self.external_id,
-            )
-            self._kernel_id = None
-            effective_kernel_id = None
-
-        code_iter = super().run_code(
-            code,
-            kernel_id=effective_kernel_id,
-            allow_stdin=allow_stdin,
-            envs=envs,
-            **kwargs,
-        )
-        # ВАЖНО: пробрасываем значение из .asend() обратно во внутренний
-        # генератор, иначе ответы на input() теряются (input_reply уходит
-        # пустым). `async for ... yield chunk` молча отбрасывает asend-значение.
-        pending_input_reply: str | None = None
-        while True:
-            try:
-                if pending_input_reply is None:
-                    chunk = await anext(code_iter)
-                else:
-                    chunk = await code_iter.asend(pending_input_reply)
-                    pending_input_reply = None
-            except StopAsyncIteration:
-                break
-            pending_input_reply = yield chunk
-
-    # ------------------------------------------------------------------
     # stop / reconnect / connectivity
     # ------------------------------------------------------------------
 
@@ -331,9 +271,13 @@ class E2BSandbox(E2BShellMixin, S3FilesMixin, JupyterSandbox):
                 sandbox_id=self.external_id,
                 api_key=self.api_key,
             )
-            host = self._e2b_sandbox.get_host(JUPYTER_PORT)
-            self.base_url = f"https://{host}"
-            logger.info(f"Reconnected to E2B sandbox, base_url={self.base_url}")
+            api_port = get_settings().giga_agent_sandbox_api_port
+            self.api_base_url = f"https://{self._e2b_sandbox.get_host(api_port)}"
+            # сервер мог не пережить простой — поднимем при необходимости
+            if not await self._wait_for_sandbox_api(5):
+                await self._start_sandbox_api_server()
+                await self._ensure_api_server_ready()
+            logger.info(f"Reconnected to E2B sandbox, api={self.api_base_url}")
         except Exception as e:
             logger.warning(
                 f"Failed to reconnect to E2B sandbox {self.external_id}: {e}"

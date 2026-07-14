@@ -127,22 +127,8 @@ class S3FilesMixin:
             url = await self._generate_presigned_url(key=key, expires_in=3600)
             return RedirectResult(url=url)
 
-        await self._ensure_e2b_sandbox_connected()
-        try:
-            data = await self._e2b_sandbox.files.read(sandbox_path)
-        except Exception as e:
-            raise FileNotFoundError(f"Unable to read file '{sandbox_path}': {e}") from e
-
-        if isinstance(data, bytes):
-            raw = data
-        elif isinstance(data, bytearray):
-            raw = bytes(data)
-        elif isinstance(data, str):
-            raw = data.encode("utf-8")
-        else:
-            raw = str(data).encode("utf-8")
-
-        return ContentResult(data=raw)
+        # non-persisted путь внутри песочницы -> через SandboxAPI (стриминг)
+        return await self._api_read_file(sandbox_path)
 
     def requires_running_for_read(self, sandbox_path: str) -> bool:
         return not self._is_s3_path(sandbox_path)
@@ -153,19 +139,7 @@ class S3FilesMixin:
             await self._delete_s3_object(key)
             return
 
-        from e2b.sandbox.commands.command_handle import CommandExitException
-
-        await self._ensure_e2b_sandbox_connected()
-        cmd = f"rm -f -- {shlex.quote(sandbox_path)}"
-        try:
-            await self._e2b_sandbox.commands.run(cmd)
-        except CommandExitException as exc:
-            stderr = str(exc.stderr or "")
-            if "No such file or directory" in stderr:
-                raise FileNotFoundError(f"File not found: {sandbox_path}") from exc
-            raise RuntimeError(
-                f"Failed to delete file '{sandbox_path}': {stderr}".strip()
-            ) from exc
+        await self._api_delete_file(sandbox_path)
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
         return not self._is_s3_path(sandbox_path)
@@ -176,29 +150,14 @@ class S3FilesMixin:
             await self._put_s3_object(key, content)
             return
 
-        await self._ensure_e2b_sandbox_connected()
-        parent = str(PurePosixPath(sandbox_path).parent)
-        if parent and parent != "/":
-            mkdir_cmd = f"mkdir -p {shlex.quote(parent)}"
-            await self._e2b_sandbox.commands.run(mkdir_cmd)
-
-        text = content.decode("utf-8", errors="surrogateescape")
-        await self._e2b_sandbox.files.write(sandbox_path, text)
+        await self._api_write_file(sandbox_path, content)
 
     async def file_exists(self, sandbox_path: str) -> bool:
         if self._is_s3_path(sandbox_path):
             key = self._s3_key_from_sandbox_path(sandbox_path)
             return await self._s3_object_exists(key)
 
-        from e2b.sandbox.commands.command_handle import CommandExitException
-
-        await self._ensure_e2b_sandbox_connected()
-        cmd = f"test -f {shlex.quote(sandbox_path)}"
-        try:
-            await self._e2b_sandbox.commands.run(cmd)
-            return True
-        except CommandExitException:
-            return False
+        return await self._api_file_exists(sandbox_path)
 
     def requires_running_for_write(self, sandbox_path: str) -> bool:
         return not self._is_s3_path(sandbox_path)

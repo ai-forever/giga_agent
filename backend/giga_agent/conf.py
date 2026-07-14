@@ -56,6 +56,22 @@ class Settings(BaseSettings):
         False,
         alias="GIGA_AGENT_PUBLISH_CLOUDFLARE_TUNNEL",
     )
+    # Cross-domain sandbox port mode: when set (e.g. "gigapp.ru"), ``open_port``
+    # returns a same-origin link on the app domain (built from
+    # ``GIGA_AGENT_BASE_URL``) that redirects to
+    # ``https://{port}-sandbox-{hex}.{this}/?__sbx=<token>``. Presence enables
+    # the mode.
+    giga_agent_sandbox_port_redirect_base: str | None = Field(
+        None,
+        alias="GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE",
+    )
+    # Domain for the app session cookie in cross-domain mode. Empty -> host-only
+    # cookie bound to the app host (correct default when app and sandboxes live
+    # on different domains).
+    giga_agent_app_cookie_domain: str | None = Field(
+        None,
+        alias="GIGA_AGENT_APP_COOKIE_DOMAIN",
+    )
     giga_agent_host: str | None = Field(None, alias="GIGA_AGENT_HOST")
     giga_agent_port: str | None = Field(None, alias="GIGA_AGENT_PORT")
 
@@ -85,6 +101,15 @@ class Settings(BaseSettings):
         False, alias="GIGA_AGENT_SKIP_STARTUP_MIGRATIONS"
     )
     giga_agent_skip_onboarding: bool = Field(False, alias="GIGA_AGENT_SKIP_ONBOARDING")
+    giga_agent_experimental_mode: bool = Field(
+        False, alias="GIGA_AGENT_EXPERIMENTAL_MODE"
+    )
+    giga_agent_experimental_rewrite_model: str = Field(
+        "GigaChat-3-Ultra", alias="GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL"
+    )
+    giga_agent_experimental_status_model: str = Field(
+        "GigaChat-3-Pro", alias="GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL"
+    )
     giga_agent_stt_runtime: str = Field("salute", alias="GIGA_AGENT_STT_RUNTIME")
     giga_agent_startup_migrations_lock_key: str = Field(
         "startup:migrations:lock",
@@ -96,6 +121,9 @@ class Settings(BaseSettings):
     )
     giga_agent_log_format: str | None = Field(None, alias="GIGA_AGENT_LOG_FORMAT")
     giga_agent_log_json: bool = Field(False, alias="GIGA_AGENT_LOG_JSON")
+    giga_agent_metrics_enabled: bool = Field(
+        False, alias="GIGA_AGENT_METRICS_ENABLED"
+    )
     giga_agent_gigachat_from_env: bool = Field(
         False, alias="GIGA_AGENT_GIGACHAT_FROM_ENV"
     )
@@ -104,6 +132,30 @@ class Settings(BaseSettings):
     )
 
     giga_agent_auth_algorithm: str = Field("HS256", alias="GIGA_AGENT_AUTH_ALGORITHM")
+    # Имя доверенного однозначного заголовка с реальным IP клиента (в проде "X-Client-IP",
+    # который оператор пробрасывает с edge). Не задан → берём request.client.host (TCP-пир,
+    # подделать нельзя — безопасный дефолт). X-Forwarded-For здесь не поддерживаем: его левый
+    # элемент подделываем.
+    giga_agent_client_ip_header: str | None = Field(
+        None, alias="GIGA_AGENT_CLIENT_IP_HEADER"
+    )
+    # Троттлинг логина против брутфорса. Счётчик неудач на паре (email, IP) в Redis (cashews):
+    # два яруса — быстрый (всплески) и медленный (суточный потолок). См. modules/auth/login_throttle.py.
+    giga_agent_login_throttle_enabled: bool = Field(
+        True, alias="GIGA_AGENT_LOGIN_THROTTLE_ENABLED"
+    )
+    giga_agent_login_throttle_fast_max: int = Field(
+        5, alias="GIGA_AGENT_LOGIN_THROTTLE_FAST_MAX"
+    )
+    giga_agent_login_throttle_fast_window_sec: int = Field(
+        60, alias="GIGA_AGENT_LOGIN_THROTTLE_FAST_WINDOW_SEC"
+    )
+    giga_agent_login_throttle_slow_max: int = Field(
+        20, alias="GIGA_AGENT_LOGIN_THROTTLE_SLOW_MAX"
+    )
+    giga_agent_login_throttle_slow_window_sec: int = Field(
+        3600, alias="GIGA_AGENT_LOGIN_THROTTLE_SLOW_WINDOW_SEC"
+    )
     giga_agent_admin_email: str = Field(
         "admin@example.com",
         alias="GIGA_AGENT_ADMIN_EMAIL",
@@ -181,7 +233,7 @@ class Settings(BaseSettings):
         True, alias="GIGA_AGENT_LOCAL_SANDBOX_ENABLED"
     )
     giga_agent_local_docker_image: str = Field(
-        "mikelarg/code-interpreter:0.0.6",
+        "mikelarg/code-interpreter:0.0.8",
         alias="GIGA_AGENT_LOCAL_DOCKER_IMAGE",
     )
     giga_agent_local_docker_memory_limit_mb: int = Field(
@@ -217,6 +269,13 @@ class Settings(BaseSettings):
     )
     giga_agent_local_docker_files_path: Path | None = Field(
         None, alias="GIGA_AGENT_LOCAL_DOCKER_FILES_PATH"
+    )
+    # --- in-guest SandboxAPI Server (local_docker + e2b работают ТОЛЬКО через него) ---
+    giga_agent_sandbox_api_port: int = Field(
+        49999, alias="GIGA_AGENT_SANDBOX_API_PORT"
+    )
+    giga_agent_sandbox_api_startup_timeout_sec: int = Field(
+        30, alias="GIGA_AGENT_SANDBOX_API_STARTUP_TIMEOUT_SEC"
     )
     giga_agent_local_jupyter_startup_timeout_sec: int = Field(
         20, alias="GIGA_AGENT_LOCAL_JUPYTER_STARTUP_TIMEOUT_SEC"
@@ -448,7 +507,12 @@ class Settings(BaseSettings):
         cleaned = value.strip()
         return cleaned or None
 
-    @field_validator("giga_agent_public_base_domain", mode="after")
+    @field_validator(
+        "giga_agent_public_base_domain",
+        "giga_agent_sandbox_port_redirect_base",
+        "giga_agent_app_cookie_domain",
+        mode="after",
+    )
     @classmethod
     def _normalize_public_base_domain(cls, value: str | None) -> str | None:
         if value is None:
@@ -698,6 +762,13 @@ GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS = (
 )
 GIGA_AGENT_SKIP_STARTUP_MIGRATIONS = get_settings().giga_agent_skip_startup_migrations
 GIGA_AGENT_SKIP_ONBOARDING = get_settings().giga_agent_skip_onboarding
+GIGA_AGENT_EXPERIMENTAL_MODE = get_settings().giga_agent_experimental_mode
+GIGA_AGENT_EXPERIMENTAL_REWRITE_MODEL = (
+    get_settings().giga_agent_experimental_rewrite_model
+)
+GIGA_AGENT_EXPERIMENTAL_STATUS_MODEL = (
+    get_settings().giga_agent_experimental_status_model
+)
 GIGA_AGENT_STARTUP_MIGRATIONS_LOCK_KEY = (
     get_settings().giga_agent_startup_migrations_lock_key
 )

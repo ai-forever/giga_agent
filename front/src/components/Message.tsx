@@ -32,7 +32,7 @@ import TextMarkdown from "./attachments/TextMarkdown.tsx";
 import { AnimatePresence, motion } from "framer-motion";
 import { useUserInfo } from "@/components/providers/user-info-context.ts";
 import { BROWSER_USE_NAME } from "@/config.ts";
-import { useSettings } from "./Settings.tsx";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import type { QuestionsCardItem } from "./MessageList.tsx";
 import { isResponseWidget } from "./widgets/registry";
 import ResponseWidget, {
@@ -72,6 +72,9 @@ interface MessageProps {
   isLastAi?: boolean;
   // Последнее сообщение в треде — у него убираем нижний отступ.
   isLast?: boolean;
+  // Последнее AI-сообщение своего хода. В экспериментальном режиме только у него
+  // показывается кнопка экспорта (refresh там скрыт полностью).
+  isTurnFinalAi?: boolean;
   // Когда true — рендер AI-с-tool_calls без своей рамки/фона/паддингов
   // (используется внутри AgentRun, чтобы избежать вложенных карточек).
   noContainer?: boolean;
@@ -223,6 +226,7 @@ const Message: React.FC<MessageProps> = ({
   isLastAi = false,
   // @ts-ignore
   isLast = false,
+  isTurnFinalAi = false,
   noContainer = false,
   hideActions = false,
   hideToolCalls = false,
@@ -239,6 +243,7 @@ const Message: React.FC<MessageProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const { setSelectedAttachments, clear } = useSelectedAttachments();
   const { mcpTools } = useUserInfo();
+  const { experimentalActive } = useExperimentalMode();
 
   const handleExport = async (format: ExportFormat) => {
     if (!thread || isExporting) return;
@@ -543,10 +548,27 @@ const Message: React.FC<MessageProps> = ({
   // активен — даже если за ним уже летят tool-результаты.
   const stepInFlight = !!thread?.isLoading && isLastAi;
 
+  // Маркер активности (стаб с tool_call experimental_activity, несущий пилюлю).
+  const isActivityMarker =
+    message.type === "ai" &&
+    (((message as any).tool_calls ?? []) as any[]).some(
+      (tc) => tc?.name === "experimental_activity",
+    );
+  // В ExperimentalChat убираем нижний отступ у маркера активности и у всех
+  // AI-сообщений, кроме последнего (чтобы промежуточные ответы шли плотно).
+  const noBottomMargin =
+    experimentalActive &&
+    (isActivityMarker || (message.type === "ai" && !isLastAi));
+
   return (
     <div
       style={
-        noContainer ? undefined : { marginBottom: "20px", padding: "0 20px" }
+        noContainer
+          ? undefined
+          : {
+              marginBottom: noBottomMargin ? 0 : "20px",
+              padding: "0 20px",
+            }
       }
       onMouseEnter={() => setShowEdit(true)}
       onMouseLeave={() => setShowEdit(false)}
@@ -627,7 +649,7 @@ const Message: React.FC<MessageProps> = ({
               {message.type === "ai" &&
                 answeredQuestions &&
                 answeredQuestions.length > 0 && (
-                  <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex flex-col gap-2">
                     {answeredQuestions.map((item) => (
                       <React.Suspense key={item.id} fallback={null}>
                         <AnsweredQuestionsCard data={item.data} />
@@ -764,7 +786,7 @@ const Message: React.FC<MessageProps> = ({
               message.type === "ai" ? "justify-start" : "justify-end",
             ].join(" ")}
           >
-            {message.type === "human" && (
+            {message.type === "human" && !experimentalActive && (
               <button
                 disabled={
                   !thread || thread.isLoading || branches.initialLoading
@@ -790,37 +812,44 @@ const Message: React.FC<MessageProps> = ({
             )}
             {message.type === "ai" && !rawHasToolCalls && (
               <>
-                <button
-                  disabled={
-                    !thread || thread.isLoading || branches.initialLoading
-                  }
-                  onClick={onRefresh}
-                  className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
-                >
-                  <RefreshCw size={16} />
-                </button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      disabled={isExporting}
-                      className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 hover:scale-110 disabled:hover:scale-100"
-                      title="Скачать"
-                    >
-                      <Download size={16} />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onSelect={() => handleExport("pdf")}>
-                      PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => handleExport("docx")}>
-                      DOCX
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => handleExport("md")}>
-                      Markdown
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* В экспериментальном режиме кнопку перезагрузки скрываем. */}
+                {!experimentalActive && (
+                  <button
+                    disabled={
+                      !thread || thread.isLoading || branches.initialLoading
+                    }
+                    onClick={onRefresh}
+                    className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 cursor-pointer hover:scale-110 disabled:hover:scale-100"
+                  >
+                    <RefreshCw size={16} />
+                  </button>
+                )}
+                {/* Экспорт: обычно у каждого AI, в экспериментальном — только у
+                    последнего AI хода. */}
+                {(!experimentalActive || isTurnFinalAi) && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        disabled={isExporting}
+                        className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 hover:scale-110 disabled:hover:scale-100"
+                        title="Скачать"
+                      >
+                        <Download size={16} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => handleExport("pdf")}>
+                        PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleExport("docx")}>
+                        DOCX
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleExport("md")}>
+                        Markdown
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
               </>
             )}
             <BranchSwitcher thread={thread} message={message} />
@@ -839,6 +868,7 @@ export default React.memo(
     prev.resultsById === next.resultsById &&
     prev.isLastAi === next.isLastAi &&
     prev.isLast === next.isLast &&
+    prev.isTurnFinalAi === next.isTurnFinalAi &&
     prev.noContainer === next.noContainer &&
     prev.hideActions === next.hideActions &&
     prev.hideToolCalls === next.hideToolCalls &&

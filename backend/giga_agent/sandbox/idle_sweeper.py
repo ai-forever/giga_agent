@@ -9,6 +9,7 @@ from cashews.exceptions import LockedError
 from giga_agent.conf import GIGA_AGENT_SANDBOX_STARTING_TTL_SEC
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.core.observability.metrics import SANDBOX_EVENTS
 from giga_agent.sandbox.manager import SandboxManager
 
 logger = get_logger(__name__)
@@ -86,11 +87,17 @@ class IdleSandboxSweeper:
                     stopped_count = len(stopped)
                     reconciled_count = len(reconciled)
                     if stopped_count > 0:
+                        SANDBOX_EVENTS.labels(
+                            provider="all", event="idle_stopped"
+                        ).inc(stopped_count)
                         logger.info(
                             "Idle sandbox sweeper stopped %s sandbox(es)",
                             stopped_count,
                         )
                     if reconciled_count > 0:
+                        SANDBOX_EVENTS.labels(
+                            provider="all", event="stale_reconciled"
+                        ).inc(reconciled_count)
                         logger.info(
                             "Idle sandbox sweeper reconciled %s stale starting sandbox(es)",
                             reconciled_count,

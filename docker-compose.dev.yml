@@ -97,6 +97,14 @@ services:
         required: false
     environment:
       MEM0_DIR: /tmp/.mem0
+      # JSON logs so Promtail/Loki can `| json`-parse structured fields in dev.
+      GIGA_AGENT_LOG_JSON: "1"
+      # Our custom giga_* metrics recording (MetricsMiddleware).
+      GIGA_AGENT_METRICS_ENABLED: "1"
+      # aegra's instrumentator: HTTP RED + the /metrics endpoint (also serves
+      # our giga_* via the shared global registry). Same lib as ours — enabling
+      # both would duplicate metric names, so we rely on aegra's only.
+      ENABLE_PROMETHEUS_METRICS: "true"
       # Use the mounted backend sources in dev.
       PYTHONPATH: /app/backend
       AEGRA_CONFIG: /app/backend/langgraph.json

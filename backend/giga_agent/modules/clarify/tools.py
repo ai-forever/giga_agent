@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
@@ -30,10 +30,17 @@ class AskQuestionsInput(BaseModel):
     questions: list[QuestionInput] = Field(
         description="Список вопросов пользователю",
     )
+    # Инъектится рантаймом (не виден модели). При явном args_schema LangChain ищет
+    # injected-поля именно в схеме, поэтому объявляем его здесь, а не только в
+    # сигнатуре функции.
+    tool_call_id: Annotated[str, InjectedToolCallId] = Field(default="")
 
 
 @tool("ask_questions", args_schema=AskQuestionsInput)
-async def ask_questions(questions: list) -> str:
+async def ask_questions(
+    questions: list,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> str:
     """Задай пользователю один или несколько уточняющих вопросов с заготовленными вариантами ответа
 
     Используй этот tool когда запрос пользователя неясный или когда требуется
@@ -60,10 +67,29 @@ async def ask_questions(questions: list) -> str:
             }
         )
 
-    value = interrupt({"type": "questions", "questions": formatted_questions})
-
+    # tool_call_id кладём в payload interrupt'а: фронт по нему оптимистично
+    # привязывает карточку ответов (в обёртке giga_agent_experimental AI-сообщения
+    # с этим tool_call на момент interrupt'а ещё нет), а возвращаемый ниже
+    # ToolMessage всё равно получает именно этот id — они совпадают.
+    value = interrupt(
+        {
+            "type": "questions",
+            "questions": formatted_questions,
+            "tool_call_id": tool_call_id,
+        }
+    )
     # Структурированный результат отдаём и модели (через `summary`), и фронту
     # (он рендерит карточку «как ответил пользователь» по этим же полям).
+    return build_questions_result(formatted_questions, value)
+
+
+def build_questions_result(formatted_questions: list[dict], value) -> dict:
+    """Собрать результат ask_questions из заданных вопросов и ответа-resume.
+
+    Вынесено, чтобы обёртка giga_agent_experimental (interrupt_node) строила ровно
+    тот же ToolMessage сразу после resume — иначе карточка ответов «моргает», пока
+    inner-ран заново прогоняет ask_questions.
+    """
     if isinstance(value, dict) and value.get("type") == "comment":
         user_msg = value.get("message", "")
         summary = (

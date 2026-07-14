@@ -1,3 +1,4 @@
+import enum
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -48,6 +49,14 @@ class StreamResult:
 
 
 FileReadResult = RedirectResult | ContentResult | StreamResult
+
+
+class RuntimeReconcileOutcome(enum.Enum):
+    """Итог сверки желаемых настроек рантайма с реально запущенным ресурсом."""
+
+    NOOP = "noop"  # активный ресурс уже соответствует настройкам
+    HOT_UPDATED = "hot_updated"  # горячие поля применены на лету, без рестарта
+    RECREATE = "recreate"  # изменились холодные поля — нужен пересоздать ресурс
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +148,18 @@ class BaseSandbox(BaseModel, ABC):
         в БД при stop(). Используется рантаймами, которые держат тот же
         внешний ресурс между stop/up (например, LocalDocker с not_remove)."""
         return False
+
+    async def reconcile_runtime_settings(self) -> "RuntimeReconcileOutcome":
+        """Свести желаемые настройки (поля этого объекта, собранные из свежих
+        provider/sandbox settings) с реально запущенным ресурсом.
+
+        Вызывается менеджером в ensure_running_for_user для уже поднятого
+        рантайма. Базовая реализация ничего не делает — провайдеры, у которых
+        настройки вшиты в ресурс при создании (например, LocalDocker), должны
+        переопределить метод: горячие поля применить на лету и вернуть
+        HOT_UPDATED, при изменении холодных полей вернуть RECREATE.
+        """
+        return RuntimeReconcileOutcome.NOOP
 
     def get_prompt(
         self,

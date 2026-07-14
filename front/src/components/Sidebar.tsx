@@ -22,6 +22,7 @@ import {
 import GigaChainLogo from "../assets/gigachain_logo.svg";
 import { useSettings } from "./Settings.tsx";
 import { ragEnabled } from "@/config.ts";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { useTheme } from "@/components/providers/theme.tsx";
 import { useAuth } from "@/components/providers/auth.tsx";
 import type { Thread } from "@langchain/langgraph-sdk";
@@ -32,6 +33,7 @@ import {
   listProjects,
   Project,
 } from "@/components/projects/api";
+import { deleteExperimentalThread } from "@/components/experimental/api";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -119,6 +121,12 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const { settings, setSettings } = useSettings();
   const { isDark } = useTheme();
   const { user, logout } = useAuth();
+  const { experimentalActive } = useExperimentalMode();
+  // graph_id проектных чатов: в experimental-режиме — обёртка, иначе обычный агент.
+  // Каналов у проектов нет, поэтому это НЕ currentGraphId (тот учитывает channels).
+  const projectGraphId = experimentalActive
+    ? "giga_agent_experimental"
+    : "giga_agent";
   const { openContextModal } = useUserInfo();
   const SIDEBAR_WIDTH = 270;
 
@@ -190,10 +198,12 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   const loadMoreControllerRef = useRef<AbortController | null>(null);
   const currentGraphId = useMemo(
     () =>
-      settings.showChatType === "channels"
-        ? "giga_agent_channel"
-        : "giga_agent",
-    [settings.showChatType],
+      experimentalActive
+        ? "giga_agent_experimental"
+        : settings.showChatType === "channels"
+          ? "giga_agent_channel"
+          : "giga_agent",
+    [settings.showChatType, experimentalActive],
   );
 
   const startTypingTitle = (threadId: string, fullTitle: string) => {
@@ -628,7 +638,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: true }));
       try {
         const list = await langGraphClient.threads.search({
-          metadata: { project_id: projectId },
+          // Проектные чаты — это обычные чаты (не каналы), поэтому фильтруем по
+          // giga_agent / giga_agent_experimental в зависимости от режима, а не по
+          // currentGraphId (тот в channels-режиме = giga_agent_channel).
+          metadata: { project_id: projectId, graph_id: projectGraphId },
           limit: 50,
           sortBy: "updated_at",
           sortOrder: "desc",
@@ -640,7 +653,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         setProjectThreadsLoading((prev) => ({ ...prev, [projectId]: false }));
       }
     },
-    [langGraphClient],
+    [langGraphClient, projectGraphId],
   );
 
   const toggleProjectExpanded = (projectId: string) => {
@@ -693,7 +706,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     closeSidebarOnMobile();
     try {
       const t = await langGraphClient.threads.create({
-        metadata: { project_id: projectId, graph_id: "giga_agent" },
+        metadata: { project_id: projectId, graph_id: projectGraphId },
       });
       // Optimistically prepend so the chat appears under the project right away.
       setProjectThreads((prev) => {
@@ -838,7 +851,14 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     setDeleteSaving(true);
     setDeleteError(null);
     try {
-      await langGraphClient.threads.delete(thread.thread_id);
+      // В experimental-режиме реальный агент живёт в отдельном скрытом
+      // inner-треде. Прямое threads.delete оставило бы его осиротевшим, поэтому
+      // удаляем через ручку-обёртку, которая сносит оба треда.
+      if (experimentalActive) {
+        await deleteExperimentalThread(thread.thread_id);
+      } else {
+        await langGraphClient.threads.delete(thread.thread_id);
+      }
       if (activeThreadId === thread.thread_id) {
         navigate("/");
       }

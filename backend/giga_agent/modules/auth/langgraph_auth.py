@@ -92,7 +92,14 @@ async def add_owner(
             ctx.user["identity"] if isinstance(ctx.user, dict) else ctx.user.identity
         )
     }
-    metadata = value.setdefault("metadata", {})
+    # value["metadata"] может ПРИСУТСТВОВАТЬ и быть None (aegra строит value через
+    # RunCreate.model_dump(), где metadata по умолчанию None) — setdefault такой
+    # случай не покрывает и падал бы на None.update(...). Обрабатываем None явно,
+    # как это уже делает inject_team_id выше.
+    metadata = value.get("metadata")
+    if metadata is None:
+        metadata = {}
+        value["metadata"] = metadata
     metadata.update(filters)
 
     # Only let users see their own resources

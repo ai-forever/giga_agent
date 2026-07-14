@@ -10,6 +10,7 @@ import FileBrowser from "./FileBrowser";
 import MailInbox from "./MailInbox";
 import CalendarAgenda from "./CalendarAgenda";
 import MonthGrid from "./MonthGrid";
+import ActivityPill from "./ActivityPill";
 
 // Имя pushed-UI генеративной доски (совпадает с tracker_base.COMPOSED_UI).
 export const COMPOSED_BOARD_UI = "issue_board_composed";
@@ -27,6 +28,8 @@ export interface WidgetProps {
   toolCall: ToolCall;
   resultMessage?: Message;
   isStreaming: boolean;
+  // Нужен виджетам с действиями (напр. ретрай ошибочного хода в ActivityPill).
+  thread?: UseStream<GraphState>;
 }
 
 const WIDGET_KIND_REGISTRY: Record<string, React.FC<WidgetProps>> = {
@@ -35,6 +38,8 @@ const WIDGET_KIND_REGISTRY: Record<string, React.FC<WidgetProps>> = {
   mail_inbox: MailInbox,
   calendar_agenda: CalendarAgenda,
   calendar_month: MonthGrid,
+  // Маркер активности экспериментального режима (пилюля «Работал N»).
+  experimental_activity: ActivityPill,
 };
 
 function payloadWidgetKind(resultMessage?: Message): string | null {

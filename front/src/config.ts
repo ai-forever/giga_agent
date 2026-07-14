@@ -19,6 +19,7 @@ interface RuntimeConfig {
   apiAgentBasePath?: string;
   runtimeLocal?: boolean;
   skipOnboarding?: boolean;
+  experimentalMode?: boolean;
   stt?: RuntimeSttConfig;
   promptSuggestions?: RuntimePromptSuggestionsConfig;
 }
@@ -117,6 +118,7 @@ export const API_PREFIX = API_BASE_URL;
 export const API_AGENT_PREFIX = `${API_BASE_URL}/agent`;
 export const RUNTIME_LOCAL = runtimeConfig.runtimeLocal === true;
 export const SKIP_ONBOARDING = runtimeConfig.skipOnboarding === true;
+export const EXPERIMENTAL_MODE = runtimeConfig.experimentalMode === true;
 export const BACKEND_STT_ENABLED = runtimeConfig.stt?.enabled === true;
 export const PROMPT_SUGGESTIONS_ENABLED =
   runtimeConfig.promptSuggestions?.enabled ?? true;

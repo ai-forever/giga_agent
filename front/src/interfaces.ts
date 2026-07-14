@@ -68,6 +68,10 @@ export interface GraphInterrupt {
     | "confirm_destructive";
   tools?: ToolCall[];
   questions?: Question[];
+  // tool_call_id вопросов ask_questions. Проставляет обёртка
+  // giga_agent_experimental (во внешнем графе AI-сообщения с этим tool_call на
+  // момент interrupt'а ещё нет), чтобы оптимистичная карточка привязалась к нему.
+  tool_call_id?: string;
 }
 
 export interface GraphTemplate extends BagTemplate {
@@ -94,4 +98,34 @@ export interface DemoItem {
   steps: number;
   sorting: number;
   active: boolean;
+}
+
+// Лог активности хода в экспериментальном режиме: вызванные инструменты и
+// показанные строки-статусы, упорядоченные по времени (`ts`, epoch-секунды).
+// Встраивается в маркер-ToolMessage `experimental_activity` и отдаётся живой
+// ручкой /agent/experimental/activity/{thread_id}.
+export interface ActivityStatusItem {
+  type: "status";
+  text: string;
+  ts: number;
+}
+
+export interface ActivityToolItem {
+  type: "tool";
+  id: string;
+  name: string;
+  status: "running" | "success" | "error";
+  ts: number;
+  ts_end: number | null;
+}
+
+export type ActivityItem = ActivityStatusItem | ActivityToolItem;
+
+export interface Activity {
+  started_at: number | null;
+  finished_at: number | null;
+  items: ActivityItem[];
+  // Ход завершился ошибкой inner-рана: пилюля рисует ошибку + кнопку «Повторить»
+  // (бэк проставляет во встроенном снапшоте маркера, см. graph.pump).
+  error?: boolean;
 }

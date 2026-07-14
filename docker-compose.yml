@@ -114,6 +114,14 @@ services:
       - giga-agent-net
     environment:
       MEM0_DIR: /tmp/.mem0
+      # JSON logs for Promtail/Loki ingestion (structlog structured output).
+      GIGA_AGENT_LOG_JSON: "1"
+      # Our custom giga_* metrics recording (MetricsMiddleware).
+      GIGA_AGENT_METRICS_ENABLED: "1"
+      # aegra's instrumentator: HTTP RED + the /metrics endpoint (also serves
+      # our giga_* via the shared global registry). Same lib as ours — enabling
+      # both would duplicate metric names, so we rely on aegra's only.
+      ENABLE_PROMETHEUS_METRICS: "true"
       AEGRA_CONFIG: /app/config/langgraph.json
       AUTH_TYPE: custom
       REDIS_BROKER_ENABLED: true

@@ -36,6 +36,12 @@ from giga_agent.models.resource_permission import (
 )
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
+from giga_agent.modules.auth.login_throttle import (
+    check_login_throttle,
+    get_client_ip,
+    record_login_failure,
+    reset_login,
+)
 from giga_agent.sandbox.access import (
     SANDBOX_ACCESS_QUERY_PARAM,
     SANDBOX_ACCESS_TTL_SEC,
@@ -63,6 +69,26 @@ router = APIRouter(tags=["auth"])
 
 AUTH_COOKIE_NAME = "access_token"
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
+
+
+def _app_session_cookie_domain() -> str | None:
+    """Domain for the app session cookie.
+
+    In cross-domain sandbox mode (``GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE``
+    set) the app and the sandboxes are on different domains, so the session
+    cookie must NOT be scoped to ``giga_agent_public_base_domain`` (that is the
+    sandbox domain) — the browser would reject it on the app host. Default to a
+    host-only cookie (``None``); an explicit ``GIGA_AGENT_APP_COOKIE_DOMAIN``
+    overrides. In the normal (same-domain) mode, keep the previous behaviour:
+    scope the cookie to ``giga_agent_public_base_domain`` so it is shared with
+    the ``*-sandbox-*`` subdomains.
+    """
+    settings = get_settings()
+    if settings.giga_agent_app_cookie_domain:
+        return settings.giga_agent_app_cookie_domain
+    if settings.giga_agent_sandbox_port_redirect_base:
+        return None
+    return settings.giga_agent_public_base_domain
 
 
 # ============ Dependency для получения репозитория ============
@@ -526,15 +552,35 @@ async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ):
-    user = await user_repo.get_by_email(form_data.username)
-    if not user or not security.verify_password(
-        form_data.password, user.hashed_password
-    ):
+    # Идентификатор для ключа троттла (login_throttle нормализует его внутри: strip+lower).
+    # Для поиска в БД используем form_data.username как есть — регистр email не трогаем,
+    # чтобы не сломать вход аккаунтам со смешанным регистром.
+    username = form_data.username
+    client_ip = get_client_ip(request)
+    # Проверяем троттл ДО bcrypt: экономим CPU и не даём тайминг-сигнал.
+    await check_login_throttle(username, client_ip)
+
+    user = await user_repo.get_by_email(username)
+    if not user:
+        # Аккаунта нет: всё равно прогоняем bcrypt против фиктивного хэша, чтобы время
+        # ответа не выдавало существование email. Неудачу НЕ записываем — иначе перебор
+        # случайных email засадит Redis мусорными ключами (cache-fill).
+        security.verify_password(form_data.password, security._DUMMY_PASSWORD_HASH)
+        ok = False
+    else:
+        ok = security.verify_password(form_data.password, user.hashed_password)
+
+    if not ok:
+        if user:
+            await record_login_failure(username, client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Успех — сбрасываем счётчики неудач.
+    await reset_login(username, client_ip)
     access_token_expires = (
         timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         if ACCESS_TOKEN_EXPIRE_MINUTES
@@ -546,7 +592,7 @@ async def login_for_access_token(
         data={"sub": user.email, "user_id": str(user.id)},
         expires_delta=access_token_expires,
     )
-    cookie_domain = get_settings().giga_agent_public_base_domain
+    cookie_domain = _app_session_cookie_domain()
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=access_token,
@@ -561,7 +607,7 @@ async def login_for_access_token(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(response: Response):
-    cookie_domain = get_settings().giga_agent_public_base_domain
+    cookie_domain = _app_session_cookie_domain()
     response.delete_cookie(
         key=AUTH_COOKIE_NAME, path="/", domain=cookie_domain,
     )
@@ -980,6 +1026,14 @@ async def patch_user_by_id(
                 detail="is_superuser must not be null",
             )
         user.is_superuser = body.is_superuser
+
+    if "experimental_mode" in body.model_fields_set:
+        if body.experimental_mode is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="experimental_mode must not be null",
+            )
+        user.experimental_mode = body.experimental_mode
 
     await db.commit()
     await db.refresh(user)

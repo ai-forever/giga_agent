@@ -1,10 +1,8 @@
 """File upload / read / delete for Docker sandboxes with local bucket storage."""
 
 import asyncio
-import base64
 import mimetypes
 import secrets
-import shlex
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path, PurePosixPath
@@ -85,25 +83,8 @@ class FilesMixin:
 
             return ContentResult(data=data, media_type=media_type, inline=inline)
 
-        await self._ensure_container_connected()
-        assert self._container is not None
-        exit_code, output = self._container.exec_run(
-            cmd=["cat", "--", sandbox_path],
-            stdout=True,
-            stderr=True,
-        )
-        if exit_code != 0:
-            stderr = output.decode(errors="ignore")
-            if "No such file or directory" in stderr:
-                raise FileNotFoundError(f"File not found: {sandbox_path}")
-            raise RuntimeError(
-                f"Failed to read file '{sandbox_path}': {stderr}".strip()
-            )
-
-        media_type, _ = mimetypes.guess_type(sandbox_path)
-        return ContentResult(
-            data=bytes(output), media_type=media_type or "application/octet-stream"
-        )
+        # non-persisted путь внутри песочницы -> через SandboxAPI (стриминг)
+        return await self._api_read_file(sandbox_path)
 
     def requires_running_for_read(self, sandbox_path: str) -> bool:
         return not self._is_bucket_path(sandbox_path)
@@ -117,18 +98,7 @@ class FilesMixin:
                 pass
             return
 
-        await self._ensure_container_connected()
-        assert self._container is not None
-        exit_code, output = self._container.exec_run(
-            cmd=["rm", "-f", "--", sandbox_path],
-            stdout=True,
-            stderr=True,
-        )
-        if exit_code != 0:
-            stderr = output.decode(errors="ignore")
-            raise RuntimeError(
-                f"Failed to delete file '{sandbox_path}': {stderr}".strip()
-            )
+        await self._api_delete_file(sandbox_path)
 
     def requires_running_for_delete(self, sandbox_path: str) -> bool:
         return not self._is_bucket_path(sandbox_path)
@@ -141,37 +111,14 @@ class FilesMixin:
                 await f.write(content)
             return
 
-        await self._ensure_container_connected()
-        assert self._container is not None
-        encoded = base64.b64encode(content).decode("ascii")
-        cmd = (
-            f"mkdir -p $(dirname {shlex.quote(sandbox_path)}) && "
-            f"echo {encoded} | base64 -d > {shlex.quote(sandbox_path)}"
-        )
-        exit_code, output = self._container.exec_run(
-            cmd=["sh", "-c", cmd],
-            stdout=True,
-            stderr=True,
-        )
-        if exit_code != 0:
-            stderr = output.decode(errors="ignore")
-            raise RuntimeError(
-                f"Failed to write file '{sandbox_path}': {stderr}".strip()
-            )
+        await self._api_write_file(sandbox_path, content)
 
     async def file_exists(self, sandbox_path: str) -> bool:
         if self._is_bucket_path(sandbox_path):
             local_path = self._local_path_from_bucket_path(sandbox_path)
             return local_path.exists() and local_path.is_file()
 
-        await self._ensure_container_connected()
-        assert self._container is not None
-        exit_code, _ = self._container.exec_run(
-            cmd=["test", "-f", sandbox_path],
-            stdout=True,
-            stderr=True,
-        )
-        return exit_code == 0
+        return await self._api_file_exists(sandbox_path)
 
     def requires_running_for_write(self, sandbox_path: str) -> bool:
         return not self._is_bucket_path(sandbox_path)

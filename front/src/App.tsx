@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Chat from "./components/Chat";
+import ExperimentalChat from "./components/ExperimentalChat";
+import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
 import { SettingsProvider, useSettings } from "./components/Settings.tsx";
 import {
   BrowserRouter,
@@ -10,7 +12,6 @@ import {
 } from "react-router-dom";
 import Sidebar from "./components/Sidebar.tsx";
 import DemoSettings from "./components/demo/DemoSettings.tsx";
-import { DemoItemsProvider, useDemoItems } from "./hooks/DemoItemsProvider.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState } from "./interfaces.ts";
 import { RagProvider } from "@/components/rag/providers/RAG.tsx";
@@ -57,7 +58,6 @@ const normalizeHttpBaseUrl = (input: string): string | null => {
 const InnerApp: React.FC = () => {
   const location = useLocation();
   const prevPathRef = useRef(location.pathname);
-  const { demoItemsLoaded } = useDemoItems();
   // Можно использовать булево или просто число-счётчик
   const [reloadKey, setReloadKey] = useState(0);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -94,9 +94,6 @@ const InnerApp: React.FC = () => {
   const handleRequestReload = useCallback(() => {
     setReloadKey((prev) => prev + 1);
   }, []);
-  if (!demoItemsLoaded) {
-    return null;
-  }
 
   return (
     <FunctionalityOnboardingProvider>
@@ -124,12 +121,14 @@ const AppRoutes: React.FC<{
   onRequestReload: () => void;
 }> = React.memo(
   ({ reloadKey, onThreadIdChange, onThreadReady, onRequestReload }) => {
+    const { experimentalActive } = useExperimentalMode();
+    const ChatComponent = experimentalActive ? ExperimentalChat : Chat;
     return (
       <Routes>
         <Route
           path="/"
           element={
-            <Chat
+            <ChatComponent
               key={reloadKey}
               onThreadIdChange={onThreadIdChange}
               onThreadReady={onThreadReady}
@@ -140,8 +139,37 @@ const AppRoutes: React.FC<{
         <Route
           path="/threads/:threadId"
           element={
+            <ChatComponent
+              key={reloadKey}
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        {/*
+          Dev-маршрут: всегда рендерит ОРИГИНАЛЬНЫЙ Chat (assistant "giga_agent"),
+          даже в экспериментальном режиме. Нужен, чтобы посмотреть сырой inner-тред
+          (id берётся из state внешнего треда: inner_thread_id) в обычном UI.
+        */}
+        <Route
+          path="/dev"
+          element={
             <Chat
               key={reloadKey}
+              assistantId="giga_agent"
+              onThreadIdChange={onThreadIdChange}
+              onThreadReady={onThreadReady}
+              onRequestReload={onRequestReload}
+            />
+          }
+        />
+        <Route
+          path="/dev/threads/:threadId"
+          element={
+            <Chat
+              key={reloadKey}
+              assistantId="giga_agent"
               onThreadIdChange={onThreadIdChange}
               onThreadReady={onThreadReady}
               onRequestReload={onRequestReload}
@@ -199,30 +227,28 @@ const App: React.FC = () => {
         <ThemeProvider>
           <ConfirmProvider>
             <ApiProvider>
-              <DemoItemsProvider>
-                <Toaster />
-                <SettingsProvider>
-                  <RagProvider>
-                    <UserInfoProvider>
-                      <SkillsProvider>
-                        <Routes>
-                          <Route path="/login" element={<LoginPage />} />
-                          <Route
-                            path="/*"
-                            element={
-                              <ProtectedRoute>
-                                <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
-                                  <InnerApp />
-                                </div>
-                              </ProtectedRoute>
-                            }
-                          />
-                        </Routes>
-                      </SkillsProvider>
-                    </UserInfoProvider>
-                  </RagProvider>
-                </SettingsProvider>
-              </DemoItemsProvider>
+              <Toaster />
+              <SettingsProvider>
+                <RagProvider>
+                  <UserInfoProvider>
+                    <SkillsProvider>
+                      <Routes>
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route
+                          path="/*"
+                          element={
+                            <ProtectedRoute>
+                              <div className="flex flex-col grow h-svh w-full mx-auto print:h-auto overflow-y-auto print:overflow-visible">
+                                <InnerApp />
+                              </div>
+                            </ProtectedRoute>
+                          }
+                        />
+                      </Routes>
+                    </SkillsProvider>
+                  </UserInfoProvider>
+                </RagProvider>
+              </SettingsProvider>
             </ApiProvider>
           </ConfirmProvider>
         </ThemeProvider>
