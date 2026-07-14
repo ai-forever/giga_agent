@@ -125,4 +125,7 @@ export interface Activity {
   started_at: number | null;
   finished_at: number | null;
   items: ActivityItem[];
+  // Ход завершился ошибкой inner-рана: пилюля рисует ошибку + кнопку «Повторить»
+  // (бэк проставляет во встроенном снапшоте маркера, см. graph.pump).
+  error?: boolean;
 }

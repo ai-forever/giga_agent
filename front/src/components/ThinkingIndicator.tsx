@@ -48,8 +48,7 @@ const ThinkingIndicator = ({ messages, thread, threadId }: ThinkingProps) => {
   // Экспериментальный режим: показываем строку статуса весь ран. Обычный:
   // прячем, как только пришло AI-сообщение (прежнее поведение).
   const active =
-    isLoading &&
-    (experimentalActive || (messages.length > 0 && !lastIsAi));
+    isLoading && (experimentalActive || (messages.length > 0 && !lastIsAi));
 
   const status = experimentalActive ? readExperimentalStatus(thread) : null;
   const target = status || "Думаю…";

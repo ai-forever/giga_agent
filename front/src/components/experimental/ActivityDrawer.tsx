@@ -39,7 +39,10 @@ const ToolRow: React.FC<{
         </span>
       )}
       {running ? (
-        <Loader2 size={14} className="flex-shrink-0 animate-spin text-muted-foreground" />
+        <Loader2
+          size={14}
+          className="flex-shrink-0 animate-spin text-muted-foreground"
+        />
       ) : error ? (
         <AlertCircle size={14} className="flex-shrink-0 text-destructive" />
       ) : (

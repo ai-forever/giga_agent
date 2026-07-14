@@ -29,8 +29,7 @@ const noop: ActivityPanelCtx = {
 const Ctx = createContext<ActivityPanelCtx | null>(null);
 
 // Вне провайдера (обычный режим) — no-op, чтобы виджеты не падали.
-export const useActivityPanel = (): ActivityPanelCtx =>
-  useContext(Ctx) ?? noop;
+export const useActivityPanel = (): ActivityPanelCtx => useContext(Ctx) ?? noop;
 
 const LIVE_POLL_MS = 2500;
 
@@ -67,12 +66,16 @@ export const ActivityPanelProvider: React.FC<{
       controller?.abort();
       controller = new AbortController();
       try {
-        const a = await getActivity(liveThreadId, { signal: controller.signal });
+        const a = await getActivity(liveThreadId, {
+          signal: controller.signal,
+        });
         if (cancelled) return;
         // Ран завершился → кэш очищен, ручка отдаёт пустышку. Не затираем
         // последний хороший снимок пустым — панель замирает на финальном состоянии.
         const empty = (a.items?.length ?? 0) === 0 && a.started_at == null;
-        setActivity((prev) => (empty && prev && (prev.items?.length ?? 0) > 0 ? prev : a));
+        setActivity((prev) =>
+          empty && prev && (prev.items?.length ?? 0) > 0 ? prev : a,
+        );
       } catch {
         /* сетевые сбои поллинга игнорируем */
       }

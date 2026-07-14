@@ -827,28 +827,28 @@ const Message: React.FC<MessageProps> = ({
                 {/* Экспорт: обычно у каждого AI, в экспериментальном — только у
                     последнего AI хода. */}
                 {(!experimentalActive || isTurnFinalAi) && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      disabled={isExporting}
-                      className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 hover:scale-110 disabled:hover:scale-100"
-                      title="Скачать"
-                    >
-                      <Download size={16} />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onSelect={() => handleExport("pdf")}>
-                      PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => handleExport("docx")}>
-                      DOCX
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => handleExport("md")}>
-                      Markdown
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        disabled={isExporting}
+                        className="transition-transform duration-200 cursor-pointer bg-transparent border-0 text-foreground p-0 disabled:opacity-50 hover:scale-110 disabled:hover:scale-100"
+                        title="Скачать"
+                      >
+                        <Download size={16} />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onSelect={() => handleExport("pdf")}>
+                        PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleExport("docx")}>
+                        DOCX
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => handleExport("md")}>
+                        Markdown
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </>
             )}

@@ -226,6 +226,9 @@ async def _forget_activity(thread_id: str) -> None:
 
 
 _ACTIVE_RUN_STATUSES = {"pending", "running"}
+# Статусы упавшего inner-рана. aegra пишет таймаут тем же "error"; "interrupted"
+# — это cancel/HITL (их различаем по interrupts в снапшоте), НЕ ошибка.
+_ERROR_RUN_STATUSES = {"error", "timeout"}
 
 REWRITE_SYSTEM = (
     "Ты — корректор. Тебе дают текст ответа ассистента — верни ЕГО ЖЕ, "
@@ -759,6 +762,11 @@ async def kickoff(state: ExperimentalState, config) -> dict:
     }
     # Режим исследования / выбранные скилы + автономность.
     outer_conf = (config or {}).get("configurable") or {}
+    # Ретрай после ошибки inner-рана (флаг ставит фронт на кнопке «Повторить» в
+    # пилюле активности): kickoff резюмит упавший inner-ран с чекпойнта вместо
+    # старта нового хода. Флаг приходит в submit'е — durable по построению (в
+    # отличие от кэша он переживает сброс Redis/рестарт воркера).
+    is_retry = bool(outer_conf.get("experimental_retry"))
     inner_configurable: dict[str, Any] = {"auto_approve": True}
     for key in _FORWARDED_CONFIGURABLE_KEYS:
         if key in outer_conf:
@@ -803,22 +811,41 @@ async def kickoff(state: ExperimentalState, config) -> dict:
                 inner_baseline = len(
                     (snap.get("values") or {}).get("messages") or []
                 )
-        run = await client.runs.create(
-            inner_thread_id,
-            assistant_id=INNER_ASSISTANT_ID,
-            input=inner_input,
-            config={"configurable": inner_configurable},
-            # Объявляем режимы, чтобы pump мог join_stream'ить messages (живой
-            # прогресс) и values (закоммиченный стейт).
-            stream_mode=["values", "messages", "updates"],
-        )
+        if is_retry and inner_thread_id:
+            # Резюмим упавшую inner-таску с последнего чекпойнта: checkpoint-only,
+            # БЕЗ input/command. command.resume дал бы 400 (тред в статусе "error",
+            # а не "interrupted"), а input=... стартовал бы ход заново вместо
+            # ретрая упавшего шага. Новый human не нужен — он уже в inner-треде.
+            run = await client.runs.create(
+                inner_thread_id,
+                assistant_id=INNER_ASSISTANT_ID,
+                checkpoint={"checkpoint_ns": ""},
+                config={"configurable": inner_configurable},
+                stream_mode=["values", "messages", "updates"],
+            )
+        else:
+            run = await client.runs.create(
+                inner_thread_id,
+                assistant_id=INNER_ASSISTANT_ID,
+                input=inner_input,
+                config={"configurable": inner_configurable},
+                # Объявляем режимы, чтобы pump мог join_stream'ить messages (живой
+                # прогресс) и values (закоммиченный стейт).
+                stream_mode=["values", "messages", "updates"],
+            )
 
     push_ui_message(STATUS_UI_NAME, {"text": "Думаю"}, id=STATUS_UI_ID)
 
     # Артефакт активности: сбрасываем лог хода и эмитим маркер сразу после Human
     # (ordering [Human][Маркер][виджет][AI]). Маркер обновится на завершении.
     outer_thread_id = _outer_thread_id(config)
-    activity_id = run["run_id"]
+    # На ретрае переиспользуем id маркера прошлой (упавшей) попытки, чтобы
+    # ошибочная пилюля обновилась НА МЕСТЕ (add_messages), а не задвоилась.
+    activity_id = (
+        state.get("activity_id")
+        if is_retry and state.get("activity_id")
+        else run["run_id"]
+    )
     marker: list[AnyMessage] = []
     if outer_thread_id:
         started_at = _now()
@@ -930,6 +957,14 @@ async def pump(state: ExperimentalState, config) -> dict:
                             "done": False,
                             "title_synced": title_synced,
                         }
+                    # Ран упал ошибкой (R2): НЕ бросаем исключение — помечаем
+                    # активность error=true и уходим в END (внешний ран успешен).
+                    # Ошибка durable живёт во встроенном снапшоте маркера, поэтому
+                    # переживает reload и сброс кэша; фронт рисует пилюлю-ошибку с
+                    # кнопкой «Повторить» (флаг ретрая на ней → kickoff резюмит
+                    # упавший inner-ран, R3). Бросить raise нельзя: узел остался бы
+                    # pending-таской и на reload повторно бросал бы (см. разбор).
+                    run_failed = run.get("status") in _ERROR_RUN_STATUSES
                     # Финальная попытка проставить название (могло появиться уже
                     # после последнего всплывшего элемента).
                     if not title_synced:
@@ -948,6 +983,8 @@ async def pump(state: ExperimentalState, config) -> dict:
                             outer_thread_id, final_messages
                         )
                         activity = await _finalize_activity(outer_thread_id)
+                        if run_failed:
+                            activity = {**activity, "error": True}
                         final_marker = _activity_marker_messages(activity_id, activity)
                         # Снапшот уже вшит в маркер (переживает перезагрузку), а
                         # живой кэш больше не нужен — чистим, чтобы активность НЕ

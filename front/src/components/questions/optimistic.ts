@@ -13,8 +13,10 @@ export const ASK_QUESTIONS_TOOL_NAME = "ask_questions";
 // бэкендом (experimental/graph.py: _stub_message_id / _ask_questions_messages) —
 // тогда серверный коммит склеивается с оптимистикой по id, а не создаёт вторую
 // заглушку/карточку.
-export const stubMessageId = (toolCallId: string) => `exp-toolstub-${toolCallId}`;
-export const toolMessageId = (toolCallId: string) => `exp-toolmsg-${toolCallId}`;
+export const stubMessageId = (toolCallId: string) =>
+  `exp-toolstub-${toolCallId}`;
+export const toolMessageId = (toolCallId: string) =>
+  `exp-toolmsg-${toolCallId}`;
 
 // Собрать структуру ответа ровно так, как это делает backend-тул ask_questions
 // (items с ТЕКСТАМИ выбранных опций + "Q: …\nA: …"-summary) — чтобы карточка

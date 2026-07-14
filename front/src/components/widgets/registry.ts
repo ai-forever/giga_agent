@@ -28,6 +28,8 @@ export interface WidgetProps {
   toolCall: ToolCall;
   resultMessage?: Message;
   isStreaming: boolean;
+  // Нужен виджетам с действиями (напр. ретрай ошибочного хода в ActivityPill).
+  thread?: UseStream<GraphState>;
 }
 
 const WIDGET_KIND_REGISTRY: Record<string, React.FC<WidgetProps>> = {

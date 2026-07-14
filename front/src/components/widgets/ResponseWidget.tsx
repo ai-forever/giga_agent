@@ -98,6 +98,7 @@ const ResponseWidget: React.FC<ResponseWidgetProps> = ({
         toolCall={toolCall}
         resultMessage={result}
         isStreaming={isStreaming}
+        thread={thread}
       />
     );
   }

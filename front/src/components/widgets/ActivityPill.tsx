@@ -1,5 +1,5 @@
-import React from "react";
-import { ChevronRight } from "lucide-react";
+import React, { useRef } from "react";
+import { ChevronRight, AlertTriangle, RefreshCw } from "lucide-react";
 import type { Message } from "@langchain/langgraph-sdk";
 import type { WidgetProps } from "./registry";
 import type { Activity } from "@/interfaces";
@@ -27,12 +27,61 @@ function parseActivity(resultMessage?: Message): Activity | null {
  * маркер скрыт: живой прогресс показывает ThinkingIndicator (клик по нему
  * открывает панель). Клик по надписи открывает панель из встроенного снапшота.
  */
-const ActivityPill: React.FC<WidgetProps> = ({ resultMessage }) => {
+const ActivityPill: React.FC<WidgetProps> = ({ resultMessage, thread }) => {
   const { openActivity, close, isOpen } = useActivityPanel();
   const activity = parseActivity(resultMessage);
+  // Защита от двойного клика по «Повторить» (submit асинхронный). Снимаем, когда
+  // ран подхватился (isLoading) — иначе после ретрая тот же инстанс пилюли
+  // остался бы с submittingRef=true и кнопка при следующей ошибке не нажималась.
+  const submittingRef = useRef(false);
+  React.useEffect(() => {
+    if (thread?.isLoading) submittingRef.current = false;
+  }, [thread?.isLoading]);
 
   // Показываем только завершённые раны; активный ран ведёт ThinkingIndicator.
   if (!activity || activity.finished_at == null) return null;
+
+  // Ход упал ошибкой inner-рана: вместо «Работал N» рисуем ошибку с ретраем.
+  // Ретрай переотправляет последний human с флагом experimental_retry — по нему
+  // kickoff резюмит упавший inner-ран с чекпойнта (а не стартует ход заново).
+  // Флаг едет в submit'е, поэтому переживает сброс кэша/рестарт (durable по R3).
+  if (activity.error) {
+    const handleRetry = () => {
+      if (submittingRef.current || !thread) return;
+      const messages = thread.messages ?? [];
+      const lastHuman = [...messages].reverse().find((m) => m.type === "human");
+      if (!lastHuman) return;
+      submittingRef.current = true;
+      // Тот же id → add_messages обновит human на месте, без второй копии.
+      const id = lastHuman.id ?? crypto.randomUUID();
+      const human = { ...lastHuman, id };
+      void thread.submit(
+        { messages: [human] },
+        {
+          streamMode: ["messages"],
+          onDisconnect: "continue",
+          config: {
+            configurable: { experimental_retry: true, auto_approve: true },
+          },
+        },
+      );
+    };
+    return (
+      <div className="flex items-center gap-2 self-start rounded-lg border border-destructive bg-destructive/20 px-[10px] py-[8px] text-sm text-destructive-foreground">
+        <AlertTriangle size={16} className="shrink-0" />
+        Не удалось выполнить запрос
+        <button
+          type="button"
+          aria-label="Повторить"
+          onClick={handleRetry}
+          disabled={!thread}
+          className="shrink-0 cursor-pointer rounded-lg p-1.5 transition-colors hover:bg-destructive/40 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RefreshCw size={15} />
+        </button>
+      </div>
+    );
+  }
 
   const duration =
     activity.started_at != null

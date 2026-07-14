@@ -22,3 +22,6 @@ agents_md
 .claude
 .debug/
 .playwright-cli/
+deployments/observability
+deployments/phoenix
+deployments/prod
