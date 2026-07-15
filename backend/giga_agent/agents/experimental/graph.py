@@ -767,7 +767,13 @@ async def kickoff(state: ExperimentalState, config) -> dict:
     # старта нового хода. Флаг приходит в submit'е — durable по построению (в
     # отличие от кэша он переживает сброс Redis/рестарт воркера).
     is_retry = bool(outer_conf.get("experimental_retry"))
-    inner_configurable: dict[str, Any] = {"auto_approve": True}
+    # experimental_inner выводит inner-ран из-под лимита активных тредов: режим
+    # ограничивается по ВНЕШНЕМУ графу giga_agent_experimental, а не по этому
+    # скрытому giga_agent-рану (см. modules/auth/langgraph_auth.py).
+    inner_configurable: dict[str, Any] = {
+        "auto_approve": True,
+        "experimental_inner": True,
+    }
     for key in _FORWARDED_CONFIGURABLE_KEYS:
         if key in outer_conf:
             inner_configurable[key] = outer_conf[key]
@@ -1055,7 +1061,9 @@ async def interrupt_node(state: ExperimentalState, config) -> dict:
             command={"resume": answer},
             # auto_approve живёт в metadata треда (переживает resume), но дублируем
             # в configurable для надёжности; input не нужен — резюмим с места.
-            config={"configurable": {"auto_approve": True}},
+            # experimental_inner — тот же exempt от лимита, что в kickoff (иначе
+            # резюм inner-рана после ask_questions мог бы упереться в лимит).
+            config={"configurable": {"auto_approve": True, "experimental_inner": True}},
             stream_mode=["values", "messages", "updates"],
         )
     # Кэш статусов ключуется по run_id — старый run завершён, чистим.

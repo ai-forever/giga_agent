@@ -106,16 +106,20 @@ async def add_owner(
     return filters
 
 
-# Лимит действует только на основной граф: телеграм-каналы
-# (giga_agent_channel) и сабагенты со своими graph_id не ограничиваются.
-LIMIT_GRAPH_ID = "giga_agent"
+# Графы, к которым применяется лимит активных тредов. Обычный giga_agent и его
+# experimental-обёртка лимитируются РАЗДЕЛЬНО — каждый своим бакетом (счёт busy
+# тредов по своему graph_id). Телеграм-каналы (giga_agent_channel) и сабагенты
+# со своими graph_id не ограничиваются.
+LIMITED_GRAPH_IDS = ("giga_agent", "giga_agent_experimental")
 # Системные дефолтные ассистенты получают детерминированный id
 # uuid5(NAMESPACE_GRAPH, graph_id) — константа из langgraph_api.graph.
 # Сервер конвертирует graph_id в этот id ещё до auth-хендлера, а через
 # self-вызов API системный ассистент не виден (owner-фильтр add_owner
 # отсекает ассистентов без user_id в metadata) — поэтому сверяем локально.
 NAMESPACE_GRAPH = UUID("6ba7b821-9dad-11d1-80b4-00c04fd430c8")
-LIMIT_ASSISTANT_ID = str(uuid5(NAMESPACE_GRAPH, LIMIT_GRAPH_ID))
+_LIMITED_ASSISTANT_IDS = {
+    str(uuid5(NAMESPACE_GRAPH, gid)): gid for gid in LIMITED_GRAPH_IDS
+}
 # Кэш assistant_id -> graph_id для кастомных (не системных) ассистентов:
 # graph_id ассистента не меняется после создания, кэш не инвалидируем.
 _assistant_graph_ids: dict[str, str] = {}
@@ -158,25 +162,48 @@ async def _resolve_graph_id(assistant_id: str, token: str) -> str | None:
 TOO_MANY_ACTIVE_THREADS_MARKER = "TOO_MANY_ACTIVE_THREADS"
 
 
+def _experimental_inner_run(value: dict) -> bool:
+    """True, если это скрытый inner-ран experimental-обёртки.
+
+    experimental-режим лимитируется по ВНЕШНЕМУ графу (giga_agent_experimental),
+    а не по этому inner-giga_agent-рану, который обёртка запускает сама в скрытом
+    треде (иначе один ход пользователя стоил бы двух «активных тредов»). Поэтому
+    inner-ран выводим из-под лимита: kickoff/interrupt_node помечают его флагом
+    в configurable (см. experimental/graph.py). Флаг durable по построению — он
+    часть payload'а рана.
+    """
+    config = value.get("config")
+    if not isinstance(config, dict):
+        return False
+    configurable = config.get("configurable")
+    if not isinstance(configurable, dict):
+        return False
+    return bool(configurable.get("experimental_inner"))
+
+
 @auth.on.threads.create_run
 async def limit_active_threads(ctx: Auth.types.AuthContext, value: dict):
     """Reject run creation when the user has too many busy threads.
 
     Количество активных тредов считаем по API самого langgraph-сервера
     (self-вызов с токеном пользователя): search вернёт только треды этого
-    пользователя благодаря owner-фильтрам add_owner.
+    пользователя благодаря owner-фильтрам add_owner. Лимитируемые графы
+    (`LIMITED_GRAPH_IDS`) считаются РАЗДЕЛЬНО — каждый по своему `graph_id`.
     """
     settings = get_settings()
     limit = settings.giga_agent_max_active_threads_per_user
-    if limit > 0:
+    # Скрытый inner-ран experimental-обёртки не лимитируем — режим ограничивается
+    # по внешнему графу giga_agent_experimental (см. _experimental_inner_run).
+    if limit > 0 and not _experimental_inner_run(value):
         token = ctx.user["token"] if isinstance(ctx.user, dict) else ctx.user.token
         assistant_id = str(value.get("assistant_id"))
-        if assistant_id in (LIMIT_GRAPH_ID, LIMIT_ASSISTANT_ID):
-            graph_id = LIMIT_GRAPH_ID
-        else:
-            # Кастомный ассистент мог быть создан поверх основного графа.
+        graph_id = _LIMITED_ASSISTANT_IDS.get(assistant_id)
+        if graph_id is None and assistant_id in LIMITED_GRAPH_IDS:
+            graph_id = assistant_id
+        if graph_id is None:
+            # Кастомный ассистент мог быть создан поверх лимитируемого графа.
             graph_id = await _resolve_graph_id(assistant_id, token)
-        if graph_id == LIMIT_GRAPH_ID:
+        if graph_id in LIMITED_GRAPH_IDS:
             thread_id = str(value.get("thread_id"))
             client = get_langgraph_client(
                 url=settings.giga_agent_langgraph_api_url,
@@ -185,13 +212,23 @@ async def limit_active_threads(ctx: Auth.types.AuthContext, value: dict):
             try:
                 threads = await client.threads.search(
                     status="busy",
-                    metadata={"graph_id": LIMIT_GRAPH_ID},
-                    limit=limit + 1,
+                    metadata={"graph_id": graph_id},
+                    # Бакеты раздельные (по graph_id), но giga_agent-бакет может
+                    # содержать скрытые inner-треды experimental-обёртки — их из
+                    # счёта исключаем (лимитируется внешний ран). Берём запас,
+                    # чтобы такие треды не вытеснили реальные из выборки.
+                    limit=limit * 2 + 1,
                 )
             finally:
                 await client.aclose()
-            # Ретрай/double-text в уже занятый тред — не двойной счёт.
-            active = sum(1 for t in threads if t["thread_id"] != thread_id)
+            # Ретрай/double-text в уже занятый тред — не двойной счёт; скрытые
+            # inner-треды experimental-обёртки (experimental_inner) не считаем.
+            active = sum(
+                1
+                for t in threads
+                if t["thread_id"] != thread_id
+                and not (t.get("metadata") or {}).get("experimental_inner")
+            )
             if active >= limit:
                 raise Auth.exceptions.HTTPException(
                     # 409: JS SDK ретраит 429, а 409 отдаёт сразу.
