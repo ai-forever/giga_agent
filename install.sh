@@ -13,7 +13,7 @@
 #   GIGA_AGENT_INSTALL   uv | docker | compose        (default: uv)
 #   GIGA_AGENT_VERSION   package / image version      (default: latest)
 #   GIGA_AGENT_DIR       target dir for uv/compose    (default: ~/.giga-agent)
-#   GIGA_AGENT_START     1 to auto-start after uv install (default: 0)
+#   GIGA_AGENT_START     0 to skip auto-start after uv install (default: 1)
 #   GIGA_AGENT_EXTRA     package extra for uv install (default: jupyter; "none" to skip)
 #
 set -euo pipefail
@@ -24,7 +24,7 @@ set -euo pipefail
 METHOD="${GIGA_AGENT_INSTALL:-uv}"
 VERSION="${GIGA_AGENT_VERSION:-latest}"
 INSTALL_DIR="${GIGA_AGENT_DIR:-$HOME/.giga-agent}"
-AUTO_START="${GIGA_AGENT_START:-0}"
+AUTO_START="${GIGA_AGENT_START:-1}"
 EXTRA="${GIGA_AGENT_EXTRA:-jupyter}"
 
 IMAGE="ghcr.io/ai-forever/giga_agent"
@@ -96,11 +96,11 @@ install_uv_method() {
 
   info "Installing $(pkg_spec) (this can take a few minutes)..."
   # shellcheck disable=SC1091
-  . .venv/bin/activate
+  source .venv/bin/activate
   uv pip install "$(pkg_spec)"
   ok "GigaAgent installed in $INSTALL_DIR"
 
-  if [ "$AUTO_START" = "1" ]; then
+  if [ "$AUTO_START" != "0" ]; then
     info "Starting GigaAgent dev server on http://localhost:9090 (Ctrl-C to stop)..."
     print_first_run_notes
     exec giga_agent dev
@@ -108,7 +108,7 @@ install_uv_method() {
 
   cat <<EOF
 
-${C_GREEN}Done!${C_RESET} To start GigaAgent:
+${C_GREEN}Done!${C_RESET} Auto-start disabled. To start GigaAgent:
 
     cd "$INSTALL_DIR"
     source .venv/bin/activate
