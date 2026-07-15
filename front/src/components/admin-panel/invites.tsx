@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Copy, Link2, Loader2, Plus, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
-import { API_AGENT_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX, APP_BASE_URL } from "@/config.ts";
 import { apiClient } from "@/lib/api-client";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import { Badge } from "@/components/ui/badge";
@@ -119,9 +119,10 @@ const AdminInvitesTab: React.FC = () => {
         `${API_AGENT_PREFIX}/auth/invites`,
         body,
       );
-      const url = `${window.location.origin}/join/${created.token}`;
+      const url = `${APP_BASE_URL}/join/${created.token}`;
       setCreatedLink(url);
       setForm(initialForm);
+      setCreateOpen(false);
       await load();
     } catch (e) {
       toast.error(
@@ -339,8 +340,7 @@ const AdminInvitesTab: React.FC = () => {
               <Link2 className="h-5 w-5" /> Ссылка-приглашение готова
             </DialogTitle>
             <DialogDescription>
-              Скопируйте сейчас — повторно ссылка не показывается (в системе
-              хранится только её отпечаток).
+              Скопируйте сейчас — повторно ссылка не показывается.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2">
