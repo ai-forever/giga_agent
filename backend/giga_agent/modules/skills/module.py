@@ -116,9 +116,7 @@ class SkillsModule(BaseModule):
         selected_skills: list[str] = [
             str(s).strip().lower() for s in selected_skills_raw if str(s).strip()
         ]
-        mentions = (
-            [m.lower() for m in _SKILL_MENTION_RE.findall(task)] if task else []
-        )
+        mentions = [m.lower() for m in _SKILL_MENTION_RE.findall(task)] if task else []
 
         if not selected_skills and not mentions:
             return None

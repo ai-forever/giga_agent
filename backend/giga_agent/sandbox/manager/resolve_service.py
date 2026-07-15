@@ -119,7 +119,9 @@ class SandboxResolveService:
                 )
 
         provider = await self.resolve_provider(user_id, provider_id)
-        sandbox = await self._sandbox_repo.get_by_owner_and_provider(user_id, provider.id)
+        sandbox = await self._sandbox_repo.get_by_owner_and_provider(
+            user_id, provider.id
+        )
         if sandbox is not None:
             logger.debug(
                 "Found existing sandbox %s for user %s (provider %s)",

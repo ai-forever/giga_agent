@@ -21,8 +21,12 @@ class _SuccessResponse:
 
 def _make_stubs():
     gigachat_client = types.SimpleNamespace(
-        aget_token=AsyncMock(return_value=types.SimpleNamespace(access_token="token-from-connector")),
-        _client=types.SimpleNamespace(base_url="https://gigachat.devices.sberbank.ru/api/v1"),
+        aget_token=AsyncMock(
+            return_value=types.SimpleNamespace(access_token="token-from-connector")
+        ),
+        _client=types.SimpleNamespace(
+            base_url="https://gigachat.devices.sberbank.ru/api/v1"
+        ),
     )
     llm_stub = types.SimpleNamespace(_client=gigachat_client)
     connector = GigaChatConnector()
@@ -40,13 +44,16 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
     async def test_uses_connector_api_object_for_token(self):
         llm_stub, connector, token_cache_mock = _make_stubs()
 
-        with patch.object(
-            GigaChatConnector,
-            "get_api_object",
-            return_value=llm_stub,
-        ), patch(
-            "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
-            token_cache_mock,
+        with (
+            patch.object(
+                GigaChatConnector,
+                "get_api_object",
+                return_value=llm_stub,
+            ),
+            patch(
+                "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
+                token_cache_mock,
+            ),
         ):
             gen = GigaChatImageGen(connector=connector)
             try:
@@ -68,7 +75,9 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
             aget_token=AsyncMock(
                 return_value=types.SimpleNamespace(access_token="token-from-connector")
             ),
-            _client=types.SimpleNamespace(base_url="https://gigachat.devices.sberbank.ru/api/v1"),
+            _client=types.SimpleNamespace(
+                base_url="https://gigachat.devices.sberbank.ru/api/v1"
+            ),
         )
         llm_stub = types.SimpleNamespace(_client=gigachat_client)
         connector = GigaChatConnector()
@@ -81,16 +90,20 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         ):
             reset_settings_cache()
-            with patch.object(
-                GigaChatConnector,
-                "get_api_object",
-                return_value=llm_stub,
-            ), patch(
-                "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
-                token_cache_mock,
-            ), patch(
-                "giga_agent.generators.image.gigachat.get_gigachat_access_token_uncached",
-                token_uncached_mock,
+            with (
+                patch.object(
+                    GigaChatConnector,
+                    "get_api_object",
+                    return_value=llm_stub,
+                ),
+                patch(
+                    "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
+                    token_cache_mock,
+                ),
+                patch(
+                    "giga_agent.generators.image.gigachat.get_gigachat_access_token_uncached",
+                    token_uncached_mock,
+                ),
             ):
                 gen = GigaChatImageGen(connector=connector)
                 try:
@@ -114,13 +127,16 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
     async def test_generate_image_normalizes_none_dimensions(self):
         llm_stub, connector, token_cache_mock = _make_stubs()
 
-        with patch.object(
-            GigaChatConnector,
-            "get_api_object",
-            return_value=llm_stub,
-        ), patch(
-            "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
-            token_cache_mock,
+        with (
+            patch.object(
+                GigaChatConnector,
+                "get_api_object",
+                return_value=llm_stub,
+            ),
+            patch(
+                "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
+                token_cache_mock,
+            ),
         ):
             gen = GigaChatImageGen(connector=connector)
             try:
@@ -154,13 +170,16 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
     async def test_cleanup_closes_client(self):
         llm_stub, connector, token_cache_mock = _make_stubs()
 
-        with patch.object(
-            GigaChatConnector,
-            "get_api_object",
-            return_value=llm_stub,
-        ), patch(
-            "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
-            token_cache_mock,
+        with (
+            patch.object(
+                GigaChatConnector,
+                "get_api_object",
+                return_value=llm_stub,
+            ),
+            patch(
+                "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
+                token_cache_mock,
+            ),
         ):
             gen = GigaChatImageGen(connector=connector)
             await gen.init()
@@ -183,7 +202,9 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
             aget_token=AsyncMock(
                 return_value=types.SimpleNamespace(access_token="token-from-connector")
             ),
-            _client=types.SimpleNamespace(base_url="https://gigachat.devices.sberbank.ru/api/v1"),
+            _client=types.SimpleNamespace(
+                base_url="https://gigachat.devices.sberbank.ru/api/v1"
+            ),
         )
         llm_stub = types.SimpleNamespace(_client=gigachat_client)
         connector = GigaChatConnector()
@@ -206,16 +227,20 @@ class GigaChatImageGenTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         ):
             reset_settings_cache()
-            with patch.object(
-                GigaChatConnector,
-                "get_api_object",
-                return_value=llm_stub,
-            ), patch(
-                "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
-                token_cache_mock,
-            ), patch(
-                "giga_agent.generators.image.gigachat.get_gigachat_access_token_uncached",
-                token_uncached_mock,
+            with (
+                patch.object(
+                    GigaChatConnector,
+                    "get_api_object",
+                    return_value=llm_stub,
+                ),
+                patch(
+                    "giga_agent.generators.image.gigachat.get_gigachat_access_token_cached",
+                    token_cache_mock,
+                ),
+                patch(
+                    "giga_agent.generators.image.gigachat.get_gigachat_access_token_uncached",
+                    token_uncached_mock,
+                ),
             ):
                 gen = GigaChatImageGen(connector=connector)
                 try:

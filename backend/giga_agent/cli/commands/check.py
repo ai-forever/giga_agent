@@ -103,7 +103,9 @@ def check(
                     migration_scope.version_table,
                 )
             else:
-                logger.info("OK: scope '%s' has no revisions yet.", migration_scope.scope_id)
+                logger.info(
+                    "OK: scope '%s' has no revisions yet.", migration_scope.scope_id
+                )
 
             check_db_is_up_to_date(
                 cfg,

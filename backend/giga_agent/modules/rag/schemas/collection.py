@@ -31,9 +31,7 @@ class CollectionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    uuid: str = Field(
-        ..., description="The unique identifier of the collection."
-    )
+    uuid: str = Field(..., description="The unique identifier of the collection.")
     name: str = Field(..., description="The name of the collection.")
     can_edit: bool = Field(
         default=False,

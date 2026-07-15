@@ -69,7 +69,9 @@ class SandboxAPIClient:
     async def is_up(self) -> bool:
         try:
             async with self._session() as session:
-                async with session.get(self._url("/healthz"), timeout=aiohttp.ClientTimeout(total=5)) as r:
+                async with session.get(
+                    self._url("/healthz"), timeout=aiohttp.ClientTimeout(total=5)
+                ) as r:
                     return r.status == 200
         except Exception:
             return False
@@ -111,7 +113,10 @@ class SandboxAPIClient:
                     reply = yield chunk
                     await ws.send(
                         json.dumps(
-                            {"type": "input_reply", "value": "" if reply is None else str(reply)}
+                            {
+                                "type": "input_reply",
+                                "value": "" if reply is None else str(reply),
+                            }
                         )
                     )
                     continue
@@ -156,7 +161,8 @@ class SandboxAPIClient:
     async def list_shells(self, *, only_running: bool = False) -> list[dict[str, Any]]:
         async with self._session() as session:
             async with session.get(
-                self._url("/v1/shell"), params={"only_running": str(only_running).lower()}
+                self._url("/v1/shell"),
+                params={"only_running": str(only_running).lower()},
             ) as r:
                 r.raise_for_status()
                 data = await r.json()
@@ -172,7 +178,9 @@ class SandboxAPIClient:
     async def read_file(self, sandbox_path: str) -> FileReadResult:
         session = self._session()
         try:
-            resp = await session.get(self._url("/v1/files"), params={"path": sandbox_path})
+            resp = await session.get(
+                self._url("/v1/files"), params={"path": sandbox_path}
+            )
         except Exception:
             await session.close()
             raise
@@ -186,11 +194,15 @@ class SandboxAPIClient:
             await session.close()
             raise SandboxAPIError(f"read_file failed ({resp.status}): {text}")
 
-        media_type = (resp.headers.get("Content-Type") or "application/octet-stream").split(";")[0]
+        media_type = (
+            resp.headers.get("Content-Type") or "application/octet-stream"
+        ).split(";")[0]
         disposition = resp.headers.get("Content-Disposition", "")
         inline = disposition.startswith("inline")
         length_raw = resp.headers.get("Content-Length")
-        content_length = int(length_raw) if length_raw and length_raw.isdigit() else None
+        content_length = (
+            int(length_raw) if length_raw and length_raw.isdigit() else None
+        )
 
         async def _iter() -> AsyncIterator[bytes]:
             try:
@@ -244,14 +256,18 @@ class SandboxAPIClient:
 
     async def file_exists(self, sandbox_path: str) -> bool:
         async with self._session() as session:
-            async with session.head(self._url("/v1/files"), params={"path": sandbox_path}) as r:
+            async with session.head(
+                self._url("/v1/files"), params={"path": sandbox_path}
+            ) as r:
                 return r.status == 200
 
     # ------------------------------------------------------------------ #
     # internal
     # ------------------------------------------------------------------ #
 
-    async def _post_json(self, path: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    async def _post_json(
+        self, path: str, payload: dict[str, Any] | None
+    ) -> dict[str, Any]:
         async with self._session() as session:
             async with session.post(self._url(path), json=payload) as r:
                 if r.status >= 400:

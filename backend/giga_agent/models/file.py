@@ -153,7 +153,9 @@ class FileRepository:
             )
         )
         return [
-            FileStorageRef(owner_id=owner_id, provider_id=provider_id, sandbox_path=sandbox_path)
+            FileStorageRef(
+                owner_id=owner_id, provider_id=provider_id, sandbox_path=sandbox_path
+            )
             for owner_id, provider_id, sandbox_path in result.all()
         ]
 
@@ -167,7 +169,9 @@ class FileRepository:
             )
         )
         return [
-            FileStorageRef(owner_id=owner_id, provider_id=provider_id, sandbox_path=sandbox_path)
+            FileStorageRef(
+                owner_id=owner_id, provider_id=provider_id, sandbox_path=sandbox_path
+            )
             for owner_id, provider_id, sandbox_path in result.all()
         ]
 
@@ -244,7 +248,9 @@ class FileRepository:
             permission="read",
             user_group_ids=user_group_ids,
         )
-        result = await self.db.execute(select(File).where(File.id == file_id).where(access_clause))
+        result = await self.db.execute(
+            select(File).where(File.id == file_id).where(access_clause)
+        )
         return result.scalar_one_or_none()
 
     async def get_by_path_readable(
@@ -333,7 +339,9 @@ class FileRepository:
         await self.db.commit()
 
     async def delete_by_provider(self, provider_id: uuid.UUID) -> int:
-        result = await self.db.execute(select(File.id).where(File.provider_id == provider_id))
+        result = await self.db.execute(
+            select(File.id).where(File.provider_id == provider_id)
+        )
         file_ids = [file_id for (file_id,) in result.all()]
         if file_ids:
             await ResourcePermissionRepository(self.db).revoke_all_for_resources(
@@ -341,7 +349,9 @@ class FileRepository:
                 resource_ids=file_ids,
                 no_commit=True,
             )
-        deleted = await self.db.execute(delete(File).where(File.provider_id == provider_id))
+        deleted = await self.db.execute(
+            delete(File).where(File.provider_id == provider_id)
+        )
         await self.db.commit()
         return int(deleted.rowcount or 0)
 

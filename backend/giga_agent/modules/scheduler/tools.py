@@ -339,9 +339,7 @@ async def list_scheduled_tasks_in_chat(runtime: ToolRuntime):
             return []
         repo = ScheduledTaskRepository(session)
         tasks = await repo.list_by_owner(owner_id)
-        return [
-            _task_summary(t) for t in tasks if _task_belongs_to_chat(t, current)
-        ]
+        return [_task_summary(t) for t in tasks if _task_belongs_to_chat(t, current)]
 
 
 @tool
@@ -462,9 +460,7 @@ async def edit_scheduled_task(
         if name.strip():
             fields["name"] = name.strip()
         if recipient_ids:
-            fields["targets"] = await _resolve_targets(
-                session, owner_id, recipient_ids
-            )
+            fields["targets"] = await _resolve_targets(session, owner_id, recipient_ids)
         if when.strip():
             error = _apply_schedule_edit(fields, when)
             if error is not None:

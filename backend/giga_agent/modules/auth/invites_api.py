@@ -229,9 +229,7 @@ async def join_team(
 
         group_repo = GroupRepository(db)
         for raw_gid in invite.group_ids or []:
-            await group_repo.add_users(
-                uuid.UUID(raw_gid), [db_user.id], commit=False
-            )
+            await group_repo.add_users(uuid.UUID(raw_gid), [db_user.id], commit=False)
 
         invite.used_count += 1
         await db.commit()

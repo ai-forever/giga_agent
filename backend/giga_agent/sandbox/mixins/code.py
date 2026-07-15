@@ -38,9 +38,7 @@ class ShellRunResult(BaseModel):
     )
     output: str = Field(description="Весь вывод, накопившийся за foreground-окно.")
     output_path: str = Field(description="Путь к полному output.log внутри sandbox.")
-    pid: int | None = Field(
-        default=None, description="PID процесса внутри sandbox."
-    )
+    pid: int | None = Field(default=None, description="PID процесса внутри sandbox.")
     exit_code: int | None = Field(
         default=None, description="Код завершения, если команда уже завершилась."
     )

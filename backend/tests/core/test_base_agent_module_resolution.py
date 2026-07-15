@@ -19,7 +19,9 @@ class _AgentWithDefaults(BaseAgent):
 class BaseAgentModuleResolutionTests(unittest.TestCase):
     @contextmanager
     def _secret_key_env(self):
-        with patch.dict(os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False):
+        with patch.dict(
+            os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
+        ):
             yield
 
     def test_merges_get_modules_before_explicit_modules(self):

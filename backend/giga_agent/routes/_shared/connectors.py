@@ -17,7 +17,9 @@ async def validate_connector_link(
     require_owner: bool = True,
     require_when_supported: bool = False,
 ) -> uuid.UUID | None:
-    normalized_supported = [connector_type.lower() for connector_type in supported_connector_types]
+    normalized_supported = [
+        connector_type.lower() for connector_type in supported_connector_types
+    ]
 
     if not normalized_supported:
         if connector_id is not None:

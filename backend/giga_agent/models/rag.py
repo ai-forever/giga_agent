@@ -262,7 +262,9 @@ class RagCollectionsRepository(ACLResourceRepositoryMixin[RagCollection]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="rag_collection",
             resource_ids=resource_ids,

@@ -35,9 +35,7 @@ async def store_oauth_state(
     await cache.set(_state_key(namespace, state), data, expire=STATE_TTL)
 
 
-async def pop_oauth_state(
-    *, namespace: str, state: str
-) -> dict[str, Any] | None:
+async def pop_oauth_state(*, namespace: str, state: str) -> dict[str, Any] | None:
     """Return the state payload and delete it (one-time use)."""
     key = _state_key(namespace, state)
     data = await cache.get(key)

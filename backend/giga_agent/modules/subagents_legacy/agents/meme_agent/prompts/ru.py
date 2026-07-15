@@ -63,11 +63,7 @@ IMAGE_FORMAT = """## Формат ответа
   }
 }
 ```
-""".replace(
-    "{", "{{"
-).replace(
-    "}", "}}"
-)
+""".replace("{", "{{").replace("}", "}}")
 
 IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     [

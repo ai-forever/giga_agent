@@ -147,8 +147,7 @@ def _make_message_prompt_session(cwd: Path, state: _ChatState):
             return
         total = len(state.completions)
         state.complete_index = (
-            0 if state.complete_index is None
-            else (state.complete_index + 1) % total
+            0 if state.complete_index is None else (state.complete_index + 1) % total
         )
 
     @kb.add("up", filter=has_completions)
@@ -158,7 +157,8 @@ def _make_message_prompt_session(cwd: Path, state: _ChatState):
             return
         total = len(state.completions)
         state.complete_index = (
-            total - 1 if state.complete_index is None
+            total - 1
+            if state.complete_index is None
             else (state.complete_index - 1) % total
         )
 
@@ -169,8 +169,7 @@ def _make_message_prompt_session(cwd: Path, state: _ChatState):
             return
         total = len(state.completions)
         state.complete_index = (
-            0 if state.complete_index is None
-            else (state.complete_index + 1) % total
+            0 if state.complete_index is None else (state.complete_index + 1) % total
         )
 
     @kb.add("enter", filter=completion_is_selected)
@@ -220,9 +219,7 @@ def _make_approve_prompt_session(state: _ChatState):
     return PromptSession(
         message=[("class:approve-prompt", "Approve? [Y/n]: ")],
         mouse_support=False,
-        style=Style.from_dict(
-            {"approve-prompt": "bold", **_BOTTOM_TOOLBAR_STYLE}
-        ),
+        style=Style.from_dict({"approve-prompt": "bold", **_BOTTOM_TOOLBAR_STYLE}),
         key_bindings=_make_toggle_keybindings(state),
         bottom_toolbar=_make_bottom_toolbar(state),
         reserve_space_for_menu=0,
@@ -431,7 +428,9 @@ def _ensure_cli_config_available(cli_cwd: Path) -> None:
         "  • Or set the [bold]GIGA_AGENT_CLI_CONFIG[/bold] env var to a JSON string\n"
     )
     console.print(f"Example {CONF_FILENAME}:")
-    console.print(Syntax(example, "json", theme="ansi_dark", background_color="default"))
+    console.print(
+        Syntax(example, "json", theme="ansi_dark", background_color="default")
+    )
     raise typer.Exit(code=1)
 
 
@@ -470,7 +469,13 @@ async def _chat_loop(
     console = _make_console()
 
     resolver = await RuntimeResolver.create(
-        {"configurable": {"langgraph_auth_user": {"identity": "00000000-0000-0000-0000-000000000000"}}}
+        {
+            "configurable": {
+                "langgraph_auth_user": {
+                    "identity": "00000000-0000-0000-0000-000000000000"
+                }
+            }
+        }
     )
     user = resolver.user
 
@@ -545,9 +550,7 @@ async def _stream_raw_tokens(
     from langchain_core.messages import AIMessageChunk, ToolMessage
 
     collected_text = ""
-    async for event in graph.astream(
-        input_msg, config, stream_mode="messages"
-    ):
+    async for event in graph.astream(input_msg, config, stream_mode="messages"):
         if isinstance(event, tuple) and len(event) == 2:
             msg, metadata = event
         else:
@@ -790,9 +793,7 @@ def _format_tool_args(args: dict | None) -> str:
     if not args:
         return ""
     items = list(args.items())
-    rendered = [
-        f"{key}={_format_tool_arg_value(value)}" for key, value in items[:3]
-    ]
+    rendered = [f"{key}={_format_tool_arg_value(value)}" for key, value in items[:3]]
     if len(items) > 3:
         rendered.append(f"+{len(items) - 3} more")
     return ", ".join(rendered)
@@ -836,12 +837,16 @@ def _print_tool_response(console, message) -> None:
     from rich.text import Text
 
     additional_kwargs = getattr(message, "additional_kwargs", None) or {}
-    name = additional_kwargs.get("tool_name") or getattr(message, "name", None) or "tool"
+    name = (
+        additional_kwargs.get("tool_name") or getattr(message, "name", None) or "tool"
+    )
     content = _format_tool_response_content(getattr(message, "content", ""))
     content = content.strip() or "(empty)"
 
     console.print(Text(f"  [Tool response: {name}]", style="cyan"))
-    console.print(Text("\n".join(f"    {line}" for line in content.splitlines()), style="dim"))
+    console.print(
+        Text("\n".join(f"    {line}" for line in content.splitlines()), style="dim")
+    )
 
 
 def _tool_message_name(message) -> str | None:
@@ -864,7 +869,7 @@ async def _print_think_thoughts_for_tool_message(
     except Exception:
         return
     for m in state.values.get("messages", []):
-        for tc in (getattr(m, "tool_calls", None) or []):
+        for tc in getattr(m, "tool_calls", None) or []:
             if tc.get("id") == tool_call_id and tc.get("name") == "think":
                 _print_think_thoughts(console, tc, render_markdown)
                 return
@@ -892,7 +897,9 @@ def cli_chat(
     ] = None,
     no_markdown: Annotated[
         bool,
-        typer.Option("--no-markdown", help="Disable Markdown rendering (show raw text)"),
+        typer.Option(
+            "--no-markdown", help="Disable Markdown rendering (show raw text)"
+        ),
     ] = False,
     debug: Annotated[
         bool,
@@ -960,7 +967,9 @@ def cli_chat(
     if config is not None:
         os.environ["GIGA_AGENT_CLI_CONFIG"] = config
     elif config_file is not None:
-        os.environ["GIGA_AGENT_CLI_CONFIG"] = _load_and_validate_config_file(config_file)
+        os.environ["GIGA_AGENT_CLI_CONFIG"] = _load_and_validate_config_file(
+            config_file
+        )
 
     _ensure_cli_config_available(cli_cwd)
     reset_settings_cache()
@@ -985,9 +994,7 @@ def cli_chat(
         agent = langgraph_runtime_config["agent"]
         compiled_graph = agent.graph
 
-    console.print(
-        f"[green]Agent loaded[/green] with {len(agent.all_modules)} modules."
-    )
+    console.print(f"[green]Agent loaded[/green] with {len(agent.all_modules)} modules.")
 
     chat_state = _ChatState(
         approve=approve or prompt is not None,

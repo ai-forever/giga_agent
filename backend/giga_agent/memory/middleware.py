@@ -9,7 +9,6 @@ from langgraph.runtime import Runtime
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.logging import get_logger
-from giga_agent.memory.paths import is_memory_path
 from giga_agent.memory.runtime import build_memory_service, is_memory_disabled
 
 
@@ -65,9 +64,7 @@ class MemoryMiddleware(AgentMiddleware):
         try:
             count = await service.reindex_changed()
             if count:
-                logger.info(
-                    "MemoryMiddleware: reindexed %d memory files", count
-                )
+                logger.info("MemoryMiddleware: reindexed %d memory files", count)
         except Exception:
             logger.exception("MemoryMiddleware: reindex_changed failed")
         return None

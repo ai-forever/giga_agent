@@ -49,7 +49,9 @@ class APIBackedSandbox(BaseSandbox):
 
     def _sandbox_api_client(self) -> SandboxAPIClient:
         if not self._sandbox_api_enabled():
-            raise SandboxAPIError("SandboxAPI is not configured (api_base_url/api_token)")
+            raise SandboxAPIError(
+                "SandboxAPI is not configured (api_base_url/api_token)"
+            )
         return SandboxAPIClient(self.api_base_url, self.api_token)  # type: ignore[arg-type]
 
     async def _wait_for_sandbox_api(self, timeout_sec: float) -> bool:

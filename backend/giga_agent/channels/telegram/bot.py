@@ -32,7 +32,10 @@ def create_telegram_bot(token: str) -> Bot:
     proxy = _get_env_proxy("HTTPS_PROXY", "ALL_PROXY", "HTTP_PROXY")
     if proxy:
         logger.info("Telegram bot session proxy enabled")
-        return Bot(token=token, session=AiohttpSession(proxy=_normalize_aiogram_proxy(proxy)))
+        return Bot(
+            token=token, session=AiohttpSession(proxy=_normalize_aiogram_proxy(proxy))
+        )
     return Bot(token=token)
+
 
 __all__ = ["create_telegram_bot"]

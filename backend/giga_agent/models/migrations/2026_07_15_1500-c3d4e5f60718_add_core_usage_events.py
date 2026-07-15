@@ -7,6 +7,7 @@ Revises: b2c3d4e5f607
 Create Date: 2026-07-08 15:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -26,13 +27,11 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("model", sa.String(length=128), nullable=True),
         sa.Column("input_tokens", sa.BigInteger(), nullable=False, server_default="0"),
-        sa.Column(
-            "output_tokens", sa.BigInteger(), nullable=False, server_default="0"
-        ),
+        sa.Column("output_tokens", sa.BigInteger(), nullable=False, server_default="0"),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("(CURRENT_TIMESTAMP)"),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),

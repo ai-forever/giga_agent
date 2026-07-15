@@ -63,9 +63,7 @@ class IntegrationProvider(ABC):
 
     # -- connect -------------------------------------------------------------- #
 
-    async def authorization_url(
-        self, *, user_id: uuid.UUID, db, base_url: str
-    ) -> str:
+    async def authorization_url(self, *, user_id: uuid.UUID, db, base_url: str) -> str:
         """Build the provider authorization URL (OAuth providers only)."""
         raise NotImplementedError(
             f"provider '{self.key}' does not support OAuth authorization"

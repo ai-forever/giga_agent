@@ -10,8 +10,11 @@ from cashews import cache
 from langgraph_sdk import get_client
 from langgraph_sdk.errors import NotFoundError
 
-from giga_agent.channels.telegram.constants import ASSISTANT_ID, THREAD_TTL_SECONDS, \
-    TELEGRAM_CHANNEL_TYPE
+from giga_agent.channels.telegram.constants import (
+    ASSISTANT_ID,
+    THREAD_TTL_SECONDS,
+    TELEGRAM_CHANNEL_TYPE,
+)
 from giga_agent.channels.telegram.runtime import get_thread_external_user_id
 from giga_agent.channels.telegram.utils import _langgraph_url, _make_token
 from giga_agent.core.cache import setup_cache
@@ -29,9 +32,7 @@ class TelegramThreadService:
         self.user_email = user_email
 
     def _thread_lock_key(self, chat_id: int, external_user_id: str | None) -> str:
-        return (
-            f"channel:tg-thread:{self.bot_row.id}:{chat_id}:{external_user_id}"
-        )
+        return f"channel:tg-thread:{self.bot_row.id}:{chat_id}:{external_user_id}"
 
     @property
     def assistant_id(self) -> str:

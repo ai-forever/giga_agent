@@ -127,7 +127,9 @@ class CashewsTokenBucketLimiter(BaseRateLimiter):
             await asyncio.sleep(max(wait, _MIN_SLEEP))
 
 
-def _build_bucket(key: str, requests: int | None, period_seconds: int) -> _BucketConfig | None:
+def _build_bucket(
+    key: str, requests: int | None, period_seconds: int
+) -> _BucketConfig | None:
     if not requests or requests <= 0:
         return None
     capacity = float(requests)

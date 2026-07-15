@@ -52,9 +52,7 @@ class ProjectsModuleInstructionsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
 
     async def test_returns_instructions_when_project_in_metadata(self):
-        result = await self._call(
-            {"metadata": {"project_id": str(self.project.id)}}
-        )
+        result = await self._call({"metadata": {"project_id": str(self.project.id)}})
         self.assertIsNotNone(result)
         self.assertIn("alpha", result)
         self.assertIn("Always answer in Russian.", result)
@@ -92,12 +90,8 @@ class ProjectsModuleInstructionsTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_none_when_project_has_no_instructions(self):
         async with self.session_factory() as session:
             repo = ProjectRepository(session)
-            empty_project = await repo.create(
-                owner_id=self.owner_id, name="empty"
-            )
-        result = await self._call(
-            {"metadata": {"project_id": str(empty_project.id)}}
-        )
+            empty_project = await repo.create(owner_id=self.owner_id, name="empty")
+        result = await self._call({"metadata": {"project_id": str(empty_project.id)}})
         self.assertIsNone(result)
 
 

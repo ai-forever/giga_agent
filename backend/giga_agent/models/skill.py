@@ -36,9 +36,7 @@ class Skill(Base):
     """Скилл пользователя — метаданные + ссылка на файлы в sandbox."""
 
     __tablename__ = "core_skills"
-    __table_args__ = (
-        UniqueConstraint("owner_id", "name", name="uq_skill_owner_name"),
-    )
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_skill_owner_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, index=True, default=uuid.uuid4
@@ -54,9 +52,7 @@ class Skill(Base):
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    metadata_: Mapped[dict] = mapped_column(
-        "metadata", JSON_VARIANT(), default=dict
-    )
+    metadata_: Mapped[dict] = mapped_column("metadata", JSON_VARIANT(), default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -214,9 +210,7 @@ class SkillRepository:
         await self.db.commit()
 
     async def delete_by_owner(self, owner_id: uuid.UUID) -> int:
-        result = await self.db.execute(
-            delete(Skill).where(Skill.owner_id == owner_id)
-        )
+        result = await self.db.execute(delete(Skill).where(Skill.owner_id == owner_id))
         await self.db.commit()
         return int(result.rowcount or 0)
 

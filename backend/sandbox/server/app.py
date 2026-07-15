@@ -13,7 +13,15 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 from fastapi.responses import JSONResponse
 
@@ -155,7 +163,9 @@ async def readyz(request: Request):
     return {"status": "ready"}
 
 
-@system_router.get("/v1/info", response_model=InfoResponse, dependencies=[Depends(require_token)])
+@system_router.get(
+    "/v1/info", response_model=InfoResponse, dependencies=[Depends(require_token)]
+)
 async def info(request: Request):
     st = request.app.state
     return InfoResponse(
@@ -175,7 +185,9 @@ async def info(request: Request):
 # kernels
 # --------------------------------------------------------------------------- #
 
-kernels_router = APIRouter(prefix="/v1/kernels", tags=["kernels"], dependencies=[Depends(require_token)])
+kernels_router = APIRouter(
+    prefix="/v1/kernels", tags=["kernels"], dependencies=[Depends(require_token)]
+)
 
 
 def _kernel_info(entry) -> KernelInfo:
@@ -259,8 +271,15 @@ async def execute_ws(websocket: WebSocket, kernel_id: str):
             env=init.get("env"),
         )
     except Exception as exc:
-        log_event("run_code", requested_kernel=kernel_id, status="kernel_start_failed", error=str(exc))
-        await websocket.send_json({"type": "fatal", "detail": f"kernel start failed: {exc}"})
+        log_event(
+            "run_code",
+            requested_kernel=kernel_id,
+            status="kernel_start_failed",
+            error=str(exc),
+        )
+        await websocket.send_json(
+            {"type": "fatal", "detail": f"kernel start failed: {exc}"}
+        )
         await websocket.close()
         return
 
@@ -273,7 +292,9 @@ async def execute_ws(websocket: WebSocket, kernel_id: str):
     try:
         while True:
             try:
-                chunk = await (gen.asend(pending) if pending is not None else anext(gen))
+                chunk = await (
+                    gen.asend(pending) if pending is not None else anext(gen)
+                )
                 pending = None
             except StopAsyncIteration:
                 break
@@ -292,8 +313,13 @@ async def execute_ws(websocket: WebSocket, kernel_id: str):
             await pool.interrupt(entry.kernel_id)
         except Exception:
             pass
-        log_event("run_code", kernel_id=entry.kernel_id, status="client_disconnect",
-                  ms=round((time.monotonic() - started) * 1000, 1), chunks=n_chunks)
+        log_event(
+            "run_code",
+            kernel_id=entry.kernel_id,
+            status="client_disconnect",
+            ms=round((time.monotonic() - started) * 1000, 1),
+            chunks=n_chunks,
+        )
         return
     except Exception as exc:
         status = "fatal"
@@ -303,9 +329,14 @@ async def execute_ws(websocket: WebSocket, kernel_id: str):
             pass
     finally:
         websocket.app.state.last_activity = time.time()
-    log_event("run_code", kernel_id=entry.kernel_id, status=status,
-              ms=round((time.monotonic() - started) * 1000, 1), chunks=n_chunks,
-              code_len=len(code))
+    log_event(
+        "run_code",
+        kernel_id=entry.kernel_id,
+        status=status,
+        ms=round((time.monotonic() - started) * 1000, 1),
+        chunks=n_chunks,
+        code_len=len(code),
+    )
     await websocket.close()
 
 
@@ -313,7 +344,9 @@ async def execute_ws(websocket: WebSocket, kernel_id: str):
 # shell
 # --------------------------------------------------------------------------- #
 
-shell_router = APIRouter(prefix="/v1/shell", tags=["shell"], dependencies=[Depends(require_token)])
+shell_router = APIRouter(
+    prefix="/v1/shell", tags=["shell"], dependencies=[Depends(require_token)]
+)
 
 
 @shell_router.post("", response_model=ShellRunResult)

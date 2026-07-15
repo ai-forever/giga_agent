@@ -1,15 +1,15 @@
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.conf import get_settings
-from giga_agent.core.module import BaseModule
-from giga_agent.modules.auth import security, api
 from giga_agent.core.events import event_bus
-from giga_agent.modules.auth.events import UserCreatedEvent
-from giga_agent.models.users import UserRepository
 from giga_agent.core.logging import get_logger
+from giga_agent.core.module import BaseModule
+from giga_agent.models.users import UserRepository
+from giga_agent.modules.auth import api, security
+from giga_agent.modules.auth.events import UserCreatedEvent
 
 logger = get_logger(__name__)
 
@@ -25,13 +25,6 @@ class AuthModule(BaseModule):
         combined.include_router(api.router)
         combined.include_router(invites_api.router)
         return combined
-
-    def get_models(self, **kwargs: Any) -> list[type]:
-        _ = kwargs
-        from giga_agent.models.invite import Invite
-        from giga_agent.models.usage import UsageEvent
-
-        return [Invite, UsageEvent]
 
     async def on_startup(self, session: AsyncSession, **kwargs: Any):
         _ = kwargs
@@ -58,6 +51,12 @@ class AuthModule(BaseModule):
                 first_name="Admin",
             )
 
+            # Первый пользователь — владелец: заводим системную группу команды.
+            # Существующие базы наполняет миграция backfill_all_members_group.
+            from giga_agent.core.team import create_all_members_group
+
+            await create_all_members_group(session, admin.id)
+
             await event_bus.publish(
                 UserCreatedEvent(user_id=admin.id, email=admin.email)
             )
@@ -66,9 +65,7 @@ class AuthModule(BaseModule):
         else:
             logger.info("Users exist. Skipping admin creation.")
 
-        # Команда инстанса: системная группа All Members (создание + бэкфилл)
-        # и авто-членство новых пользователей по UserCreatedEvent.
-        from giga_agent.core.team import ensure_all_members_group, ensure_subscribed
+        # Авто-членство новых пользователей в All Members по UserCreatedEvent.
+        from giga_agent.core.team import ensure_subscribed
 
-        await ensure_all_members_group(session)
         await ensure_subscribed()

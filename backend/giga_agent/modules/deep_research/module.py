@@ -1,4 +1,5 @@
 """Deep research module — plan → search → read → reflect → compose."""
+
 from __future__ import annotations
 
 from typing import Any, List, Optional
@@ -39,12 +40,7 @@ class DeepResearchModule(BaseModule):
         }
 
     async def _get_tools(
-        self,
-        user: UserShort | None,
-        agent: BaseAgent,
-        *,
-        config=None,
-        **kwargs
+        self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = agent
         if user is None:

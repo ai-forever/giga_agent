@@ -1,15 +1,11 @@
 import unittest
 import uuid
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
 from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import Base
 from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.group import GroupRepository
-from giga_agent.models.llm import LLM
-from giga_agent.models.llm import LLMRepository
+from giga_agent.models.llm import LLM, LLMRepository
 from giga_agent.models.resource_permission import (
     BulkGrantPermissionsResult,
     PermissionGrantItem,
@@ -17,6 +13,8 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionRepository,
 )
 from giga_agent.models.users import User
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
@@ -136,8 +134,13 @@ class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result.created), 2)
         self.assertEqual(len(result.existing), 0)
         self.assertEqual(len(result.errors), 0)
-        self.assertEqual({item.owner_id for item in result.created}, {str(target_a.id), str(target_b.id)})
-        self.assertEqual({item.permission for item in result.created}, {"read", "write"})
+        self.assertEqual(
+            {item.owner_id for item in result.created},
+            {str(target_a.id), str(target_b.id)},
+        )
+        self.assertEqual(
+            {item.permission for item in result.created}, {"read", "write"}
+        )
 
     async def test_grant_permissions_deduplicates_input_items(self):
         owner = await self._create_user("owner-bulk-dedup@example.com")
@@ -284,9 +287,13 @@ class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.created[0].owner_id, "*")
         self.assertEqual(len(result.errors), 1)
         self.assertEqual(result.errors[0].index, 1)
-        self.assertIn("public owner_id='*' supports only read permission", result.errors[0].error)
+        self.assertIn(
+            "public owner_id='*' supports only read permission", result.errors[0].error
+        )
 
-    async def test_grant_permissions_no_commit_flushes_and_external_rollback_reverts(self):
+    async def test_grant_permissions_no_commit_flushes_and_external_rollback_reverts(
+        self,
+    ):
         owner = await self._create_user("owner-bulk-nocommit@example.com")
         target = await self._create_user("target-bulk-nocommit@example.com")
         llm = await self._create_llm_for_owner(owner.id)
@@ -329,7 +336,9 @@ class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(len(verify_rows.scalars().all()), 0)
 
-    async def test_grant_permission_no_commit_flushes_without_persisting_after_rollback(self):
+    async def test_grant_permission_no_commit_flushes_without_persisting_after_rollback(
+        self,
+    ):
         owner = await self._create_user("owner-single-nocommit@example.com")
         target = await self._create_user("target-single-nocommit@example.com")
         llm = await self._create_llm_for_owner(owner.id)
@@ -545,7 +554,6 @@ class ResourcePermissionRepositoryTests(unittest.IsolatedAsyncioTestCase):
         owner = await self._create_user("owner-clause@example.com")
         viewer = await self._create_user("viewer-clause@example.com")
         llm_a = await self._create_llm_for_owner(owner.id)
-        llm_b = await self._create_llm_for_owner(owner.id)
 
         async with self.session_factory() as session:
             repo = ResourcePermissionRepository(session)

@@ -65,7 +65,9 @@ def _default_output_path(prompt: str) -> Path:
     return DEFAULT_OUTPUT_DIR / f"{timestamp}-{_slugify_prompt(prompt)}.png"
 
 
-def _iter_response_parts(response: types.GenerateContentResponse) -> Iterable[types.Part]:
+def _iter_response_parts(
+    response: types.GenerateContentResponse,
+) -> Iterable[types.Part]:
     if response.parts:
         return response.parts
 

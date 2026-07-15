@@ -9,15 +9,13 @@ LANGGRAPH_DEFAULT_AUTH_PATH = "giga_agent.modules.auth.langgraph_auth:auth"
 LANGGRAPH_DEFAULT_DEPENDENCIES = ["."]
 
 
-def collect_run_server_graphs(
-    *, agent, base_graph_target: str
-) -> dict[str, str]:
+def collect_run_server_graphs(*, agent, base_graph_target: str) -> dict[str, str]:
     # Import lazily to avoid package import cycles.
     cli = importlib.import_module("giga_agent.cli")
 
     graphs: dict[str, str] = {
         "giga_agent": base_graph_target,
-        "giga_agent_channel": base_graph_target
+        "giga_agent_channel": base_graph_target,
     }
 
     for module in agent.all_modules:

@@ -59,14 +59,18 @@ class McpToolSource:
         try:
             catalog = await list_server_tools(self._server, user_id=user_id)
         except McpError as exc:
-            return ToolCallOutcome(content=_error_text(self._server, exc), is_error=True)
+            return ToolCallOutcome(
+                content=_error_text(self._server, exc), is_error=True
+            )
 
         try:
             parts, is_error, structured = await call_server_tool(
                 self._server, tool, params, user_id=user_id
             )
         except McpError as exc:
-            return ToolCallOutcome(content=_error_text(self._server, exc), is_error=True)
+            return ToolCallOutcome(
+                content=_error_text(self._server, exc), is_error=True
+            )
 
         data, attachments, message = await process_mcp_content(parts, runtime.config)
 

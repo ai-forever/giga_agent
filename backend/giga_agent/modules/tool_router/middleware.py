@@ -41,7 +41,10 @@ _BUDGET_TOKENS = int(os.environ.get("GIGA_AGENT_TOOL_ROUTER_BUDGET", "3800"))
 
 def _enabled() -> bool:
     return os.environ.get("GIGA_AGENT_TOOL_ROUTER", "on").lower() not in (
-        "off", "0", "false", "no"
+        "off",
+        "0",
+        "false",
+        "no",
     )
 
 
@@ -164,8 +167,15 @@ _TOOL_GROUPS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("disk_",), "Яндекс.Диск"),
     (("tracker_",), "Яндекс.Трекер"),
     (
-        ("python", "shell", "await_shell", "read_file", "write_file",
-         "edit_file", "delete_file"),
+        (
+            "python",
+            "shell",
+            "await_shell",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "delete_file",
+        ),
         "Песочница (REPL)",
     ),
     (("get_urls",), "Веб"),
@@ -184,8 +194,10 @@ def _groups_for(tool_names: list[str]) -> list[str]:
         if label in found:
             continue
         for name in tool_names:
-            if any(name == tok or (tok.endswith(("_", "-")) and name.startswith(tok))
-                   for tok in toks):
+            if any(
+                name == tok or (tok.endswith(("_", "-")) and name.startswith(tok))
+                for tok in toks
+            ):
                 found.append(label)
                 break
     return found
@@ -298,7 +310,8 @@ def _stuck_message(request) -> AIMessage:
     """Сообщение, когда модель зациклилась, прося недоступный инструмент."""
     hint = _unavailable_domain_hint(request)
     avail = sorted(
-        n for n in (_name(t) for t in (request.tools or []))
+        n
+        for n in (_name(t) for t in (request.tools or []))
         if n and n not in CORE_TOOL_NAMES
     )
     parts = ["Не получилось подобрать подходящий инструмент под запрос."]
@@ -341,13 +354,12 @@ class ToolRouterMiddleware(AgentMiddleware):
                     # в чат вместо неизбежного 413.
                     logger.warning(
                         "ToolRouter: mandatory toolset over budget (~%d tok), "
-                        "short-circuiting", _estimate(selected),
+                        "short-circuiting",
+                        _estimate(selected),
                     )
                     return _overflow_message(tools, selected)
                 base = _unwrap(request.model)
-                new_model = base.bind_tools(
-                    selected, tool_choice=request.tool_choice
-                )
+                new_model = base.bind_tools(selected, tool_choice=request.tool_choice)
                 req = request.override(model=new_model, tools=selected)
         except Exception:
             logger.exception("ToolRouter: rebind failed, passing through")
@@ -376,9 +388,7 @@ class ToolRouterMiddleware(AgentMiddleware):
         # 1.4) тул, ЯВНО названный в тексте, — максимальный приоритет. Модель в
         # request_tools-intent часто пишет имя нужного тула ("вызвать mail_send");
         # без этого он выпадал из бюджета и начинался request_tools-цикл.
-        named: list = [
-            by_name[n] for n in by_name if len(n) > 4 and n in text
-        ]
+        named: list = [by_name[n] for n in by_name if len(n) > 4 and n in text]
 
         # Токены тулсетов из ПРАВИЛ, совпавших с текстом. operation-precision
         # (TOOL_KEYWORDS) имеет смысл только внутри активного домена.
@@ -438,7 +448,10 @@ class ToolRouterMiddleware(AgentMiddleware):
         if dropped:
             logger.info(
                 "ToolRouter: kept %d/%d tools (~%d tok). kept=%s dropped=%s",
-                len(selected), len(tools), _estimate(selected),
-                [_name(t) for t in selected], dropped,
+                len(selected),
+                len(tools),
+                _estimate(selected),
+                [_name(t) for t in selected],
+                dropped,
             )
         return selected

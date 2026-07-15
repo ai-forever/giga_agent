@@ -88,18 +88,23 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
                     raise AssertionError("unexpected settings")
                 return built_embeddings
 
-        with patch(
-            "giga_agent.embeddings.manager.EmbeddingRepository.get_cached_or_db",
-            AsyncMock(return_value=embedding),
-        ), patch(
-            "giga_agent.embeddings.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.embeddings.manager.EmbeddingRegistry.get",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.embeddings.manager.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=OpenAIConnector(api_key="sk-test")),
+        with (
+            patch(
+                "giga_agent.embeddings.manager.EmbeddingRepository.get_cached_or_db",
+                AsyncMock(return_value=embedding),
+            ),
+            patch(
+                "giga_agent.embeddings.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.embeddings.manager.EmbeddingRegistry.get",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.embeddings.manager.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=OpenAIConnector(api_key="sk-test")),
+            ),
         ):
             resolved = await EmbeddingManager.resolve_by_id(
                 embedding_id,
@@ -136,15 +141,19 @@ class EmbeddingManagerTests(unittest.IsolatedAsyncioTestCase):
             def is_connector_supported(cls, connector_type: str) -> bool:
                 return False
 
-        with patch(
-            "giga_agent.embeddings.manager.EmbeddingRepository.get_cached_or_db",
-            AsyncMock(return_value=embedding),
-        ), patch(
-            "giga_agent.embeddings.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.embeddings.manager.EmbeddingRegistry.get",
-            return_value=_RuntimeStub,
+        with (
+            patch(
+                "giga_agent.embeddings.manager.EmbeddingRepository.get_cached_or_db",
+                AsyncMock(return_value=embedding),
+            ),
+            patch(
+                "giga_agent.embeddings.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.embeddings.manager.EmbeddingRegistry.get",
+                return_value=_RuntimeStub,
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "not compatible"):
                 await EmbeddingManager.resolve_by_id(embedding_id, session=session)

@@ -47,11 +47,17 @@ class ChannelThread(Base):
     )
     bot_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
-        ForeignKey("core_channel_bots.id", name="fk_core_channel_threads_bot_id", ondelete="CASCADE"),
+        ForeignKey(
+            "core_channel_bots.id",
+            name="fk_core_channel_threads_bot_id",
+            ondelete="CASCADE",
+        ),
         nullable=False,
         index=True,
     )
-    external_chat_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    external_chat_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
     external_user_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -76,11 +82,17 @@ class ChannelContact(Base):
     )
     bot_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
-        ForeignKey("core_channel_bots.id", name="fk_core_channel_contacts_bot_id", ondelete="CASCADE"),
+        ForeignKey(
+            "core_channel_bots.id",
+            name="fk_core_channel_contacts_bot_id",
+            ondelete="CASCADE",
+        ),
         nullable=False,
         index=True,
     )
-    external_chat_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    external_chat_id: Mapped[str] = mapped_column(
+        String(255), nullable=False, index=True
+    )
     external_user_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -189,7 +201,9 @@ class ChannelBotRepository:
         return column == external_user_id
 
     async def get_by_id(self, bot_id: uuid.UUID) -> ChannelBot | None:
-        result = await self.db.execute(select(ChannelBot).where(ChannelBot.id == bot_id))
+        result = await self.db.execute(
+            select(ChannelBot).where(ChannelBot.id == bot_id)
+        )
         return result.scalar_one_or_none()
 
     async def list_by_user(

@@ -34,7 +34,9 @@ class ImageGeneratorManager:
             raise ValueError(f"Генератор изображений {generator_id} неактивен.")
 
         runtime_cls = ImageGeneratorRegistry.get(record.type)
-        supported_types = [item.lower() for item in runtime_cls.supported_connector_types()]
+        supported_types = [
+            item.lower() for item in runtime_cls.supported_connector_types()
+        ]
 
         connector_runtime = None
         if supported_types:

@@ -84,13 +84,9 @@ def repair_dangling_tool_calls(
             }
 
     # The trailing HumanMessage already closed the last block above.
-    delta: list[BaseMessage] = [
-        RemoveMessage(id=m.id) for m in dropped if m.id
-    ]
+    delta: list[BaseMessage] = [RemoveMessage(id=m.id) for m in dropped if m.id]
 
-    first_stub = next(
-        (i for i, m in enumerate(desired) if m.id in stub_ids), None
-    )
+    first_stub = next((i for i, m in enumerate(desired) if m.id in stub_ids), None)
     if first_stub is None:
         return delta or None
 

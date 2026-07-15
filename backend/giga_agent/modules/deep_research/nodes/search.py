@@ -4,6 +4,7 @@
 SearchEngineManager, парсит результаты и раскладывает по sub_question_ids.
 Дедуп по нормализованному URL.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -43,10 +44,7 @@ def _item_fields(item: dict[str, Any]) -> tuple[str, str, str, float]:
     url = str(item.get("url") or item.get("link") or "").strip()
     title = str(item.get("title") or item.get("name") or "").strip()
     snippet = str(
-        item.get("content")
-        or item.get("snippet")
-        or item.get("description")
-        or ""
+        item.get("content") or item.get("snippet") or item.get("description") or ""
     ).strip()
     try:
         score = float(item.get("score") or 0.0)
@@ -132,8 +130,7 @@ async def search_node(state: DeepResearchState, config: RunnableConfig):
 
             # проверяем per-sub капы — берём только если хоть один подвопрос ещё не исчерпан.
             relevant_subs = [
-                sid for sid in sub_ids
-                if per_sub_count.get(sid, 0) < sources_cap
+                sid for sid in sub_ids if per_sub_count.get(sid, 0) < sources_cap
             ] or sub_ids  # fallback — если все капы переполнены, всё равно берём
             if not relevant_subs:
                 continue

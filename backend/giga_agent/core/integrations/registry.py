@@ -100,15 +100,13 @@ def get_static_provider(key: str) -> IntegrationProvider | None:
     return static_providers().get(key)
 
 
-async def get_provider(
-    provider_key: str, *, db
-) -> IntegrationProvider | None:
+async def get_provider(provider_key: str, *, db) -> IntegrationProvider | None:
     """Resolve a provider by key. ``db`` is needed only for ``mcp:`` keys."""
     if provider_key.startswith("mcp:"):
         from giga_agent.models.mcp_server import McpServerRepository
 
         try:
-            server_id = uuid.UUID(provider_key[len("mcp:"):])
+            server_id = uuid.UUID(provider_key[len("mcp:") :])
         except ValueError:
             return None
         server = await McpServerRepository(db).get_by_id(server_id)

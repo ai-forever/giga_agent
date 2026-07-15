@@ -1,27 +1,24 @@
 import uuid
 from datetime import datetime
-from typing import Optional, Any
+from typing import Any, Optional
 
 from cashews import cache
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import ValidationError
-from sqlalchemy import String, DateTime, Uuid, ForeignKey, Integer, select
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from giga_agent.core.db import Base, JSON_VARIANT
-from giga_agent.embeddings.base import AvailableEmbeddingModel, EmbeddingModelFetchError
+# Ensure runtimes are registered.
+import giga_agent.connectors  # noqa: F401
+import giga_agent.embeddings  # noqa: F401
+from giga_agent.core.db import JSON_VARIANT, Base
 from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.connector import Connector  # noqa: F401
 from giga_agent.models.resource_permission import (
     ResourcePermissionRepository,
     ResourcePermissionsPayload,
 )
-
-# Ensure runtimes are registered.
-import giga_agent.connectors  # noqa: F401
-import giga_agent.embeddings  # noqa: F401
 
 
 class Embedding(Base):
@@ -119,6 +116,7 @@ class EmbeddingContext(BaseModel):
 
 class EmbeddingRepository(ACLResourceRepositoryMixin[Embedding]):
     """Repository for embeddings records and cacheable embeddings config context."""
+
     resource_model = Embedding
     resource_type = "embedding"
 
@@ -292,7 +290,9 @@ class EmbeddingRepository(ACLResourceRepositoryMixin[Embedding]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="embedding",
             resource_ids=resource_ids,

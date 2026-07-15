@@ -24,9 +24,7 @@ async def get_access_token(user_id: uuid.UUID, provider_key: str) -> str:
         return await provider.access_token(user_id=user_id)
 
 
-async def provider_status(
-    user_id: uuid.UUID, provider_key: str
-) -> ConnectionStatus:
+async def provider_status(user_id: uuid.UUID, provider_key: str) -> ConnectionStatus:
     factory = await get_session_factory()
     async with factory() as session:
         provider = await get_provider(provider_key, db=session)
@@ -40,9 +38,7 @@ async def is_connected(user_id: uuid.UUID, provider_key: str) -> bool:
     return status.status == "connected"
 
 
-async def all_providers_connected(
-    user_id: uuid.UUID, provider_keys: list[str]
-) -> bool:
+async def all_providers_connected(user_id: uuid.UUID, provider_keys: list[str]) -> bool:
     for key in provider_keys:
         if not await is_connected(user_id, key):
             return False

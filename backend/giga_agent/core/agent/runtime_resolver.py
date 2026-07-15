@@ -212,7 +212,9 @@ class RuntimeResolver:
             raise ValueError("User has no embedding_id configured")
         factory = await get_session_factory()
         async with factory() as session:
-            runtime = await EmbeddingManager.resolve_by_id(embedding_id, session=session)
+            runtime = await EmbeddingManager.resolve_by_id(
+                embedding_id, session=session
+            )
             await self._attach_rate_limiter(runtime, "embedding", embedding_id, session)
         self._cache["embedding"] = runtime
         return runtime
@@ -235,9 +237,7 @@ class RuntimeResolver:
         factory = await get_session_factory()
         async with factory() as session:
             runtime = await ImageGeneratorManager.resolve_by_id(gen_id, session=session)
-            await self._attach_rate_limiter(
-                runtime, "image_generator", gen_id, session
-            )
+            await self._attach_rate_limiter(runtime, "image_generator", gen_id, session)
         self._cache["image_generator"] = runtime
         return runtime
 
@@ -258,7 +258,9 @@ class RuntimeResolver:
             raise ValueError("User has no search_engine_id configured")
         factory = await get_session_factory()
         async with factory() as session:
-            runtime = await SearchEngineManager.resolve_by_id(engine_id, session=session)
+            runtime = await SearchEngineManager.resolve_by_id(
+                engine_id, session=session
+            )
             await self._attach_rate_limiter(
                 runtime, "search_engine", engine_id, session
             )

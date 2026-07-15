@@ -14,8 +14,6 @@ from giga_agent.core.module import BaseModule
 from giga_agent.memory.events import ensure_subscribed
 from giga_agent.memory.middleware import MemoryMiddleware
 from giga_agent.memory.paths import (
-    MEMORY_ROOT,
-    global_about_path,
     is_about_file,
     parse_memory_path,
 )
@@ -29,7 +27,6 @@ from giga_agent.memory.tool import search_memories
 from giga_agent.models.users import UserShort
 from giga_agent.modules.io.memory_bridge import (
     ABOUT_GLOBAL_TEMPLATE,
-    ABOUT_TAGGED_TEMPLATE,
 )
 
 
@@ -42,9 +39,7 @@ GLOBAL_FULL_CONTENT_BUDGET = 8000  # chars; bigger files go into the index only
 class MemoryModule(BaseModule):
     id: str = "memory"
 
-    async def _has_embeddings(
-        self, user: UserShort | None, *, config
-    ) -> bool:
+    async def _has_embeddings(self, user: UserShort | None, *, config) -> bool:
         if config is None:
             return False
         try:
@@ -142,13 +137,11 @@ def _render_memory_block(
         "и активно обновляй (write_file/edit_file по путям /memories/...)."
     )
     if has_search:
-        parts.append(
-            "Для семантического поиска по памяти есть тул search_memories."
-        )
+        parts.append("Для семантического поиска по памяти есть тул search_memories.")
     parts.append(
         "Каждый файл памяти кроме ABOUT.md должен иметь YAML-frontmatter с полем "
         "`description:` (одна строка, ≤200 символов). "
-        f"Лимит размера файла памяти — 200 строк."
+        "Лимит размера файла памяти — 200 строк."
     )
 
     by_tag: dict[str | None, list] = {}

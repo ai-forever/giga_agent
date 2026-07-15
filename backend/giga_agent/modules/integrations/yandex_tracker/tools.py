@@ -27,8 +27,18 @@ PROVIDER = "yandex_tracker"
 MAX_DESCRIPTION_CHARS = 2000
 
 _RU_MONTHS = (
-    "янв", "фев", "мар", "апр", "мая", "июн",
-    "июл", "авг", "сен", "окт", "ноя", "дек",
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "мая",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
 )
 
 
@@ -63,7 +73,9 @@ def _disp(value: Any) -> Any:
     return value
 
 
-def _trim_issue(item: dict[str, Any], *, with_description: bool = False) -> dict[str, Any]:
+def _trim_issue(
+    item: dict[str, Any], *, with_description: bool = False
+) -> dict[str, Any]:
     """Только полезные модели поля — Трекер отдаёт очень жирные объекты."""
     queue = item.get("queue")
     out: dict[str, Any] = {
@@ -83,7 +95,9 @@ def _trim_issue(item: dict[str, Any], *, with_description: bool = False) -> dict
     return {k: v for k, v in out.items() if v is not None}
 
 
-def _to_issue(item: dict[str, Any], *, with_description: bool = False) -> dict[str, Any]:
+def _to_issue(
+    item: dict[str, Any], *, with_description: bool = False
+) -> dict[str, Any]:
     """Сырой объект Трекера → нормализованный Issue (фронт-контракт)."""
     queue = item.get("queue")
     tag = queue.get("key") if isinstance(queue, dict) else queue
@@ -138,7 +152,9 @@ async def tracker_search_issues(
     if isinstance(items, dict):
         return items  # ошибка-валидация
     return build_widget_tool_message(
-        with_widget_note(board_payload(PROVIDER, [_to_issue(i) for i in items]), runtime),
+        with_widget_note(
+            board_payload(PROVIDER, [_to_issue(i) for i in items]), runtime
+        ),
         runtime=runtime,
     )
 

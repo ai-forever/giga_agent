@@ -21,9 +21,7 @@ class _DbBase(unittest.IsolatedAsyncioTestCase):
         self._tmp = tempfile.TemporaryDirectory()
         db_path = Path(self._tmp.name) / "conn.sqlite"
         self.engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
-        self.session_factory = async_sessionmaker(
-            self.engine, expire_on_commit=False
-        )
+        self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         self.user_id = uuid.uuid4()
@@ -164,9 +162,7 @@ class StaticProviderTests(_DbBase):
             async def _bad_refresh(**_kwargs):
                 raise oauth_flow.RefreshError("invalid_grant", permanent=True)
 
-            with mock.patch.object(
-                oauth_flow, "refresh_access_token", _bad_refresh
-            ):
+            with mock.patch.object(oauth_flow, "refresh_access_token", _bad_refresh):
                 with self.assertRaises(ReauthRequired):
                     await provider.access_token(user_id=self.user_id)
                 st = await provider.status(user_id=self.user_id)

@@ -38,7 +38,9 @@ class LocalFunctionsRouterTests(unittest.TestCase):
         self.assertEqual(response.json(), {"path": "/tmp/work"})
 
     def test_directory_picker_returns_null_on_cancel(self):
-        with patch("giga_agent.routes.local_functions.pick_directory", return_value=None):
+        with patch(
+            "giga_agent.routes.local_functions.pick_directory", return_value=None
+        ):
             response = self.client.post("/local-functions/directory-picker")
 
         self.assertEqual(response.status_code, 200)
@@ -47,7 +49,9 @@ class LocalFunctionsRouterTests(unittest.TestCase):
     def test_directory_picker_reports_unavailable_picker(self):
         with patch(
             "giga_agent.routes.local_functions.pick_directory",
-            side_effect=DirectoryPickerUnavailableError("zenity or kdialog is required"),
+            side_effect=DirectoryPickerUnavailableError(
+                "zenity or kdialog is required"
+            ),
         ):
             response = self.client.post("/local-functions/directory-picker")
 
@@ -72,9 +76,18 @@ class LocalFunctionsRouterTests(unittest.TestCase):
         )
 
         with (
-            patch("giga_agent.routes.local_functions.platform.system", return_value="Darwin"),
-            patch("giga_agent.routes.local_functions.shutil.which", return_value="osascript"),
-            patch("giga_agent.routes.local_functions.subprocess.run", return_value=completed) as run,
+            patch(
+                "giga_agent.routes.local_functions.platform.system",
+                return_value="Darwin",
+            ),
+            patch(
+                "giga_agent.routes.local_functions.shutil.which",
+                return_value="osascript",
+            ),
+            patch(
+                "giga_agent.routes.local_functions.subprocess.run",
+                return_value=completed,
+            ) as run,
         ):
             selected_path = pick_directory()
 
@@ -89,9 +102,17 @@ class LocalFunctionsRouterTests(unittest.TestCase):
         )
 
         with (
-            patch("giga_agent.routes.local_functions.platform.system", return_value="Linux"),
-            patch("giga_agent.routes.local_functions.shutil.which", return_value="zenity"),
-            patch("giga_agent.routes.local_functions.subprocess.run", return_value=completed) as run,
+            patch(
+                "giga_agent.routes.local_functions.platform.system",
+                return_value="Linux",
+            ),
+            patch(
+                "giga_agent.routes.local_functions.shutil.which", return_value="zenity"
+            ),
+            patch(
+                "giga_agent.routes.local_functions.subprocess.run",
+                return_value=completed,
+            ) as run,
         ):
             selected_path = pick_directory()
 

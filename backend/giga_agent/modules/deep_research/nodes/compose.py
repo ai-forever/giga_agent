@@ -6,6 +6,7 @@
 
 Upload в sandbox вынесен в отдельный узел `finalize` (после accept от критика).
 """
+
 from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -36,9 +37,7 @@ def _build_sources_block(sources: list[dict]) -> tuple[str, int]:
         title = (src.get("title") or "").strip() or "(без названия)"
         url = (src.get("url") or "").strip()
         citation_num = sid + 1 if isinstance(sid, int) else sid
-        lines.append(
-            f"[{citation_num}] {title}\nURL: {url}\nВыжимка:\n{summary}\n"
-        )
+        lines.append(f"[{citation_num}] {title}\nURL: {url}\nВыжимка:\n{summary}\n")
     return "\n".join(lines), relevant
 
 

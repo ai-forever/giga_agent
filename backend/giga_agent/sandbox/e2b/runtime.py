@@ -311,7 +311,9 @@ class E2BSandbox(APIBackedSandbox, S3FilesMixin, JupyterSandbox):
     # ------------------------------------------------------------------
 
     _SKILL_CACHE_TTL = int(os.getenv("GIGA_AGENT_SKILL_CACHE_TTL", "300"))
-    _SKILL_CACHE_ENABLED = os.getenv("GIGA_AGENT_SKILL_CACHE_ENABLED", "true").lower() != "false"
+    _SKILL_CACHE_ENABLED = (
+        os.getenv("GIGA_AGENT_SKILL_CACHE_ENABLED", "true").lower() != "false"
+    )
 
     def _skill_s3_prefix(self, owner_id: uuid.UUID, skill_name: str) -> str:
         return f"skills/{owner_id}/{skill_name}"
@@ -405,12 +407,10 @@ class E2BSandbox(APIBackedSandbox, S3FilesMixin, JupyterSandbox):
             aws_secret_access_key=self.aws_secret_access_key,
         ) as s3:
             paginator = s3.get_paginator("list_objects_v2")
-            async for page in paginator.paginate(
-                Bucket=self.s3_bucket, Prefix=prefix
-            ):
+            async for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    rel = key[len(prefix):]
+                    rel = key[len(prefix) :]
                     if rel:
                         result.append(rel)
 
@@ -420,9 +420,7 @@ class E2BSandbox(APIBackedSandbox, S3FilesMixin, JupyterSandbox):
 
         return result
 
-    async def remove_skill_files(
-        self, owner_id: uuid.UUID, storage_path: str
-    ) -> None:
+    async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
         import aioboto3
 
         skill_name = storage_path.split("/")[-1]
@@ -437,12 +435,8 @@ class E2BSandbox(APIBackedSandbox, S3FilesMixin, JupyterSandbox):
             aws_secret_access_key=self.aws_secret_access_key,
         ) as s3:
             paginator = s3.get_paginator("list_objects_v2")
-            async for page in paginator.paginate(
-                Bucket=self.s3_bucket, Prefix=prefix
-            ):
-                objects = [
-                    {"Key": obj["Key"]} for obj in page.get("Contents", [])
-                ]
+            async for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=prefix):
+                objects = [{"Key": obj["Key"]} for obj in page.get("Contents", [])]
                 if objects:
                     await s3.delete_objects(
                         Bucket=self.s3_bucket,
@@ -457,7 +451,9 @@ class E2BSandbox(APIBackedSandbox, S3FilesMixin, JupyterSandbox):
         skill_name = storage_path.split("/")[-1]
         return f"{S3_MOUNT_PREFIX}.skills/{skill_name}/{relative_path}"
 
-    async def _invalidate_skill_cache(self, owner_id: uuid.UUID, skill_name: str) -> None:
+    async def _invalidate_skill_cache(
+        self, owner_id: uuid.UUID, skill_name: str
+    ) -> None:
         if not self._SKILL_CACHE_ENABLED:
             return
         pattern = f"skill:*:{owner_id}:{skill_name}*"

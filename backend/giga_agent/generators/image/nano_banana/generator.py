@@ -54,7 +54,9 @@ class NanoBananaImageGen(BaseImageGenerator):
 
         response = await self._client.aio.models.generate_content(
             model=self.model,
-            contents=self._build_contents(prompt=prompt, input_images=kwargs.get("input_images")),
+            contents=self._build_contents(
+                prompt=prompt, input_images=kwargs.get("input_images")
+            ),
             config=self._build_config(aspect_ratio=kwargs.get("aspect_ratio")),
         )
         return self._extract_image_b64(response)

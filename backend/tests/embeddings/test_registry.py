@@ -27,7 +27,9 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_supported_connector_types(self):
         self.assertEqual(OpenAIEmbeddingRuntime.supported_connector_types(), ["openai"])
-        self.assertEqual(GigaChatEmbeddingRuntime.supported_connector_types(), ["gigachat"])
+        self.assertEqual(
+            GigaChatEmbeddingRuntime.supported_connector_types(), ["gigachat"]
+        )
 
     async def test_openai_fetch_available_models_returns_empty_by_default(self):
         models = await OpenAIEmbeddingRuntime.fetch_available_models(
@@ -88,13 +90,16 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
         token_cache_mock = AsyncMock(return_value="tok")
 
-        with patch(
-            "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
-            token_cache_mock,
-        ), patch(
-            "giga_agent.embeddings.gigachat.GigaChat",
-            return_value=mock_llm,
-        ) as mocked_llm:
+        with (
+            patch(
+                "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
+                token_cache_mock,
+            ),
+            patch(
+                "giga_agent.embeddings.gigachat.GigaChat",
+                return_value=mock_llm,
+            ) as mocked_llm,
+        ):
             connector = GigaChatConnector(
                 gigachat_api_type="prod",
                 gigachat_credentials="token",
@@ -121,12 +126,15 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             gigachat_credentials="token",
             gigachat_scope="GIGACHAT_API_PERS",
         )
-        with patch(
-            "giga_agent.embeddings.gigachat.GigaChatEmbeddings",
-            return_value=object(),
-        ) as mocked, patch(
-            "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
-            AsyncMock(return_value="tok"),
+        with (
+            patch(
+                "giga_agent.embeddings.gigachat.GigaChatEmbeddings",
+                return_value=object(),
+            ) as mocked,
+            patch(
+                "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
+                AsyncMock(return_value="tok"),
+            ),
         ):
             runtime = GigaChatEmbeddingRuntime(
                 connector=connector,
@@ -138,7 +146,7 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         mocked.assert_called_once_with(
             model="EmbeddingsGigaR",
-            base_url='https://gigachat.devices.sberbank.ru/api/v1',
+            base_url="https://gigachat.devices.sberbank.ru/api/v1",
             credentials="token",
             scope="GIGACHAT_API_PERS",
             verify_ssl_certs=False,
@@ -146,7 +154,9 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             access_token="tok",
         )
 
-    async def test_gigachat_fetch_available_models_skips_access_token_when_flag_enabled(self):
+    async def test_gigachat_fetch_available_models_skips_access_token_when_flag_enabled(
+        self,
+    ):
         mock_llm = types.SimpleNamespace(
             aget_models=AsyncMock(
                 return_value=types.SimpleNamespace(
@@ -162,13 +172,16 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         ):
             reset_settings_cache()
-            with patch(
-                "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
-                token_cache_mock,
-            ), patch(
-                "giga_agent.embeddings.gigachat.GigaChat",
-                return_value=mock_llm,
-            ) as mocked_llm:
+            with (
+                patch(
+                    "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
+                    token_cache_mock,
+                ),
+                patch(
+                    "giga_agent.embeddings.gigachat.GigaChat",
+                    return_value=mock_llm,
+                ) as mocked_llm,
+            ):
                 connector = GigaChatConnector(
                     gigachat_api_type="prod",
                     gigachat_credentials="token",
@@ -188,7 +201,9 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             verify_ssl_certs=False,
         )
 
-    async def test_gigachat_embeddings_builder_skips_access_token_when_flag_enabled(self):
+    async def test_gigachat_embeddings_builder_skips_access_token_when_flag_enabled(
+        self,
+    ):
         token_cache_mock = AsyncMock(return_value="tok")
 
         with patch.dict(
@@ -197,13 +212,16 @@ class EmbeddingRegistryTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         ):
             reset_settings_cache()
-            with patch(
-                "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
-                token_cache_mock,
-            ), patch(
-                "giga_agent.embeddings.gigachat.GigaChatEmbeddings",
-                return_value=object(),
-            ) as mocked:
+            with (
+                patch(
+                    "giga_agent.embeddings.gigachat.get_gigachat_access_token_cached",
+                    token_cache_mock,
+                ),
+                patch(
+                    "giga_agent.embeddings.gigachat.GigaChatEmbeddings",
+                    return_value=object(),
+                ) as mocked,
+            ):
                 runtime = GigaChatEmbeddingRuntime(
                     connector=GigaChatConnector(
                         gigachat_api_type="prod",

@@ -28,7 +28,7 @@ def is_memory_path(raw: str) -> bool:
         return False
     if raw == MEMORY_ROOT:
         return False
-    tail = raw[len(MEMORY_ROOT):]
+    tail = raw[len(MEMORY_ROOT) :]
     return tail.startswith("/")
 
 

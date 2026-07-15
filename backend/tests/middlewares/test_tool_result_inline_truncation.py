@@ -52,9 +52,7 @@ class InlineTruncationTests(unittest.IsolatedAsyncioTestCase):
         out = await _wrap(_py_command(huge))
         msg = out.update["messages"][0]
         # Capped near the byte limit (+ a short hint), not the full ~1MB.
-        self.assertLess(
-            len(msg.content.encode("utf-8")), _get_max_tool_size() + 2000
-        )
+        self.assertLess(len(msg.content.encode("utf-8")), _get_max_tool_size() + 2000)
         self.assertIn("обрезан", msg.content)  # hint advises reducing output
 
     async def test_small_python_stdout_passes_through(self):

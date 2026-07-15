@@ -13,7 +13,9 @@ def _format_message_author(message: tg_types.Message | None) -> tuple[str, str]:
     if message is None:
         return "unknown", "Unknown"
 
-    author = getattr(message, "from_user", None) or getattr(message, "sender_chat", None)
+    author = getattr(message, "from_user", None) or getattr(
+        message, "sender_chat", None
+    )
     username = getattr(author, "username", None)
     username_value = f"@{username}" if username else "unknown"
     name_parts = [

@@ -494,7 +494,7 @@ class TelegramMediaService:
                         reply_markup=markup,
                     )
                     sent_any = True
-            except Exception as exc:
+            except Exception:
                 traceback.print_exc()
                 if kind == "attachment_path":
                     logger.warning("Failed to send attachment %s", value[:80])
@@ -557,7 +557,9 @@ class TelegramMediaService:
                             disable_web_page_preview=disable_web_page_preview,
                         )
                     except Exception as exc:
-                        logger.exception("Error delivering message to Telegram: %s", exc)
+                        logger.exception(
+                            "Error delivering message to Telegram: %s", exc
+                        )
                         await self.bot.send_message(
                             target,
                             value,

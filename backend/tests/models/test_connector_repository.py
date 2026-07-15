@@ -93,7 +93,9 @@ class ConnectorRepositoryTests(unittest.IsolatedAsyncioTestCase):
             key = ConnectorRepository.cache_key(created.id)
             self.assertTrue(key.startswith("connector:ctx:"))
 
-    async def test_delete_cleans_resource_permissions_for_connector_and_children(self) -> None:
+    async def test_delete_cleans_resource_permissions_for_connector_and_children(
+        self,
+    ) -> None:
         owner = await self._create_user("connector-owner-delete@example.com")
         viewer = await self._create_user("connector-viewer-delete@example.com")
 

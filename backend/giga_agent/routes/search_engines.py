@@ -189,7 +189,10 @@ async def get_engine_types_meta(
         SearchEngineTypeMeta(
             type=engine_type,
             supported_connector_types=[
-                t.lower() for t in SearchEngineRegistry.get(engine_type).supported_connector_types()
+                t.lower()
+                for t in SearchEngineRegistry.get(
+                    engine_type
+                ).supported_connector_types()
             ],
             requires_connector=False,
         )
@@ -203,21 +206,29 @@ async def get_engine_settings_schema(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
     _ = current_user
-    runtime_cls = _resolve_runtime_cls(engine_type, status_code=status.HTTP_404_NOT_FOUND)
+    runtime_cls = _resolve_runtime_cls(
+        engine_type, status_code=status.HTTP_404_NOT_FOUND
+    )
     return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
-@router.post("", response_model=SearchEngineResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=SearchEngineResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_search_engine(
     data: SearchEngineCreate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    engine_repo: Annotated[
+        SearchEngineRepository, Depends(get_search_engine_repository)
+    ],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     if data.permissions is not None:
         require_superuser(current_user)
 
-    runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(
+        data.type, status_code=status.HTTP_400_BAD_REQUEST
+    )
     validated_settings = await _validate_settings(data.type, data.settings)
     validated_connector_id = await _validate_connector_link(
         user_id=current_user.id,
@@ -256,7 +267,9 @@ async def create_search_engine(
 @router.get("", response_model=list[SearchEngineResponse])
 async def get_search_engines(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    engine_repo: Annotated[
+        SearchEngineRepository, Depends(get_search_engine_repository)
+    ],
     only_active: bool = Query(False, description="Only active search engines"),
 ):
     rows = await engine_repo.list_readable_with_edit_for_user(
@@ -276,7 +289,9 @@ async def get_search_engines(
 async def get_search_engine(
     engine_id: uuid.UUID,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    engine_repo: Annotated[
+        SearchEngineRepository, Depends(get_search_engine_repository)
+    ],
 ):
     engine, can_edit = await fetch_resource_with_read_and_edit(
         resource_id=engine_id,
@@ -293,7 +308,9 @@ async def patch_search_engine(
     data: SearchEnginePatchRequest,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    engine_repo: Annotated[
+        SearchEngineRepository, Depends(get_search_engine_repository)
+    ],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     engine = await _get_engine_with_write_check(
@@ -302,7 +319,9 @@ async def patch_search_engine(
         engine_repo=engine_repo,
     )
 
-    runtime_cls = _resolve_runtime_cls(engine.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(
+        engine.type, status_code=status.HTTP_400_BAD_REQUEST
+    )
     update_data: dict[str, Any] = {}
     effective_settings = engine.settings or {}
 
@@ -370,7 +389,9 @@ async def delete_search_engine(
     engine_id: uuid.UUID,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
-    engine_repo: Annotated[SearchEngineRepository, Depends(get_search_engine_repository)],
+    engine_repo: Annotated[
+        SearchEngineRepository, Depends(get_search_engine_repository)
+    ],
 ):
     engine = await _get_engine_with_write_check(
         engine_id=engine_id,

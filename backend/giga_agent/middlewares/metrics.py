@@ -131,7 +131,10 @@ class MetricsMiddleware(AgentMiddleware):
             TOOL_LATENCY.labels(tool=tool_name).observe(time.monotonic() - start)
             raise
         status = "ok"
-        if isinstance(result, ToolMessage) and getattr(result, "status", None) == "error":
+        if (
+            isinstance(result, ToolMessage)
+            and getattr(result, "status", None) == "error"
+        ):
             status = "error"
         TOOL_CALLS.labels(tool=tool_name, status=status).inc()
         TOOL_LATENCY.labels(tool=tool_name).observe(time.monotonic() - start)

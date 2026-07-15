@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from giga_agent.core.events import event_bus
 from giga_agent.core.logging import get_logger
 from giga_agent.models.group import Group, GroupMember
-from giga_agent.models.users import User
 
 logger = get_logger(__name__)
 
@@ -42,39 +41,20 @@ async def find_all_members_group(session: AsyncSession) -> Group | None:
     return None
 
 
-async def _backfill_members(session: AsyncSession, group_id: uuid.UUID) -> int:
-    """Добавляет в группу всех пользователей, которых там ещё нет."""
-    existing = {
-        row[0]
-        for row in (
-            await session.execute(
-                select(GroupMember.user_id).where(GroupMember.group_id == group_id)
-            )
-        ).all()
-    }
-    all_ids = [row[0] for row in (await session.execute(select(User.id))).all()]
-    missing = [uid for uid in all_ids if uid not in existing]
-    for uid in missing:
-        session.add(GroupMember(group_id=group_id, user_id=uid))
-    return len(missing)
+async def create_all_members_group(
+    session: AsyncSession, owner_id: uuid.UUID
+) -> Group:
+    """Создаёт системную группу «All Members» при первичной инициализации инстанса.
 
+    Вызывается один раз — при создании первого пользователя (владельца команды),
+    который сразу становится участником. Существующие базы наполняет миграция
+    ``backfill_all_members_group``, а последующих пользователей добавляет
+    ``_handle_user_created``.
 
-async def ensure_all_members_group(session: AsyncSession) -> Group:
-    """Создаёт системную группу при первом старте и бэкфиллит членство.
-
-    Идемпотентно: повторные вызовы ничего не ломают.
+    Идемпотентно: если группа уже есть, просто гарантирует членство владельца.
     """
     group = await find_all_members_group(session)
     if group is None:
-        # Владелец группы — owner инстанса (или самый ранний пользователь).
-        owner_row = await session.execute(
-            select(User.id)
-            .order_by((User.role != "owner").asc(), User.created_at.asc())
-            .limit(1)
-        )
-        owner_id = owner_row.scalar_one_or_none()
-        if owner_id is None:
-            raise RuntimeError("Cannot create All Members group: no users exist")
         group = Group(
             owner_id=owner_id,
             name=ALL_MEMBERS_NAME,
@@ -85,10 +65,15 @@ async def ensure_all_members_group(session: AsyncSession) -> Group:
         await session.flush()
         logger.info("Created system group 'All Members' (%s)", group.id)
 
-    added = await _backfill_members(session, group.id)
+    exists = await session.execute(
+        select(GroupMember).where(
+            GroupMember.group_id == group.id,
+            GroupMember.user_id == owner_id,
+        )
+    )
+    if exists.scalar_one_or_none() is None:
+        session.add(GroupMember(group_id=group.id, user_id=owner_id))
     await session.commit()
-    if added:
-        logger.info("All Members: backfilled %d member(s)", added)
     return group
 
 
@@ -101,8 +86,11 @@ async def _handle_user_created(event) -> None:
         async with factory() as session:
             group = await find_all_members_group(session)
             if group is None:
-                group = await ensure_all_members_group(session)
-                return  # ensure уже добавил всех, включая нового
+                logger.warning(
+                    "All Members group is missing; skipping auto-add for user %s",
+                    event.user_id,
+                )
+                return
             exists = await session.execute(
                 select(GroupMember).where(
                     GroupMember.group_id == group.id,
@@ -110,9 +98,7 @@ async def _handle_user_created(event) -> None:
                 )
             )
             if exists.scalar_one_or_none() is None:
-                session.add(
-                    GroupMember(group_id=group.id, user_id=event.user_id)
-                )
+                session.add(GroupMember(group_id=group.id, user_id=event.user_id))
                 await session.commit()
     except Exception:
         logger.exception(

@@ -202,9 +202,7 @@ class SandboxLifecycleService:
         assert isinstance(result, BaseSandbox)
         return result
 
-    async def _recreate_unlocked(
-        self, sandbox: Sandbox, *, reason: str
-    ) -> BaseSandbox:
+    async def _recreate_unlocked(self, sandbox: Sandbox, *, reason: str) -> BaseSandbox:
         """Пересоздать внешний ресурс под свежие холодные настройки.
 
         В отличие от обычного stop, ПРИНУДИТЕЛЬНО удаляет контейнер и чистит
@@ -231,9 +229,7 @@ class SandboxLifecycleService:
                 exc_info=True,
             )
 
-        external_id = sandbox.external_id or (sandbox.settings or {}).get(
-            "external_id"
-        )
+        external_id = sandbox.external_id or (sandbox.settings or {}).get("external_id")
         if external_id:
             try:
                 await type(runtime).remove_external_runtime(str(external_id))
@@ -333,7 +329,10 @@ class SandboxLifecycleService:
         force: bool,
         reason: str,
     ) -> Sandbox:
-        if not force and sandbox.status in (SandboxStatus.STOPPED, SandboxStatus.PENDING):
+        if not force and sandbox.status in (
+            SandboxStatus.STOPPED,
+            SandboxStatus.PENDING,
+        ):
             logger.info("Sandbox %s is already stopped", sandbox.id)
             return sandbox
 
@@ -441,7 +440,9 @@ class SandboxLifecycleService:
 
         sandbox = None
         if action.sandbox_id is not None:
-            sandbox = await self._sandbox_repo.get_by_id_with_provider(action.sandbox_id)
+            sandbox = await self._sandbox_repo.get_by_id_with_provider(
+                action.sandbox_id
+            )
 
         if isinstance(action, StopExternalRuntimeAction):
             if sandbox is None:
@@ -488,7 +489,9 @@ class SandboxLifecycleService:
 
     async def cleanup_orphans_for_provider_type(self, provider_type: str) -> list[str]:
         runtime_cls = SandboxRegistry.get(provider_type)
-        sandboxes = await self._sandbox_repo.get_by_provider_type_with_provider(provider_type)
+        sandboxes = await self._sandbox_repo.get_by_provider_type_with_provider(
+            provider_type
+        )
         provider_snapshots: dict[uuid.UUID, SandboxProviderSnapshot] = {}
         sandbox_snapshots: list[SandboxSnapshot] = []
 
@@ -526,7 +529,9 @@ class SandboxLifecycleService:
         async def _run(provider_type: str) -> tuple[str, list[str] | None]:
             async with semaphore:
                 try:
-                    applied = await self.cleanup_orphans_for_provider_type(provider_type)
+                    applied = await self.cleanup_orphans_for_provider_type(
+                        provider_type
+                    )
                 except Exception:
                     logger.exception(
                         "sandbox_orphan_cleanup_failed provider_type=%s",
@@ -536,7 +541,10 @@ class SandboxLifecycleService:
                 return provider_type, applied
 
         batches = await asyncio.gather(
-            *(_run(provider_type) for provider_type in SandboxRegistry.available_types())
+            *(
+                _run(provider_type)
+                for provider_type in SandboxRegistry.available_types()
+            )
         )
         for provider_type, applied in batches:
             if applied:
@@ -700,8 +708,8 @@ class SandboxLifecycleService:
             try:
                 result = await self._with_lifecycle_lock(
                     sandbox.id,
-                    action=lambda sandbox_id=sandbox.id: self._reconcile_stale_starting_unlocked(
-                        sandbox_id
+                    action=lambda sandbox_id=sandbox.id: (
+                        self._reconcile_stale_starting_unlocked(sandbox_id)
                     ),
                 )
                 if isinstance(result, uuid.UUID):

@@ -18,6 +18,7 @@ Or via Makefile:
     make core-alembic args="upgrade head"
     make core-alembic args="history"
 """
+
 import os
 import sys
 from importlib.resources import as_file, files

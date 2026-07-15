@@ -10,16 +10,22 @@ import base64
 import json
 import uuid
 
-from langchain.tools import tool, ToolRuntime
+from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
-from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_WIDTH, DEFAULT_HEIGHT
+from giga_agent.generators.image.base import (
+    DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
+    BaseImageGenerator,
+)
 from giga_agent.models.file import FileResponse
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
 
 logger = get_logger(__name__)
+
+# ruff: noqa: E402
 
 # Ensure providers are registered.
 import giga_agent.generators.image  # noqa: F401
@@ -97,21 +103,19 @@ async def gen_image(
         )
 
     if not uploaded.files:
-        raise RuntimeError("Не удалось загрузить сгенерированное изображение в sandbox.")
+        raise RuntimeError(
+            "Не удалось загрузить сгенерированное изображение в sandbox."
+        )
 
     file = uploaded.files[0]
     sandbox_path = file.sandbox_path
 
-    render_hint = (
-        f'Покажи это пользователю через "![описание изображения](attachment:{sandbox_path})"'
-    )
+    render_hint = f'Покажи это пользователю через "![описание изображения](attachment:{sandbox_path})"'
     result_text = (
         f"Изображение успешно сгенерировано. Путь: '{sandbox_path}'. {render_hint}"
     )
 
-    giga_attachments = [
-        FileResponse.model_validate(file).model_dump(mode="json")
-    ]
+    giga_attachments = [FileResponse.model_validate(file).model_dump(mode="json")]
 
     return ToolMessage(
         tool_call_id=runtime.tool_call_id,

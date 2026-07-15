@@ -140,9 +140,7 @@ class Sandbox(Base):
 
     # Один sandbox на юзера в рамках одного провайдера
     __table_args__ = (
-        UniqueConstraint(
-            "owner_id", "provider_id", name="uq_sandbox_owner_provider"
-        ),
+        UniqueConstraint("owner_id", "provider_id", name="uq_sandbox_owner_provider"),
     )
 
     # Relationships
@@ -271,6 +269,7 @@ class SandboxPairSnapshot(BaseModel):
 
 class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
     """Repository для работы с провайдерами песочниц."""
+
     resource_model = SandboxProvider
     resource_type = "sandbox"
 
@@ -290,9 +289,7 @@ class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
         only_active: bool = False,
     ) -> list[SandboxProvider]:
         """Получить все провайдеры пользователя."""
-        query = select(SandboxProvider).where(
-            SandboxProvider.owner_id == owner_id
-        )
+        query = select(SandboxProvider).where(SandboxProvider.owner_id == owner_id)
         if only_active:
             query = query.where(SandboxProvider.is_active == True)  # noqa: E712
         query = query.order_by(SandboxProvider.created_at.desc())
@@ -371,7 +368,9 @@ class SandboxProviderRepository(ACLResourceRepositoryMixin[SandboxProvider]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="sandbox",
             resource_ids=resource_ids,
@@ -543,13 +542,12 @@ class SandboxRepository:
 
     async def get_by_id(self, sandbox_id: uuid.UUID) -> Sandbox | None:
         """Получить sandbox по ID."""
-        result = await self.db.execute(
-            select(Sandbox).where(Sandbox.id == sandbox_id)
-        )
+        result = await self.db.execute(select(Sandbox).where(Sandbox.id == sandbox_id))
         return result.scalar_one_or_none()
 
     async def get_owner_id_by_sandbox_cached(
-        self, sandbox_id: uuid.UUID,
+        self,
+        sandbox_id: uuid.UUID,
     ) -> uuid.UUID | None:
         """Вернуть owner_id песочницы по её ID с кэшем (TTL SANDBOXPAIR_CACHE_TTL).
 
@@ -569,9 +567,7 @@ class SandboxRepository:
         await cache.set(key, str(sandbox.owner_id), expire=SANDBOXPAIR_CACHE_TTL)
         return sandbox.owner_id
 
-    async def get_by_id_with_provider(
-        self, sandbox_id: uuid.UUID
-    ) -> Sandbox | None:
+    async def get_by_id_with_provider(self, sandbox_id: uuid.UUID) -> Sandbox | None:
         """Получить sandbox по ID с подгруженным провайдером."""
         result = await self.db.execute(
             select(Sandbox)

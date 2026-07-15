@@ -102,7 +102,7 @@ async def connector_call_tool(
     runtime: ToolRuntime,
     params: Annotated[
         str | None,
-        'JSON-строка с аргументами инструмента, например \'{"a": 1}\'. По умолчанию пусто.',
+        "JSON-строка с аргументами инструмента, например '{\"a\": 1}'. По умолчанию пусто.",
     ] = None,
 ) -> dict | ToolMessage:
     def _error(message: str) -> ToolMessage:
@@ -146,9 +146,7 @@ async def connector_call_tool(
             f"available: {available}; call {GET_INFO_TOOL_NAME}('{target.name}')"
         )
 
-    outcome = await target.call_tool(
-        tool, parsed_params, runtime, user_id=owner_id
-    )
+    outcome = await target.call_tool(tool, parsed_params, runtime, user_id=owner_id)
 
     if outcome.is_error:
         text = (
@@ -156,15 +154,11 @@ async def connector_call_tool(
             if isinstance(outcome.content, str)
             else json.dumps(outcome.content, ensure_ascii=False)
         )
-        return _error(
-            f"tool '{tool}' on '{target.name}' returned an error: {text}"
-        )
+        return _error(f"tool '{tool}' on '{target.name}' returned an error: {text}")
 
     content = outcome.content
     content_str = (
-        content
-        if isinstance(content, str)
-        else json.dumps(content, ensure_ascii=False)
+        content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
     )
 
     attachments = list(outcome.attachments)

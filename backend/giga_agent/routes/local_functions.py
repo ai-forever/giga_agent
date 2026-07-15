@@ -49,7 +49,9 @@ def _run_picker_command(command: list[str]) -> str | None:
         stdout = (result.stdout or "").strip().lower()
         if "cancel" in stderr or "cancel" in stdout or result.returncode == 1:
             return None
-        raise DirectoryPickerFailedError((result.stderr or "").strip() or "Picker failed")
+        raise DirectoryPickerFailedError(
+            (result.stderr or "").strip() or "Picker failed"
+        )
 
     selected_path = (result.stdout or "").strip()
     if not selected_path:
@@ -124,7 +126,9 @@ def pick_directory() -> str | None:
         return _pick_directory_linux()
     if system == "Windows":
         return _pick_directory_windows()
-    raise DirectoryPickerUnavailableError(f"Unsupported platform: {system or 'unknown'}")
+    raise DirectoryPickerUnavailableError(
+        f"Unsupported platform: {system or 'unknown'}"
+    )
 
 
 @router.post("/directory-picker", response_model=DirectoryPickerResponse)

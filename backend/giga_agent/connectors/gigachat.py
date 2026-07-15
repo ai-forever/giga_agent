@@ -46,10 +46,7 @@ class GigaChatConnector(BaseConnector):
     )
 
     def _is_from_env_mode(self) -> bool:
-        return (
-            get_settings().giga_agent_gigachat_from_env
-            and not self.model_fields_set
-        )
+        return get_settings().giga_agent_gigachat_from_env and not self.model_fields_set
 
     @classmethod
     async def validate_settings(cls, settings: dict[str, Any]) -> dict[str, Any]:
@@ -62,12 +59,16 @@ class GigaChatConnector(BaseConnector):
             or ""
         ).strip()
         validated = await super().validate_settings(settings)
-        api_type = str(validated.get("gigachat_api_type", "prod") or "prod").strip().lower()
+        api_type = (
+            str(validated.get("gigachat_api_type", "prod") or "prod").strip().lower()
+        )
         if api_type not in {"prod", "dev"}:
             raise ValueError("gigachat_api_type must be one of: prod, dev")
         validated["gigachat_api_type"] = api_type
 
-        scope = str(validated.get("gigachat_scope", "GIGACHAT_API_PERS") or "GIGACHAT_API_PERS").strip()
+        scope = str(
+            validated.get("gigachat_scope", "GIGACHAT_API_PERS") or "GIGACHAT_API_PERS"
+        ).strip()
         if scope:
             validated["gigachat_scope"] = scope
 
@@ -107,7 +108,7 @@ class GigaChatConnector(BaseConnector):
                 "credentials": self.gigachat_credentials or None,
                 "scope": self.gigachat_scope or "GIGACHAT_API_PERS",
                 "verify_ssl_certs": False,
-                "streaming": True
+                "streaming": True,
             }
 
         if api_type == "dev":
@@ -127,7 +128,9 @@ class GigaChatConnector(BaseConnector):
     def get_api_object(self) -> Any:
         kwargs = self.get_connection_kwargs()
         if kwargs is None:
-            raise ValueError("Invalid connection settings for connector type 'gigachat'")
+            raise ValueError(
+                "Invalid connection settings for connector type 'gigachat'"
+            )
         return GigaChat(model="GigaChat", **kwargs)
 
     async def check_connection(self) -> bool:
@@ -138,7 +141,9 @@ class GigaChatConnector(BaseConnector):
 
         kwargs = self.get_connection_kwargs()
         if kwargs is None:
-            raise ValueError("Invalid connection settings for connector type 'gigachat'")
+            raise ValueError(
+                "Invalid connection settings for connector type 'gigachat'"
+            )
 
         llm = GigaChat(**kwargs)
         await llm.aget_models()

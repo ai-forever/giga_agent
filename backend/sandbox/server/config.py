@@ -93,9 +93,7 @@ def get_settings() -> Settings:
             "SANDBOX_SHELL_SESSIONS_ROOT", "/tmp/.sandbox_api/shell_sessions"
         ),
         shell_session_ttl_sec=_int("SANDBOX_SHELL_SESSION_TTL_SEC", 3600),
-        max_completed_shell_sessions=_int(
-            "SANDBOX_MAX_COMPLETED_SHELL_SESSIONS", 200
-        ),
+        max_completed_shell_sessions=_int("SANDBOX_MAX_COMPLETED_SHELL_SESSIONS", 200),
         max_log_bytes=_int("SANDBOX_MAX_LOG_BYTES", 256 * 1024 * 1024),
         max_inline_read_bytes=_int("SANDBOX_MAX_INLINE_READ_BYTES", 20 * 1024 * 1024),
         idle_timeout_sec=_int("SANDBOX_IDLE_TIMEOUT_SEC", 0),

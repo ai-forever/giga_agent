@@ -235,11 +235,15 @@ def build_macos_sandbox_profile(config: MacSandboxExecConfig) -> str:
         else:
             profile.append('(allow network-outbound (remote ip "localhost:*"))')
 
-    profile.extend(["", "; Unix domain sockets (Docker daemon, local DBs, LSP servers)"])
+    profile.extend(
+        ["", "; Unix domain sockets (Docker daemon, local DBs, LSP servers)"]
+    )
     profile.append("(allow network-bind (local unix-socket))")
     profile.append("(allow network-outbound (remote unix-socket))")
 
-    profile.extend(["", "; AF_SYSTEM sockets (kern_control: route table, network config)"])
+    profile.extend(
+        ["", "; AF_SYSTEM sockets (kern_control: route table, network config)"]
+    )
     profile.append(
         "(allow system-socket (require-all "
         "(socket-domain AF_SYSTEM) (socket-protocol 2)))"

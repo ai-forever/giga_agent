@@ -107,15 +107,19 @@ class GroupsRouterTests(unittest.TestCase):
 
     def test_create_group_without_owner_uses_current_user(self):
         created = self._group_obj(owner_id=self.superuser.id)
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.create",
-            AsyncMock(return_value=created),
-        ) as mocked_create, patch(
-            "giga_agent.routes.groups.GroupRepository.to_response",
-            return_value=self._group_payload(created),
-        ), patch(
-            "giga_agent.routes.groups._ensure_user_exists",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.create",
+                AsyncMock(return_value=created),
+            ) as mocked_create,
+            patch(
+                "giga_agent.routes.groups.GroupRepository.to_response",
+                return_value=self._group_payload(created),
+            ),
+            patch(
+                "giga_agent.routes.groups._ensure_user_exists",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/groups",
@@ -130,15 +134,19 @@ class GroupsRouterTests(unittest.TestCase):
         owner_id = uuid.uuid4()
         created = self._group_obj(owner_id=owner_id)
 
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.create",
-            AsyncMock(return_value=created),
-        ) as mocked_create, patch(
-            "giga_agent.routes.groups.GroupRepository.to_response",
-            return_value=self._group_payload(created),
-        ), patch(
-            "giga_agent.routes.groups._ensure_user_exists",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.create",
+                AsyncMock(return_value=created),
+            ) as mocked_create,
+            patch(
+                "giga_agent.routes.groups.GroupRepository.to_response",
+                return_value=self._group_payload(created),
+            ),
+            patch(
+                "giga_agent.routes.groups._ensure_user_exists",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/groups",
@@ -159,19 +167,25 @@ class GroupsRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user_id"], str(user_id))
-        self.assertEqual(response.json()["group_ids"], [str(group_id) for group_id in group_ids])
+        self.assertEqual(
+            response.json()["group_ids"], [str(group_id) for group_id in group_ids]
+        )
 
     def test_add_group_users_atomic_strict_error(self):
         group = self._group_obj()
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.get_by_id",
-            AsyncMock(return_value=group),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.add_users",
-            AsyncMock(side_effect=ValueError("Users not found: x")),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.get_group_users",
-            AsyncMock(return_value=[]),
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_by_id",
+                AsyncMock(return_value=group),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.add_users",
+                AsyncMock(side_effect=ValueError("Users not found: x")),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_group_users",
+                AsyncMock(return_value=[]),
+            ),
         ):
             response = self.client.post(
                 f"/groups/{group.id}/users",
@@ -183,12 +197,15 @@ class GroupsRouterTests(unittest.TestCase):
 
     def test_remove_group_user_not_found(self):
         group = self._group_obj()
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.get_by_id",
-            AsyncMock(return_value=group),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.remove_user",
-            AsyncMock(return_value=False),
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_by_id",
+                AsyncMock(return_value=group),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.remove_user",
+                AsyncMock(return_value=False),
+            ),
         ):
             response = self.client.delete(f"/groups/{group.id}/users/{uuid.uuid4()}")
         self.assertEqual(response.status_code, 404)
@@ -196,36 +213,42 @@ class GroupsRouterTests(unittest.TestCase):
     def test_get_group_users_returns_user_short(self):
         group = self._group_obj()
         member_id = uuid.uuid4()
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.get_by_id",
-            AsyncMock(return_value=group),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.get_group_users",
-            AsyncMock(
-                return_value=[
-                    types.SimpleNamespace(
-                        id=member_id,
-                        email="member@example.com",
-                        first_name=None,
-                        last_name=None,
-                        is_active=True,
-                        is_superuser=False,
-                        settings=None,
-                        secrets=None,
-                        image_generator_id=None,
-                        search_engine_id=None,
-                        embedding_id=None,
-                        llm_id=None,
-                        fast_llm_id=None,
-                        sandbox_provider_id=None,
-                    )
-                ]
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_by_id",
+                AsyncMock(return_value=group),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_group_users",
+                AsyncMock(
+                    return_value=[
+                        types.SimpleNamespace(
+                            id=member_id,
+                            email="member@example.com",
+                            first_name=None,
+                            last_name=None,
+                            is_active=True,
+                            is_superuser=False,
+                            settings=None,
+                            secrets=None,
+                            image_generator_id=None,
+                            search_engine_id=None,
+                            embedding_id=None,
+                            llm_id=None,
+                            fast_llm_id=None,
+                            sandbox_provider_id=None,
+                        )
+                    ]
+                ),
             ),
         ):
             response = self.client.get(f"/groups/{group.id}/users")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()[0], self._user_short_payload(member_id, "member@example.com"))
+        self.assertEqual(
+            response.json()[0],
+            self._user_short_payload(member_id, "member@example.com"),
+        )
 
     def test_groups_router_connected_to_api_prefix(self):
         app = FastAPI()
@@ -255,18 +278,23 @@ class GroupsRouterTests(unittest.TestCase):
         updated.data = None
         updated.permissions = None
 
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.get_by_id",
-            AsyncMock(return_value=group),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.update",
-            AsyncMock(return_value=updated),
-        ) as mocked_update, patch(
-            "giga_agent.routes.groups.GroupRepository.get_user_counts",
-            AsyncMock(return_value={group.id: 0}),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.to_response",
-            return_value=self._group_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_by_id",
+                AsyncMock(return_value=group),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.update",
+                AsyncMock(return_value=updated),
+            ) as mocked_update,
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_user_counts",
+                AsyncMock(return_value={group.id: 0}),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.to_response",
+                return_value=self._group_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/groups/{group.id}",
@@ -282,13 +310,16 @@ class GroupsRouterTests(unittest.TestCase):
     def test_patch_group_rejects_null_name(self):
         group = self._group_obj()
 
-        with patch(
-            "giga_agent.routes.groups.GroupRepository.get_by_id",
-            AsyncMock(return_value=group),
-        ), patch(
-            "giga_agent.routes.groups.GroupRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.groups.GroupRepository.get_by_id",
+                AsyncMock(return_value=group),
+            ),
+            patch(
+                "giga_agent.routes.groups.GroupRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/groups/{group.id}",
                 json={"name": None},

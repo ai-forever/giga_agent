@@ -60,9 +60,13 @@ class EmbeddingManager:
             ) from e
 
         if getattr(embedding, "vector_size", None) is None:
-            raise ValueError(f"Embedding with id {embedding_id} has no vector_size configured")
+            raise ValueError(
+                f"Embedding with id {embedding_id} has no vector_size configured"
+            )
 
-        validated_settings = await runtime_cls.validate_settings(embedding.settings or {})
+        validated_settings = await runtime_cls.validate_settings(
+            embedding.settings or {}
+        )
         return runtime_cls(
             connector=connector_runtime,
             model_id=embedding.model_id,

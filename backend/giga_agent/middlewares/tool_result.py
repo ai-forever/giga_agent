@@ -307,8 +307,7 @@ async def process_tool_result(
         normalized_result, action=action, config=config
     )
     saved_result_message = (
-        "Результат вызова инструмента сохранен в файле JSON по пути "
-        f"'{result_path}'. "
+        f"Результат вызова инструмента сохранен в файле JSON по пути '{result_path}'. "
     )
 
     serialized = _safe_json_dumps(normalized_result)
@@ -594,7 +593,8 @@ class ToolResultMiddleware(AgentMiddleware):
                     tool_call_id=action.get("id", str(uuid.uuid4())),
                     content=tool_message,
                     additional_kwargs={"tool_name": action.get("name")},
-                ) for action in actions
+                )
+                for action in actions
             ]
             return {"messages": tools_response}
 

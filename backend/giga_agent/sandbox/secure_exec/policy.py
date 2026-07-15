@@ -39,9 +39,7 @@ def default_package_cache_write_roots() -> list[Path]:
     else:
         xdg_cache = posix_xdg_cache
         xdg_config = posix_xdg_config
-        xdg_data = Path(
-            os.environ.get("XDG_DATA_HOME") or (home / ".local" / "share")
-        )
+        xdg_data = Path(os.environ.get("XDG_DATA_HOME") or (home / ".local" / "share"))
 
     tmpdir = Path(tempfile.gettempdir())
 

@@ -16,8 +16,7 @@ from giga_agent.search_engines.base import BaseSearchEngine
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 SecretKey = Literal[
-    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE",
-    "SUBAGENTS_LLM", "RESEARCHER_LLM"
+    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM", "RESEARCHER_LLM"
 ]
 
 

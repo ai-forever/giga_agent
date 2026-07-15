@@ -60,14 +60,19 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             async def init(self):
                 return None
 
-        with patch(
-            "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.search_engines.manager.SearchEngineRegistry.get",
-            return_value=_RuntimeStub,
+        with (
+            patch(
+                "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
+                AsyncMock(return_value=record),
+            ),
+            patch(
+                "giga_agent.search_engines.manager.SearchEngineRegistry.get",
+                return_value=_RuntimeStub,
+            ),
         ):
-            runtime = await SearchEngineManager.resolve_by_id(engine_id, session=session)
+            runtime = await SearchEngineManager.resolve_by_id(
+                engine_id, session=session
+            )
 
         self.assertIsNone(runtime.kwargs["connector"])
         self.assertEqual(runtime.kwargs["search_depth"], "basic")
@@ -105,18 +110,23 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             async def init(self):
                 captured["initialized"] = True
 
-        with patch(
-            "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.search_engines.manager.SearchEngineRegistry.get",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.search_engines.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.search_engines.manager.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value="connector-runtime"),
+        with (
+            patch(
+                "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
+                AsyncMock(return_value=record),
+            ),
+            patch(
+                "giga_agent.search_engines.manager.SearchEngineRegistry.get",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.search_engines.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.search_engines.manager.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value="connector-runtime"),
+            ),
         ):
             runtime = await SearchEngineManager.resolve_by_id(
                 engine_id,
@@ -155,15 +165,19 @@ class SearchEngineManagerTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["tavily"]
 
-        with patch(
-            "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.search_engines.manager.SearchEngineRegistry.get",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.search_engines.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
+        with (
+            patch(
+                "giga_agent.search_engines.manager.SearchEngineRepository.get_cached_or_db",
+                AsyncMock(return_value=record),
+            ),
+            patch(
+                "giga_agent.search_engines.manager.SearchEngineRegistry.get",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.search_engines.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
         ):
             with self.assertRaises(ValueError):
                 await SearchEngineManager.resolve_by_id(engine_id, session=session)

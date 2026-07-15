@@ -33,7 +33,9 @@ class ResolveResourceMetaTests(unittest.TestCase):
         ft, ext = _resolve_resource_meta("application/json")
         self.assertEqual(ft, "other")
         self.assertTrue(ext.startswith("."))
-        self.assertEqual(_resolve_resource_meta("application/x-bogus"), ("other", ".bin"))
+        self.assertEqual(
+            _resolve_resource_meta("application/x-bogus"), ("other", ".bin")
+        )
 
 
 class ProcessMcpResourceTests(unittest.IsolatedAsyncioTestCase):

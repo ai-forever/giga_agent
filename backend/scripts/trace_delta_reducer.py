@@ -162,7 +162,9 @@ async def main():
                 s for s in history if len(s.values.get("messages", [])) == 2
             )
             fork_cfg = fork_point.config
-            print(f"  точка форка: checkpoint={fork_cfg['configurable']['checkpoint_id'][-12:]}")
+            print(
+                f"  точка форка: checkpoint={fork_cfg['configurable']['checkpoint_id'][-12:]}"
+            )
 
             _phase("ход 2-ФОРК (живой шаг от точки форка)")
             await graph.ainvoke(
@@ -176,8 +178,14 @@ async def main():
                 c = [getattr(m, "content", m) for m in st.values.get("messages", [])]
                 merged = "ход 2-ОРИГИНАЛ" in c and "ход 2-ФОРК" in c
                 cid = st.config["configurable"]["checkpoint_id"][-12:]
-                par = (st.parent_config or {}).get("configurable", {}).get("checkpoint_id")
-                print(f"    {'⚠️' if merged else '  '} checkpoint={cid}  parent={(par or '----')[-12:]}: {c}")
+                par = (
+                    (st.parent_config or {})
+                    .get("configurable", {})
+                    .get("checkpoint_id")
+                )
+                print(
+                    f"    {'⚠️' if merged else '  '} checkpoint={cid}  parent={(par or '----')[-12:]}: {c}"
+                )
 
             _phase("СЫРЫЕ ТАБЛИЦЫ sqlite (доказательство корня)")
             await _dump_raw_tables(saver, thread_id="t")
@@ -225,7 +233,9 @@ async def _dump_raw_tables(saver: AsyncSqliteSaver, thread_id: str) -> None:
             tag = "  ◀── ТОЧКА ФОРКА"
             if carries:
                 tag += " + НЕСЁТ WRITE → этот write протекает в обе ветки ⚠️"
-        print(f"    {cid[-12:]}  ◂  {(parent or '----')[-12:]}  | детей={n} | write={w}{tag}")
+        print(
+            f"    {cid[-12:]}  ◂  {(parent or '----')[-12:]}  | детей={n} | write={w}{tag}"
+        )
 
     print(
         "\n  ВЫВОД: writes хранятся по checkpoint_id; Stage2 берёт их по "

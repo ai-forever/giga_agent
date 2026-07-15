@@ -16,7 +16,9 @@ class NanoBananaImageGenTests(unittest.IsolatedAsyncioTestCase):
                         return_value=types.SimpleNamespace(
                             parts=[
                                 types.SimpleNamespace(
-                                    inline_data=types.SimpleNamespace(data=b"image-bytes")
+                                    inline_data=types.SimpleNamespace(
+                                        data=b"image-bytes"
+                                    )
                                 )
                             ]
                         )
@@ -28,8 +30,8 @@ class NanoBananaImageGenTests(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "giga_agent.generators.image.nano_banana.generator.genai_types.Part.from_text",
-            return_value=[{'kind': 'text', 'text': 'prompt'}],
-        ) as mocked_from_text:
+            return_value=[{"kind": "text", "text": "prompt"}],
+        ):
             result = await gen.generate_image("prompt", None, None, aspect_ratio="16:9")
 
         self.assertEqual(result, base64.b64encode(b"image-bytes").decode("ascii"))
@@ -68,13 +70,20 @@ class NanoBananaImageGenTests(unittest.IsolatedAsyncioTestCase):
         )
         gen._initialized = True
 
-        with patch(
-            "giga_agent.generators.image.nano_banana.generator.genai_types.Part.from_text",
-            return_value={"kind": "text", "text": "edit this"},
-        ) as mocked_from_text, patch(
-            "giga_agent.generators.image.nano_banana.generator.genai_types.Part.from_bytes",
-            return_value={"kind": "bytes", "mime_type": "image/png", "data": b"fake"},
-        ) as mocked_from_bytes:
+        with (
+            patch(
+                "giga_agent.generators.image.nano_banana.generator.genai_types.Part.from_text",
+                return_value={"kind": "text", "text": "edit this"},
+            ),
+            patch(
+                "giga_agent.generators.image.nano_banana.generator.genai_types.Part.from_bytes",
+                return_value={
+                    "kind": "bytes",
+                    "mime_type": "image/png",
+                    "data": b"fake",
+                },
+            ) as mocked_from_bytes,
+        ):
             result = await gen.generate_image(
                 "edit this",
                 None,
@@ -101,7 +110,11 @@ class NanoBananaImageGenTests(unittest.IsolatedAsyncioTestCase):
                 models=types.SimpleNamespace(
                     generate_content=AsyncMock(
                         return_value=types.SimpleNamespace(
-                            parts=[types.SimpleNamespace(text="only text", inline_data=None)]
+                            parts=[
+                                types.SimpleNamespace(
+                                    text="only text", inline_data=None
+                                )
+                            ]
                         )
                     )
                 )

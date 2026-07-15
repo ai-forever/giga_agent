@@ -77,6 +77,7 @@ class ConnectorResponse(ConnectorBase):
 
 class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
     """Repository for connector records."""
+
     resource_model = Connector
     resource_type = "connector"
 
@@ -224,7 +225,9 @@ class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="connector",
             resource_ids=resource_ids,
@@ -282,14 +285,18 @@ class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
                 await self.db.execute(
                     select(LLM.id).where(LLM.connector_id == connector_id)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         embedding_ids = list(
             (
                 await self.db.execute(
                     select(Embedding.id).where(Embedding.connector_id == connector_id)
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         image_generator_ids = list(
             (
@@ -298,7 +305,9 @@ class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
                         ImageGenerator.connector_id == connector_id
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         search_engine_ids = list(
             (
@@ -307,7 +316,9 @@ class ConnectorRepository(ACLResourceRepositoryMixin[Connector]):
                         SearchEngine.connector_id == connector_id
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
         permission_repo = ResourcePermissionRepository(self.db)

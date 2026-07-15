@@ -3,7 +3,7 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

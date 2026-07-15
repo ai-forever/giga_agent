@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import re
@@ -19,7 +18,6 @@ from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
 from giga_agent.modules.subagents_legacy.agents.landing_agent.prompts.ru import (
     CODER_PROMPT,
 )
-from giga_agent.modules.subagents_legacy.agents.landing_agent.tools import done
 from giga_agent.output_parsers.html_parser import HTMLParser
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
@@ -36,6 +34,7 @@ prompt = ChatPromptTemplate.from_messages(
         MessagesPlaceholder("messages"),
     ],
 ).partial(language="ru")
+
 
 async def coder_node(state: LandingState, config: RunnableConfig):
     factory = await get_session_factory()

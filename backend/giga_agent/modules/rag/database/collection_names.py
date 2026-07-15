@@ -10,4 +10,3 @@ def rag_qdrant_collection_name_for_embedding(embedding_id: uuid.UUID) -> str:
     Keep names simple ASCII for compatibility.
     """
     return f"rag_chunks__{embedding_id.hex}"
-

@@ -32,10 +32,7 @@ logger = get_logger(__name__)
 
 LOCAL_PREFIX = "local_"
 
-_STUB = {
-    "mcpServers": {
-    }
-}
+_STUB = {"mcpServers": {}}
 
 
 def is_local_runtime() -> bool:

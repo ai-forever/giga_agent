@@ -86,9 +86,13 @@ async def get_groups(
 ):
     require_superuser(current_user)
     groups = await group_repo.list_all()
-    users_count_by_group = await group_repo.get_user_counts([group.id for group in groups])
+    users_count_by_group = await group_repo.get_user_counts(
+        [group.id for group in groups]
+    )
     return [
-        GroupRepository.to_response(group, users_count=users_count_by_group.get(group.id, 0))
+        GroupRepository.to_response(
+            group, users_count=users_count_by_group.get(group.id, 0)
+        )
         for group in groups
     ]
 

@@ -47,9 +47,9 @@ if not db_url:
 if "sqlite" in db_url:
     # sqlite+aiosqlite:///path/to/file
     # Убираем протокол
-    path = db_url.split(":///")[-1] 
+    path = db_url.split(":///")[-1]
     # Если путь абсолютный (////), split вернет /path/to/file, что верно для unix
-    
+
     directory = os.path.dirname(path)
     if directory and not os.path.exists(directory):
         os.makedirs(directory, exist_ok=True)
@@ -70,19 +70,20 @@ target_metadata = None
 # Попытка найти Base в giga_agent.core.db
 try:
     from giga_agent.core.db import Base
-    
+
     # Импортируем core модели, чтобы они зарегистрировались в Base.metadata
     # Это необходимо для autogenerate
     try:
         import giga_agent.models  # noqa: F401
     except ImportError:
         pass
-    
+
     target_metadata = Base.metadata
 except ImportError:
     # Если Base не найден, autogenerate не будет работать для новых моделей,
     # но существующие миграции применятся.
     pass
+
 
 def include_object(object, name, type_, reflected, compare_to):
     """
@@ -111,6 +112,7 @@ def include_object(object, name, type_, reflected, compare_to):
             return False
 
     return True
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""

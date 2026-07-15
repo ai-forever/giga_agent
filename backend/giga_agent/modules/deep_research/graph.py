@@ -1,4 +1,5 @@
 """Deep research — StateGraph + tool-обёртка `run_deep_research`."""
+
 from __future__ import annotations
 
 from langchain.tools import ToolRuntime

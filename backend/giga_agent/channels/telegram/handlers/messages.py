@@ -83,7 +83,9 @@ class TelegramMessageHandlers:
     ) -> None:
         if not await self.access_service.ensure_supported_chat(message):
             return
-        if not force_process and not self.access_service.should_process_message(message):
+        if not force_process and not self.access_service.should_process_message(
+            message
+        ):
             return
         if contact_message is None:
             contact_message = message
@@ -238,7 +240,9 @@ class TelegramMessageHandlers:
                     "messages": [human_msg],
                     "mcp_tools": [build_telegram_message_tool_schema()],
                 }
-                collections_payload = await self.thread_service.load_collections_payload()
+                collections_payload = (
+                    await self.thread_service.load_collections_payload()
+                )
                 if collections_payload:
                     run_input["collections"] = collections_payload
 

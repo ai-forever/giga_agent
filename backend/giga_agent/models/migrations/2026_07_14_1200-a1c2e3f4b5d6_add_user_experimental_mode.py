@@ -5,6 +5,7 @@ Revises: 9c1b5f7e4d23
 Create Date: 2026-07-14 12:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -23,9 +24,7 @@ def upgrade() -> None:
     # с "FOREIGN KEY constraint failed": на core_users ссылаются ~19 таблиц, а
     # миграции идут при PRAGMA foreign_keys=ON. Нативный ADD COLUMN дочерние
     # таблицы не трогает. SQLite позволяет NOT NULL при наличии DEFAULT.
-    with op.batch_alter_table(
-        "core_users", schema=None, recreate="never"
-    ) as batch_op:
+    with op.batch_alter_table("core_users", schema=None, recreate="never") as batch_op:
         batch_op.add_column(
             sa.Column(
                 "experimental_mode",
@@ -37,7 +36,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table(
-        "core_users", schema=None, recreate="never"
-    ) as batch_op:
+    with op.batch_alter_table("core_users", schema=None, recreate="never") as batch_op:
         batch_op.drop_column("experimental_mode")

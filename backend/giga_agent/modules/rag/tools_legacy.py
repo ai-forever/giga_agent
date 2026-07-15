@@ -79,7 +79,9 @@ async def get_documents(
         )
         qdrant_collection = await resolve_qdrant_collection(
             client=qdrant_client,
-            collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+            collection_name=rag_qdrant_collection_name_for_embedding(
+                collection.embedding_id
+            ),
             vector_size=len(query_vector),
         )
         points = await search_chunks(

@@ -211,7 +211,8 @@ class ReplModule(BaseModule):
         all_tools = await agent.get_tools(user, config=config)
         if disabled_modules:
             all_tools = [
-                t for t in all_tools
+                t
+                for t in all_tools
                 if (getattr(t, "extras", None) or {}).get("module_id")
                 not in disabled_modules
             ]

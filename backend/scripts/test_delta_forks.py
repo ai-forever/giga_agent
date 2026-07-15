@@ -105,12 +105,12 @@ def test_fork_from_past(graph):
 
     # Находим чекпоинт после первого хода (4 чекпоинта на ход -> ищем по len messages == 2)
     history = list(graph.get_state_history(config))
-    fork_point = next(
-        s for s in history if len(s.values.get("messages", [])) == 2
-    )
+    fork_point = next(s for s in history if len(s.values.get("messages", [])) == 2)
     fork_cfg = fork_point.config
-    print(f"\n  форкаемся от checkpoint_id={fork_cfg['configurable']['checkpoint_id'][-12:]}"
-          f" (messages={len(fork_point.values['messages'])})")
+    print(
+        f"\n  форкаемся от checkpoint_id={fork_cfg['configurable']['checkpoint_id'][-12:]}"
+        f" (messages={len(fork_point.values['messages'])})"
+    )
 
     # Запускаем граф с этого чекпоинта с НОВЫМ вводом -> новая ветка
     new_branch = graph.invoke(
@@ -129,7 +129,9 @@ def test_fork_from_past(graph):
         print(f"    [{m.type:6}] {m.content!r}")
 
     assert any("ФОРК" in m.content for m in new_branch["messages"])
-    assert not any("ФОРК" in m.content for m in original), "исходная ветка не должна содержать форк"
+    assert not any("ФОРК" in m.content for m in original), (
+        "исходная ветка не должна содержать форк"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -141,7 +143,9 @@ def test_fork_from_past(graph):
 # сообщение, и эхо отвечает уже на отредактированный текст.
 # --------------------------------------------------------------------------- #
 def test_edit_message(graph):
-    print("\n##################  СЦЕНАРИЙ 3: правка сообщения + регенерация  ##################")
+    print(
+        "\n##################  СЦЕНАРИЙ 3: правка сообщения + регенерация  ##################"
+    )
     config = {"configurable": {"thread_id": "edit"}}
     first = graph.invoke(
         {"messages": [HumanMessage(content="оригинальный вопрос", id="h1")]}, config

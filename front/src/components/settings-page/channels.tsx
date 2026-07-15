@@ -1,7 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ExternalLink,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
-import { API_AGENT_PREFIX } from "@/config.ts";
+import { API_AGENT_PREFIX, APP_ROOT_PATH } from "@/config.ts";
 import { useConfirm } from "@/components/providers/confirm.tsx";
 import { apiClient } from "@/lib/api-client";
 import { Badge } from "@/components/ui/badge";
@@ -309,7 +317,20 @@ const ChannelForm: React.FC<ChannelFormProps> = ({
 
       {selectedType && (
         <div className="space-y-2">
-          <Label>Настройки канала</Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label>Настройки канала</Label>
+            {selectedType === "telegram" && (
+              <a
+                href={`${APP_ROOT_PATH}channel_setup_guide.html`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink size={12} />
+                Как настроить
+              </a>
+            )}
+          </div>
           {loadingSchema ? (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />

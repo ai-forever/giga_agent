@@ -26,10 +26,11 @@ class QdrantClientLifecycleTests(unittest.TestCase):
         # would keep the storage folder locked and can't be reopened here.
         get_qdrant_client.cache_clear()
 
-        with patch.dict(
-            os.environ, {"QDRANT_URL": "http://localhost:6333"}, clear=False
-        ), patch(
-            "giga_agent.vectorstores.qdrant.AsyncQdrantClient", _FakeAsyncClient
+        with (
+            patch.dict(
+                os.environ, {"QDRANT_URL": "http://localhost:6333"}, clear=False
+            ),
+            patch("giga_agent.vectorstores.qdrant.AsyncQdrantClient", _FakeAsyncClient),
         ):
             os.environ.pop("QDRANT_API_KEY", None)
 

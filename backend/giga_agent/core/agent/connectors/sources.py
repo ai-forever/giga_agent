@@ -252,9 +252,7 @@ async def collect_sources(
     for module in agent.all_modules:
         if module.id in disabled:
             continue
-        sources.extend(
-            await module.get_tool_sources(user, agent, config=config)
-        )
+        sources.extend(await module.get_tool_sources(user, agent, config=config))
     return sources
 
 

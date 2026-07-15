@@ -64,10 +64,7 @@ def load_agent_from_string(import_string: str) -> BaseAgent:
     path_part, var_name = _parse_import_string(
         import_string,
         expected_parts=2,
-        format_hint=(
-            "'filepath:variable_name' "
-            "(e.g., giga_agent.agents.run:agent)"
-        ),
+        format_hint=("'filepath:variable_name' (e.g., giga_agent.agents.run:agent)"),
     )
 
     module = _load_module_from_path(path_part, "user_agent_config")
@@ -92,8 +89,7 @@ def load_graph_and_app_from_string(
         import_string,
         expected_parts=3,
         format_hint=(
-            "'filepath:graph_var:app_var' "
-            "(e.g., giga_agent.agents.run:graph:app)"
+            "'filepath:graph_var:app_var' (e.g., giga_agent.agents.run:graph:app)"
         ),
     )
 

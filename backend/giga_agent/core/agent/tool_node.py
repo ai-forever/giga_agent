@@ -340,7 +340,6 @@ class AgentToolRuntime(ToolRuntime):
 
 
 class ToolNode(RunnableCallable):
-
     name: str = "tools"
 
     def __init__(
@@ -388,7 +387,9 @@ class ToolNode(RunnableCallable):
         """Mapping from tool name to BaseTool instance."""
         return self._tools_by_name
 
-    async def _fill_tools(self, resolver: RuntimeResolver, config: RunnableConfig | None = None):
+    async def _fill_tools(
+        self, resolver: RuntimeResolver, config: RunnableConfig | None = None
+    ):
         user = resolver.user
         tools = [*await self._agent.get_tools(user, config=config), *self._tools]
         for tool in tools:
@@ -526,7 +527,9 @@ class ToolNode(RunnableCallable):
         return kernel_id if isinstance(kernel_id, str) and kernel_id else None
 
     @staticmethod
-    def _without_command_kernel_id(output: ToolMessage | Command) -> ToolMessage | Command:
+    def _without_command_kernel_id(
+        output: ToolMessage | Command,
+    ) -> ToolMessage | Command:
         if not isinstance(output, Command) or not isinstance(output.update, dict):
             return output
 

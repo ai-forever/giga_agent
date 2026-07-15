@@ -17,7 +17,9 @@ class EmbeddingRegistry:
 
     @classmethod
     def register(cls, embedding_type: str):
-        def decorator(runtime_cls: Type[BaseEmbeddingRuntime]) -> Type[BaseEmbeddingRuntime]:
+        def decorator(
+            runtime_cls: Type[BaseEmbeddingRuntime],
+        ) -> Type[BaseEmbeddingRuntime]:
             key = (embedding_type or "").lower()
             if key in cls._registry:
                 logger.warning(

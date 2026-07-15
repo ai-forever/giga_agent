@@ -29,7 +29,9 @@ from .auth import require_token
 from .config import get_settings
 from .models import DirEntry, DirListing, FileStat, WrittenResponse
 
-router = APIRouter(prefix="/v1/files", tags=["files"], dependencies=[Depends(require_token)])
+router = APIRouter(
+    prefix="/v1/files", tags=["files"], dependencies=[Depends(require_token)]
+)
 
 
 def _content_disposition(disposition: str, filename: str) -> str:
@@ -54,7 +56,9 @@ def _resolve(path: str) -> Path:
     return Path(path).expanduser()
 
 
-async def _stream_file(path: Path, start: int, end: int, chunk_size: int) -> AsyncIterator[bytes]:
+async def _stream_file(
+    path: Path, start: int, end: int, chunk_size: int
+) -> AsyncIterator[bytes]:
     """Отдать [start, end) включительно-эксклюзивно по границам чанка."""
     remaining = end - start
     async with aiofiles.open(path, "rb") as handle:

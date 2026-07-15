@@ -9,6 +9,7 @@ LLM со structured output:
 `stop=True | iteration >= max_iterations | len(sources) >= max_sources`.
 Иначе идёт на второй search-раунд.
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -174,7 +175,11 @@ async def reflect_node(state: DeepResearchState, config: RunnableConfig):
                 existing_qs = list(updated.get("queries") or [])
                 existing_set = {q.strip() for q in existing_qs if isinstance(q, str)}
                 for nq in new_qs:
-                    if isinstance(nq, str) and nq.strip() and nq.strip() not in existing_set:
+                    if (
+                        isinstance(nq, str)
+                        and nq.strip()
+                        and nq.strip() not in existing_set
+                    ):
                         existing_qs.append(nq.strip())
                         existing_set.add(nq.strip())
                 updated["queries"] = existing_qs

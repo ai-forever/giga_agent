@@ -372,7 +372,7 @@ async def _find_relative_path_alternative(
 def _format_relative_path_hint(absolute_path: str, relative_path: str) -> str:
     return (
         f" Подсказка: по абсолютному пути {absolute_path!r} файла нет, "
-        f"но похожий файл существует по относительному пути \"{relative_path!r}\", "
+        f'но похожий файл существует по относительному пути "{relative_path!r}", '
         f"возможно ты имел в виду его."
     )
 
@@ -439,9 +439,7 @@ def _build_io_command(
     return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
 
 
-async def _materialize_bounded(
-    result, max_bytes: int
-) -> tuple[bytes | None, bool]:
+async def _materialize_bounded(result, max_bytes: int) -> tuple[bytes | None, bool]:
     """Материализует результат чтения в bytes с ранним обрывом на max_bytes.
 
     Возвращает (data, too_large):
@@ -474,7 +472,9 @@ async def _materialize_bounded(
 
 
 def _overwrite_too_large_error(file_path: str, size: int | None) -> str:
-    size_part = f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    size_part = (
+        f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    )
     return (
         f"Ошибка: Файл {file_path} слишком большой для перезаписи "
         f"({size_part}, лимит {MAX_TEXT_FILE_BYTES}). "
@@ -483,7 +483,9 @@ def _overwrite_too_large_error(file_path: str, size: int | None) -> str:
 
 
 def _edit_too_large_error(file_path: str, size: int | None) -> str:
-    size_part = f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    size_part = (
+        f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    )
     return (
         f"Ошибка: Файл {file_path} слишком большой для edit_file "
         f"({size_part}, лимит {MAX_TEXT_FILE_BYTES}). "
@@ -492,7 +494,9 @@ def _edit_too_large_error(file_path: str, size: int | None) -> str:
 
 
 def _read_too_large_error(sandbox_path: str, size: int | None) -> str:
-    size_part = f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    size_part = (
+        f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
+    )
     return (
         f"Ошибка: Файл {sandbox_path} слишком большой для read_file "
         f"({size_part}, лимит {MAX_TEXT_FILE_BYTES}). "
@@ -800,7 +804,10 @@ async def read_file(
     next_offset = start_index + returned_lines + 1 if remaining_lines > 0 else None
 
     return _result(
-        f"Файл: {sandbox_path}\n----\n" + content + "\n----\n" + _build_next_read_hint(
+        f"Файл: {sandbox_path}\n----\n"
+        + content
+        + "\n----\n"
+        + _build_next_read_hint(
             sandbox_path=sandbox_path,
             total_lines=len(lines),
             next_offset=next_offset,
@@ -887,9 +894,7 @@ async def write_file(
             logger.warning("write_file failed for %s: %s", file_path, e)
             return _result(f"Ошибка: {e}", is_error=True)
 
-        return _result(
-            _write_success_message(file_path, len(content_bytes), old_size)
-        )
+        return _result(_write_success_message(file_path, len(content_bytes), old_size))
 
     factory = await get_session_factory()
     async with factory() as session:
@@ -1050,7 +1055,10 @@ async def edit_file(
                 return _result(error_text, is_error=True)
 
     if find_string == replace_string:
-        return _result(f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}", is_error=True)
+        return _result(
+            f"Ошибка: find_string и replace_string совпадают. Укажи разные значения. Файл: {file_path}",
+            is_error=True,
+        )
 
     raw_text, read_error = await _read_text_for_edit(file_path, owner_id, runtime)
     if read_error is not None:

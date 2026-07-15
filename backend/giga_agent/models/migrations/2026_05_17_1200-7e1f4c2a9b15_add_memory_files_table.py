@@ -5,6 +5,7 @@ Revises: b3ce2589d775
 Create Date: 2026-05-17 12:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -48,9 +49,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "owner_id", "path", name="uq_core_memory_files_owner_path"
-        ),
+        sa.UniqueConstraint("owner_id", "path", name="uq_core_memory_files_owner_path"),
     )
     with op.batch_alter_table("core_memory_files", schema=None) as batch_op:
         batch_op.create_index(

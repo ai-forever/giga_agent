@@ -77,7 +77,10 @@ class ReplToolsTests(unittest.TestCase):
         )
 
         self.assertEqual(len(specs), 4)
-        self.assertEqual([item["file_type"] for item in specs], ["image", "audio", "video", "plotly_graph"])
+        self.assertEqual(
+            [item["file_type"] for item in specs],
+            ["image", "audio", "video", "plotly_graph"],
+        )
         self.assertTrue(specs[0]["file_name"].startswith("thread-42/"))
         self.assertTrue(specs[1]["file_name"].endswith(".mp3"))
         self.assertTrue(specs[2]["file_name"].endswith(".mp4"))
@@ -91,7 +94,9 @@ class ReplToolsTests(unittest.TestCase):
         self.assertEqual(specs, [])
 
     def test_resolve_upload_prefix_uses_thread_id(self):
-        runtime = type("RuntimeStub", (), {"config": {"configurable": {"thread_id": "thr-1"}}})()
+        runtime = type(
+            "RuntimeStub", (), {"config": {"configurable": {"thread_id": "thr-1"}}}
+        )()
         self.assertEqual(_resolve_upload_prefix(runtime), "thr-1")
 
     def test_resolve_upload_prefix_fallback_temporary(self):
@@ -113,4 +118,3 @@ class ReplToolsTests(unittest.TestCase):
         self.assertIn("видеофайл", video)
         self.assertIn("[видео](attachment:thread-1/a.mp4)", video)
         self.assertIn("график", plotly)
-

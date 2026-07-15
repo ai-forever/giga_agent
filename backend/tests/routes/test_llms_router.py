@@ -102,30 +102,39 @@ class LLMsRouterTests(unittest.TestCase):
             def supported_connector_types(cls):
                 return []
 
-        with patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(created),
-        ), patch(
-            "giga_agent.routes.llms.cache.delete_tags",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(created),
+            ),
+            patch(
+                "giga_agent.routes.llms.cache.delete_tags",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/llms",
@@ -164,30 +173,39 @@ class LLMsRouterTests(unittest.TestCase):
             async def check_connection(self):
                 return None
 
-        with patch(
-            "giga_agent.routes.llms._resolve_llm_runtime",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id_with_access_for_user",
-            AsyncMock(return_value=(connector, True, False)),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(created),
-        ), patch(
-            "giga_agent.routes.llms.cache.delete_tags",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id_with_access_for_user",
+                AsyncMock(return_value=(connector, True, False)),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(created),
+            ),
+            patch(
+                "giga_agent.routes.llms.cache.delete_tags",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/llms",
@@ -225,33 +243,43 @@ class LLMsRouterTests(unittest.TestCase):
             def supported_connector_types(cls):
                 return ["openai"]
 
-        with patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.llms.ResourcePermissionRepository.set_read_acl",
-            AsyncMock(return_value=None),
-        ) as mocked_set_acl, patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(created),
-        ), patch(
-            "giga_agent.routes.llms.cache.delete_tags",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.llms.ResourcePermissionRepository.set_read_acl",
+                AsyncMock(return_value=None),
+            ) as mocked_set_acl,
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(created),
+            ),
+            patch(
+                "giga_agent.routes.llms.cache.delete_tags",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/llms",
@@ -340,25 +368,32 @@ class LLMsRouterTests(unittest.TestCase):
             def supported_connector_types(cls):
                 return []
 
-        with patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.create",
-            AsyncMock(),
-        ) as mocked_create:
+        with (
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.create",
+                AsyncMock(),
+            ) as mocked_create,
+        ):
             response = self.client.post(
                 "/llms",
                 json={
@@ -387,30 +422,39 @@ class LLMsRouterTests(unittest.TestCase):
             def supported_connector_types(cls):
                 return []
 
-        with patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.routes.llms._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.llms.LLMRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(created),
-        ), patch(
-            "giga_agent.routes.llms.cache.delete_tags",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.routes.llms._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.llms.LLMRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(created),
+            ),
+            patch(
+                "giga_agent.routes.llms.cache.delete_tags",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/llms",
@@ -511,24 +555,30 @@ class LLMsRouterTests(unittest.TestCase):
             supported_connector_types=lambda: ["openai"],
             fetch_available_models=AsyncMock(
                 return_value=[{"id": "gpt-4o-mini", "name": "gpt-4o-mini"}]
-            )
+            ),
         )
 
-        with patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
-            return_value=runtime_cls,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
+        with (
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+                return_value=runtime_cls,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",
@@ -549,21 +599,27 @@ class LLMsRouterTests(unittest.TestCase):
             ),
         )
 
-        with patch(
-            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
-            return_value=runtime_cls,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id_with_access_for_user",
-            AsyncMock(return_value=(connector, True, False)),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
+        with (
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+                return_value=runtime_cls,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id_with_access_for_user",
+                AsyncMock(return_value=(connector, True, False)),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",
@@ -580,18 +636,23 @@ class LLMsRouterTests(unittest.TestCase):
                 return_value=[{"id": "gpt-4o", "name": "gpt-4o"}]
             )
         )
-        with patch(
-            "giga_agent.routes.llms.validate_connector_settings_or_422",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
-            return_value=runtime_cls,
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
+        with (
+            patch(
+                "giga_agent.routes.llms.validate_connector_settings_or_422",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+                return_value=runtime_cls,
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
         ):
             response = self.client.post(
                 "/llms/models/",
@@ -622,17 +683,23 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_get_models_returns_422_for_incompatible_llm_and_connector(self):
         connector = self._connector_obj(connector_type="openai")
-        runtime_cls = types.SimpleNamespace(supported_connector_types=lambda: ["openai"])
+        runtime_cls = types.SimpleNamespace(
+            supported_connector_types=lambda: ["openai"]
+        )
 
-        with patch(
-            "giga_agent.routes.llms._resolve_llm_runtime_by_type",
-            return_value=runtime_cls,
-        ), patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
+        with (
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime_by_type",
+                return_value=runtime_cls,
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
         ):
             response = self.client.get(
                 f"/llms/models/{connector.id}",
@@ -646,12 +713,15 @@ class LLMsRouterTests(unittest.TestCase):
         readable = [self._llm_obj(), self._llm_obj()]
         payload = [self._llm_payload(item) for item in readable]
 
-        with patch(
-            "giga_agent.routes.llms.LLMRepository.list_readable_with_edit_for_user",
-            AsyncMock(return_value=[(readable[0], True), (readable[1], False)]),
-        ) as mocked_get, patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            side_effect=payload,
+        with (
+            patch(
+                "giga_agent.routes.llms.LLMRepository.list_readable_with_edit_for_user",
+                AsyncMock(return_value=[(readable[0], True), (readable[1], False)]),
+            ) as mocked_get,
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                side_effect=payload,
+            ),
         ):
             response = self.client.get("/llms")
 
@@ -661,12 +731,15 @@ class LLMsRouterTests(unittest.TestCase):
 
     def test_get_llm_uses_read_check(self):
         llm = self._llm_obj()
-        with patch(
-            "giga_agent.routes.llms.LLMRepository.get_by_id_with_access_for_user",
-            AsyncMock(return_value=(llm, True, True)),
-        ) as mocked_get, patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(llm),
+        with (
+            patch(
+                "giga_agent.routes.llms.LLMRepository.get_by_id_with_access_for_user",
+                AsyncMock(return_value=(llm, True, True)),
+            ) as mocked_get,
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(llm),
+            ),
         ):
             response = self.client.get(f"/llms/{llm.id}")
 
@@ -703,28 +776,36 @@ class LLMsRouterTests(unittest.TestCase):
             connector_id=new_connector_id, connector_type="openai"
         )
 
-        with patch(
-            "giga_agent.routes.llms._get_llm_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(updated),
-        ), patch(
-            "giga_agent.routes.llms.cache.delete_tags",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_tags:
+        with (
+            patch(
+                "giga_agent.routes.llms._get_llm_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(updated),
+            ),
+            patch(
+                "giga_agent.routes.llms.cache.delete_tags",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_tags,
+        ):
             response = self.client.patch(
                 f"/llms/{llm_id}",
                 json={"connector_id": str(new_connector_id), "check_connection": False},
@@ -739,31 +820,39 @@ class LLMsRouterTests(unittest.TestCase):
         existing = self._llm_obj(llm_id=llm_id, llm_type="openai")
         connector = self._connector_obj(connector_id=existing.connector_id)
 
-        with patch(
-            "giga_agent.routes.llms._get_llm_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms._resolve_llm_runtime",
-            return_value=types.SimpleNamespace(
-                supported_connector_types=lambda: ["openai"],
-                validate_settings=AsyncMock(return_value={}),
+        with (
+            patch(
+                "giga_agent.routes.llms._get_llm_with_write_check",
+                AsyncMock(return_value=existing),
             ),
-        ), patch(
-            "giga_agent.routes.llms._check_connection_or_http_error",
-            AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms._resolve_llm_runtime",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"],
+                    validate_settings=AsyncMock(return_value={}),
+                ),
+            ),
+            patch(
+                "giga_agent.routes.llms._check_connection_or_http_error",
+                AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/llms/{llm_id}",
                 json={"name": "updated"},
@@ -779,27 +868,35 @@ class LLMsRouterTests(unittest.TestCase):
         updated.name = None
         connector = self._connector_obj(connector_id=existing.connector_id)
 
-        with patch(
-            "giga_agent.routes.llms._get_llm_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.update",
-            AsyncMock(return_value=updated),
-        ) as mocked_update, patch(
-            "giga_agent.routes.llms.LLMRepository.to_response",
-            return_value=self._llm_payload(updated),
-        ), patch(
-            "giga_agent.routes.llms.cache.delete_tags",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.llms._get_llm_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.update",
+                AsyncMock(return_value=updated),
+            ) as mocked_update,
+            patch(
+                "giga_agent.routes.llms.LLMRepository.to_response",
+                return_value=self._llm_payload(updated),
+            ),
+            patch(
+                "giga_agent.routes.llms.cache.delete_tags",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.patch(
                 f"/llms/{llm_id}",
@@ -815,22 +912,28 @@ class LLMsRouterTests(unittest.TestCase):
         existing = self._llm_obj(llm_id=llm_id, llm_type="openai")
         connector = self._connector_obj(connector_id=existing.connector_id)
 
-        with patch(
-            "giga_agent.routes.llms._get_llm_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.llms._validate_connector_link",
-            AsyncMock(return_value=connector.id),
-        ), patch(
-            "giga_agent.routes.llms.ConnectorRepository.get_by_id",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.llms._validate_llm_connector_compatibility",
-            return_value=None,
-        ), patch(
-            "giga_agent.routes.llms.LLMRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.llms._get_llm_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_connector_link",
+                AsyncMock(return_value=connector.id),
+            ),
+            patch(
+                "giga_agent.routes.llms.ConnectorRepository.get_by_id",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.llms._validate_llm_connector_compatibility",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.routes.llms.LLMRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/llms/{llm_id}",
                 json={"model_id": None, "check_connection": False},

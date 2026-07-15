@@ -25,9 +25,12 @@ class DevSecretKeyEnvTests(unittest.TestCase):
             root = Path(td)
             (root / ".secret_key").write_text("file-secret\n", encoding="utf-8")
 
-            with patch.dict(os.environ, {}, clear=True), patch(
-                "giga_agent.core.paths.ensure_giga_agent_dir",
-                return_value=root,
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "giga_agent.core.paths.ensure_giga_agent_dir",
+                    return_value=root,
+                ),
             ):
                 ensure_dev_secret_key_env()
                 self.assertEqual(os.environ["GIGA_AGENT_SECRET_KEY"], "file-secret")
@@ -37,9 +40,12 @@ class DevSecretKeyEnvTests(unittest.TestCase):
             root = Path(td)
             secret_file = root / ".secret_key"
 
-            with patch.dict(os.environ, {}, clear=True), patch(
-                "giga_agent.core.paths.ensure_giga_agent_dir",
-                return_value=root,
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "giga_agent.core.paths.ensure_giga_agent_dir",
+                    return_value=root,
+                ),
             ):
                 ensure_dev_secret_key_env()
                 generated = os.environ["GIGA_AGENT_SECRET_KEY"]
@@ -55,9 +61,12 @@ class DevSecretKeyEnvTests(unittest.TestCase):
             secret_file = root / ".secret_key"
             secret_file.write_text("\n", encoding="utf-8")
 
-            with patch.dict(os.environ, {}, clear=True), patch(
-                "giga_agent.core.paths.ensure_giga_agent_dir",
-                return_value=root,
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch(
+                    "giga_agent.core.paths.ensure_giga_agent_dir",
+                    return_value=root,
+                ),
             ):
                 ensure_dev_secret_key_env()
                 generated = os.environ["GIGA_AGENT_SECRET_KEY"]

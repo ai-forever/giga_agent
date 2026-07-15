@@ -43,37 +43,50 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
                     )
 
     async def test_validate_settings_uses_env_fallback_for_max_active(self):
-        with self._patched_env(
-            {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=types.SimpleNamespace(ping=lambda: None, close=lambda: None),
+        with (
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(
+                    ping=lambda: None, close=lambda: None
+                ),
+            ),
         ):
             validated = await LocalDockerSandbox.validate_settings({})
         self.assertEqual(validated["max_active_sandboxes"], 3)
 
     async def test_validate_settings_uses_env_fallback_for_image(self):
-        with self._patched_env(
-            {
-                "GIGA_AGENT_LOCAL_DOCKER_IMAGE": "registry.example/custom-sandbox:1.2.3",
-                "GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3",
-            },
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=types.SimpleNamespace(ping=lambda: None, close=lambda: None),
+        with (
+            self._patched_env(
+                {
+                    "GIGA_AGENT_LOCAL_DOCKER_IMAGE": "registry.example/custom-sandbox:1.2.3",
+                    "GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3",
+                },
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(
+                    ping=lambda: None, close=lambda: None
+                ),
+            ),
         ):
             validated = await LocalDockerSandbox.validate_settings({})
         self.assertEqual(validated["image"], "registry.example/custom-sandbox:1.2.3")
 
     async def test_validate_settings_fails_when_docker_unreachable(self):
-        with self._patched_env(
-            {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            side_effect=RuntimeError("daemon unavailable"),
+        with (
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_MAX_ACTIVE_SANDBOXES": "3"},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                side_effect=RuntimeError("daemon unavailable"),
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "Docker connection check failed"):
                 await LocalDockerSandbox.validate_settings({})
@@ -92,12 +105,16 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_upload_read_delete_bucket_file(self):
         owner_id = uuid.uuid4()
-        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
-            {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=types.SimpleNamespace(),
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(),
+            ),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
 
@@ -119,26 +136,36 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bucket_path_rejects_traversal(self):
         owner_id = uuid.uuid4()
-        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
-            {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=types.SimpleNamespace(),
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(),
+            ),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
 
             with self.assertRaises(ValueError):
                 runtime._local_path_from_bucket_path("/bucket/../escape.txt")
 
-    async def test_uniquify_bucket_rel_path_adds_suffix_before_plotly_json_extension(self):
+    async def test_uniquify_bucket_rel_path_adds_suffix_before_plotly_json_extension(
+        self,
+    ):
         owner_id = uuid.uuid4()
-        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
-            {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=types.SimpleNamespace(),
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(),
+            ),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
             with patch.object(runtime, "_random_key_suffix", return_value="ABCDEFGH"):
@@ -151,12 +178,16 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_uniquify_bucket_rel_path_keeps_subdirectories(self):
         owner_id = uuid.uuid4()
-        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
-            {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
-            clear=False,
-        ), patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=types.SimpleNamespace(),
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(),
+            ),
         ):
             runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
             with patch.object(runtime, "_random_key_suffix", return_value="ABCDEFGH"):
@@ -182,15 +213,16 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         provider_id = uuid.uuid4()
         sandbox_id = uuid.uuid4()
         run_mock = Mock(return_value=self._fake_container())
-        client = types.SimpleNamespace(
-            containers=types.SimpleNamespace(run=run_mock)
-        )
+        client = types.SimpleNamespace(containers=types.SimpleNamespace(run=run_mock))
 
-        with patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=client,
-        ), patch.object(
-            LocalDockerSandbox, "_ensure_api_server_ready", new=AsyncMock()
+        with (
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=client,
+            ),
+            patch.object(
+                LocalDockerSandbox, "_ensure_api_server_ready", new=AsyncMock()
+            ),
         ):
             runtime = LocalDockerSandbox(
                 owner_id=owner_id,
@@ -211,15 +243,16 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         provider_id = uuid.uuid4()
         sandbox_id = uuid.uuid4()
         run_mock = Mock(return_value=self._fake_container())
-        client = types.SimpleNamespace(
-            containers=types.SimpleNamespace(run=run_mock)
-        )
+        client = types.SimpleNamespace(containers=types.SimpleNamespace(run=run_mock))
 
-        with patch(
-            "giga_agent.sandbox.local_docker.runtime.docker.from_env",
-            return_value=client,
-        ), patch.object(
-            LocalDockerSandbox, "_ensure_api_server_ready", new=AsyncMock()
+        with (
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=client,
+            ),
+            patch.object(
+                LocalDockerSandbox, "_ensure_api_server_ready", new=AsyncMock()
+            ),
         ):
             runtime = LocalDockerSandbox(
                 owner_id=owner_id,
@@ -381,7 +414,9 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             close=lambda: None,
         )
 
-        with patch.object(LocalDockerSandbox, "_make_docker_client", return_value=client):
+        with patch.object(
+            LocalDockerSandbox, "_make_docker_client", return_value=client
+        ):
             actions = await LocalDockerSandbox.cleanup_orphans(
                 providers=[],
                 sandboxes=[],
@@ -390,7 +425,9 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(actions), 1)
         self.assertIsInstance(actions[0], RemoveExternalRuntimeAction)
 
-    async def test_cleanup_orphans_returns_stop_and_status_for_live_stopped_sandbox(self):
+    async def test_cleanup_orphans_returns_stop_and_status_for_live_stopped_sandbox(
+        self,
+    ):
         sandbox_id = uuid.uuid4()
         provider_id = uuid.uuid4()
         container = types.SimpleNamespace(
@@ -418,7 +455,9 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             close=lambda: None,
         )
 
-        with patch.object(LocalDockerSandbox, "_make_docker_client", return_value=client):
+        with patch.object(
+            LocalDockerSandbox, "_make_docker_client", return_value=client
+        ):
             actions = await LocalDockerSandbox.cleanup_orphans(
                 providers=[],
                 sandboxes=[sandbox],

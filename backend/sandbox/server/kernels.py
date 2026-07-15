@@ -207,9 +207,7 @@ class KernelPool:
         try:
             client = entry.client
             entry.last_activity_at = time.time()
-            msg_id = client.execute(
-                code, allow_stdin=allow_stdin, stop_on_error=True
-            )
+            msg_id = client.execute(code, allow_stdin=allow_stdin, stop_on_error=True)
             while True:
                 handled = False
 
@@ -334,13 +332,18 @@ class KernelPool:
                 pass
 
 
-def _map_iopub(msg: dict[str, Any], entry: KernelEntry) -> tuple[dict[str, Any] | None, bool]:
+def _map_iopub(
+    msg: dict[str, Any], entry: KernelEntry
+) -> tuple[dict[str, Any] | None, bool]:
     """Смапить iopub-сообщение в чанк run_code. Возвращает (chunk, is_done)."""
     msg_type = msg.get("msg_type")
     content = msg.get("content", {})
 
     if msg_type == "stream":
-        return {"type": content.get("name", "stdout"), "text": content.get("text", "")}, False
+        return {
+            "type": content.get("name", "stdout"),
+            "text": content.get("text", ""),
+        }, False
     if msg_type == "execute_result":
         entry.execution_count = content.get("execution_count", entry.execution_count)
         return {

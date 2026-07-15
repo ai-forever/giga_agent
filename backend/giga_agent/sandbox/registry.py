@@ -67,7 +67,9 @@ class SandboxRegistry:
 
         :raises ValueError: Если провайдер не зарегистрирован.
         """
-        if provider_type not in cls._registry or not cls.is_provider_enabled(provider_type):
+        if provider_type not in cls._registry or not cls.is_provider_enabled(
+            provider_type
+        ):
             raise ValueError(
                 f"Unknown sandbox provider: '{provider_type}'. "
                 f"Available: {cls.available_types()}"

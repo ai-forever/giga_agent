@@ -74,24 +74,33 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
     def test_create_success(self):
         created = self._engine_obj(connector_id=None)
 
-        with patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_settings",
-            AsyncMock(return_value={"search_depth": "basic"}),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_settings",
+                AsyncMock(return_value={"search_depth": "basic"}),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/search-engines",
@@ -109,27 +118,37 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
     def test_create_engine_with_permissions_for_superuser(self):
         created = self._engine_obj(connector_id=None)
 
-        with patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_settings",
-            AsyncMock(return_value={"search_depth": "basic"}),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.search_engines.ResourcePermissionRepository.set_read_acl",
-            AsyncMock(return_value=None),
-        ) as mocked_set_acl, patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_settings",
+                AsyncMock(return_value={"search_depth": "basic"}),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.ResourcePermissionRepository.set_read_acl",
+                AsyncMock(return_value=None),
+            ) as mocked_set_acl,
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/search-engines",
@@ -153,7 +172,9 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
         with patch(
             "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
+            return_value=types.SimpleNamespace(
+                supported_connector_types=lambda: ["tavily"]
+            ),
         ) as mocked_resolve_runtime:
             response = self.client.post(
                 "/search-engines",
@@ -173,12 +194,17 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         mocked_resolve_runtime.assert_not_called()
 
     def test_get_engine_types_meta(self):
-        with patch(
-            "giga_agent.routes.search_engines.SearchEngineRegistry.available_types",
-            return_value=["tavily"],
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRegistry.get",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
+        with (
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRegistry.available_types",
+                return_value=["tavily"],
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRegistry.get",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
         ):
             response = self.client.get("/search-engines/types/meta")
 
@@ -201,7 +227,9 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
         with patch(
             "giga_agent.routes.search_engines.SearchEngineRepository.list_readable_with_edit_for_user",
-            AsyncMock(return_value=[(owned, True), (writable, True), (readonly, False)]),
+            AsyncMock(
+                return_value=[(owned, True), (writable, True), (readonly, False)]
+            ),
         ):
             response = self.client.get("/search-engines")
 
@@ -232,27 +260,37 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             settings={"search_depth": "advanced"},
         )
 
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_settings",
-            AsyncMock(return_value={"search_depth": "advanced"}),
-        ) as mocked_validate_settings, patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=existing.connector_id),
-        ), patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.search_engines._get_engine_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_settings",
+                AsyncMock(return_value={"search_depth": "advanced"}),
+            ) as mocked_validate_settings,
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=existing.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/search-engines/{engine_id}",
@@ -266,30 +304,44 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
     def test_deactivate_current_auto_clears_current(self):
         engine_id = uuid.uuid4()
-        existing = self._engine_obj(engine_id=engine_id, connector_id=uuid.uuid4(), is_active=True)
-        updated = self._engine_obj(engine_id=engine_id, connector_id=existing.connector_id, is_active=False)
+        existing = self._engine_obj(
+            engine_id=engine_id, connector_id=uuid.uuid4(), is_active=True
+        )
+        updated = self._engine_obj(
+            engine_id=engine_id, connector_id=existing.connector_id, is_active=False
+        )
 
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=existing.connector_id),
-        ), patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.search_engines.clear_user_current_link_if_matches",
-            AsyncMock(return_value=True),
-        ) as mocked_clear_current, patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.search_engines._get_engine_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=existing.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.clear_user_current_link_if_matches",
+                AsyncMock(return_value=True),
+            ) as mocked_clear_current,
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/search-engines/{engine_id}",
@@ -313,24 +365,33 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         )
         updated.name = None
 
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_connector, patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.update",
-            AsyncMock(return_value=updated),
-        ) as mocked_update, patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.search_engines._get_engine_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_connector,
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.update",
+                AsyncMock(return_value=updated),
+            ) as mocked_update,
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/search-engines/{engine_id}",
@@ -348,19 +409,26 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         engine_id = uuid.uuid4()
         existing = self._engine_obj(engine_id=engine_id, connector_id=None)
 
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.search_engines._get_engine_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/search-engines/{engine_id}",
                 json={"is_active": None},
@@ -376,24 +444,33 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
     def test_create_skips_connection_check_when_disabled(self):
         created = self._engine_obj(connector_id=None)
 
-        with patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_settings",
-            AsyncMock(return_value={"search_depth": "basic"}),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_settings",
+                AsyncMock(return_value={"search_depth": "basic"}),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/search-engines",
@@ -416,22 +493,30 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
             settings={"search_depth": "basic"},
         )
 
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["tavily"]),
-        ), patch(
-            "giga_agent.routes.search_engines._validate_connector_link",
-            AsyncMock(return_value=existing.connector_id),
-        ), patch(
-            "giga_agent.routes.search_engines._check_connection_or_http_error",
-            AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.search_engines._get_engine_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["tavily"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._validate_connector_link",
+                AsyncMock(return_value=existing.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.search_engines._check_connection_or_http_error",
+                AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/search-engines/{engine_id}",
                 json={"name": "updated"},
@@ -444,16 +529,20 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
         engine_id = uuid.uuid4()
         existing = self._engine_obj(engine_id=engine_id)
 
-        with patch(
-            "giga_agent.routes.search_engines._get_engine_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.search_engines.SearchEngineRepository.delete",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.search_engines.clear_user_current_link_if_matches",
-            AsyncMock(return_value=True),
-        ) as mocked_clear_current:
+        with (
+            patch(
+                "giga_agent.routes.search_engines._get_engine_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.SearchEngineRepository.delete",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.search_engines.clear_user_current_link_if_matches",
+                AsyncMock(return_value=True),
+            ) as mocked_clear_current,
+        ):
             response = self.client.delete(f"/search-engines/{engine_id}")
 
         self.assertEqual(response.status_code, 204)
@@ -484,8 +573,12 @@ class SearchGeneratorsRouterTests(unittest.TestCase):
 
 
 class SearchEnginesConnectorValidationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_validate_connector_link_allows_missing_connector_for_supported_type(self):
-        connector_repo = types.SimpleNamespace(get_by_id_with_access_for_user=AsyncMock())
+    async def test_validate_connector_link_allows_missing_connector_for_supported_type(
+        self,
+    ):
+        connector_repo = types.SimpleNamespace(
+            get_by_id_with_access_for_user=AsyncMock()
+        )
         owner_id = uuid.uuid4()
 
         result = await _validate_connector_link(

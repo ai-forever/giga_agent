@@ -27,7 +27,9 @@ class TavilySearchEngineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_search_returns_query_result_pairs(self):
         fake_tool = AsyncMock()
-        fake_tool.abatch = AsyncMock(return_value=[{"url": "https://a"}, {"url": "https://b"}])
+        fake_tool.abatch = AsyncMock(
+            return_value=[{"url": "https://a"}, {"url": "https://b"}]
+        )
 
         with patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-env"}, clear=True):
             engine = TavilySearchEngine()
@@ -53,10 +55,13 @@ class TavilySearchEngineTests(unittest.IsolatedAsyncioTestCase):
     async def test_init_uses_env_when_connector_is_missing(self):
         fake_tool = object()
 
-        with patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-env"}, clear=True), patch(
-            "giga_agent.search_engines.tavily.TavilySearch",
-            return_value=fake_tool,
-        ) as mocked_tavily:
+        with (
+            patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-env"}, clear=True),
+            patch(
+                "giga_agent.search_engines.tavily.TavilySearch",
+                return_value=fake_tool,
+            ) as mocked_tavily,
+        ):
             engine = TavilySearchEngine()
             await engine.init()
 

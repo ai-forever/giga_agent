@@ -110,9 +110,7 @@ def collapse_tool_messages(messages: list[AnyMessage]) -> list[AnyMessage]:
             tool_uses.append(
                 {
                     "recipient_name": call.get("name", ""),
-                    "parameters": json.dumps(
-                        call.get("args", {}), ensure_ascii=False
-                    ),
+                    "parameters": json.dumps(call.get("args", {}), ensure_ascii=False),
                 }
             )
 

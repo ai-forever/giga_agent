@@ -33,9 +33,7 @@ def _row_to_dto(row: MemoryFile) -> MemoryFileDTO:
 
 
 class DBBackend:
-    async def get(
-        self, *, owner_id: uuid.UUID, path: str
-    ) -> MemoryFileDTO | None:
+    async def get(self, *, owner_id: uuid.UUID, path: str) -> MemoryFileDTO | None:
         factory = await get_session_factory()
         async with factory() as session:
             repo = MemoryFileRepository(session)
@@ -117,9 +115,7 @@ class DBBackend:
             )
         return [_row_to_dto(r) for r in rows]
 
-    async def list_all(
-        self, *, owner_id: uuid.UUID
-    ) -> list[MemoryFileDTO]:
+    async def list_all(self, *, owner_id: uuid.UUID) -> list[MemoryFileDTO]:
         from sqlalchemy import select
 
         from giga_agent.models.memory import MemoryFile

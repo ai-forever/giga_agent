@@ -85,7 +85,9 @@ async def get_thread_metadata(
             thread = await client.threads.get(thread_id)
         meta = (thread or {}).get("metadata") or {}
     except Exception as exc:
-        logger.debug("thread_metadata_fetch_failed", thread_id=thread_id, error=str(exc))
+        logger.debug(
+            "thread_metadata_fetch_failed", thread_id=thread_id, error=str(exc)
+        )
         return {}
 
     await cache.set(_key(thread_id), meta, expire=_CACHE_TTL)

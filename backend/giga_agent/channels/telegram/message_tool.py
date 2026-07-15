@@ -113,7 +113,13 @@ def build_telegram_message_tool_schema() -> dict[str, object]:
                             },
                             "kind": {
                                 "type": "string",
-                                "enum": ["image", "document", "audio", "video", "voice"],
+                                "enum": [
+                                    "image",
+                                    "document",
+                                    "audio",
+                                    "video",
+                                    "voice",
+                                ],
                                 "default": "document",
                             },
                             "caption": {

@@ -10,7 +10,9 @@ from giga_agent.sandbox.e2b import E2BSandbox
 
 
 class _FakeS3Client:
-    def __init__(self, existing_keys: set[str] | None = None, content_length: int = 100):
+    def __init__(
+        self, existing_keys: set[str] | None = None, content_length: int = 100
+    ):
         self.existing_keys = existing_keys or set()
         self.put_calls: list[dict] = []
         self._content_length = content_length
@@ -131,7 +133,9 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(sandbox_path, "/bucket/file--ABCDEFGH.txt")
-        self.assertEqual(fake_client.put_calls[0]["Key"], f"giga_agent/{sandbox.owner_id}/")
+        self.assertEqual(
+            fake_client.put_calls[0]["Key"], f"giga_agent/{sandbox.owner_id}/"
+        )
         self.assertEqual(
             fake_client.put_calls[1]["Key"],
             f"giga_agent/{sandbox.owner_id}/file--ABCDEFGH.txt",
@@ -283,7 +287,9 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
         sandbox = self._sandbox()
         sandbox.external_id = "sbx-123"
         sandbox._e2b_sandbox = types.SimpleNamespace(
-            commands=types.SimpleNamespace(run=AsyncMock(side_effect=RuntimeError("boom")))
+            commands=types.SimpleNamespace(
+                run=AsyncMock(side_effect=RuntimeError("boom"))
+            )
         )
 
         self.assertFalse(await sandbox.is_up())

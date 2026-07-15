@@ -40,12 +40,10 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_base_runtime_analyze_image_sends_base64_data_url(self):
         llm_stub = types.SimpleNamespace(
             ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="ok")),
-            with_config=lambda **kwargs: llm_stub
+            with_config=lambda **kwargs: llm_stub,
         )
         _BaseRuntimeStub._llm_stub = llm_stub
-        runtime = _BaseRuntimeStub(
-            connector=_ConnectorStub(), model_id="test-model"
-        )
+        runtime = _BaseRuntimeStub(connector=_ConnectorStub(), model_id="test-model")
 
         result = await runtime.analyze_image(
             prompt="what is on this image",
@@ -71,7 +69,7 @@ class AnalyzeImageRuntimeTests(unittest.IsolatedAsyncioTestCase):
         llm_stub = types.SimpleNamespace(
             aupload_file=AsyncMock(return_value=types.SimpleNamespace(id_="file-123")),
             ainvoke=AsyncMock(return_value=types.SimpleNamespace(text="analysis")),
-            with_config=lambda **kwargs: llm_stub
+            with_config=lambda **kwargs: llm_stub,
         )
         runtime = GigaChatRuntime(connector=_ConnectorStub(), model_id="giga")
         with patch.object(GigaChatRuntime, "get_llm", AsyncMock(return_value=llm_stub)):

@@ -35,7 +35,9 @@ def build_linux_bwrap_command(
 def launch_linux_bwrap(config: SecureProcessConfig) -> SecureExecLaunch:
     executable = shutil.which(BWRAP_EXECUTABLE)
     if executable is None:
-        raise SecureExecBinaryMissingError("bubblewrap executable 'bwrap' was not found")
+        raise SecureExecBinaryMissingError(
+            "bubblewrap executable 'bwrap' was not found"
+        )
 
     policy = config.policy
     if config.cwd is not None:

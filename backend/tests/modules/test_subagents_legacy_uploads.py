@@ -38,7 +38,9 @@ class _FakeSessionCtx:
 
 class SubagentsLegacyUploadsTests(unittest.IsolatedAsyncioTestCase):
     def test_resolve_upload_prefix_uses_thread_id(self):
-        runtime = types.SimpleNamespace(config={"configurable": {"thread_id": "thread-1"}})
+        runtime = types.SimpleNamespace(
+            config={"configurable": {"thread_id": "thread-1"}}
+        )
         self.assertEqual(resolve_upload_prefix(runtime), "thread-1")
 
     def test_build_tool_message_contains_attachments(self):
@@ -58,7 +60,9 @@ class SubagentsLegacyUploadsTests(unittest.IsolatedAsyncioTestCase):
     async def test_upload_files_uses_sandbox_manager(self):
         owner_id = uuid.uuid4()
         runtime = types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}}
+            config={
+                "configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}
+            }
         )
         fake_manager = types.SimpleNamespace(
             upload_files_for_user=AsyncMock(
@@ -68,12 +72,15 @@ class SubagentsLegacyUploadsTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
         )
-        with patch(
-            "giga_agent.modules.subagents_legacy.uploads.get_session_factory",
-            AsyncMock(return_value=lambda: _FakeSessionCtx()),
-        ), patch(
-            "giga_agent.modules.subagents_legacy.uploads.SandboxManager",
-            return_value=fake_manager,
+        with (
+            patch(
+                "giga_agent.modules.subagents_legacy.uploads.get_session_factory",
+                AsyncMock(return_value=lambda: _FakeSessionCtx()),
+            ),
+            patch(
+                "giga_agent.modules.subagents_legacy.uploads.SandboxManager",
+                return_value=fake_manager,
+            ),
         ):
             files = await upload_files_for_runtime_user(
                 runtime,

@@ -45,7 +45,9 @@ def downgrade() -> None:
     # Public ACL rows cannot be represented by UUID; remove them before cast-back.
     bind = op.get_bind()
     bind.execute(
-        sa.text("DELETE FROM core_resource_permissions WHERE owner_id = :public_owner_id"),
+        sa.text(
+            "DELETE FROM core_resource_permissions WHERE owner_id = :public_owner_id"
+        ),
         {"public_owner_id": "*"},
     )
 

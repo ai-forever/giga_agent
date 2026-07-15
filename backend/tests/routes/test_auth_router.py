@@ -105,16 +105,20 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_llm, patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_invalidate_cache:
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_llm_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_llm,
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ) as mocked_invalidate_cache,
+        ):
             response = self.client.patch(
                 "/users/me",
                 json={
@@ -144,30 +148,39 @@ class AuthRouterTests(unittest.TestCase):
         user_model.image_generator_id = uuid.uuid4()
         user_model.search_engine_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_fast_llm, patch(
-            "giga_agent.modules.auth.api._validate_embedding_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_embedding, patch(
-            "giga_agent.modules.auth.api._validate_sandbox_provider_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_sandbox_provider, patch(
-            "giga_agent.modules.auth.api._validate_image_generator_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_image, patch(
-            "giga_agent.modules.auth.api._validate_search_engine_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_search, patch(
-            "giga_agent.modules.auth.api.cache.delete_match",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_llm_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_fast_llm,
+            patch(
+                "giga_agent.modules.auth.api._validate_embedding_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_embedding,
+            patch(
+                "giga_agent.modules.auth.api._validate_sandbox_provider_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_sandbox_provider,
+            patch(
+                "giga_agent.modules.auth.api._validate_image_generator_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_image,
+            patch(
+                "giga_agent.modules.auth.api._validate_search_engine_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_search,
+            patch(
+                "giga_agent.modules.auth.api.cache.delete_match",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.patch(
                 "/users/me",
@@ -199,18 +212,23 @@ class AuthRouterTests(unittest.TestCase):
         user_model = self._user_model()
         sandbox_provider_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_sandbox_provider_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_sandbox_provider, patch(
-            "giga_agent.modules.auth.api.cache.delete_match",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_sandbox_provider_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_sandbox_provider,
+            patch(
+                "giga_agent.modules.auth.api.cache.delete_match",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.patch(
                 "/users/me",
@@ -232,19 +250,24 @@ class AuthRouterTests(unittest.TestCase):
         new_embedding_id = uuid.uuid4()
         user_model.embedding_id = old_embedding_id
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_embedding_id",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
-        ) as mocked_publish:
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_embedding_id",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ) as mocked_publish,
+        ):
             response = self.client.patch(
                 "/users/me",
                 json={"embedding_id": str(new_embedding_id)},
@@ -262,16 +285,20 @@ class AuthRouterTests(unittest.TestCase):
         user_model = self._user_model()
         user_model.embedding_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
-        ) as mocked_publish:
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ) as mocked_publish,
+        ):
             response = self.client.patch(
                 "/users/me",
                 json={"settings": {"theme": "light"}},
@@ -284,16 +311,19 @@ class AuthRouterTests(unittest.TestCase):
         user_model = self._user_model()
         invalid_provider_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_sandbox_provider_id",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=422,
-                    detail="Invalid value for sandbox_provider_id",
-                )
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_sandbox_provider_id",
+                AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=422,
+                        detail="Invalid value for sandbox_provider_id",
+                    )
+                ),
             ),
         ):
             response = self.client.patch(
@@ -315,16 +345,19 @@ class AuthRouterTests(unittest.TestCase):
         user_model = self._user_model()
         invalid_llm_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=422,
-                    detail="Invalid value for llm_id",
-                )
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_llm_id",
+                AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=422,
+                        detail="Invalid value for llm_id",
+                    )
+                ),
             ),
         ):
             response = self.client.patch(
@@ -368,15 +401,19 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_llm, patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_llm_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_llm,
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.patch(
                 "/users/me",
@@ -433,15 +470,18 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=422, detail="Invalid value for llm_id"
-                )
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_llm_id",
+                AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=422, detail="Invalid value for llm_id"
+                    )
+                ),
             ),
         ):
             response = self.client.patch(
@@ -468,15 +508,19 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=user_model),
-        ), patch(
-            "giga_agent.modules.auth.api._validate_llm_id",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_llm, patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._validate_llm_id",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_llm,
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.patch(
                 "/users/me",
@@ -575,25 +619,32 @@ class AuthRouterTests(unittest.TestCase):
         created_user.id = uuid.uuid4()
         created_user.email = "new@example.com"
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ) as mocked_create, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[group_id_1, group_id_2]),
-        ) as mocked_existing_groups, patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ) as mocked_add_users, patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
-        ) as mocked_publish:
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ) as mocked_create,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[group_id_1, group_id_2]),
+            ) as mocked_existing_groups,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ) as mocked_add_users,
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ) as mocked_publish,
+        ):
             response = self.client.post(
                 "/users",
                 json={
@@ -620,24 +671,31 @@ class AuthRouterTests(unittest.TestCase):
         created_user.id = uuid.uuid4()
         created_user.email = "new-no-groups@example.com"
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ) as mocked_create, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ) as mocked_existing_groups, patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ) as mocked_add_users, patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ) as mocked_create,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ) as mocked_existing_groups,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ) as mocked_add_users,
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -659,16 +717,20 @@ class AuthRouterTests(unittest.TestCase):
         existing_group_id = uuid.uuid4()
         missing_group_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[existing_group_id]),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(),
-        ) as mocked_create:
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[existing_group_id]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(),
+            ) as mocked_create,
+        ):
             response = self.client.post(
                 "/users",
                 json={
@@ -691,24 +753,31 @@ class AuthRouterTests(unittest.TestCase):
         created_user.id = uuid.uuid4()
         created_user.email = "new-dedup@example.com"
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[group_id]),
-        ) as mocked_existing_groups, patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ) as mocked_add_users, patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[group_id]),
+            ) as mocked_existing_groups,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ) as mocked_add_users,
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -745,32 +814,43 @@ class AuthRouterTests(unittest.TestCase):
         owner_model.sandbox_provider_id = uuid.uuid4()
         owner_model.secrets = {"MODULE_KEY": "secret-value"}
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=owner_model),
-        ) as mocked_owner_model, patch(
-            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(
-                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
             ),
-        ) as mocked_grant_permissions, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ) as mocked_add_users, patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=owner_model),
+            ) as mocked_owner_model,
+            patch(
+                "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+                AsyncMock(
+                    return_value=types.SimpleNamespace(
+                        created=[], existing=[], errors=[]
+                    )
+                ),
+            ) as mocked_grant_permissions,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ) as mocked_add_users,
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -838,30 +918,39 @@ class AuthRouterTests(unittest.TestCase):
         created_user.email = "runtime-disabled@example.com"
         created_user.secrets = None
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(),
-        ) as mocked_owner_model, patch(
-            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(),
-        ) as mocked_grant_permissions, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(),
+            ) as mocked_owner_model,
+            patch(
+                "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+                AsyncMock(),
+            ) as mocked_grant_permissions,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -890,32 +979,43 @@ class AuthRouterTests(unittest.TestCase):
         owner_model.llm_id = uuid.uuid4()
         owner_model.secrets = {"MODULE_KEY": "secret-value"}
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=owner_model),
-        ), patch(
-            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(
-                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
             ),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=owner_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+                AsyncMock(
+                    return_value=types.SimpleNamespace(
+                        created=[], existing=[], errors=[]
+                    )
+                ),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -972,32 +1072,43 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=owner_model),
-        ), patch(
-            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(
-                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
             ),
-        ) as mocked_grant_permissions, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=owner_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+                AsyncMock(
+                    return_value=types.SimpleNamespace(
+                        created=[], existing=[], errors=[]
+                    )
+                ),
+            ) as mocked_grant_permissions,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -1055,32 +1166,43 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=owner_model),
-        ), patch(
-            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(
-                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
             ),
-        ) as mocked_grant_permissions, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=owner_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+                AsyncMock(
+                    return_value=types.SimpleNamespace(
+                        created=[], existing=[], errors=[]
+                    )
+                ),
+            ) as mocked_grant_permissions,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -1128,32 +1250,43 @@ class AuthRouterTests(unittest.TestCase):
             ]
         )
 
-        with patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="hashed",
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.create",
-            AsyncMock(return_value=created_user),
-        ), patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=owner_model),
-        ), patch(
-            "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
-            AsyncMock(
-                return_value=types.SimpleNamespace(created=[], existing=[], errors=[])
+        with (
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
             ),
-        ) as mocked_grant_permissions, patch(
-            "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.modules.auth.api.GroupRepository.add_users",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.event_bus.publish",
-            AsyncMock(return_value=None),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="hashed",
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.create",
+                AsyncMock(return_value=created_user),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=owner_model),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.ResourcePermissionRepository.grant_permissions",
+                AsyncMock(
+                    return_value=types.SimpleNamespace(
+                        created=[], existing=[], errors=[]
+                    )
+                ),
+            ) as mocked_grant_permissions,
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.get_existing_group_ids",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.GroupRepository.add_users",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.event_bus.publish",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/users",
@@ -1179,16 +1312,20 @@ class AuthRouterTests(unittest.TestCase):
         target.id = uuid.uuid4()
         target.email = "old@example.com"
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=target),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=False),
-        ) as mocked_exists_by_email, patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_invalidate_cache:
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=target),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=False),
+            ) as mocked_exists_by_email,
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ) as mocked_invalidate_cache,
+        ):
             response = self.client.patch(
                 f"/users/{target.id}",
                 json={
@@ -1215,15 +1352,19 @@ class AuthRouterTests(unittest.TestCase):
         target.id = uuid.uuid4()
         target.hashed_password = "old-hash"
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=target),
-        ), patch(
-            "giga_agent.modules.auth.api.security.get_password_hash",
-            return_value="new-hash",
-        ) as mocked_hash, patch(
-            "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=target),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.security.get_password_hash",
+                return_value="new-hash",
+            ) as mocked_hash,
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.patch(
                 f"/users/{target.id}",
@@ -1255,12 +1396,15 @@ class AuthRouterTests(unittest.TestCase):
         target.id = uuid.uuid4()
         target.email = "old@example.com"
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=target),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.exists_by_email",
-            AsyncMock(return_value=True),
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=target),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.exists_by_email",
+                AsyncMock(return_value=True),
+            ),
         ):
             response = self.client.patch(
                 f"/users/{target.id}",
@@ -1327,22 +1471,28 @@ class AuthRouterTests(unittest.TestCase):
             is_active=True,
             is_superuser=False,
         )
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=target),
-        ), patch(
-            "giga_agent.modules.auth.api._build_user_storage_cleanup_batches",
-            AsyncMock(return_value=([], [])),
-        ) as mocked_build_batches, patch(
-            "giga_agent.modules.auth.api._delete_user_related_resources",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_related, patch(
-            "giga_agent.modules.auth.api.UserRepository.delete",
-            AsyncMock(return_value=None),
-        ) as mocked_delete, patch(
-            "giga_agent.modules.auth.api.cleanup_storage_files_best_effort",
-            AsyncMock(return_value=None),
-        ) as mocked_cleanup:
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=target),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._build_user_storage_cleanup_batches",
+                AsyncMock(return_value=([], [])),
+            ) as mocked_build_batches,
+            patch(
+                "giga_agent.modules.auth.api._delete_user_related_resources",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_related,
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.delete",
+                AsyncMock(return_value=None),
+            ) as mocked_delete,
+            patch(
+                "giga_agent.modules.auth.api.cleanup_storage_files_best_effort",
+                AsyncMock(return_value=None),
+            ) as mocked_cleanup,
+        ):
             response = self.client.delete(f"/users/{target.id}")
 
         self.assertEqual(response.status_code, 204)
@@ -1385,30 +1535,36 @@ class AuthRouterTests(unittest.TestCase):
         provider_snapshot_2 = types.SimpleNamespace(id=provider_2)
         sandbox_refs = {str(owner_id): types.SimpleNamespace(provider_id=provider_1)}
 
-        with patch(
-            "giga_agent.modules.auth.api._get_user_model_by_id",
-            AsyncMock(return_value=target),
-        ), patch(
-            "giga_agent.modules.auth.api._build_user_storage_cleanup_batches",
-            AsyncMock(
-                return_value=(
-                    refs_batch_1 + refs_batch_2,
-                    [
-                        (refs_batch_1, provider_snapshot_1, sandbox_refs),
-                        (refs_batch_2, provider_snapshot_2, sandbox_refs),
-                    ],
-                )
+        with (
+            patch(
+                "giga_agent.modules.auth.api._get_user_model_by_id",
+                AsyncMock(return_value=target),
             ),
-        ), patch(
-            "giga_agent.modules.auth.api._delete_user_related_resources",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.UserRepository.delete",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.modules.auth.api.cleanup_storage_files_best_effort",
-            AsyncMock(return_value=None),
-        ) as mocked_cleanup:
+            patch(
+                "giga_agent.modules.auth.api._build_user_storage_cleanup_batches",
+                AsyncMock(
+                    return_value=(
+                        refs_batch_1 + refs_batch_2,
+                        [
+                            (refs_batch_1, provider_snapshot_1, sandbox_refs),
+                            (refs_batch_2, provider_snapshot_2, sandbox_refs),
+                        ],
+                    )
+                ),
+            ),
+            patch(
+                "giga_agent.modules.auth.api._delete_user_related_resources",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.UserRepository.delete",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.modules.auth.api.cleanup_storage_files_best_effort",
+                AsyncMock(return_value=None),
+            ) as mocked_cleanup,
+        ):
             response = self.client.delete(f"/users/{target.id}")
 
         self.assertEqual(response.status_code, 204)

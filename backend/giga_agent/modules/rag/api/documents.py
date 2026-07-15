@@ -49,7 +49,9 @@ async def resolve_qdrant_collection(**kwargs):
 
 
 def build_filter(**kwargs):
-    from giga_agent.modules.rag.database.qdrant_store import build_filter as _build_filter
+    from giga_agent.modules.rag.database.qdrant_store import (
+        build_filter as _build_filter,
+    )
 
     return _build_filter(**kwargs)
 
@@ -149,14 +151,18 @@ async def documents_create(
     qdrant_client = get_qdrant_client()
     qdrant_collection = await resolve_qdrant_collection(
         client=qdrant_client,
-        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+        collection_name=rag_qdrant_collection_name_for_embedding(
+            collection.embedding_id
+        ),
         vector_size=vector_size,
     )
 
     # Pair files with their corresponding metadata
     for file, metadata in zip(files, metadatas, strict=False):
         try:
-            file_id, full_text, chunk_docs = await process_document(file, metadata=metadata)
+            file_id, full_text, chunk_docs = await process_document(
+                file, metadata=metadata
+            )
             if not chunk_docs:
                 logger.warning(
                     f"Warning: File {file.filename} resulted in no processable documents."
@@ -175,7 +181,9 @@ async def documents_create(
                 owner_id=collection.owner_id,
                 collection_id=collection_id,
                 document_id=file_uuid,
-                original_name=(metadata or {}).get("name") or file.filename or "document",
+                original_name=(metadata or {}).get("name")
+                or file.filename
+                or "document",
                 file_id=sandbox_file.id,
                 sandbox_provider_id=sandbox_file.provider_id,
                 sandbox_path=sandbox_file.sandbox_path,
@@ -340,7 +348,9 @@ async def documents_delete(
     vector_size = int(runtime.vector_size)
     qdrant_collection = await resolve_qdrant_collection(
         client=qdrant_client,
-        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+        collection_name=rag_qdrant_collection_name_for_embedding(
+            collection.embedding_id
+        ),
         vector_size=vector_size,
     )
     qfilter = build_filter(
@@ -410,7 +420,9 @@ async def documents_search(
     qdrant_client = get_qdrant_client()
     qdrant_collection = await resolve_qdrant_collection(
         client=qdrant_client,
-        collection_name=rag_qdrant_collection_name_for_embedding(collection.embedding_id),
+        collection_name=rag_qdrant_collection_name_for_embedding(
+            collection.embedding_id
+        ),
         vector_size=len(query_vector),
     )
     qfilter = build_filter(owner_id=collection.owner_id, collection_id=collection_id)

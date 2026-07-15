@@ -99,9 +99,7 @@ class _MessagesWrapper:
 
 
 def _make_chat_result(content: str) -> ChatResult:
-    return ChatResult(
-        generations=[ChatGeneration(message=AIMessage(content=content))]
-    )
+    return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
 
 
 class ChatDeepSeekWithReplayTests(unittest.TestCase):
@@ -110,14 +108,17 @@ class ChatDeepSeekWithReplayTests(unittest.TestCase):
     def _run_payload(self, messages: list, base_payload: dict) -> dict:
         instance = _ChatDeepSeekWithReplay.__new__(_ChatDeepSeekWithReplay)
         wrapper = _MessagesWrapper(messages)
-        with patch.object(
-            _ChatDeepSeekWithReplay.__bases__[0],
-            "_get_request_payload",
-            return_value=base_payload,
-        ), patch.object(
-            _ChatDeepSeekWithReplay,
-            "_convert_input",
-            return_value=wrapper,
+        with (
+            patch.object(
+                _ChatDeepSeekWithReplay.__bases__[0],
+                "_get_request_payload",
+                return_value=base_payload,
+            ),
+            patch.object(
+                _ChatDeepSeekWithReplay,
+                "_convert_input",
+                return_value=wrapper,
+            ),
         ):
             return _ChatDeepSeekWithReplay._get_request_payload(instance, messages)
 
@@ -158,7 +159,9 @@ class ChatDeepSeekWithReplayTests(unittest.TestCase):
         """model (with reasoning) → tool → second model call preserves reasoning."""
         ai_with_tools = AIMessage(
             content="",
-            tool_calls=[{"name": "shell", "args": {"cmd": "python tsp.py"}, "id": "c1"}],
+            tool_calls=[
+                {"name": "shell", "args": {"cmd": "python tsp.py"}, "id": "c1"}
+            ],
             additional_kwargs={"reasoning_content": "I should run a script"},
         )
         tool_result = ToolMessage(content="Done", tool_call_id="c1")

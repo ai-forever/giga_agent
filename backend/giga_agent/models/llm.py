@@ -10,7 +10,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
-from giga_agent.llm.base import AvailableModel, ModelFetchError
 from giga_agent.models._acl import ACLResourceRepositoryMixin
 from giga_agent.models.connector import Connector  # noqa: F401
 from giga_agent.models.resource_permission import (
@@ -122,6 +121,7 @@ class LLMContext(BaseModel):
 
 class LLMRepository(ACLResourceRepositoryMixin[LLM]):
     """Repository for LLM records and cacheable LLM config context."""
+
     resource_model = LLM
     resource_type = "llm"
 
@@ -290,7 +290,9 @@ class LLMRepository(ACLResourceRepositoryMixin[LLM]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="llm",
             resource_ids=resource_ids,

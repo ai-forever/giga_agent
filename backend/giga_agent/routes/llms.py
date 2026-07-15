@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Ensure runtime registrations
+import giga_agent.connectors  # noqa: F401
+import giga_agent.llm  # noqa: F401
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.cache import cache
 from giga_agent.core.db import get_session
 from giga_agent.llm.registry import LLMRegistry
-from giga_agent.models.connector import ConnectorRepository
-from giga_agent.models.llm import (
+from giga_agent.models import (
     LLM,
     AvailableModel,
     LLMCreate,
@@ -23,6 +25,7 @@ from giga_agent.models.llm import (
     LLMUpdate,
     ModelFetchError,
 )
+from giga_agent.models.connector import ConnectorRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
@@ -39,10 +42,6 @@ from giga_agent.routes._shared.model_discovery import (
 from giga_agent.routes._shared.schema import (
     build_settings_schema_with_computed_defaults,
 )
-
-# Ensure runtime registrations
-import giga_agent.connectors  # noqa: F401
-import giga_agent.llm  # noqa: F401
 
 router = APIRouter(prefix="/llms", tags=["llms"])
 
@@ -420,7 +419,11 @@ async def patch_llm(
         llm_repo=llm_repo,
     )
 
-    effective_type = data.type if "type" in data.model_fields_set and data.type is not None else llm.type
+    effective_type = (
+        data.type
+        if "type" in data.model_fields_set and data.type is not None
+        else llm.type
+    )
     effective_connector_id = (
         data.connector_id
         if "connector_id" in data.model_fields_set and data.connector_id is not None

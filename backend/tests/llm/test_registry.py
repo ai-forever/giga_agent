@@ -63,10 +63,15 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
         token_cache_mock = AsyncMock(return_value="tok")
 
-        with patch(
-            "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
-            token_cache_mock,
-        ), patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm) as mocked_llm:
+        with (
+            patch(
+                "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
+                token_cache_mock,
+            ),
+            patch(
+                "giga_agent.llm.gigachat.GigaChat", return_value=mock_llm
+            ) as mocked_llm,
+        ):
             connector = GigaChatConnector(
                 gigachat_api_type="prod",
                 gigachat_credentials="token",
@@ -88,7 +93,9 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
             access_token="tok",
         )
 
-    async def test_gigachat_fetch_available_models_skips_access_token_when_flag_enabled(self):
+    async def test_gigachat_fetch_available_models_skips_access_token_when_flag_enabled(
+        self,
+    ):
         mock_llm = types.SimpleNamespace(
             aget_models=AsyncMock(
                 return_value=types.SimpleNamespace(
@@ -104,10 +111,15 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         ):
             reset_settings_cache()
-            with patch(
-                "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
-                token_cache_mock,
-            ), patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm) as mocked_llm:
+            with (
+                patch(
+                    "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
+                    token_cache_mock,
+                ),
+                patch(
+                    "giga_agent.llm.gigachat.GigaChat", return_value=mock_llm
+                ) as mocked_llm,
+            ):
                 connector = GigaChatConnector(
                     gigachat_api_type="prod",
                     gigachat_credentials="token",
@@ -136,10 +148,15 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
             clear=False,
         ):
             reset_settings_cache()
-            with patch(
-                "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
-                token_cache_mock,
-            ), patch("giga_agent.llm.gigachat.GigaChat", return_value=object()) as mocked_llm:
+            with (
+                patch(
+                    "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
+                    token_cache_mock,
+                ),
+                patch(
+                    "giga_agent.llm.gigachat.GigaChat", return_value=object()
+                ) as mocked_llm,
+            ):
                 runtime = GigaChatRuntime(
                     connector=GigaChatConnector(
                         gigachat_api_type="prod",
@@ -165,10 +182,15 @@ class LLMRegistryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_gigachat_runtime_enables_streaming(self):
         mock_llm = types.SimpleNamespace()
-        with patch(
-            "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
-            AsyncMock(return_value="tok"),
-        ), patch("giga_agent.llm.gigachat.GigaChat", return_value=mock_llm) as mocked_ctor:
+        with (
+            patch(
+                "giga_agent.llm.gigachat.get_gigachat_access_token_cached",
+                AsyncMock(return_value="tok"),
+            ),
+            patch(
+                "giga_agent.llm.gigachat.GigaChat", return_value=mock_llm
+            ) as mocked_ctor,
+        ):
             connector = GigaChatConnector(
                 gigachat_api_type="prod",
                 gigachat_credentials="token",

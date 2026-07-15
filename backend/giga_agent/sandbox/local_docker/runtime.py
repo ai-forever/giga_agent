@@ -59,7 +59,11 @@ _MB = 1024 * 1024
 
 @SandboxRegistry.register("local_docker")
 class LocalDockerSandbox(
-    APIBackedSandbox, ContainerMixin, FilesMixin, PortProxyMixin, JupyterSandbox,
+    APIBackedSandbox,
+    ContainerMixin,
+    FilesMixin,
+    PortProxyMixin,
+    JupyterSandbox,
 ):
     image: str = Field(
         default_factory=lambda: get_settings().giga_agent_local_docker_image,
@@ -102,7 +106,9 @@ class LocalDockerSandbox(
         description="Hard nofile ulimit for container",
     )
     startup_timeout_sec: int = Field(
-        default_factory=lambda: get_settings().giga_agent_local_docker_startup_timeout_sec,
+        default_factory=lambda: (
+            get_settings().giga_agent_local_docker_startup_timeout_sec
+        ),
         description="Timeout in seconds to wait for Jupyter startup",
     )
     max_active_sandboxes: int | None = Field(
@@ -180,9 +186,9 @@ class LocalDockerSandbox(
             self._container.reload()
         except NotFound:
             return
-        networks = (
-            (self._container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
-        )
+        networks = (self._container.attrs.get("NetworkSettings") or {}).get(
+            "Networks"
+        ) or {}
         net_info = networks.get(network_name) or {}
         existing_aliases = net_info.get("Aliases") or []
         if alias in existing_aliases:
@@ -307,8 +313,7 @@ class LocalDockerSandbox(
         lines: list[str] = [
             "",
             "=== Sandbox runtime (Docker) ===",
-            "Workdir: /root. "
-            "Эфемерно: /tmp, /run.",
+            "Workdir: /root. Эфемерно: /tmp, /run.",
             "",
             "=== Что использовать для типичных задач ===",
             "- Установить Python-пакет → `uv pip install --no-cache <pkg>` "
@@ -333,77 +338,81 @@ class LocalDockerSandbox(
             "- Клонировать репозиторий → `git clone <url>`.",
             "- Сжатие → `zip`/`unzip`/`xz`",
             "",
-            "Что НЕ работает: GUI/X-сервер, "
-            "(пакеты только через uv/pnpm/bun)"
+            "Что НЕ работает: GUI/X-сервер, (пакеты только через uv/pnpm/bun)",
         ]
 
-        lines.extend([
-            "",
-            "=== Запуск долгоиграющего сервера ===",
-            "1. Запустите сервер в фоне на 0.0.0.0:<port>, "
-            "НЕ на 127.0.0.1 (иначе извне не достучитесь)"
-        ])
+        lines.extend(
+            [
+                "",
+                "=== Запуск долгоиграющего сервера ===",
+                "1. Запустите сервер в фоне на 0.0.0.0:<port>, "
+                "НЕ на 127.0.0.1 (иначе извне не достучитесь)",
+            ]
+        )
 
         if base_domain:
-            lines.extend([
-                "2. Дёрните `open_port(<port>)` — вернётся HTTPS-URL вида "
-                f"`https://<port>-sandbox-<id>.{base_domain}/`.",
-                "",
-                "ОТДАВАЙ ССЫЛКУ РОВНО ТАК, КАК ВЕРНУЛ `open_port` — НЕ дописывай "
-                "и не выдумывай query-параметры (никаких `?__sbx=...`). "
-                "Хозяин песочницы открывает её по своей сессии, без токена. "
-                "Если ссылка уходит туда, где нет сессии (например, в Telegram), "
-                "временный токен доступа (~10 часов, только к этому порту этой "
-                "песочницы, не к аккаунту) подставляется автоматически.",
-                "",
-                "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
-                f"фреймворк отдаст 400/403 (приходящий Host = "
-                f"`<port>-sandbox-<hex>.{base_domain}`):",
-                "  • Django: ALLOWED_HOSTS=['*']; USE_X_FORWARDED_HOST=True; "
-                "SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')",
-                "  • FastAPI/Starlette: убрать TrustedHostMiddleware либо "
-                "allowed_hosts=['*']; uvicorn — с --proxy-headers "
-                "--forwarded-allow-ips='*'",
-                "  • Flask: werkzeug.middleware.proxy_fix.ProxyFix(app, "
-                "x_proto=1, x_host=1)",
-                "  • Streamlit: --server.enableCORS=false "
-                "--server.enableXsrfProtection=false --server.headless=true "
-                "--server.address=0.0.0.0",
-                "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
-                "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
-                f"vite.config — server.allowedHosts: ['.{base_domain}']",
-            ])
+            lines.extend(
+                [
+                    "2. Дёрните `open_port(<port>)` — вернётся HTTPS-URL вида "
+                    f"`https://<port>-sandbox-<id>.{base_domain}/`.",
+                    "",
+                    "ОТДАВАЙ ССЫЛКУ РОВНО ТАК, КАК ВЕРНУЛ `open_port` — НЕ дописывай "
+                    "и не выдумывай query-параметры (никаких `?__sbx=...`). "
+                    "Хозяин песочницы открывает её по своей сессии, без токена. "
+                    "Если ссылка уходит туда, где нет сессии (например, в Telegram), "
+                    "временный токен доступа (~10 часов, только к этому порту этой "
+                    "песочницы, не к аккаунту) подставляется автоматически.",
+                    "",
+                    "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
+                    f"фреймворк отдаст 400/403 (приходящий Host = "
+                    f"`<port>-sandbox-<hex>.{base_domain}`):",
+                    "  • Django: ALLOWED_HOSTS=['*']; USE_X_FORWARDED_HOST=True; "
+                    "SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')",
+                    "  • FastAPI/Starlette: убрать TrustedHostMiddleware либо "
+                    "allowed_hosts=['*']; uvicorn — с --proxy-headers "
+                    "--forwarded-allow-ips='*'",
+                    "  • Flask: werkzeug.middleware.proxy_fix.ProxyFix(app, "
+                    "x_proto=1, x_host=1)",
+                    "  • Streamlit: --server.enableCORS=false "
+                    "--server.enableXsrfProtection=false --server.headless=true "
+                    "--server.address=0.0.0.0",
+                    "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
+                    "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
+                    f"vite.config — server.allowedHosts: ['.{base_domain}']",
+                ]
+            )
         elif tunnel_active:
-            lines.extend([
-                "2. Дёрните `open_port(<port>)` — вернётся публичный HTTPS-URL "
-                "вида `https://<random>.trycloudflare.com` (Cloudflare quick "
-                "tunnel).",
-                "",
-                "⚠ ССЫЛКА ПУБЛИЧНАЯ: открыть может КТО УГОДНО, у кого есть URL "
-                "(без авторизации). Не открывайте так ничего с приватными "
-                "данными.",
-                "",
-                "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
-                "фреймворк отдаст 400/403 (приходящий Host = "
-                "`<random>.trycloudflare.com`):",
-                "  • Django: ALLOWED_HOSTS=['*']; USE_X_FORWARDED_HOST=True; "
-                "SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')",
-                "  • FastAPI/Starlette: убрать TrustedHostMiddleware либо "
-                "allowed_hosts=['*']; uvicorn — с --proxy-headers "
-                "--forwarded-allow-ips='*'",
-                "  • Flask: werkzeug.middleware.proxy_fix.ProxyFix(app, "
-                "x_proto=1, x_host=1)",
-                "  • Streamlit: --server.enableCORS=false "
-                "--server.enableXsrfProtection=false --server.headless=true "
-                "--server.address=0.0.0.0",
-                "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
-                "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
-                "vite.config — server.allowedHosts: ['.trycloudflare.com']",
-            ])
+            lines.extend(
+                [
+                    "2. Дёрните `open_port(<port>)` — вернётся публичный HTTPS-URL "
+                    "вида `https://<random>.trycloudflare.com` (Cloudflare quick "
+                    "tunnel).",
+                    "",
+                    "⚠ ССЫЛКА ПУБЛИЧНАЯ: открыть может КТО УГОДНО, у кого есть URL "
+                    "(без авторизации). Не открывайте так ничего с приватными "
+                    "данными.",
+                    "",
+                    "⚠ ВНУТРИ ПРИЛОЖЕНИЯ ОТКЛЮЧИТЕ host/CORS-проверки, иначе "
+                    "фреймворк отдаст 400/403 (приходящий Host = "
+                    "`<random>.trycloudflare.com`):",
+                    "  • Django: ALLOWED_HOSTS=['*']; USE_X_FORWARDED_HOST=True; "
+                    "SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')",
+                    "  • FastAPI/Starlette: убрать TrustedHostMiddleware либо "
+                    "allowed_hosts=['*']; uvicorn — с --proxy-headers "
+                    "--forwarded-allow-ips='*'",
+                    "  • Flask: werkzeug.middleware.proxy_fix.ProxyFix(app, "
+                    "x_proto=1, x_host=1)",
+                    "  • Streamlit: --server.enableCORS=false "
+                    "--server.enableXsrfProtection=false --server.headless=true "
+                    "--server.address=0.0.0.0",
+                    "  • Gradio: launch(server_name='0.0.0.0', server_port=<port>)",
+                    "  • Next.js/Vite: --host 0.0.0.0; для Vite в "
+                    "vite.config — server.allowedHosts: ['.trycloudflare.com']",
+                ]
+            )
         elif docker_network is None:
             lines.append(
-                "2. `open_port(<port>)` → `http://localhost:<port>` "
-                "(локальный dev)."
+                "2. `open_port(<port>)` → `http://localhost:<port>` (локальный dev)."
             )
 
         return "\n".join(lines) + "\n"
@@ -532,9 +541,7 @@ class LocalDockerSandbox(
             "remove": not self.not_remove,
             "environment": envs,
             "labels": self._container_labels(),
-            "volumes": {
-                str(bind_source): {"bind": bucket_mount, "mode": "rw"}
-            },
+            "volumes": {str(bind_source): {"bind": bucket_mount, "mode": "rw"}},
             "nano_cpus": int(self.vcpu * 1_000_000_000),
             "mem_limit": f"{self.memory_limit_mb}m",
             "mem_reservation": f"{self.memory_reservation_mb}m",
@@ -824,7 +831,9 @@ class LocalDockerSandbox(
             return
         binding = None
         if self._container is not None:
-            ports = (self._container.attrs.get("NetworkSettings") or {}).get("Ports") or {}
+            ports = (self._container.attrs.get("NetworkSettings") or {}).get(
+                "Ports"
+            ) or {}
             binding = ports.get(f"{port}/tcp")
         if binding:
             self.host_port = int(binding[0]["HostPort"])
@@ -889,9 +898,11 @@ class LocalDockerSandbox(
                     container.reload()
                 except Exception:
                     pass
-                labels = getattr(container, "labels", None) or (
-                    container.attrs.get("Config") or {}
-                ).get("Labels", {}) or {}
+                labels = (
+                    getattr(container, "labels", None)
+                    or (container.attrs.get("Config") or {}).get("Labels", {})
+                    or {}
+                )
 
                 if labels.get(PROXY_LABEL) == "true":
                     continue
@@ -913,7 +924,9 @@ class LocalDockerSandbox(
                     )
                     continue
 
-                container_ids_by_sandbox_id.setdefault(sandbox_id, set()).add(external_id)
+                container_ids_by_sandbox_id.setdefault(sandbox_id, set()).add(
+                    external_id
+                )
                 sandbox = sandbox_by_id.get(sandbox_id)
                 if sandbox is None:
                     cls._cleanup_proxy_for_sandbox(client, sandbox_id)
@@ -1065,7 +1078,8 @@ class LocalDockerSandbox(
             except NotFound:
                 return
             sandbox_id = cls._parse_uuid_label(
-                getattr(container, "labels", None) or {}, SANDBOX_ID_LABEL,
+                getattr(container, "labels", None) or {},
+                SANDBOX_ID_LABEL,
             )
             if sandbox_id is not None:
                 cls._cleanup_proxy_for_sandbox(client, sandbox_id)
@@ -1090,7 +1104,8 @@ class LocalDockerSandbox(
             except NotFound:
                 return
             sandbox_id = cls._parse_uuid_label(
-                getattr(container, "labels", None) or {}, SANDBOX_ID_LABEL,
+                getattr(container, "labels", None) or {},
+                SANDBOX_ID_LABEL,
             )
             if sandbox_id is not None:
                 cls._cleanup_proxy_for_sandbox(client, sandbox_id)
@@ -1110,7 +1125,9 @@ class LocalDockerSandbox(
     # ------------------------------------------------------------------
 
     _SKILL_CACHE_TTL = int(os.getenv("GIGA_AGENT_SKILL_CACHE_TTL", "300"))
-    _SKILL_CACHE_ENABLED = os.getenv("GIGA_AGENT_SKILL_CACHE_ENABLED", "true").lower() != "false"
+    _SKILL_CACHE_ENABLED = (
+        os.getenv("GIGA_AGENT_SKILL_CACHE_ENABLED", "true").lower() != "false"
+    )
 
     def _skill_dir(self, owner_id: uuid.UUID, skill_name: str) -> Path:
         return self._user_root_dir(owner_id) / ".skills" / skill_name
@@ -1189,9 +1206,7 @@ class LocalDockerSandbox(
 
         return result
 
-    async def remove_skill_files(
-        self, owner_id: uuid.UUID, storage_path: str
-    ) -> None:
+    async def remove_skill_files(self, owner_id: uuid.UUID, storage_path: str) -> None:
         skill_name = storage_path.split("/")[-1]
         skill_dir = self._skill_dir(owner_id, skill_name)
         if skill_dir.is_dir():
@@ -1203,7 +1218,9 @@ class LocalDockerSandbox(
     ) -> str:
         return f"{BUCKET_PREFIX}{storage_path}/{relative_path}"
 
-    async def _invalidate_skill_cache(self, owner_id: uuid.UUID, skill_name: str) -> None:
+    async def _invalidate_skill_cache(
+        self, owner_id: uuid.UUID, skill_name: str
+    ) -> None:
         if not self._SKILL_CACHE_ENABLED:
             return
         pattern = f"skill:*:{owner_id}:{skill_name}*"

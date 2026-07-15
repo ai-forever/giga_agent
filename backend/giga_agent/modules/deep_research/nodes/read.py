@@ -5,6 +5,7 @@
 Свой LLM-резолвер и свой промпт суммаризации — сфокусирован на подвопросах,
 а не на общем ответе пользователю.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +15,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from giga_agent.conf import get_settings
-from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.deep_research.config import (
     DEFAULT_MAX_READ_PER_ITERATION,
@@ -39,9 +39,7 @@ FETCH_RETRY_BASE_DELAY_S = 1.2
 FETCH_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
-async def _fetch_with_retry(
-    *, client: httpx.AsyncClient, url: str
-) -> dict[str, str]:
+async def _fetch_with_retry(*, client: httpx.AsyncClient, url: str) -> dict[str, str]:
     """Jina Reader с retry на transient-ошибках (rate-limit, 5xx).
 
     403 не ретраим — это forbidden сайт. Экспоненциальная задержка с джиттером.
@@ -80,7 +78,7 @@ SUMMARIZE_SYSTEM = """Ты — исследовательский ассисте
 
 
 async def _resolve_fast_llm_from_config(config: RunnableConfig):
-    resolver = (await _get_or_create_resolver(config))
+    resolver = await _get_or_create_resolver(config)
     llm_runtime = await resolver.get_fast_llm_runtime()
     parallel_calls = await resolver.get_fast_llm_parallel_calls()
     llm = await llm_runtime.get_llm()
@@ -129,7 +127,11 @@ async def _process_one(
             error_type=type(exc).__name__,
         )
         err = _format_fetch_error(url, exc)
-        return {"id": source_id, "url": url, "summary": f"Нерелевантно: {err.get('error', 'ошибка загрузки')}"}
+        return {
+            "id": source_id,
+            "url": url,
+            "summary": f"Нерелевантно: {err.get('error', 'ошибка загрузки')}",
+        }
 
     user_prompt = _build_summarize_user_prompt(
         task=task, plan=plan, url=url, markdown=page.get("markdown", "")
@@ -144,9 +146,15 @@ async def _process_one(
             url=url,
             error_type=type(exc).__name__,
         )
-        return {"id": source_id, "url": url, "summary": "Нерелевантно: ошибка суммаризации"}
+        return {
+            "id": source_id,
+            "url": url,
+            "summary": "Нерелевантно: ошибка суммаризации",
+        }
 
-    summary = (resp.content or "").strip() if hasattr(resp, "content") else str(resp).strip()
+    summary = (
+        (resp.content or "").strip() if hasattr(resp, "content") else str(resp).strip()
+    )
     return {"id": source_id, "url": url, "summary": summary}
 
 

@@ -66,21 +66,27 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_create_connector_success(self):
         created = self._connector_obj()
-        with patch(
-            "giga_agent.routes.connectors._resolve_runtime_cls",
-            return_value=object(),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.connectors._resolve_runtime_cls",
+                return_value=object(),
+            ),
+            patch(
+                "giga_agent.routes.connectors._validate_settings",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/connectors",
@@ -133,21 +139,27 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_create_connector_skips_connection_check_when_disabled(self):
         created = self._connector_obj()
-        with patch(
-            "giga_agent.routes.connectors._resolve_runtime_cls",
-            return_value=object(),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.connectors._resolve_runtime_cls",
+                return_value=object(),
+            ),
+            patch(
+                "giga_agent.routes.connectors._validate_settings",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/connectors",
@@ -165,24 +177,31 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_create_connector_with_permissions_for_superuser(self):
         created = self._connector_obj()
-        with patch(
-            "giga_agent.routes.connectors._resolve_runtime_cls",
-            return_value=object(),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.connectors.ResourcePermissionRepository.set_read_acl",
-            AsyncMock(return_value=None),
-        ) as mocked_set_acl, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.connectors._resolve_runtime_cls",
+                return_value=object(),
+            ),
+            patch(
+                "giga_agent.routes.connectors._validate_settings",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ResourcePermissionRepository.set_read_acl",
+                AsyncMock(return_value=None),
+            ) as mocked_set_acl,
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/connectors",
@@ -203,19 +222,24 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_create_connector_with_permissions_forbidden_for_non_superuser(self):
         self.user.is_superuser = False
-        with patch(
-            "giga_agent.routes.connectors._resolve_runtime_cls",
-            return_value=object(),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.create",
-            AsyncMock(),
-        ) as mocked_create:
+        with (
+            patch(
+                "giga_agent.routes.connectors._resolve_runtime_cls",
+                return_value=object(),
+            ),
+            patch(
+                "giga_agent.routes.connectors._validate_settings",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.create",
+                AsyncMock(),
+            ) as mocked_create,
+        ):
             response = self.client.post(
                 "/connectors",
                 json={
@@ -234,24 +258,29 @@ class ConnectorsRouterTests(unittest.TestCase):
         mocked_create.assert_not_awaited()
 
     def test_create_connector_returns_422_when_connection_check_fails(self):
-        with patch(
-            "giga_agent.routes.connectors._resolve_runtime_cls",
-            return_value=object(),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(
-                side_effect=HTTPException(
-                    status_code=422,
-                    detail="Connector connection check failed: auth failed",
-                )
+        with (
+            patch(
+                "giga_agent.routes.connectors._resolve_runtime_cls",
+                return_value=object(),
             ),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.create",
-            AsyncMock(),
-        ) as mocked_create:
+            patch(
+                "giga_agent.routes.connectors._validate_settings",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(
+                    side_effect=HTTPException(
+                        status_code=422,
+                        detail="Connector connection check failed: auth failed",
+                    )
+                ),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.create",
+                AsyncMock(),
+            ) as mocked_create,
+        ):
             response = self.client.post(
                 "/connectors",
                 json={
@@ -267,12 +296,15 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_get_connectors_success(self):
         connector = self._connector_obj()
-        with patch(
-            "giga_agent.routes.connectors.ConnectorRepository.list_readable_with_edit_for_user",
-            AsyncMock(return_value=[(connector, True)]),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(connector),
+        with (
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.list_readable_with_edit_for_user",
+                AsyncMock(return_value=[(connector, True)]),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(connector),
+            ),
         ):
             response = self.client.get("/connectors")
 
@@ -315,24 +347,34 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_patch_with_settings_skips_connection_check_when_disabled(self):
         connector_id = uuid.uuid4()
-        existing = self._connector_obj(connector_id=connector_id, connector_type="openai")
-        updated = self._connector_obj(connector_id=connector_id, connector_type="openai")
+        existing = self._connector_obj(
+            connector_id=connector_id, connector_type="openai"
+        )
+        updated = self._connector_obj(
+            connector_id=connector_id, connector_type="openai"
+        )
 
-        with patch(
-            "giga_agent.routes.connectors._get_connector_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.connectors._validate_settings",
-            AsyncMock(return_value={"api_key": "sk-test"}),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.connectors._get_connector_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.connectors._validate_settings",
+                AsyncMock(return_value={"api_key": "sk-test"}),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/connectors/{connector_id}",
@@ -344,21 +386,30 @@ class ConnectorsRouterTests(unittest.TestCase):
 
     def test_patch_without_settings_does_not_run_connection_check(self):
         connector_id = uuid.uuid4()
-        existing = self._connector_obj(connector_id=connector_id, connector_type="openai")
-        updated = self._connector_obj(connector_id=connector_id, connector_type="openai")
+        existing = self._connector_obj(
+            connector_id=connector_id, connector_type="openai"
+        )
+        updated = self._connector_obj(
+            connector_id=connector_id, connector_type="openai"
+        )
 
-        with patch(
-            "giga_agent.routes.connectors._get_connector_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.connectors._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.connectors._get_connector_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.connectors._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/connectors/{connector_id}",
@@ -371,13 +422,16 @@ class ConnectorsRouterTests(unittest.TestCase):
     def test_delete_connector_success(self):
         connector = self._connector_obj()
 
-        with patch(
-            "giga_agent.routes.connectors._get_connector_with_write_check",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.delete",
-            AsyncMock(return_value=None),
-        ) as mocked_delete:
+        with (
+            patch(
+                "giga_agent.routes.connectors._get_connector_with_write_check",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.delete",
+                AsyncMock(return_value=None),
+            ) as mocked_delete,
+        ):
             response = self.client.delete(f"/connectors/{connector.id}")
 
         self.assertEqual(response.status_code, 204)
@@ -388,15 +442,19 @@ class ConnectorsRouterTests(unittest.TestCase):
         updated = self._connector_obj(connector_id=connector.id)
         updated.name = None
 
-        with patch(
-            "giga_agent.routes.connectors._get_connector_with_write_check",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.update",
-            AsyncMock(return_value=updated),
-        ) as mocked_update, patch(
-            "giga_agent.routes.connectors.ConnectorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.connectors._get_connector_with_write_check",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.update",
+                AsyncMock(return_value=updated),
+            ) as mocked_update,
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/connectors/{connector.id}",
@@ -410,13 +468,16 @@ class ConnectorsRouterTests(unittest.TestCase):
     def test_patch_connector_rejects_null_is_active(self):
         connector = self._connector_obj()
 
-        with patch(
-            "giga_agent.routes.connectors._get_connector_with_write_check",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.routes.connectors.ConnectorRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.connectors._get_connector_with_write_check",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.routes.connectors.ConnectorRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/connectors/{connector.id}",
                 json={"is_active": None},

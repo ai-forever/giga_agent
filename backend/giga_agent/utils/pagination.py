@@ -15,6 +15,7 @@ T = TypeVar("T")
 
 class PaginationMeta(BaseModel):
     """Метаданные пагинации"""
+
     page: int = Field(..., description="Текущая страница")
     page_size: int = Field(..., description="Размер страницы")
     total_items: int = Field(..., description="Общее количество элементов")
@@ -25,19 +26,21 @@ class PaginationMeta(BaseModel):
 
 class PaginatedResponse(BaseModel, Generic[T]):
     """Обёртка для пагинированного ответа"""
+
     items: list[T]
     meta: PaginationMeta
 
 
 class PaginationParams(BaseModel):
     """Параметры пагинации"""
+
     page: int = Field(1, ge=1, description="Номер страницы")
     page_size: int = Field(20, ge=1, le=100, description="Размер страницы")
-    
+
     @property
     def offset(self) -> int:
         return (self.page - 1) * self.page_size
-    
+
     @property
     def limit(self) -> int:
         return self.page_size
@@ -75,12 +78,12 @@ async def paginate(
 ) -> tuple[Sequence, PaginationMeta]:
     """
     Выполнить пагинированный запрос.
-    
+
     Args:
         db: AsyncSession
         query: SQLAlchemy Select запрос
         params: Параметры пагинации
-        
+
     Returns:
         Tuple[items, meta] - список элементов и метаданные пагинации
     """
@@ -89,12 +92,12 @@ async def paginate(
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
     total_items = total_result.scalar() or 0
-    
+
     # Применяем пагинацию
     paginated_query = query.offset(params.offset).limit(params.limit)
     result = await db.execute(paginated_query)
     items = result.scalars().all()
-    
+
     meta = calculate_pagination_meta(params.page, params.page_size, total_items)
-    
+
     return items, meta

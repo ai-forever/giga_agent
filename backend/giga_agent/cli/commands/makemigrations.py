@@ -25,11 +25,15 @@ logger = get_logger(__name__)
 
 
 def _scope_has_tables(base, target_prefix: str) -> bool:
-    return any(table_name.startswith(target_prefix) for table_name in base.metadata.tables)
+    return any(
+        table_name.startswith(target_prefix) for table_name in base.metadata.tables
+    )
 
 
 def _module_config(scope: MigrationScope, db_url: str | None):
-    cfg = _get_alembic_config(os.pathsep.join(scope.version_locations), scope.version_table)
+    cfg = _get_alembic_config(
+        os.pathsep.join(scope.version_locations), scope.version_table
+    )
     if db_url:
         cfg.set_section_option("alembic", "sqlalchemy.url", db_url)
     return cfg
@@ -42,7 +46,9 @@ def _module_head_for_revision(scope: MigrationScope, db_url: str | None) -> str:
     script = ScriptDirectory.from_config(cfg)
     heads = list(script.get_heads() or ())
     if len(heads) > 1:
-        logger.error("Module '%s' migrations have multiple heads: %s", scope.scope_id, heads)
+        logger.error(
+            "Module '%s' migrations have multiple heads: %s", scope.scope_id, heads
+        )
         raise typer.Exit(code=1)
     return heads[0] if heads else "base"
 
@@ -134,7 +140,9 @@ def makemigrations(
                 break
 
         if not selected_modules:
-            logger.error(f"Module '{module_path}' not found among loaded agent modules.")
+            logger.error(
+                f"Module '{module_path}' not found among loaded agent modules."
+            )
             logger.info("Available modules (import -> id -> path):")
             for mod in agent.all_modules:
                 logger.info(
@@ -158,7 +166,9 @@ def makemigrations(
     try:
         import giga_agent.models  # noqa: F401
     except Exception:
-        logger.warning("Could not import giga_agent.models before migration generation.")
+        logger.warning(
+            "Could not import giga_agent.models before migration generation."
+        )
 
     core_migrations = _get_core_models_migration_path()
     if core and not os.path.exists(core_migrations):
@@ -178,7 +188,9 @@ def makemigrations(
             "library developers. Prefer `make core-migrations` for the canonical workflow."
         )
         if not message.strip():
-            logger.warning("Core migration message is empty; consider passing -m/--message.")
+            logger.warning(
+                "Core migration message is empty; consider passing -m/--message."
+            )
 
         alembic_cfg = core_cfg
         if alembic_cfg is None:
@@ -195,9 +207,7 @@ def makemigrations(
 
         created = False
 
-        def _process_revision_directives(
-            context, revision, directives
-        ) -> None:  # noqa: ANN001
+        def _process_revision_directives(context, revision, directives) -> None:  # noqa: ANN001
             nonlocal created
             if not directives:
                 return
@@ -315,9 +325,7 @@ def makemigrations(
 
             created = False
 
-            def _process_revision_directives(
-                context, revision, directives
-            ) -> None:  # noqa: ANN001
+            def _process_revision_directives(context, revision, directives) -> None:  # noqa: ANN001
                 nonlocal created
                 if not directives:
                     return

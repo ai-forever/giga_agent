@@ -5,4 +5,3 @@ IMAGE_MODULE_INSTRUCTIONS = """
 После успешной генерации показывай изображение пользователю через markdown attachment:
 `![описание](attachment:<путь_к_файлу>)`.
 """.strip()
-

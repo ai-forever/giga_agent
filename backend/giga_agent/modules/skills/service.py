@@ -343,7 +343,9 @@ class SkillsService:
 
         file_list = await sandbox.list_skill_files(owner_id, skill.storage_path)
         manifest_path = self._select_skill_manifest_file(file_list)
-        body = await sandbox.read_skill_file(owner_id, skill.storage_path, manifest_path)
+        body = await sandbox.read_skill_file(
+            owner_id, skill.storage_path, manifest_path
+        )
 
         files = [
             SkillFile(

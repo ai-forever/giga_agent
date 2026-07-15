@@ -117,7 +117,9 @@ async def _fetch_salute_token(auth_token: str, scope: str) -> str:
         ) from exc
 
 
-async def _get_salute_token(auth_token: str, scope: str, *, force_refresh: bool = False) -> str:
+async def _get_salute_token(
+    auth_token: str, scope: str, *, force_refresh: bool = False
+) -> str:
     cache_key = _build_salute_token_cache_key(auth_token=auth_token, scope=scope)
     lock_key = f"{cache_key}:lock"
 
@@ -219,7 +221,9 @@ async def recognize_speech(
     token = await _get_salute_token(auth_token=auth_token, scope=scope)
     response_status, body = await _recognize_with_salute(token=token, pcm=pcm)
     if response_status == 401:
-        token = await _get_salute_token(auth_token=auth_token, scope=scope, force_refresh=True)
+        token = await _get_salute_token(
+            auth_token=auth_token, scope=scope, force_refresh=True
+        )
         _, body = await _recognize_with_salute(token=token, pcm=pcm)
 
     # SaluteSpeech returns {"status": 200, "result": ["transcribed text", ...]}

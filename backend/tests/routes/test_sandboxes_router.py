@@ -99,21 +99,27 @@ class SandboxesRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(sandbox_provider_id=None)
         self.db.get = AsyncMock(return_value=user_model)
 
-        with patch(
-            "giga_agent.routes.sandboxes.validate_provider_settings",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
-            AsyncMock(return_value=provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
-            return_value=self._provider_payload(provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_invalidate_cache, patch(
-            "giga_agent.routes.sandboxes.cache.delete_match",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.validate_provider_settings",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
+                return_value=self._provider_payload(provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ) as mocked_invalidate_cache,
+            patch(
+                "giga_agent.routes.sandboxes.cache.delete_match",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/sandboxes/providers",
@@ -136,24 +142,31 @@ class SandboxesRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(sandbox_provider_id=None)
         self.db.get = AsyncMock(return_value=user_model)
 
-        with patch(
-            "giga_agent.routes.sandboxes.validate_provider_settings",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
-            AsyncMock(return_value=provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.ResourcePermissionRepository.set_read_acl",
-            AsyncMock(return_value=None),
-        ) as mocked_set_acl, patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
-            return_value=self._provider_payload(provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.sandboxes.cache.delete_match",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.validate_provider_settings",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.ResourcePermissionRepository.set_read_acl",
+                AsyncMock(return_value=None),
+            ) as mocked_set_acl,
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
+                return_value=self._provider_payload(provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.cache.delete_match",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/sandboxes/providers",
@@ -208,7 +221,9 @@ class SandboxesRouterTests(unittest.TestCase):
 
         with patch(
             "giga_agent.routes.sandboxes.SandboxProviderRepository.list_readable_with_edit_for_user",
-            AsyncMock(return_value=[(owned, True), (writable, True), (readonly, False)]),
+            AsyncMock(
+                return_value=[(owned, True), (writable, True), (readonly, False)]
+            ),
         ):
             response = self.client.get("/sandboxes/providers")
 
@@ -225,18 +240,23 @@ class SandboxesRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(sandbox_provider_id=current_provider_id)
         self.db.get = AsyncMock(return_value=user_model)
 
-        with patch(
-            "giga_agent.routes.sandboxes.validate_provider_settings",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
-            AsyncMock(return_value=provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
-            return_value=self._provider_payload(provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.cache.delete_match",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.validate_provider_settings",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.create",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
+                return_value=self._provider_payload(provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.cache.delete_match",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 "/sandboxes/providers",
@@ -257,34 +277,44 @@ class SandboxesRouterTests(unittest.TestCase):
         user_model = types.SimpleNamespace(sandbox_provider_id=provider.id)
         self.db.get = AsyncMock(return_value=user_model)
 
-        with patch(
-            "giga_agent.routes.sandboxes.get_provider_with_write_check",
-            AsyncMock(return_value=provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.FileRepository.list_storage_refs_by_provider",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.routes.sandboxes.FileRepository.delete_by_provider",
-            AsyncMock(return_value=0),
-        ), patch(
-            "giga_agent.routes.sandboxes.RagDocumentsRepository.detach_by_sandbox_provider",
-            AsyncMock(return_value=0),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_with_provider",
-            AsyncMock(return_value=[]),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.delete",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
-            AsyncMock(return_value=None),
-        ) as mocked_invalidate_cache, patch(
-            "giga_agent.routes.sandboxes.cache.delete_match",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.sandboxes.cleanup_storage_files_best_effort",
-            AsyncMock(return_value=None),
-        ) as mocked_cleanup:
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.get_provider_with_write_check",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.FileRepository.list_storage_refs_by_provider",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.FileRepository.delete_by_provider",
+                AsyncMock(return_value=0),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.RagDocumentsRepository.detach_by_sandbox_provider",
+                AsyncMock(return_value=0),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_with_provider",
+                AsyncMock(return_value=[]),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.delete",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.UserRepository.invalidate_cache",
+                AsyncMock(return_value=None),
+            ) as mocked_invalidate_cache,
+            patch(
+                "giga_agent.routes.sandboxes.cache.delete_match",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.cleanup_storage_files_best_effort",
+                AsyncMock(return_value=None),
+            ) as mocked_cleanup,
+        ):
             response = self.client.delete(f"/sandboxes/providers/{provider.id}")
 
         self.assertEqual(response.status_code, 204)
@@ -315,12 +345,15 @@ class SandboxesRouterTests(unittest.TestCase):
         )
         self.db.execute = AsyncMock(return_value=execute_result)
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, False)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider",
-            AsyncMock(return_value=[own_sandbox, foreign_sandbox]),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, False)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider",
+                AsyncMock(return_value=[own_sandbox, foreign_sandbox]),
+            ),
         ):
             response = self.client.get(f"/sandboxes/providers/{provider.id}/sandboxes")
 
@@ -328,7 +361,9 @@ class SandboxesRouterTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(len(payload), 2)
         row_by_id = {item["id"]: item for item in payload}
-        self.assertEqual(row_by_id[str(own_sandbox.id)]["owner_email"], "self@example.com")
+        self.assertEqual(
+            row_by_id[str(own_sandbox.id)]["owner_email"], "self@example.com"
+        )
         self.assertTrue(row_by_id[str(own_sandbox.id)]["can_stop"])
         self.assertEqual(
             row_by_id[str(foreign_sandbox.id)]["owner_email"],
@@ -361,18 +396,24 @@ class SandboxesRouterTests(unittest.TestCase):
             status="stopped",
             stopped_at=datetime.now(timezone.utc),
         )
-        self.db.get = AsyncMock(return_value=types.SimpleNamespace(email="foreign@example.com"))
+        self.db.get = AsyncMock(
+            return_value=types.SimpleNamespace(email="foreign@example.com")
+        )
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, True)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(side_effect=[sandbox, stopped]),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxManager.stop",
-            AsyncMock(return_value=stopped),
-        ) as mocked_stop:
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, True)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(side_effect=[sandbox, stopped]),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxManager.stop",
+                AsyncMock(return_value=stopped),
+            ) as mocked_stop,
+        ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
             )
@@ -391,17 +432,23 @@ class SandboxesRouterTests(unittest.TestCase):
             status="stopped",
             stopped_at=datetime.now(timezone.utc),
         )
-        self.db.get = AsyncMock(return_value=types.SimpleNamespace(email="self@example.com"))
+        self.db.get = AsyncMock(
+            return_value=types.SimpleNamespace(email="self@example.com")
+        )
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, False)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(side_effect=[sandbox, stopped]),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxManager.stop",
-            AsyncMock(return_value=stopped),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, False)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(side_effect=[sandbox, stopped]),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxManager.stop",
+                AsyncMock(return_value=stopped),
+            ),
         ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
@@ -425,17 +472,23 @@ class SandboxesRouterTests(unittest.TestCase):
             status="stopped",
             stopped_at=datetime.now(timezone.utc),
         )
-        self.db.get = AsyncMock(return_value=types.SimpleNamespace(email="self@example.com"))
+        self.db.get = AsyncMock(
+            return_value=types.SimpleNamespace(email="self@example.com")
+        )
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, False)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(side_effect=[sandbox, stopped]),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxManager.stop",
-            AsyncMock(return_value=stopped),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, False)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(side_effect=[sandbox, stopped]),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxManager.stop",
+                AsyncMock(return_value=stopped),
+            ),
         ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
@@ -448,12 +501,15 @@ class SandboxesRouterTests(unittest.TestCase):
         provider = self._provider_obj()
         sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=uuid.uuid4())
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, False)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(return_value=sandbox),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, False)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(return_value=sandbox),
+            ),
         ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
@@ -465,12 +521,15 @@ class SandboxesRouterTests(unittest.TestCase):
         provider = self._provider_obj()
         sandbox_id = uuid.uuid4()
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, True)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(return_value=None),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, True)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(return_value=None),
+            ),
         ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox_id}/stop"
@@ -482,15 +541,19 @@ class SandboxesRouterTests(unittest.TestCase):
         provider = self._provider_obj()
         sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=self.user.id)
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, True)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(return_value=sandbox),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxManager.stop",
-            AsyncMock(side_effect=SandboxBusyError("busy")),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, True)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(return_value=sandbox),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxManager.stop",
+                AsyncMock(side_effect=SandboxBusyError("busy")),
+            ),
         ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
@@ -502,15 +565,19 @@ class SandboxesRouterTests(unittest.TestCase):
         provider = self._provider_obj()
         sandbox = self._sandbox_obj(provider_id=provider.id, owner_id=self.user.id)
 
-        with patch(
-            "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
-            AsyncMock(return_value=(provider, True)),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
-            AsyncMock(return_value=sandbox),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxManager.stop",
-            AsyncMock(side_effect=StorageOperationError("failed")),
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.fetch_resource_with_read_and_edit",
+                AsyncMock(return_value=(provider, True)),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRepository.get_by_provider_and_id",
+                AsyncMock(return_value=sandbox),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxManager.stop",
+                AsyncMock(side_effect=StorageOperationError("failed")),
+            ),
         ):
             response = self.client.post(
                 f"/sandboxes/providers/{provider.id}/sandboxes/{sandbox.id}/stop"
@@ -520,9 +587,12 @@ class SandboxesRouterTests(unittest.TestCase):
 
     def test_get_provider_types_shows_local_for_non_superuser(self):
         self.user.is_superuser = False
-        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
-            "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
-            return_value=["e2b", "local_docker", "local_jupyter"],
+        with (
+            self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
+                return_value=["e2b", "local_docker", "local_jupyter"],
+            ),
         ):
             response = self.client.get("/sandboxes/providers/types")
 
@@ -530,9 +600,12 @@ class SandboxesRouterTests(unittest.TestCase):
         self.assertEqual(response.json(), ["e2b"])
 
     def test_get_provider_types_shows_local_for_superuser_when_enabled(self):
-        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
-            "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
-            return_value=["e2b", "local_docker", "local_jupyter"],
+        with (
+            self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRegistry.available_types",
+                return_value=["e2b", "local_docker", "local_jupyter"],
+            ),
         ):
             response = self.client.get("/sandboxes/providers/types")
 
@@ -600,13 +673,18 @@ class SandboxesRouterTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 403)
 
-    def test_create_local_jupyter_provider_returns_structured_missing_dependencies(self):
-        with self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}), patch(
-            "giga_agent.routes.sandboxes.SandboxRegistry.validate_settings",
-            AsyncMock(
-                side_effect=MissingDependenciesError(
-                    ["jupyter_server", "ipykernel"]
-                )
+    def test_create_local_jupyter_provider_returns_structured_missing_dependencies(
+        self,
+    ):
+        with (
+            self._patched_env({"GIGA_AGENT_LOCAL_SANDBOX_ENABLED": "1"}),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxRegistry.validate_settings",
+                AsyncMock(
+                    side_effect=MissingDependenciesError(
+                        ["jupyter_server", "ipykernel"]
+                    )
+                ),
             ),
         ):
             response = self.client.post(
@@ -648,19 +726,24 @@ class SandboxesRouterTests(unittest.TestCase):
         updated = self._provider_obj(provider_id=provider.id)
         updated.name = None
 
-        with patch(
-            "giga_agent.routes.sandboxes.get_provider_with_write_check",
-            AsyncMock(return_value=provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.update",
-            AsyncMock(return_value=updated),
-        ) as mocked_update, patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
-            return_value=self._provider_payload(updated),
-        ), patch(
-            "giga_agent.routes.sandboxes.cache.delete_match",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_match:
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.get_provider_with_write_check",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.update",
+                AsyncMock(return_value=updated),
+            ) as mocked_update,
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.to_response",
+                return_value=self._provider_payload(updated),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.cache.delete_match",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_match,
+        ):
             response = self.client.patch(
                 f"/sandboxes/providers/{provider.id}",
                 json={"name": None},
@@ -676,13 +759,16 @@ class SandboxesRouterTests(unittest.TestCase):
     def test_patch_provider_rejects_null_idle_timeout(self):
         provider = self._provider_obj()
 
-        with patch(
-            "giga_agent.routes.sandboxes.get_provider_with_write_check",
-            AsyncMock(return_value=provider),
-        ), patch(
-            "giga_agent.routes.sandboxes.SandboxProviderRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.sandboxes.get_provider_with_write_check",
+                AsyncMock(return_value=provider),
+            ),
+            patch(
+                "giga_agent.routes.sandboxes.SandboxProviderRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/sandboxes/providers/{provider.id}",
                 json={"idle_timeout": None},

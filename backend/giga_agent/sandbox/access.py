@@ -25,6 +25,7 @@ def is_provider_type_allowed_for_user(
         return True
     return not is_admin_only_provider_type(provider_type)
 
+
 def ensure_provider_type_creatable_by_user(
     provider_type: str,
     *,

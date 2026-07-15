@@ -3,6 +3,7 @@
 Отделён от compose, чтобы revise-петля не плодила файлы в sandbox.
 Запись в state: report (FileResponse), done.
 """
+
 from __future__ import annotations
 
 import uuid

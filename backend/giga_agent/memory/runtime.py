@@ -22,9 +22,7 @@ def get_memory_tags(config: RunnableConfig | None) -> list[str]:
     return [t for t in raw if isinstance(t, str) and t]
 
 
-def get_memory_show_global(
-    config: RunnableConfig | None, *, tags: list[str]
-) -> bool:
+def get_memory_show_global(config: RunnableConfig | None, *, tags: list[str]) -> bool:
     """If no tags → always show global. Otherwise honor the explicit flag."""
     if not tags:
         return True

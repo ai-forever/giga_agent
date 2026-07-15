@@ -50,9 +50,7 @@ def _tool_call_signature(message: AIMessage) -> str | None:
     parts: list[str] = []
     for call in message.tool_calls:
         try:
-            args = json.dumps(
-                call.get("args", {}), sort_keys=True, ensure_ascii=False
-            )
+            args = json.dumps(call.get("args", {}), sort_keys=True, ensure_ascii=False)
         except (TypeError, ValueError):
             args = str(call.get("args", {}))
         parts.append(f"{call.get('name')}::{args}")

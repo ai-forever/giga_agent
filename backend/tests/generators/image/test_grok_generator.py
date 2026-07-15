@@ -20,7 +20,9 @@ class GrokImagineImageGenTests(unittest.IsolatedAsyncioTestCase):
     async def test_generate_image_uses_generations_endpoint(self):
         gen = GrokImagineImageGen(api_key="test-key", model="grok-imagine")
         gen._client = types.SimpleNamespace(
-            post=AsyncMock(return_value=_FakeResponse({"data": [{"b64_json": "img-b64"}]}))
+            post=AsyncMock(
+                return_value=_FakeResponse({"data": [{"b64_json": "img-b64"}]})
+            )
         )
         gen._initialized = True
 
@@ -45,7 +47,9 @@ class GrokImagineImageGenTests(unittest.IsolatedAsyncioTestCase):
     async def test_generate_image_uses_edits_endpoint_with_input_images(self):
         gen = GrokImagineImageGen(api_key="test-key", model="grok-imagine-pro")
         gen._client = types.SimpleNamespace(
-            post=AsyncMock(return_value=_FakeResponse({"data": [{"b64_json": "edited-b64"}]}))
+            post=AsyncMock(
+                return_value=_FakeResponse({"data": [{"b64_json": "edited-b64"}]})
+            )
         )
         gen._initialized = True
 

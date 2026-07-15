@@ -28,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.core.time import default_tz
 
 DEFAULT_INVITE_TTL_DAYS = 7
 
@@ -72,7 +73,9 @@ class Invite(Base):
     used_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -91,11 +94,19 @@ class Invite(Base):
 
     def is_usable(self, now: datetime | None = None) -> tuple[bool, str]:
         """(usable, причина-код). Причина не раскрывается публично."""
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(default_tz())
         if self.revoked_at is not None:
             return False, "revoked"
-        if self.expires_at is not None and self.expires_at <= now:
-            return False, "expired"
+        if self.expires_at is not None:
+            # SQLite возвращает DateTime(timezone=True) без tzinfo; значение
+            # пишется в UTC (см. create), поэтому доводим до aware именно в UTC
+            # перед сравнением (на Postgres no-op). Сравнение aware-дат идёт по
+            # абсолютному моменту, tz у now роли не играет.
+            expires_at = self.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= now:
+                return False, "expired"
         if self.used_count >= self.max_uses:
             return False, "exhausted"
         return True, "ok"
@@ -178,7 +189,8 @@ class InviteRepository:
             copy_runtime_ids=data.copy_runtime_ids,
             copy_module_secrets=data.copy_module_secrets,
             max_uses=data.max_uses,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=data.expires_in_days),
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(days=data.expires_in_days),
             created_by=created_by,
         )
         self.db.add(invite)

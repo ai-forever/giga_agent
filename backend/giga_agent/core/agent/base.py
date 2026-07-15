@@ -353,10 +353,6 @@ class BaseAgent(BaseModel):
             enable_think=enable_think,
             enable_multi_tool_use=enable_multi_tool_use,
         )
-        pr = (
-            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
-            + instructions_prompt
-        )
         return (
             base_prompt.format(modules="\n===\n\n".join(modules_prompts))
             + instructions_prompt

@@ -84,7 +84,9 @@ class ModuleToolSourceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_call_tool_normalizes_raw_value(self):
         src = ModuleToolSource("demo", "Demo", None, [echo])
-        outcome = await src.call_tool("echo", {"x": 7}, _runtime(), user_id=uuid.uuid4())
+        outcome = await src.call_tool(
+            "echo", {"x": 7}, _runtime(), user_id=uuid.uuid4()
+        )
         self.assertFalse(outcome.is_error)
         self.assertEqual(outcome.content, {"x": 7})
         self.assertEqual(outcome.inner_name, "echo")
@@ -134,8 +136,9 @@ class ConnectorMetaToolTests(unittest.IsolatedAsyncioTestCase):
         src = ModuleToolSource("demo", "Demo", None, [echo])
         runtime = _runtime()
         ctx = (object(), types.SimpleNamespace(id=uuid.uuid4()), uuid.uuid4())
-        with patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)), patch.object(
-            ctools, "collect_sources", AsyncMock(return_value=[src])
+        with (
+            patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)),
+            patch.object(ctools, "collect_sources", AsyncMock(return_value=[src])),
         ):
             info = await connector_get_info.coroutine(connector="demo", runtime=runtime)
         self.assertEqual(info["connector"], "demo")
@@ -145,8 +148,9 @@ class ConnectorMetaToolTests(unittest.IsolatedAsyncioTestCase):
         src = ModuleToolSource("demo", "Demo", None, [echo])
         runtime = _runtime()
         ctx = (object(), types.SimpleNamespace(id=uuid.uuid4()), uuid.uuid4())
-        with patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)), patch.object(
-            ctools, "collect_sources", AsyncMock(return_value=[src])
+        with (
+            patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)),
+            patch.object(ctools, "collect_sources", AsyncMock(return_value=[src])),
         ):
             msg = await connector_call_tool.coroutine(
                 connector="demo", tool="echo", runtime=runtime, params='{"x": 7}'
@@ -160,8 +164,9 @@ class ConnectorMetaToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_call_tool_unknown_connector_errors(self):
         runtime = _runtime()
         ctx = (object(), types.SimpleNamespace(id=uuid.uuid4()), uuid.uuid4())
-        with patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)), patch.object(
-            ctools, "collect_sources", AsyncMock(return_value=[])
+        with (
+            patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)),
+            patch.object(ctools, "collect_sources", AsyncMock(return_value=[])),
         ):
             msg = await connector_call_tool.coroutine(
                 connector="ghost", tool="echo", runtime=runtime
@@ -254,7 +259,11 @@ class ExtrasOverrideTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(_should_compress({}, 10_000, 1))
 
     async def test_process_tool_result_applies_overrides(self):
-        action = {"name": "connector_call_tool", "id": "1", "args": {"connector": "demo"}}
+        action = {
+            "name": "connector_call_tool",
+            "id": "1",
+            "args": {"connector": "demo"},
+        }
         msg = await process_tool_result(
             json.dumps({"data": "x" * 5000}),
             action,

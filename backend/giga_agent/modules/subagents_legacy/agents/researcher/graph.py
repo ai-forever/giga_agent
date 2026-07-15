@@ -1,5 +1,4 @@
 import uuid
-from typing import Literal
 
 from deepagents import create_deep_agent
 from langchain.tools import ToolRuntime
@@ -10,9 +9,9 @@ from giga_agent.core.db import get_session_factory
 from giga_agent.llm.manager import LLMManager
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_runtime,
-    normalize_search_result,
     resolve_user_llm,
-    resolve_user_search_engine, get_user_secret,
+    resolve_user_search_engine,
+    get_user_secret,
 )
 from giga_agent.modules.subagents_legacy.uploads import (
     build_tool_message,
@@ -160,7 +159,7 @@ def _extract_final_report(result_state: dict) -> str:
     if "files" in result_state and "/final_report.md" in result_state["files"]:
         final_report = result_state["files"]["/final_report.md"]
         if isinstance(final_report, dict):
-            return "\n".join(final_report['content'])
+            return "\n".join(final_report["content"])
         else:
             return final_report
     messages = result_state.get("messages") or []
@@ -229,7 +228,7 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
         subagents=[critique_sub_agent, research_sub_agent],
     ).with_config({"recursion_limit": 1000})
     config = runtime.config.copy()
-    config['recursion_limit'] = 10000
+    config["recursion_limit"] = 10000
     async for chunk in agent.astream(
         input={
             "messages": runtime.state["messages"][:-1]

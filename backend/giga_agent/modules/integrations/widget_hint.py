@@ -27,9 +27,7 @@ def _renders_widget_inline(runtime: ToolRuntime) -> bool:
     return metadata.get("channel") != "telegram"
 
 
-def with_widget_note(
-    payload: dict[str, Any], runtime: ToolRuntime
-) -> dict[str, Any]:
+def with_widget_note(payload: dict[str, Any], runtime: ToolRuntime) -> dict[str, Any]:
     """Добавляет в payload подсказку 'не пересказывай', если ран вне Telegram."""
     if _renders_widget_inline(runtime):
         return {**payload, "note": WIDGET_SHOWN_NOTE}

@@ -66,7 +66,7 @@ def _callback_html(success: bool, provider_key: str | None, error: str | None):
 try {{ if (window.opener) window.opener.postMessage({json.dumps(payload)}, "*"); }} catch (e) {{}}
 window.close();
 </script>
-<p>{'Authorization complete. You can close this window.' if success else 'Authorization failed.'}</p>
+<p>{"Authorization complete. You can close this window." if success else "Authorization failed."}</p>
 </body></html>"""
     return HTMLResponse(content=body)
 
@@ -104,8 +104,7 @@ async def list_integrations(
 ):
     providers = static_providers()
     return [
-        await _to_response(provider, current_user.id)
-        for provider in providers.values()
+        await _to_response(provider, current_user.id) for provider in providers.values()
     ]
 
 
@@ -119,9 +118,7 @@ async def oauth_start(
     if provider is None:
         raise HTTPException(status_code=404, detail="Unknown provider")
     if not provider.supports_oauth:
-        raise HTTPException(
-            status_code=400, detail="Provider does not support OAuth"
-        )
+        raise HTTPException(status_code=400, detail="Provider does not support OAuth")
     base_url = resolve_base_url()
     if not base_url:
         raise HTTPException(

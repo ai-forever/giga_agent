@@ -63,7 +63,12 @@ const initialForm: FormState = {
   copy_runtime_ids: true,
 };
 
-const inviteStatus = (invite: Invite): { label: string; variant: "default" | "outline" | "destructive" | "secondary" } => {
+const inviteStatus = (
+  invite: Invite,
+): {
+  label: string;
+  variant: "default" | "outline" | "destructive" | "secondary";
+} => {
   if (invite.revoked_at) return { label: "Отозвано", variant: "destructive" };
   if (new Date(invite.expires_at) <= new Date())
     return { label: "Истекло", variant: "secondary" };
@@ -151,8 +156,8 @@ const AdminInvitesTab: React.FC = () => {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Ссылки-приглашения в команду. Токен показывается один раз при
-          создании — скопируйте и отправьте приглашённому.
+          Ссылки-приглашения в команду. Токен показывается один раз при создании
+          — скопируйте и отправьте приглашённому.
         </p>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-1" /> Пригласить
@@ -236,7 +241,7 @@ const AdminInvitesTab: React.FC = () => {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent style={{ zIndex: 1000 }}>
                   <SelectItem value="member">Участник (member)</SelectItem>
                   <SelectItem value="admin">Администратор (admin)</SelectItem>
                 </SelectContent>

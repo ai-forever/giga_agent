@@ -6,7 +6,15 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -292,7 +300,9 @@ async def _validate_llm_id(
         resource_type="llm",
         resource_id=llm_id,
         field_name=field_name,
-        loader=lambda resource_id: LLMRepository.get_cached_or_db(resource_id, session=db),
+        loader=lambda resource_id: LLMRepository.get_cached_or_db(
+            resource_id, session=db
+        ),
     )
 
 
@@ -542,7 +552,9 @@ async def _build_user_storage_cleanup_batches(
         )
         sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
         for owner_id in {item.owner_id for item in provider_refs}:
-            sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider_id)
+            sandbox = await sandbox_repo.get_by_owner_and_provider(
+                owner_id, provider_id
+            )
             if sandbox is None:
                 continue
             pair = SandboxRepository.to_pair_snapshot(provider, sandbox)
@@ -620,7 +632,9 @@ async def login_for_access_token(
 async def logout(response: Response):
     cookie_domain = _app_session_cookie_domain()
     response.delete_cookie(
-        key=AUTH_COOKIE_NAME, path="/", domain=cookie_domain,
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        domain=cookie_domain,
     )
 
 
@@ -1024,7 +1038,11 @@ async def patch_user_by_id(
         or "is_active" in body.model_fields_set
         or "is_superuser" in body.model_fields_set
     )
-    if touches_protected and user.role == ROLE_OWNER and current_user.role != ROLE_OWNER:
+    if (
+        touches_protected
+        and user.role == ROLE_OWNER
+        and current_user.role != ROLE_OWNER
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the owner can modify the owner account",

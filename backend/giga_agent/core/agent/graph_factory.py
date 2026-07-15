@@ -656,12 +656,13 @@ def create_graph(
 
         agent_tools = await agent.get_tools(user, config=config)
         from giga_agent.core.agent.base import _disabled_module_ids
+
         disabled_set = _disabled_module_ids(config, user)
         if disabled_set:
             agent_tools = [
-                t for t in agent_tools
-                if (t.extras or {}).get("module_id")
-                not in disabled_set
+                t
+                for t in agent_tools
+                if (t.extras or {}).get("module_id") not in disabled_set
             ]
         mcp_tools = [
             transform_tool(
@@ -675,9 +676,7 @@ def create_graph(
         ]
 
         tool_choice = (
-            resolve_bound_tool_choice(state["messages"])
-            if think_enabled
-            else "auto"
+            resolve_bound_tool_choice(state["messages"]) if think_enabled else "auto"
         )
         # TODO: Сейчас ломается для deepseek, при мерже v0.2 будем включать только для GigaChat
         # chosen_tool_choice: Any = "auto"
@@ -770,7 +769,7 @@ def create_graph(
                         session=session,
                         messages_for_llm=state_messages_collapse,
                         system_message=system_message,
-                        tools=all_tools
+                        tools=all_tools,
                     )
 
         # Persist the enriched HumanMessage back to state (model_copy preserves

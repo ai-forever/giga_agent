@@ -25,9 +25,7 @@ from giga_agent.core.db import Base
 class MemoryFile(Base):
     __tablename__ = "core_memory_files"
     __table_args__ = (
-        UniqueConstraint(
-            "owner_id", "path", name="uq_core_memory_files_owner_path"
-        ),
+        UniqueConstraint("owner_id", "path", name="uq_core_memory_files_owner_path"),
         Index("ix_core_memory_files_owner_tag", "owner_id", "tag"),
         Index(
             "ix_core_memory_files_owner_indexed",
@@ -56,9 +54,7 @@ class MemoryFile(Base):
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     indexed_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    indexed_embedding_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, nullable=True
-    )
+    indexed_embedding_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -72,9 +68,7 @@ class MemoryFileRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_path(
-        self, *, owner_id: uuid.UUID, path: str
-    ) -> MemoryFile | None:
+    async def get_by_path(self, *, owner_id: uuid.UUID, path: str) -> MemoryFile | None:
         result = await self.db.execute(
             select(MemoryFile)
             .where(MemoryFile.owner_id == owner_id)
@@ -113,11 +107,15 @@ class MemoryFileRepository:
     ) -> list[MemoryFile]:
         from sqlalchemy import or_
 
-        stmt = select(MemoryFile).where(MemoryFile.owner_id == owner_id).where(
-            or_(
-                MemoryFile.indexed_hash.is_(None),
-                MemoryFile.indexed_hash != MemoryFile.content_hash,
-                MemoryFile.indexed_embedding_id != current_embedding_id,
+        stmt = (
+            select(MemoryFile)
+            .where(MemoryFile.owner_id == owner_id)
+            .where(
+                or_(
+                    MemoryFile.indexed_hash.is_(None),
+                    MemoryFile.indexed_hash != MemoryFile.content_hash,
+                    MemoryFile.indexed_embedding_id != current_embedding_id,
+                )
             )
         )
         result = await self.db.execute(stmt)
@@ -193,9 +191,7 @@ class MemoryFileRepository:
         row = await self.get_by_path(owner_id=owner_id, path=path)
         if row is None:
             return None
-        await self.db.execute(
-            delete(MemoryFile).where(MemoryFile.id == row.id)
-        )
+        await self.db.execute(delete(MemoryFile).where(MemoryFile.id == row.id))
         await self.db.commit()
         return row
 

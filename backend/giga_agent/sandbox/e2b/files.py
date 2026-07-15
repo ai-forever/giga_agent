@@ -3,7 +3,6 @@
 import contextlib
 import mimetypes
 import secrets
-import shlex
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import PurePosixPath

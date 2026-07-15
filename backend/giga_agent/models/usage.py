@@ -21,9 +21,7 @@ from giga_agent.core.db import Base
 class UsageEvent(Base):
     __tablename__ = "core_usage_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -41,9 +39,7 @@ class UserUsage(BaseModel):
     last_activity: datetime | None = None
 
 
-async def aggregate_usage(
-    session: AsyncSession, *, days: int = 30
-) -> list[UserUsage]:
+async def aggregate_usage(session: AsyncSession, *, days: int = 30) -> list[UserUsage]:
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await session.execute(
         select(

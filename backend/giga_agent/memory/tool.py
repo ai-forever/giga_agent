@@ -19,9 +19,7 @@ from giga_agent.memory.service import SEARCH_DEFAULT_N
 logger = get_logger(__name__)
 
 
-def _command(
-    *, runtime: ToolRuntime, content: str, is_error: bool = False
-) -> Command:
+def _command(*, runtime: ToolRuntime, content: str, is_error: bool = False) -> Command:
     kwargs = {
         "tool_call_id": runtime.tool_call_id,
         "content": content,

@@ -84,10 +84,16 @@ async def record_login_failure(email: str, ip: str) -> None:
 
     key_f, key_s = _keys(email, ip)
     try:
-        await cache.incr(key_f, expire=settings.giga_agent_login_throttle_fast_window_sec)
-        await cache.incr(key_s, expire=settings.giga_agent_login_throttle_slow_window_sec)
+        await cache.incr(
+            key_f, expire=settings.giga_agent_login_throttle_fast_window_sec
+        )
+        await cache.incr(
+            key_s, expire=settings.giga_agent_login_throttle_slow_window_sec
+        )
     except Exception:  # fail-open
-        logger.warning("login throttle record skipped: cache unavailable", exc_info=True)
+        logger.warning(
+            "login throttle record skipped: cache unavailable", exc_info=True
+        )
 
 
 async def reset_login(email: str, ip: str) -> None:

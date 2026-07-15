@@ -137,7 +137,9 @@ class SandboxAccessPolicyTests(unittest.TestCase):
             roots,
         )
         self.assertIn((home / "Library" / "Caches" / "uv").resolve(), roots)
-        self.assertIn((home / "Library" / "Application Support" / "Cypress").resolve(), roots)
+        self.assertIn(
+            (home / "Library" / "Application Support" / "Cypress").resolve(), roots
+        )
         self.assertIn(
             (home / "Library" / "Application Support" / "matplotlib").resolve(),
             roots,
@@ -419,7 +421,9 @@ class MacSandboxExecProfileTests(unittest.TestCase):
         self.assertIn('"com.apple.bsd.dirhelper"', profile)
         self.assertIn('"com.apple.PowerManagement.control"', profile)
         self.assertIn('"RootDomainUserClient"', profile)
-        self.assertIn('(allow sysctl-write (sysctl-name "kern.grade_cputype"))', profile)
+        self.assertIn(
+            '(allow sysctl-write (sysctl-name "kern.grade_cputype"))', profile
+        )
         self.assertIn("(socket-domain AF_SYSTEM)", profile)
 
     def test_profile_allows_headless_browser_minimum(self):

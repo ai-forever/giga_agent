@@ -7,9 +7,7 @@ from giga_agent.modules.weather import WeatherModule
 
 class ServiceModulesSecretsTests(unittest.TestCase):
     def test_collect_module_secrets_contains_all_new_keys_without_duplicates(self):
-        secrets = collect_module_secrets(
-            [VKModule(), WeatherModule(), VKModule()]
-        )
+        secrets = collect_module_secrets([VKModule(), WeatherModule(), VKModule()])
         names = [item["name"] for item in secrets]
         self.assertEqual(
             names,

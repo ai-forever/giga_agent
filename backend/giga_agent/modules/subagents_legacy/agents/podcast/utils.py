@@ -29,7 +29,9 @@ async def parse_url(url: str) -> str:
     for attempt in range(1, JINA_RETRY_ATTEMPTS + 1):
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(full_url, headers=headers, timeout=60) as response:
+                async with session.get(
+                    full_url, headers=headers, timeout=60
+                ) as response:
                     response.raise_for_status()
                     return await response.text()
         except (TimeoutError, aiohttp.ClientError) as e:
@@ -49,7 +51,9 @@ async def generate_script(
 ) -> ShortDialogue | MediumDialogue:
     """Получение диалога от LLM."""
     # Вызов LLM в первый раз
-    first_draft_dialogue = await call_gigachat(system_prompt, input_text, output_model, llm)
+    first_draft_dialogue = await call_gigachat(
+        system_prompt, input_text, output_model, llm
+    )
 
     if first_draft_dialogue is None:
         raise Exception("Failed to get the first dialogue draft from GigaChat")

@@ -73,9 +73,7 @@ class McpServerProvider(IntegrationProvider):
         self.label = server.name or server.url
         self.icon = None
 
-    async def authorization_url(
-        self, *, user_id: uuid.UUID, db, base_url: str
-    ) -> str:
+    async def authorization_url(self, *, user_id: uuid.UUID, db, base_url: str) -> str:
         server = self._server
         settings = server.settings or {}
         redirect_uri = mcp_callback_url(base_url)

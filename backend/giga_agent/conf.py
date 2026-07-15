@@ -28,9 +28,7 @@ class Settings(BaseSettings):
     giga_agent_runtime_local: bool = Field(False, alias="GIGA_AGENT_RUNTIME_LOCAL")
     giga_agent_cli_cwd: str | None = Field(None, alias="GIGA_AGENT_CLI_CWD")
     giga_agent_cli_config: str | None = Field(None, alias="GIGA_AGENT_CLI_CONFIG")
-    giga_agent_cli_no_sandbox: bool = Field(
-        False, alias="GIGA_AGENT_CLI_NO_SANDBOX"
-    )
+    giga_agent_cli_no_sandbox: bool = Field(False, alias="GIGA_AGENT_CLI_NO_SANDBOX")
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",
@@ -121,9 +119,7 @@ class Settings(BaseSettings):
     )
     giga_agent_log_format: str | None = Field(None, alias="GIGA_AGENT_LOG_FORMAT")
     giga_agent_log_json: bool = Field(False, alias="GIGA_AGENT_LOG_JSON")
-    giga_agent_metrics_enabled: bool = Field(
-        False, alias="GIGA_AGENT_METRICS_ENABLED"
-    )
+    giga_agent_metrics_enabled: bool = Field(False, alias="GIGA_AGENT_METRICS_ENABLED")
     giga_agent_gigachat_from_env: bool = Field(
         False, alias="GIGA_AGENT_GIGACHAT_FROM_ENV"
     )
@@ -271,9 +267,7 @@ class Settings(BaseSettings):
         None, alias="GIGA_AGENT_LOCAL_DOCKER_FILES_PATH"
     )
     # --- in-guest SandboxAPI Server (local_docker + e2b работают ТОЛЬКО через него) ---
-    giga_agent_sandbox_api_port: int = Field(
-        49999, alias="GIGA_AGENT_SANDBOX_API_PORT"
-    )
+    giga_agent_sandbox_api_port: int = Field(49999, alias="GIGA_AGENT_SANDBOX_API_PORT")
     giga_agent_sandbox_api_startup_timeout_sec: int = Field(
         30, alias="GIGA_AGENT_SANDBOX_API_STARTUP_TIMEOUT_SEC"
     )
@@ -565,7 +559,9 @@ class Settings(BaseSettings):
     def _normalize_local_jupyter_network_mode(cls, value: str) -> str:
         cleaned = (value or "host").strip().lower()
         if cleaned not in {"host", "none"}:
-            raise ValueError("GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE must be host or none")
+            raise ValueError(
+                "GIGA_AGENT_LOCAL_JUPYTER_NETWORK_MODE must be host or none"
+            )
         return cleaned
 
     @field_validator("giga_agent_local_jupyter_secure_exec_backend", mode="after")
@@ -657,9 +653,7 @@ class Settings(BaseSettings):
     def _min_local_jupyter_kernel_startup_timeout(cls, value: int) -> int:
         return max(value, 1)
 
-    @field_validator(
-        "giga_agent_local_jupyter_health_probe_timeout_sec", mode="after"
-    )
+    @field_validator("giga_agent_local_jupyter_health_probe_timeout_sec", mode="after")
     @classmethod
     def _min_local_jupyter_health_probe_timeout(cls, value: int) -> int:
         return max(value, 1)

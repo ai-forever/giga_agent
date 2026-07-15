@@ -8,7 +8,7 @@ giga_agent.sandbox.jupyter, чтобы тонкий клиент SandboxAPISandb
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,9 @@ class CreateKernelRequest(BaseModel):
     kernel_name: str | None = Field(
         default=None, description="Kernel spec name (default: server default)"
     )
-    cwd: str | None = Field(default=None, description="Working directory for the kernel")
+    cwd: str | None = Field(
+        default=None, description="Working directory for the kernel"
+    )
     env: dict[str, str] | None = Field(
         default=None, description="Extra environment variables for the kernel process"
     )

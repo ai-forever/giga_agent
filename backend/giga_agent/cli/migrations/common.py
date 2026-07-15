@@ -126,7 +126,9 @@ def check_db_is_up_to_date(
             unknown.append(head)
     unknown.sort()
     if unknown:
-        logger.error("Database contains unknown Alembic revisions for scope '%s'!", scope_label)
+        logger.error(
+            "Database contains unknown Alembic revisions for scope '%s'!", scope_label
+        )
         logger.error(f"Unknown revisions in DB: {unknown}")
         logger.error(f"Known script heads: {sorted(script_heads)}")
         sys.exit(1)
