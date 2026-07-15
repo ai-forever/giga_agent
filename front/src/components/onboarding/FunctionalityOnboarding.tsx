@@ -520,6 +520,7 @@ const FunctionalityOnboarding: React.FC = () => {
           arrowComponent={CustomArrow}
           onEvent={handleStartupEvent}
           tooltipComponent={CustomTooltip}
+          loaderComponent={null}
           options={{
             overlayClickAction: false,
             dismissKeyAction: false,
