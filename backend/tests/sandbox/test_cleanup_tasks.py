@@ -16,12 +16,15 @@ class CleanupTasksTests(unittest.IsolatedAsyncioTestCase):
             sandbox_path="/bucket/u/a.txt",
         )
 
-        with patch(
-            "giga_agent.sandbox.cleanup_tasks.SandboxRuntimeFactory.build",
-            return_value=types.SimpleNamespace(delete_file=AsyncMock(return_value=None)),
-        ) as mocked_build, patch(
-            "giga_agent.sandbox.cleanup_tasks.logger.warning"
-        ) as mocked_warning:
+        with (
+            patch(
+                "giga_agent.sandbox.cleanup_tasks.SandboxRuntimeFactory.build",
+                return_value=types.SimpleNamespace(
+                    delete_file=AsyncMock(return_value=None)
+                ),
+            ) as mocked_build,
+            patch("giga_agent.sandbox.cleanup_tasks.logger.warning") as mocked_warning,
+        ):
             await cleanup_storage_files_best_effort([ref])
 
         mocked_build.assert_not_called()

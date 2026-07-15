@@ -40,7 +40,9 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             external_id="ext-1",
         )
 
-    async def test_stop_transitional_runtime_stop_failure_sets_stopped_if_runtime_down(self):
+    async def test_stop_transitional_runtime_stop_failure_sets_stopped_if_runtime_down(
+        self,
+    ):
         sandbox = self._sandbox(status=SandboxStatus.STARTING)
         runtime = types.SimpleNamespace(
             stop=AsyncMock(side_effect=RuntimeError("daemon down")),
@@ -75,7 +77,9 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             provider_id=sandbox.provider_id,
         )
 
-    async def test_stop_transitional_runtime_stop_failure_sets_error_if_runtime_still_up(self):
+    async def test_stop_transitional_runtime_stop_failure_sets_error_if_runtime_still_up(
+        self,
+    ):
         sandbox = self._sandbox(status=SandboxStatus.STARTING)
         runtime = types.SimpleNamespace(
             stop=AsyncMock(side_effect=RuntimeError("daemon down")),
@@ -103,7 +107,9 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(statuses, [SandboxStatus.STOPPING, SandboxStatus.ERROR])
 
-    async def test_stop_transitional_runtime_stop_failure_sets_error_if_probe_fails(self):
+    async def test_stop_transitional_runtime_stop_failure_sets_error_if_probe_fails(
+        self,
+    ):
         sandbox = self._sandbox(status=SandboxStatus.STARTING)
         runtime = types.SimpleNamespace(
             stop=AsyncMock(side_effect=RuntimeError("daemon down")),
@@ -248,7 +254,9 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service._resolve = types.SimpleNamespace(
             get_or_create_for_user=AsyncMock(return_value=resolved)
         )
-        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
         self.service._sandbox_repo.touch = AsyncMock()
         self.service._runtime_factory = types.SimpleNamespace(
             build=Mock(return_value=runtime)
@@ -288,7 +296,9 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service._resolve = types.SimpleNamespace(
             get_or_create_for_user=AsyncMock(return_value=resolved)
         )
-        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
         self.service._runtime_factory = types.SimpleNamespace(
             build=Mock(return_value=runtime)
         )
@@ -351,8 +361,12 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             get_connection_settings=lambda: {"external_id": "ext-1"},
             has_limit=lambda: False,
         )
-        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
-        self.service._runtime_factory = types.SimpleNamespace(build=Mock(return_value=runtime))
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
 
         with patch(
             "giga_agent.sandbox.manager.lifecycle_service.SandboxRepository.cache_invalidate_pair",
@@ -394,10 +408,16 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
             get_connection_settings=lambda: {"external_id": "ext-1", "host_port": 1234},
             preserve_runtime_state_on_stop=lambda: False,
         )
-        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(return_value=sandbox)
-        self.service._runtime_factory = types.SimpleNamespace(build=Mock(return_value=runtime))
+        self.service._sandbox_repo.get_by_id_with_provider = AsyncMock(
+            return_value=sandbox
+        )
+        self.service._runtime_factory = types.SimpleNamespace(
+            build=Mock(return_value=runtime)
+        )
+
         async def _run(_sandbox_id, action):
             return await action()
+
         self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
         action = SetSandboxStatusAction(
             provider_type="local_docker",
@@ -418,7 +438,6 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sandbox.status, SandboxStatus.STOPPED)
         self.assertEqual(sandbox.settings, {"keep": "yes"})
         self.assertIsNone(sandbox.external_id)
-
 
     async def test_recreate_unlocked_force_removes_and_restarts(self):
         sandbox = self._sandbox(status=SandboxStatus.RUNNING)
@@ -497,12 +516,13 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
 
-        with patch.object(
-            LocalDockerSandbox, "is_up", AsyncMock(return_value=True)
-        ), patch.object(
-            LocalDockerSandbox,
-            "reconcile_runtime_settings",
-            AsyncMock(return_value=RuntimeReconcileOutcome.RECREATE),
+        with (
+            patch.object(LocalDockerSandbox, "is_up", AsyncMock(return_value=True)),
+            patch.object(
+                LocalDockerSandbox,
+                "reconcile_runtime_settings",
+                AsyncMock(return_value=RuntimeReconcileOutcome.RECREATE),
+            ),
         ):
             result = await self.service.ensure_running_for_user(
                 user_id=sandbox.owner_id,
@@ -537,12 +557,13 @@ class SandboxLifecycleServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.service._with_lifecycle_lock = AsyncMock(side_effect=_run)  # type: ignore[method-assign]
 
-        with patch.object(
-            LocalDockerSandbox, "is_up", AsyncMock(return_value=True)
-        ), patch.object(
-            LocalDockerSandbox,
-            "reconcile_runtime_settings",
-            AsyncMock(return_value=RuntimeReconcileOutcome.HOT_UPDATED),
+        with (
+            patch.object(LocalDockerSandbox, "is_up", AsyncMock(return_value=True)),
+            patch.object(
+                LocalDockerSandbox,
+                "reconcile_runtime_settings",
+                AsyncMock(return_value=RuntimeReconcileOutcome.HOT_UPDATED),
+            ),
         ):
             result = await self.service.ensure_running_for_user(
                 user_id=sandbox.owner_id,

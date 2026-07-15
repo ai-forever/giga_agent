@@ -1,22 +1,19 @@
-from typing import TYPE_CHECKING, Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable
 
+from langchain.agents.middleware.types import (
+    ModelCallResult,
+    ModelRequest,
+    ModelResponse,
+    ToolCallRequest,
+)
+from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
+from langgraph.runtime import Runtime
+from langgraph.types import Command
 from pydantic import BaseModel
 
 from giga_agent.core.agent.types import AgentState, Context
-from langchain.agents.middleware.types import (
-    ModelRequest,
-    ModelResponse,
-    ModelCallResult,
-    ToolCallRequest,
-)
-from langchain_core.runnables import RunnableConfig
-
-
-from langchain_core.tools import BaseTool
-from langgraph.runtime import Runtime
-from langgraph.prebuilt.tool_node import ToolCallRequest
-from langchain_core.messages import ToolMessage
-from langgraph.types import Command
 
 
 class AgentMiddleware(BaseModel):

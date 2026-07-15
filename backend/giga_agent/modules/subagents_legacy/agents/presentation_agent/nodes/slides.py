@@ -48,8 +48,10 @@ async def _generate_slide(messages, llm):
         reg = r",\s*"
         html = re.sub(
             r'data-background-gradient="linear-gradient\(([^)]*)\)"',
-            lambda m: f"data-background-gradient="
-            f'"linear-gradient({re.sub(reg, ", ", m.group(1))})"',
+            lambda m: (
+                f"data-background-gradient="
+                f'"linear-gradient({re.sub(reg, ", ", m.group(1))})"'
+            ),
             html,
         )
         return html

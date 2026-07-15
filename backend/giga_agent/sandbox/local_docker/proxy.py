@@ -124,9 +124,9 @@ class PortProxyMixin:
         if self._container is None:
             raise RuntimeError("Sandbox container is not available")
         self._container.reload()
-        connected_networks = (
-            (self._container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
-        )
+        connected_networks = (self._container.attrs.get("NetworkSettings") or {}).get(
+            "Networks"
+        ) or {}
         if network.name in connected_networks:
             return
         sandbox_alias = self._proxy_sandbox_alias()
@@ -172,8 +172,7 @@ class PortProxyMixin:
             sandbox_hex = self.sandbox_id.hex
             api = settings.giga_agent_prefix_api
             return (
-                f"{base_url.rstrip('/')}/api{api}"
-                f"/sandbox-redirect/{sandbox_hex}/{port}"
+                f"{base_url.rstrip('/')}/api{api}/sandbox-redirect/{sandbox_hex}/{port}"
             )
 
         if docker_network is not None and base_domain:
@@ -389,7 +388,9 @@ class PortProxyMixin:
                 pass
             except Exception:
                 logger.warning(
-                    "Failed to remove proxy container %s", cid[:12], exc_info=True,
+                    "Failed to remove proxy container %s",
+                    cid[:12],
+                    exc_info=True,
                 )
 
     def _remove_proxy_network(self) -> None:
@@ -406,7 +407,9 @@ class PortProxyMixin:
                     logger.info("Removed proxy network %s", net_name)
         except Exception:
             logger.warning(
-                "Failed to remove proxy network %s", net_name, exc_info=True,
+                "Failed to remove proxy network %s",
+                net_name,
+                exc_info=True,
             )
 
     # ------------------------------------------------------------------
@@ -433,7 +436,8 @@ class PortProxyMixin:
                     pass
                 except Exception:
                     logger.warning(
-                        "Failed to remove orphan proxy container %s", cid[:12],
+                        "Failed to remove orphan proxy container %s",
+                        cid[:12],
                         exc_info=True,
                     )
         except DockerException:

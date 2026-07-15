@@ -34,7 +34,9 @@ class FileRepositoryTests(unittest.IsolatedAsyncioTestCase):
             await session.refresh(user)
             return user
 
-    async def _create_provider(self, owner_id: uuid.UUID, provider_type: str) -> SandboxProvider:
+    async def _create_provider(
+        self, owner_id: uuid.UUID, provider_type: str
+    ) -> SandboxProvider:
         async with self.session_factory() as session:
             provider = SandboxProvider(
                 owner_id=owner_id,

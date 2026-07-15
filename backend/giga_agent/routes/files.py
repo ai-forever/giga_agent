@@ -18,7 +18,12 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
-from giga_agent.models.file import File as FileModel, FileRepository, FileResponse, FileType
+from giga_agent.models.file import (
+    File as FileModel,
+    FileRepository,
+    FileResponse,
+    FileType,
+)
 from giga_agent.models.users import User
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.sandbox.base import FileReadResult, RedirectResult, StreamResult
@@ -77,7 +82,9 @@ def _ascii_filename_fallback(file_name: str) -> str:
     lower_name = file_name.lower()
     extension = ""
     plotly_json_suffix = ".plotly.json"
-    if lower_name.endswith(plotly_json_suffix) and len(file_name) > len(plotly_json_suffix):
+    if lower_name.endswith(plotly_json_suffix) and len(file_name) > len(
+        plotly_json_suffix
+    ):
         extension = file_name[-len(plotly_json_suffix) :]
     else:
         _, ext = os.path.splitext(file_name)
@@ -182,8 +189,12 @@ async def read_file_content(
     if readable_file is None:
         existing = await repo.get_by_id(file_id)
         if existing is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Access denied"
+        )
 
     manager = SandboxManager(db)
     try:
@@ -273,7 +284,7 @@ def _build_file_response(
     disposition = "inline" if result.inline else "attachment"
     headers: dict[str, str] = {
         "Content-Disposition": (
-            f"{disposition}; filename=\"{ascii_file_name}\"; "
+            f'{disposition}; filename="{ascii_file_name}"; '
             f"filename*=UTF-8''{quote(file_name)}"
         ),
     }

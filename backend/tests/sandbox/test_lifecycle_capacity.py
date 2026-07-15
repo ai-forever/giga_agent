@@ -15,8 +15,10 @@ class SandboxLifecycleCapacityTests(unittest.IsolatedAsyncioTestCase):
             count_by_provider_and_statuses=AsyncMock(),
             set_status=AsyncMock(),
         )
+
         async def _run(provider_id, action):
             await action()
+
         self.service._with_provider_capacity_lock = AsyncMock(side_effect=_run)
 
     async def test_reserve_capacity_skips_check_for_unlimited_runtime(self):
@@ -38,7 +40,9 @@ class SandboxLifecycleCapacityTests(unittest.IsolatedAsyncioTestCase):
         sandbox = types.SimpleNamespace(provider_id=uuid.uuid4())
         runtime = types.SimpleNamespace(has_limit=lambda: True, max_active_sandboxes=2)
 
-        self.service._sandbox_repo.count_by_provider_and_statuses = AsyncMock(return_value=2)
+        self.service._sandbox_repo.count_by_provider_and_statuses = AsyncMock(
+            return_value=2
+        )
 
         with self.assertRaises(SandboxBusyError):
             await self.service._reserve_capacity_and_mark_starting(
@@ -52,7 +56,9 @@ class SandboxLifecycleCapacityTests(unittest.IsolatedAsyncioTestCase):
         sandbox = types.SimpleNamespace(provider_id=uuid.uuid4())
         runtime = types.SimpleNamespace(has_limit=lambda: True, max_active_sandboxes=3)
 
-        self.service._sandbox_repo.count_by_provider_and_statuses = AsyncMock(return_value=2)
+        self.service._sandbox_repo.count_by_provider_and_statuses = AsyncMock(
+            return_value=2
+        )
 
         await self.service._reserve_capacity_and_mark_starting(
             sandbox=sandbox,

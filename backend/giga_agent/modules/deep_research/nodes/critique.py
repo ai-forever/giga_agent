@@ -10,6 +10,7 @@ LLM со structured output (bind_tools) выдаёт:
 - revise + лимит revisions исчерпан → finalize (принимаем как есть)
 - no draft → finalize (fallback ветка)
 """
+
 from __future__ import annotations
 
 from typing import Literal

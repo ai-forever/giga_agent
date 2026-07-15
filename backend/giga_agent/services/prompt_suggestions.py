@@ -115,7 +115,9 @@ def _extract_suggestions_from_json(raw: str, *, count: int) -> list[str]:
     return _sanitize_suggestions(payload.get("suggestions"), count=count)
 
 
-def _collect_pairs(messages: list[dict[str, Any]], *, max_pairs: int) -> list[dict[str, str]]:
+def _collect_pairs(
+    messages: list[dict[str, Any]], *, max_pairs: int
+) -> list[dict[str, str]]:
     pairs: list[dict[str, str]] = []
     pending_human: str | None = None
     for msg in messages:
@@ -264,7 +266,9 @@ async def get_starter_suggestions(
     if not refresh:
         cached = await cache.get(cache_key)
         if isinstance(cached, dict):
-            suggestions = _sanitize_suggestions(cached.get("suggestions"), count=safe_count)
+            suggestions = _sanitize_suggestions(
+                cached.get("suggestions"), count=safe_count
+            )
             if suggestions:
                 return SuggestionResult(
                     suggestions=suggestions,
@@ -289,7 +293,7 @@ async def get_starter_suggestions(
     context_text = "\n".join(f"- {item}" for item in context_prompts)
     system_prompt = (
         "Ты помогаешь предложить стартовые запросы для нового чата.\n"
-        "Верни только JSON: {\"suggestions\": [\"...\", \"...\"]}.\n"
+        'Верни только JSON: {"suggestions": ["...", "..."]}.\n'
         "Требования:\n"
         "- suggestions: массив из коротких полезных пользовательских запросов\n"
         "- без нумерации, без пояснений, без markdown\n"
@@ -363,7 +367,9 @@ async def get_follow_up_suggestions(
     if not refresh:
         cached = await cache.get(cache_key)
         if isinstance(cached, dict):
-            suggestions = _sanitize_suggestions(cached.get("suggestions"), count=safe_count)
+            suggestions = _sanitize_suggestions(
+                cached.get("suggestions"), count=safe_count
+            )
             if suggestions:
                 return SuggestionResult(
                     suggestions=suggestions,
@@ -380,7 +386,7 @@ async def get_follow_up_suggestions(
 
     system_prompt = (
         "Ты предлагаешь короткие follow-up запросы после ответа ассистента.\n"
-        "Верни только JSON: {\"suggestions\": [\"...\", \"...\"]}.\n"
+        'Верни только JSON: {"suggestions": ["...", "..."]}.\n'
         "Требования:\n"
         "- suggestions: массив релевантных следующих вопросов\n"
         "- без нумерации, без пояснений, без markdown\n"
@@ -410,4 +416,3 @@ async def get_follow_up_suggestions(
         based_on_pairs=len(pairs),
         source_thread_count=0,
     )
-

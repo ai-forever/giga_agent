@@ -65,7 +65,9 @@ class ConfSettingsTests(unittest.TestCase):
             self.assertFalse(settings.giga_agent_gigachat_skip_cache_token)
 
     def test_reads_gigachat_skip_cache_token_flag(self):
-        with self._patched_env({"GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN": "1"}, clear=True):
+        with self._patched_env(
+            {"GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN": "1"}, clear=True
+        ):
             settings = get_settings()
             self.assertTrue(settings.giga_agent_gigachat_skip_cache_token)
 
@@ -108,9 +110,15 @@ class ConfSettingsTests(unittest.TestCase):
                 settings.giga_agent_local_jupyter_graceful_shutdown_timeout_sec,
                 7,
             )
-            self.assertTrue(str(settings.giga_agent_local_jupyter_working_dir).endswith("workdir"))
-            self.assertTrue(str(settings.giga_agent_local_jupyter_files_path).endswith("files"))
-            self.assertTrue(str(settings.giga_agent_local_jupyter_runtime_dir).endswith("runtime"))
+            self.assertTrue(
+                str(settings.giga_agent_local_jupyter_working_dir).endswith("workdir")
+            )
+            self.assertTrue(
+                str(settings.giga_agent_local_jupyter_files_path).endswith("files")
+            )
+            self.assertTrue(
+                str(settings.giga_agent_local_jupyter_runtime_dir).endswith("runtime")
+            )
             self.assertEqual(
                 settings.giga_agent_local_jupyter_python_executable,
                 "/usr/bin/python3",
@@ -120,7 +128,9 @@ class ConfSettingsTests(unittest.TestCase):
                 settings.giga_agent_local_jupyter_secure_exec_backend,
                 "linux_bwrap",
             )
-            self.assertEqual(settings.giga_agent_local_jupyter_allowed_read_roots, [Path("/")])
+            self.assertEqual(
+                settings.giga_agent_local_jupyter_allowed_read_roots, [Path("/")]
+            )
             self.assertEqual(
                 settings.giga_agent_local_jupyter_allowed_write_roots,
                 [Path("/tmp/write")],

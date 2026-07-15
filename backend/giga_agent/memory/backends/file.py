@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import json
 import uuid
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -99,9 +98,7 @@ def _load_dto(owner_id: uuid.UUID, disk_path: Path) -> MemoryFileDTO:
 
 
 class FileBackend:
-    async def get(
-        self, *, owner_id: uuid.UUID, path: str
-    ) -> MemoryFileDTO | None:
+    async def get(self, *, owner_id: uuid.UUID, path: str) -> MemoryFileDTO | None:
         disk = _virtual_to_disk(owner_id, path)
         if not disk.exists():
             return None
@@ -213,9 +210,7 @@ class FileBackend:
 
         return await asyncio.to_thread(_scan)
 
-    async def list_all(
-        self, *, owner_id: uuid.UUID
-    ) -> list[MemoryFileDTO]:
+    async def list_all(self, *, owner_id: uuid.UUID) -> list[MemoryFileDTO]:
         def _scan():
             root = _owner_root(owner_id)
             results: list[MemoryFileDTO] = []
@@ -290,10 +285,15 @@ class FileBackend:
                     meta = json.loads(entry.read_text(encoding="utf-8"))
                 except Exception:
                     continue
-                if meta.get("indexed_hash") is not None or meta.get("indexed_embedding_id") is not None:
+                if (
+                    meta.get("indexed_hash") is not None
+                    or meta.get("indexed_embedding_id") is not None
+                ):
                     meta["indexed_hash"] = None
                     meta["indexed_embedding_id"] = None
-                    entry.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+                    entry.write_text(
+                        json.dumps(meta, ensure_ascii=False), encoding="utf-8"
+                    )
                     count += 1
             return count
 

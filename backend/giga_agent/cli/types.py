@@ -13,4 +13,3 @@ class LogLevel(str, Enum):
 
 class CLIException(Exception):
     pass
-

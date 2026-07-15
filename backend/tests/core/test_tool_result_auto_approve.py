@@ -20,15 +20,14 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
         state = _state_with_tool_call("python")
         config = {"metadata": {}, "configurable": {}}
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={"auto_approve": True}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.interrupt"
-        ) as interrupt_mock:
-            result = await middleware.after_model(
-                state, runtime=Mock(), config=config
-            )
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={"auto_approve": True}),
+            ),
+            patch("giga_agent.middlewares.tool_result.interrupt") as interrupt_mock,
+        ):
+            result = await middleware.after_model(state, runtime=Mock(), config=config)
 
         interrupt_mock.assert_not_called()
         self.assertIsNone(result)
@@ -40,15 +39,14 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
         state = _state_with_tool_call("python")
         config = {"metadata": {}, "configurable": {"auto_approve": False}}
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={"auto_approve": True}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.interrupt"
-        ) as interrupt_mock:
-            result = await middleware.after_model(
-                state, runtime=Mock(), config=config
-            )
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={"auto_approve": True}),
+            ),
+            patch("giga_agent.middlewares.tool_result.interrupt") as interrupt_mock,
+        ):
+            result = await middleware.after_model(state, runtime=Mock(), config=config)
 
         interrupt_mock.assert_not_called()
         self.assertIsNone(result)
@@ -58,13 +56,16 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
         state = _state_with_tool_call("python")
         config = {"metadata": {}, "configurable": {}}
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.interrupt",
-            return_value={"type": "approve"},
-        ) as interrupt_mock:
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "giga_agent.middlewares.tool_result.interrupt",
+                return_value={"type": "approve"},
+            ) as interrupt_mock,
+        ):
             await middleware.after_model(state, runtime=Mock(), config=config)
 
         interrupt_mock.assert_called_once_with({"type": "approve"})
@@ -74,13 +75,16 @@ class ToolResultAutoApproveTests(unittest.IsolatedAsyncioTestCase):
         state = _state_with_tool_call("my_mcp", mcp_tools=[{"name": "my_mcp"}])
         config = {"metadata": {}, "configurable": {}}
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={"auto_approve": True}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.interrupt",
-            return_value={"type": "approve"},
-        ) as interrupt_mock:
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={"auto_approve": True}),
+            ),
+            patch(
+                "giga_agent.middlewares.tool_result.interrupt",
+                return_value={"type": "approve"},
+            ) as interrupt_mock,
+        ):
             await middleware.after_model(state, runtime=Mock(), config=config)
 
         interrupt_mock.assert_called_once()
@@ -98,11 +102,12 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
         }
         update = AsyncMock()
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.update_thread_metadata", update
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={}),
+            ),
+            patch("giga_agent.middlewares.tool_result.update_thread_metadata", update),
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
@@ -119,11 +124,12 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
         }
         update = AsyncMock()
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={"auto_approve": True}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.update_thread_metadata", update
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={"auto_approve": True}),
+            ),
+            patch("giga_agent.middlewares.tool_result.update_thread_metadata", update),
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
@@ -139,11 +145,12 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
         }
         update = AsyncMock()
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={"auto_approve": True}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.update_thread_metadata", update
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={"auto_approve": True}),
+            ),
+            patch("giga_agent.middlewares.tool_result.update_thread_metadata", update),
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
@@ -158,11 +165,12 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
         }
         update = AsyncMock()
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={"auto_approve": True}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.update_thread_metadata", update
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={"auto_approve": True}),
+            ),
+            patch("giga_agent.middlewares.tool_result.update_thread_metadata", update),
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 
@@ -173,11 +181,12 @@ class ToolResultBeforeAgentSyncTests(unittest.IsolatedAsyncioTestCase):
         config = {"metadata": {}, "configurable": {"auto_approve": True}}
         update = AsyncMock()
 
-        with patch(
-            "giga_agent.middlewares.tool_result.get_thread_metadata",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.middlewares.tool_result.update_thread_metadata", update
+        with (
+            patch(
+                "giga_agent.middlewares.tool_result.get_thread_metadata",
+                AsyncMock(return_value={}),
+            ),
+            patch("giga_agent.middlewares.tool_result.update_thread_metadata", update),
         ):
             await middleware.before_agent({}, runtime=Mock(), config=config)
 

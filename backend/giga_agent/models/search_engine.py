@@ -89,6 +89,7 @@ class SearchEngineResponse(SearchEngineBase):
 
 class SearchEngineRepository(ACLResourceRepositoryMixin[SearchEngine]):
     """Repository for search engines."""
+
     resource_model = SearchEngine
     resource_type = "search_engine"
 
@@ -238,7 +239,9 @@ class SearchEngineRepository(ACLResourceRepositoryMixin[SearchEngine]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="search_engine",
             resource_ids=resource_ids,

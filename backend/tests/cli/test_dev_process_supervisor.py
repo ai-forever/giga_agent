@@ -17,18 +17,23 @@ class DevProcessSupervisorTests(unittest.TestCase):
         supervisor = Mock()
         supervisor.stop_all.return_value = []
 
-        with patch(
-            "giga_agent.cli.commands.dev.subprocess.Popen",
-            return_value=proc,
-        ), patch(
-            "giga_agent.cli.commands.dev.get_process_supervisor",
-            return_value=supervisor,
-        ), patch(
-            "giga_agent.cli.commands.dev.time.sleep",
-            side_effect=KeyboardInterrupt,
-        ), patch(
-            "giga_agent.cli.commands.dev._terminate_process_group"
-        ) as terminate_mock:
+        with (
+            patch(
+                "giga_agent.cli.commands.dev.subprocess.Popen",
+                return_value=proc,
+            ),
+            patch(
+                "giga_agent.cli.commands.dev.get_process_supervisor",
+                return_value=supervisor,
+            ),
+            patch(
+                "giga_agent.cli.commands.dev.time.sleep",
+                side_effect=KeyboardInterrupt,
+            ),
+            patch(
+                "giga_agent.cli.commands.dev._terminate_process_group"
+            ) as terminate_mock,
+        ):
             rc = _run_langgraph_server_in_subprocess(
                 host="localhost",
                 port=9090,

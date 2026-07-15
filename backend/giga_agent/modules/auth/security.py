@@ -11,17 +11,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES = None  # None = tokens never expire
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     # bcrypt.checkpw requires bytes
-    password_bytes = plain_password.encode('utf-8')
-    hash_bytes = hashed_password.encode('utf-8')
+    password_bytes = plain_password.encode("utf-8")
+    hash_bytes = hashed_password.encode("utf-8")
     return bcrypt.checkpw(password_bytes, hash_bytes)
 
 
 def get_password_hash(password: str) -> str:
     # bcrypt.hashpw requires bytes and returns bytes
-    pwd_bytes = password.encode('utf-8')
+    pwd_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt()
     hashed_bytes = bcrypt.hashpw(pwd_bytes, salt)
-    return hashed_bytes.decode('utf-8')
+    return hashed_bytes.decode("utf-8")
 
 
 # Фиктивный хэш для выравнивания тайминга логина: когда аккаунт не найден, всё равно
@@ -41,7 +41,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if "jti" not in to_encode:
         to_encode["jti"] = str(uuid.uuid4())
 
-    
     encoded_jwt = jwt.encode(
         to_encode,
         settings.giga_agent_secret_key,

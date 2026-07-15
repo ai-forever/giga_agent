@@ -202,21 +202,29 @@ async def get_generator_settings_schema(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ):
     _ = current_user
-    runtime_cls = _resolve_runtime_cls(generator_type, status_code=status.HTTP_404_NOT_FOUND)
+    runtime_cls = _resolve_runtime_cls(
+        generator_type, status_code=status.HTTP_404_NOT_FOUND
+    )
     return build_settings_schema_with_computed_defaults(runtime_cls.settings_schema())
 
 
-@router.post("", response_model=ImageGeneratorResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=ImageGeneratorResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_image_generator(
     data: ImageGeneratorCreate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
+    generator_repo: Annotated[
+        ImageGeneratorRepository, Depends(get_image_generator_repository)
+    ],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     if data.permissions is not None:
         require_superuser(current_user)
 
-    runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(
+        data.type, status_code=status.HTTP_400_BAD_REQUEST
+    )
     validated_settings = await _validate_settings(data.type, data.settings)
     validated_connector_id = await _validate_connector_link(
         user_id=current_user.id,
@@ -255,7 +263,9 @@ async def create_image_generator(
 @router.get("", response_model=list[ImageGeneratorResponse])
 async def get_image_generators(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
+    generator_repo: Annotated[
+        ImageGeneratorRepository, Depends(get_image_generator_repository)
+    ],
     only_active: bool = Query(False, description="Only active image generators"),
 ):
     rows = await generator_repo.list_readable_with_edit_for_user(
@@ -275,7 +285,9 @@ async def get_image_generators(
 async def get_image_generator(
     generator_id: uuid.UUID,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
+    generator_repo: Annotated[
+        ImageGeneratorRepository, Depends(get_image_generator_repository)
+    ],
 ):
     generator, can_edit = await fetch_resource_with_read_and_edit(
         resource_id=generator_id,
@@ -292,7 +304,9 @@ async def patch_image_generator(
     data: ImageGeneratorPatchRequest,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
+    generator_repo: Annotated[
+        ImageGeneratorRepository, Depends(get_image_generator_repository)
+    ],
     connector_repo: Annotated[ConnectorRepository, Depends(get_connector_repository)],
 ):
     generator = await _get_generator_with_write_check(
@@ -301,7 +315,9 @@ async def patch_image_generator(
         generator_repo=generator_repo,
     )
 
-    runtime_cls = _resolve_runtime_cls(generator.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(
+        generator.type, status_code=status.HTTP_400_BAD_REQUEST
+    )
     update_data: dict[str, Any] = {}
     effective_settings = generator.settings or {}
 
@@ -369,7 +385,9 @@ async def delete_image_generator(
     generator_id: uuid.UUID,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
-    generator_repo: Annotated[ImageGeneratorRepository, Depends(get_image_generator_repository)],
+    generator_repo: Annotated[
+        ImageGeneratorRepository, Depends(get_image_generator_repository)
+    ],
 ):
     generator = await _get_generator_with_write_check(
         generator_id=generator_id,

@@ -207,7 +207,9 @@ class ResourcePermissionRepository:
         permission: str,
         group_ids: Sequence[uuid.UUID],
     ) -> ColumnElement[bool]:
-        allowed_permissions = ResourcePermissionRepository._permissions_for_check(permission)
+        allowed_permissions = ResourcePermissionRepository._permissions_for_check(
+            permission
+        )
         owner_conditions: list[ColumnElement[bool]] = [
             and_(
                 ResourcePermission.owner_type == "user",
@@ -218,7 +220,9 @@ class ResourcePermissionRepository:
             owner_conditions.append(
                 and_(
                     ResourcePermission.owner_type == "group",
-                    ResourcePermission.owner_id.in_([str(group_id) for group_id in group_ids]),
+                    ResourcePermission.owner_id.in_(
+                        [str(group_id) for group_id in group_ids]
+                    ),
                 )
             )
         owner_conditions.append(ResourcePermission.owner_id == "*")
@@ -279,13 +283,17 @@ class ResourcePermissionRepository:
 
         for index, item in enumerate(items):
             try:
-                normalized_resource_type = self._normalize_resource_type(item.resource_type)
+                normalized_resource_type = self._normalize_resource_type(
+                    item.resource_type
+                )
                 normalized_owner_id = self._normalize_owner_id(item.owner_id)
                 normalized_permission = self._normalize_permission(item.permission)
                 normalized_owner_type = self._normalize_owner_type(item.owner_type)
                 if normalized_owner_id == "*":
                     if normalized_permission != "read":
-                        raise ValueError("public owner_id='*' supports only read permission")
+                        raise ValueError(
+                            "public owner_id='*' supports only read permission"
+                        )
                     normalized_owner_type = "user"
             except ValueError as exc:
                 errors.append(
@@ -342,7 +350,12 @@ class ResourcePermissionRepository:
         }
 
         candidates: list[
-            tuple[tuple[str, uuid.UUID, str, str, str], int, PermissionGrantItem, ResourcePermission]
+            tuple[
+                tuple[str, uuid.UUID, str, str, str],
+                int,
+                PermissionGrantItem,
+                ResourcePermission,
+            ]
         ] = []
         for key, (index, original_item, normalized_item) in unique_items.items():
             if key in existing_by_key:
@@ -359,9 +372,7 @@ class ResourcePermissionRepository:
 
         if not candidates:
             ordered_existing = [
-                existing_by_key[key]
-                for key in unique_items
-                if key in existing_by_key
+                existing_by_key[key] for key in unique_items if key in existing_by_key
             ]
             return BulkGrantPermissionsResult(
                 created=[],
@@ -378,9 +389,7 @@ class ResourcePermissionRepository:
                 await self.db.refresh(entity)
             ordered_created = [entity for _, _, _, entity in candidates]
             ordered_existing = [
-                existing_by_key[key]
-                for key in unique_items
-                if key in existing_by_key
+                existing_by_key[key] for key in unique_items if key in existing_by_key
             ]
             return BulkGrantPermissionsResult(
                 created=ordered_created,
@@ -429,9 +438,7 @@ class ResourcePermissionRepository:
                 )
 
             ordered_existing = [
-                existing_by_key[key]
-                for key in unique_items
-                if key in existing_by_key
+                existing_by_key[key] for key in unique_items if key in existing_by_key
             ]
             return BulkGrantPermissionsResult(
                 created=[],
@@ -718,7 +725,9 @@ class ResourcePermissionRepository:
 
         resource_model = self._resource_model_by_type(normalized_resource_type)
         owner_query = await self.db.execute(
-            select(resource_model.owner_id).where(resource_model.id == resource_id).limit(1)
+            select(resource_model.owner_id)
+            .where(resource_model.id == resource_id)
+            .limit(1)
         )
         resource_owner_id = owner_query.scalar_one_or_none()
         if resource_owner_id is None:
@@ -771,7 +780,9 @@ class ResourcePermissionRepository:
             owner_conditions.append(
                 and_(
                     ResourcePermission.owner_type == "group",
-                    ResourcePermission.owner_id.in_([str(group_id) for group_id in group_ids]),
+                    ResourcePermission.owner_id.in_(
+                        [str(group_id) for group_id in group_ids]
+                    ),
                 )
             )
         owner_conditions.append(ResourcePermission.owner_id == "*")

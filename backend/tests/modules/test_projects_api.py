@@ -164,9 +164,7 @@ class ProjectsAPIWithCollectionTests(unittest.IsolatedAsyncioTestCase):
         # to just the DB-row delete (the cascade behavior under test).
         async def fake_delete(*, db, collection):
             repo = RagCollectionsRepository(db)
-            await repo.delete(
-                owner_id=collection.owner_id, collection_id=collection.id
-            )
+            await repo.delete(owner_id=collection.owner_id, collection_id=collection.id)
 
         self._patchers = [
             patch(
@@ -205,15 +203,11 @@ class ProjectsAPIWithCollectionTests(unittest.IsolatedAsyncioTestCase):
             result = await session.execute(select(RagCollection))
             collections = list(result.scalars().all())
             self.assertEqual(len(collections), 1)
-            self.assertEqual(
-                collections[0].metadata_.get("project_id"), data["id"]
-            )
+            self.assertEqual(collections[0].metadata_.get("project_id"), data["id"])
             self.assertEqual(str(collections[0].id), data["collection_id"])
 
     async def test_delete_project_cascades_collection(self):
-        created = self.client.post(
-            "/projects/", json={"name": "del-with-kb"}
-        ).json()
+        created = self.client.post("/projects/", json={"name": "del-with-kb"}).json()
         self.assertEqual(await self._count_collections(), 1)
 
         resp = self.client.delete(f"/projects/{created['id']}")

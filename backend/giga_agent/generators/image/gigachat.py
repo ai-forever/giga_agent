@@ -13,7 +13,11 @@ from giga_agent.connectors.gigachat_token_cache import (
     get_gigachat_access_token_uncached,
     should_skip_gigachat_token_cache,
 )
-from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_HEIGHT, DEFAULT_WIDTH
+from giga_agent.generators.image.base import (
+    BaseImageGenerator,
+    DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
+)
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.core.logging import get_logger
 

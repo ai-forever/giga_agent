@@ -73,26 +73,37 @@ class GeneratorsRouterTests(unittest.TestCase):
         }
 
     def test_create_success_for_supported_type_with_connector(self):
-        created = self._generator_obj(generator_type="openai", connector_id=uuid.uuid4())
+        created = self._generator_obj(
+            generator_type="openai", connector_id=uuid.uuid4()
+        )
 
-        with patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"model": "dall-e-3"}),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=created.connector_id),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"model": "dall-e-3"}),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=created.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/image",
@@ -109,29 +120,41 @@ class GeneratorsRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["type"], "openai")
 
     def test_create_generator_with_permissions_for_superuser(self):
-        created = self._generator_obj(generator_type="openai", connector_id=uuid.uuid4())
+        created = self._generator_obj(
+            generator_type="openai", connector_id=uuid.uuid4()
+        )
 
-        with patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"model": "dall-e-3"}),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=created.connector_id),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.generators.image.ResourcePermissionRepository.set_read_acl",
-            AsyncMock(return_value=None),
-        ) as mocked_set_acl, patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"model": "dall-e-3"}),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=created.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ResourcePermissionRepository.set_read_acl",
+                AsyncMock(return_value=None),
+            ) as mocked_set_acl,
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/image",
@@ -156,7 +179,9 @@ class GeneratorsRouterTests(unittest.TestCase):
 
         with patch(
             "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
+            return_value=types.SimpleNamespace(
+                supported_connector_types=lambda: ["openai"]
+            ),
         ) as mocked_resolve_runtime:
             response = self.client.post(
                 "/image",
@@ -183,7 +208,9 @@ class GeneratorsRouterTests(unittest.TestCase):
 
         with patch(
             "giga_agent.routes.generators.image.ImageGeneratorRepository.list_readable_with_edit_for_user",
-            AsyncMock(return_value=[(owned, True), (writable, True), (readonly, False)]),
+            AsyncMock(
+                return_value=[(owned, True), (writable, True), (readonly, False)]
+            ),
         ):
             response = self.client.get("/image")
 
@@ -199,17 +226,18 @@ class GeneratorsRouterTests(unittest.TestCase):
             "openai": types.SimpleNamespace(
                 supported_connector_types=lambda: ["openai"]
             ),
-            "fusion_brain": types.SimpleNamespace(
-                supported_connector_types=lambda: []
-            ),
+            "fusion_brain": types.SimpleNamespace(supported_connector_types=lambda: []),
         }
 
-        with patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRegistry.available_types",
-            return_value=["openai", "fusion_brain"],
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRegistry.get",
-            side_effect=lambda generator_type: runtime_map[generator_type],
+        with (
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRegistry.available_types",
+                return_value=["openai", "fusion_brain"],
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRegistry.get",
+                side_effect=lambda generator_type: runtime_map[generator_type],
+            ),
         ):
             response = self.client.get("/image/types/meta")
 
@@ -234,24 +262,33 @@ class GeneratorsRouterTests(unittest.TestCase):
     def test_create_success_for_unsupported_type_without_connector(self):
         created = self._generator_obj(generator_type="fusion_brain", connector_id=None)
 
-        with patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: []),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"api_key": "k", "secret_key": "s"}),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: []
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"api_key": "k", "secret_key": "s"}),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/image",
@@ -272,24 +309,33 @@ class GeneratorsRouterTests(unittest.TestCase):
             settings={"api_key": "xai-key", "model": "grok-imagine"},
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: []),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"api_key": "xai-key", "model": "grok-imagine"}),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: []
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"api_key": "xai-key", "model": "grok-imagine"}),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/image",
@@ -311,29 +357,38 @@ class GeneratorsRouterTests(unittest.TestCase):
             settings={"api_key": "google-key", "model": "gemini-2.5-flash-image"},
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: []),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(
-                return_value={
-                    "api_key": "google-key",
-                    "model": "gemini-2.5-flash-image",
-                }
+        with (
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: []
+                ),
             ),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(created),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(
+                    return_value={
+                        "api_key": "google-key",
+                        "model": "gemini-2.5-flash-image",
+                    }
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/image",
@@ -374,27 +429,37 @@ class GeneratorsRouterTests(unittest.TestCase):
             settings={"model": "gpt-image-1"},
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"model": "gpt-image-1"}),
-        ) as mocked_validate_settings, patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=existing.connector_id),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"model": "gpt-image-1"}),
+            ) as mocked_validate_settings,
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=existing.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/image/{generator_id}",
@@ -402,7 +467,9 @@ class GeneratorsRouterTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        mocked_validate_settings.assert_awaited_once_with("openai", {"model": "gpt-image-1"})
+        mocked_validate_settings.assert_awaited_once_with(
+            "openai", {"model": "gpt-image-1"}
+        )
 
     def test_patch_settings_uses_current_generator_type(self):
         generator_id = uuid.uuid4()
@@ -419,27 +486,37 @@ class GeneratorsRouterTests(unittest.TestCase):
             settings={"api_key": "k2", "secret_key": "s2"},
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: []),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"api_key": "k2", "secret_key": "s2"}),
-        ) as mocked_validate_settings, patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: []
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"api_key": "k2", "secret_key": "s2"}),
+            ) as mocked_validate_settings,
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/image/{generator_id}",
@@ -464,27 +541,37 @@ class GeneratorsRouterTests(unittest.TestCase):
             is_active=False,
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=existing.connector_id),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
-            AsyncMock(return_value=updated),
-        ), patch(
-            "giga_agent.routes.generators.image.clear_user_current_link_if_matches",
-            AsyncMock(return_value=True),
-        ) as mocked_clear_current, patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=existing.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+                AsyncMock(return_value=updated),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.clear_user_current_link_if_matches",
+                AsyncMock(return_value=True),
+            ) as mocked_clear_current,
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/image/{generator_id}",
@@ -495,26 +582,37 @@ class GeneratorsRouterTests(unittest.TestCase):
         mocked_clear_current.assert_awaited_once()
 
     def test_create_skips_connection_check_when_disabled(self):
-        created = self._generator_obj(generator_type="openai", connector_id=uuid.uuid4())
+        created = self._generator_obj(
+            generator_type="openai", connector_id=uuid.uuid4()
+        )
 
-        with patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_settings",
-            AsyncMock(return_value={"model": "dall-e-3"}),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=created.connector_id),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ) as mocked_check, patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
-            AsyncMock(return_value=created),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(created),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_settings",
+                AsyncMock(return_value={"model": "dall-e-3"}),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=created.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ) as mocked_check,
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.create",
+                AsyncMock(return_value=created),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(created),
+            ),
         ):
             response = self.client.post(
                 "/image",
@@ -538,22 +636,30 @@ class GeneratorsRouterTests(unittest.TestCase):
             is_active=True,
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=existing.connector_id),
-        ), patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=existing.connector_id),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(side_effect=HTTPException(status_code=422, detail="boom")),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/image/{generator_id}",
                 json={"name": "updated"},
@@ -576,24 +682,33 @@ class GeneratorsRouterTests(unittest.TestCase):
         )
         updated.name = None
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=None),
-        ) as mocked_validate_connector, patch(
-            "giga_agent.routes.generators.image._check_connection_or_http_error",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
-            AsyncMock(return_value=updated),
-        ) as mocked_update, patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
-            return_value=self._response_payload(updated),
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=None),
+            ) as mocked_validate_connector,
+            patch(
+                "giga_agent.routes.generators.image._check_connection_or_http_error",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+                AsyncMock(return_value=updated),
+            ) as mocked_update,
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.to_response",
+                return_value=self._response_payload(updated),
+            ),
         ):
             response = self.client.patch(
                 f"/image/{generator_id}",
@@ -615,19 +730,26 @@ class GeneratorsRouterTests(unittest.TestCase):
             connector_id=None,
         )
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image._resolve_runtime_cls",
-            return_value=types.SimpleNamespace(supported_connector_types=lambda: ["openai"]),
-        ), patch(
-            "giga_agent.routes.generators.image._validate_connector_link",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
-            AsyncMock(),
-        ) as mocked_update:
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._resolve_runtime_cls",
+                return_value=types.SimpleNamespace(
+                    supported_connector_types=lambda: ["openai"]
+                ),
+            ),
+            patch(
+                "giga_agent.routes.generators.image._validate_connector_link",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.update",
+                AsyncMock(),
+            ) as mocked_update,
+        ):
             response = self.client.patch(
                 f"/image/{generator_id}",
                 json={"is_active": None},
@@ -644,16 +766,20 @@ class GeneratorsRouterTests(unittest.TestCase):
         generator_id = uuid.uuid4()
         existing = self._generator_obj(generator_id=generator_id)
 
-        with patch(
-            "giga_agent.routes.generators.image._get_generator_with_write_check",
-            AsyncMock(return_value=existing),
-        ), patch(
-            "giga_agent.routes.generators.image.ImageGeneratorRepository.delete",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.generators.image.clear_user_current_link_if_matches",
-            AsyncMock(return_value=True),
-        ) as mocked_clear_current:
+        with (
+            patch(
+                "giga_agent.routes.generators.image._get_generator_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.ImageGeneratorRepository.delete",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.generators.image.clear_user_current_link_if_matches",
+                AsyncMock(return_value=True),
+            ) as mocked_clear_current,
+        ):
             response = self.client.delete(f"/image/{generator_id}")
 
         self.assertEqual(response.status_code, 204)

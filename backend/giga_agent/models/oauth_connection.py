@@ -49,9 +49,7 @@ class OAuthConnection(Base):
 
     __tablename__ = "core_oauth_connections"
     __table_args__ = (
-        UniqueConstraint(
-            "user_id", "provider_key", name="uq_oauth_conn_user_provider"
-        ),
+        UniqueConstraint("user_id", "provider_key", name="uq_oauth_conn_user_provider"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

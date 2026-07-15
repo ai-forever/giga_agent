@@ -14,7 +14,6 @@ from giga_agent.memory.backends.base import (
     MemoryBackend,
     MemoryFileDTO,
     MemoryFileExistsError,
-    MemoryFileNotFoundError,
 )
 from giga_agent.memory.chunking import chunk_text
 from giga_agent.memory.frontmatter import (
@@ -202,9 +201,7 @@ class MemoryService:
     async def get(self, path: str) -> MemoryFileDTO | None:
         return await self._backend.get(owner_id=self._owner_id, path=path)
 
-    async def create(
-        self, *, path: str, content: str
-    ) -> WriteResult:
+    async def create(self, *, path: str, content: str) -> WriteResult:
         parsed = parse_memory_path(path)
         validate_size(content, path=path)
         normalized, repaired, repaired_desc = await ensure_description(
@@ -229,9 +226,7 @@ class MemoryService:
             repaired_description=repaired_desc,
         )
 
-    async def update(
-        self, *, path: str, content: str
-    ) -> WriteResult:
+    async def update(self, *, path: str, content: str) -> WriteResult:
         parsed = parse_memory_path(path)
         validate_size(content, path=path)
         normalized, repaired, repaired_desc = await ensure_description(
@@ -431,9 +426,7 @@ class MemoryService:
         else:
             flt = qmodels.Filter(
                 must=must,
-                min_should=qmodels.MinShould(
-                    conditions=scope_conditions, min_count=1
-                ),
+                min_should=qmodels.MinShould(conditions=scope_conditions, min_count=1),
             )
 
         resp = await qdrant_call(
@@ -487,14 +480,9 @@ class MemoryService:
             pass
         return rows
 
-    def _list_cache_key(
-        self, tags_sorted: list[str], include_global: bool
-    ) -> str:
+    def _list_cache_key(self, tags_sorted: list[str], include_global: bool) -> str:
         tag_part = ",".join(tags_sorted) if tags_sorted else "_"
-        return (
-            f"memory:list_visible:{self._owner_id}:{tag_part}:"
-            f"{int(include_global)}"
-        )
+        return f"memory:list_visible:{self._owner_id}:{tag_part}:{int(include_global)}"
 
     async def _invalidate_cache(self) -> None:
         try:

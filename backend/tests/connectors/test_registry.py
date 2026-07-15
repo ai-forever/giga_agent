@@ -34,7 +34,9 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(settings["base_url"], "https://api.openai.com/v1")
 
         kwargs = ConnectorRegistry.get_connection_kwargs("openai", settings)
-        self.assertEqual(kwargs, {"api_key": "sk-test", "base_url": "https://api.openai.com/v1"})
+        self.assertEqual(
+            kwargs, {"api_key": "sk-test", "base_url": "https://api.openai.com/v1"}
+        )
 
     async def test_openai_validate_requires_key_when_env_missing(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -45,7 +47,11 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await ConnectorRegistry.validate_settings(
                 "gigachat",
-                {"gigachat_api_type": "dev", "gigachat_username": "u", "gigachat_password": "p"},
+                {
+                    "gigachat_api_type": "dev",
+                    "gigachat_username": "u",
+                    "gigachat_password": "p",
+                },
             )
 
     async def test_gigachat_validate_accepts_short_aliases(self):
@@ -72,7 +78,9 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_gigachat_validate_rejects_preview_api_type(self):
-        with self.assertRaisesRegex(ValueError, "gigachat_api_type must be one of: prod, dev"):
+        with self.assertRaisesRegex(
+            ValueError, "gigachat_api_type must be one of: prod, dev"
+        ):
             await ConnectorRegistry.validate_settings(
                 "gigachat",
                 {"gigachat_api_type": "preview", "gigachat_credentials": "token"},
@@ -117,7 +125,7 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         ):
             reset_settings_cache()
             connector = GigaChatConnector()
-            mock_llm = Mock(model='GigaChat', verify_ssl_certs=False, streaming=True)
+            mock_llm = Mock(model="GigaChat", verify_ssl_certs=False, streaming=True)
             with patch(
                 "giga_agent.connectors.gigachat.GigaChat",
                 return_value=mock_llm,
@@ -125,7 +133,9 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
                 result = connector.get_api_object()
 
         self.assertIs(result, mock_llm)
-        mocked_llm.assert_called_once_with(model='GigaChat', verify_ssl_certs=False, streaming=True)
+        mocked_llm.assert_called_once_with(
+            model="GigaChat", verify_ssl_certs=False, streaming=True
+        )
 
     async def test_gigachat_check_connection_uses_plain_client_in_env_mode(self):
         with patch.dict(
@@ -164,7 +174,9 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.base_url, "https://api.openai.com/v1")
 
     async def test_openai_check_connection_uses_models_list(self):
-        connector = OpenAIConnector(api_key="sk-test", base_url="https://api.openai.com/v1")
+        connector = OpenAIConnector(
+            api_key="sk-test", base_url="https://api.openai.com/v1"
+        )
         mock_client = AsyncMock()
         mock_client.models.list = AsyncMock(return_value=[])
         with patch(

@@ -38,7 +38,9 @@ def build_widget_tool_message(
     Флаг сохраняется сквозь ``process_tool_result`` (пересборка ToolMessage) и
     connector-роутинг (``ToolCallOutcome.response_widget``).
     """
-    content = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    content = (
+        payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+    )
     return ToolMessage(
         content=content,
         tool_call_id=runtime.tool_call_id,

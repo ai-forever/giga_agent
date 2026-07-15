@@ -74,9 +74,7 @@ class RagModule(BaseModule):
         else:
             factory = await get_session_factory()
             async with factory() as session:
-                rows = await RagCollectionsRepository(session).list_by_owner(
-                    user.id
-                )
+                rows = await RagCollectionsRepository(session).list_by_owner(user.id)
             collections = [
                 {
                     "uuid": str(r.id),

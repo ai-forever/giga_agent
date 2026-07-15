@@ -87,9 +87,9 @@ class IdleSandboxSweeper:
                     stopped_count = len(stopped)
                     reconciled_count = len(reconciled)
                     if stopped_count > 0:
-                        SANDBOX_EVENTS.labels(
-                            provider="all", event="idle_stopped"
-                        ).inc(stopped_count)
+                        SANDBOX_EVENTS.labels(provider="all", event="idle_stopped").inc(
+                            stopped_count
+                        )
                         logger.info(
                             "Idle sandbox sweeper stopped %s sandbox(es)",
                             stopped_count,

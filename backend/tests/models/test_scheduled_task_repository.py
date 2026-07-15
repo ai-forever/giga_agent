@@ -94,7 +94,9 @@ class ScheduledTaskRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 await conn.run_sync(Base.metadata.create_all)
 
             async with factory() as session:
-                user = User(email="race@example.com", hashed_password="h", is_active=True)
+                user = User(
+                    email="race@example.com", hashed_password="h", is_active=True
+                )
                 session.add(user)
                 await session.commit()
                 await session.refresh(user)

@@ -119,7 +119,9 @@ class ShellManager:
 
         self._gc()
 
-        cwd = (working_directory or self._settings.workdir).strip() or self._settings.workdir
+        cwd = (
+            working_directory or self._settings.workdir
+        ).strip() or self._settings.workdir
         shell_id = uuid.uuid4().hex
         session_dir = self._root / shell_id
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -234,7 +236,9 @@ class ShellManager:
             if compiled is not None:
                 size = session.output_size()
                 if size > scan_offset:
-                    chunk, _ = self._read_range(session.output_path, scan_offset, size, cap)
+                    chunk, _ = self._read_range(
+                        session.output_path, scan_offset, size, cap
+                    )
                     scan_offset = size
                     tail = (tail + chunk)[-cap:]
                 matched = compiled.search(tail) is not None
@@ -248,14 +252,16 @@ class ShellManager:
             await asyncio.sleep(_POLL_INTERVAL_SEC)
 
         end_offset = session.output_size()
-        delta, truncated = self._read_range(session.output_path, start_offset, end_offset, cap)
+        delta, truncated = self._read_range(
+            session.output_path, start_offset, end_offset, cap
+        )
         session.last_delivered_offset = end_offset
 
-        read_full_log_hint = (
-            f"Если нужен весь лог — прочитай output.log через /v1/files: {session.output_path}"
-        )
+        read_full_log_hint = f"Если нужен весь лог — прочитай output.log через /v1/files: {session.output_path}"
         if truncated:
-            read_full_log_hint = f"{self._truncation_note(session.output_path)} {read_full_log_hint}"
+            read_full_log_hint = (
+                f"{self._truncation_note(session.output_path)} {read_full_log_hint}"
+            )
         if session.log_capped:
             read_full_log_hint = f"{self._cap_note()} {read_full_log_hint}"
 
@@ -390,9 +396,7 @@ class ShellManager:
 
     def _truncation_note(self, output_path: str) -> str:
         mb = max(1, self._settings.max_inline_read_bytes // (1024 * 1024))
-        return (
-            f"Вывод усечён до последних ~{mb} МБ; полный лог через /v1/files: {output_path}."
-        )
+        return f"Вывод усечён до последних ~{mb} МБ; полный лог через /v1/files: {output_path}."
 
     def _gc(self) -> None:
         """Удалить завершённые сессии старше TTL и сверх лимита количества

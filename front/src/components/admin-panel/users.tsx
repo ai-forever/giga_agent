@@ -19,6 +19,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableMultiSelect } from "@/components/ui/searchable-select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -37,7 +44,7 @@ type UserFormState = {
   first_name: string;
   last_name: string;
   is_active: boolean;
-  is_superuser: boolean;
+  role: "owner" | "admin" | "member";
   experimental_mode: boolean;
   group_ids: string[];
   copy_owner_runtime_ids: boolean;
@@ -50,7 +57,7 @@ const initialFormState: UserFormState = {
   first_name: "",
   last_name: "",
   is_active: true,
-  is_superuser: false,
+  role: "member",
   experimental_mode: true,
   group_ids: [],
   copy_owner_runtime_ids: false,
@@ -103,9 +110,33 @@ const AdminUsersTab: React.FC = () => {
     }
   }, []);
 
+  // Потребление LLM за 30 дней (страница «Команда»): user_id → агрегат.
+  const [usageByUser, setUsageByUser] = useState<
+    Record<
+      string,
+      { requests: number; input_tokens: number; output_tokens: number }
+    >
+  >({});
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const data = await apiClient.get<{
+        users: {
+          user_id: string;
+          requests: number;
+          input_tokens: number;
+          output_tokens: number;
+        }[];
+      }>(`${API_AGENT_PREFIX}/auth/team/usage?days=30`);
+      setUsageByUser(Object.fromEntries(data.users.map((u) => [u.user_id, u])));
+    } catch {
+      // Не критично для списка пользователей.
+    }
+  }, []);
+
   useEffect(() => {
-    void Promise.all([fetchUsers(), fetchGroups()]);
-  }, [fetchUsers, fetchGroups]);
+    void Promise.all([fetchUsers(), fetchGroups(), fetchUsage()]);
+  }, [fetchUsers, fetchGroups, fetchUsage]);
 
   const groupOptions = useMemo(
     () =>
@@ -144,7 +175,7 @@ const AdminUsersTab: React.FC = () => {
         first_name: form.first_name || null,
         last_name: form.last_name || null,
         is_active: form.is_active,
-        is_superuser: form.is_superuser,
+        role: form.role,
         ...(EXPERIMENTAL_MODE
           ? { experimental_mode: form.experimental_mode }
           : {}),
@@ -194,8 +225,8 @@ const AdminUsersTab: React.FC = () => {
       first_name: user.first_name ?? "",
       last_name: user.last_name ?? "",
       is_active: user.is_active,
-      is_superuser: user.is_superuser,
       experimental_mode: user.experimental_mode,
+      role: user.role ?? (user.is_superuser ? "admin" : "member"),
       group_ids: [],
       copy_owner_runtime_ids: false,
       copy_owner_module_secrets: false,
@@ -212,7 +243,7 @@ const AdminUsersTab: React.FC = () => {
       first_name: editForm.first_name || null,
       last_name: editForm.last_name || null,
       is_active: editForm.is_active,
-      is_superuser: editForm.is_superuser,
+      role: editForm.role,
     };
 
     if (EXPERIMENTAL_MODE) {
@@ -292,6 +323,7 @@ const AdminUsersTab: React.FC = () => {
                 <TableHead>Имя</TableHead>
                 <TableHead>Роль</TableHead>
                 <TableHead>Статус</TableHead>
+                <TableHead>Токены (30д)</TableHead>
                 <TableHead className="text-right">Действия</TableHead>
               </TableRow>
             </TableHeader>
@@ -312,13 +344,34 @@ const AdminUsersTab: React.FC = () => {
                     <TableCell>{fullName || "-"}</TableCell>
                     <TableCell>
                       <Badge variant={u.is_superuser ? "default" : "outline"}>
-                        {u.is_superuser ? "Admin" : "User"}
+                        {u.role ?? (u.is_superuser ? "admin" : "member")}
                       </Badge>
                     </TableCell>
                     <TableCell>
                       <Badge variant={u.is_active ? "default" : "secondary"}>
                         {u.is_active ? "Активен" : "Неактивен"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const usage = usageByUser[u.id];
+                        if (!usage) {
+                          return (
+                            <span className="text-muted-foreground">—</span>
+                          );
+                        }
+                        const total = usage.input_tokens + usage.output_tokens;
+                        return (
+                          <span
+                            title={`Запросов: ${usage.requests} · вход: ${usage.input_tokens.toLocaleString("ru-RU")} · выход: ${usage.output_tokens.toLocaleString("ru-RU")}`}
+                          >
+                            {total.toLocaleString("ru-RU")}
+                            <span className="text-xs text-muted-foreground ml-1">
+                              ({usage.requests} запр.)
+                            </span>
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -441,14 +494,22 @@ const AdminUsersTab: React.FC = () => {
                 Активен
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={form.is_superuser}
-                  onCheckedChange={(checked) =>
-                    setForm({ ...form, is_superuser: checked })
+                Роль
+                <Select
+                  value={form.role}
+                  onValueChange={(v) =>
+                    setForm({ ...form, role: v as UserFormState["role"] })
                   }
                   disabled={creating}
-                />
-                Суперпользователь
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member">Участник (member)</SelectItem>
+                    <SelectItem value="admin">Администратор (admin)</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
               {EXPERIMENTAL_MODE && (
                 <label className="flex items-center gap-2 text-sm">
@@ -643,14 +704,34 @@ const AdminUsersTab: React.FC = () => {
                 Активен
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <Switch
-                  checked={editForm.is_superuser}
-                  onCheckedChange={(checked) =>
-                    setEditForm({ ...editForm, is_superuser: checked })
+                Роль
+                <Select
+                  value={editForm.role}
+                  onValueChange={(v) =>
+                    setEditForm({
+                      ...editForm,
+                      role: v as UserFormState["role"],
+                    })
                   }
-                  disabled={updating || editingUserId === currentUser?.id}
-                />
-                Суперпользователь
+                  disabled={
+                    updating ||
+                    editingUserId === currentUser?.id ||
+                    // Роль owner'а меняется только передачей владения —
+                    // здесь показываем её как есть, без редактирования.
+                    editForm.role === "owner"
+                  }
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editForm.role === "owner" && (
+                      <SelectItem value="owner">Владелец (owner)</SelectItem>
+                    )}
+                    <SelectItem value="member">Участник (member)</SelectItem>
+                    <SelectItem value="admin">Администратор (admin)</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
               {EXPERIMENTAL_MODE && (
                 <label className="flex items-center gap-2 text-sm">

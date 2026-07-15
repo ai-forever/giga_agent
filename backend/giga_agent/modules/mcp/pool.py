@@ -79,7 +79,9 @@ class SessionHandle:
     async def _raw_list_tools(self) -> Any:  # pragma: no cover - abstract
         raise NotImplementedError
 
-    async def _raw_call_tool(self, name: str, args: dict[str, Any], timeout: float) -> Any:  # pragma: no cover
+    async def _raw_call_tool(
+        self, name: str, args: dict[str, Any], timeout: float
+    ) -> Any:  # pragma: no cover
         raise NotImplementedError
 
     async def _raw_read_resource(self, uri: str) -> Any:  # pragma: no cover
@@ -118,11 +120,15 @@ class _DirectHandle(SessionHandle):
     async def _raw_list_tools(self) -> Any:
         return await asyncio.wait_for(self._session.list_tools(), _OPERATION_TIMEOUT)
 
-    async def _raw_call_tool(self, name: str, args: dict[str, Any], timeout: float) -> Any:
+    async def _raw_call_tool(
+        self, name: str, args: dict[str, Any], timeout: float
+    ) -> Any:
         return await asyncio.wait_for(self._session.call_tool(name, args), timeout)
 
     async def _raw_read_resource(self, uri: str) -> Any:
-        return await asyncio.wait_for(self._session.read_resource(uri), _OPERATION_TIMEOUT)
+        return await asyncio.wait_for(
+            self._session.read_resource(uri), _OPERATION_TIMEOUT
+        )
 
 
 class _WorkerHandle(SessionHandle):
@@ -168,7 +174,9 @@ class _WorkerHandle(SessionHandle):
             _OPERATION_TIMEOUT + 5,
         )
 
-    async def _raw_call_tool(self, name: str, args: dict[str, Any], timeout: float) -> Any:
+    async def _raw_call_tool(
+        self, name: str, args: dict[str, Any], timeout: float
+    ) -> Any:
         # No inner wait_for: the handle enforces the timeout and poisons the
         # worker on expiry (cancelling the in-flight call_tool).
         return await self._submit(lambda s: s.call_tool(name, args), timeout)

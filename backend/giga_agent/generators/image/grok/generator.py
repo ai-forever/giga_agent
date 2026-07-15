@@ -68,7 +68,9 @@ class GrokImagineImageGen(BaseImageGenerator):
             raise RuntimeError("GrokImagineImageGen is not initialized. Call init().")
 
         payload = self._build_payload(prompt=prompt, **kwargs)
-        endpoint = "/images/edits" if kwargs.get("input_images") else "/images/generations"
+        endpoint = (
+            "/images/edits" if kwargs.get("input_images") else "/images/generations"
+        )
 
         attempt = 0
         while True:
@@ -155,7 +157,9 @@ class GrokImagineImageGen(BaseImageGenerator):
         raise RuntimeError("xAI response does not contain image data")
 
     async def _download_image_as_b64(self, image_url: str) -> str:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=self._timeout) as client:
+        async with httpx.AsyncClient(
+            follow_redirects=True, timeout=self._timeout
+        ) as client:
             response = await client.get(image_url)
             response.raise_for_status()
             return base64.b64encode(response.content).decode("ascii")

@@ -40,7 +40,9 @@ class RecipientResolutionTests(unittest.IsolatedAsyncioTestCase):
             await chan.set_contact_fields_by_external_id(
                 bot_id=bot.id, external_chat_id="11", is_approved=True
             )
-            await chan.upsert_contact(bot_id=bot.id, external_chat_id="22")  # not approved
+            await chan.upsert_contact(
+                bot_id=bot.id, external_chat_id="22"
+            )  # not approved
 
             foreign_bot = await chan.create(user_id=other.id, channel_type="telegram")
             cf = await chan.upsert_contact(bot_id=foreign_bot.id, external_chat_id="99")

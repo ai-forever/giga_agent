@@ -194,7 +194,9 @@ Use this skill.
 
         self.assertIn("name: summarize", body)
         self.assertEqual(files, ["SKILL.md", "scripts/run.py"])
-        self.assertEqual(sandbox_path, str((skill_dir / "scripts" / "run.py").resolve()))
+        self.assertEqual(
+            sandbox_path, str((skill_dir / "scripts" / "run.py").resolve())
+        )
         self.assertFalse(exists_after_delete)
 
     async def test_up_uses_singleton_manager_handle(self):

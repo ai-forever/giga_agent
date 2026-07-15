@@ -52,13 +52,16 @@ class SandboxRedirectRouterTests(unittest.TestCase):
 
     @contextmanager
     def _patched_backend(self, *, owner_id):
-        with patch(
-            "giga_agent.routes.sandbox_redirect.SandboxRepository."
-            "get_owner_id_by_sandbox_cached",
-            AsyncMock(return_value=owner_id),
-        ), patch(
-            "giga_agent.routes.sandbox_redirect.mint_sandbox_access_token",
-            AsyncMock(return_value="TESTTOKEN"),
+        with (
+            patch(
+                "giga_agent.routes.sandbox_redirect.SandboxRepository."
+                "get_owner_id_by_sandbox_cached",
+                AsyncMock(return_value=owner_id),
+            ),
+            patch(
+                "giga_agent.routes.sandbox_redirect.mint_sandbox_access_token",
+                AsyncMock(return_value="TESTTOKEN"),
+            ),
         ):
             yield
 
@@ -73,41 +76,46 @@ class SandboxRedirectRouterTests(unittest.TestCase):
 
     def test_no_session_returns_401(self):
         # No get_current_active_user override → real cookie auth runs; no cookie.
-        with self._patched_env(
-            {"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}
-        ), self._patched_backend(owner_id=self.owner_id):
+        with (
+            self._patched_env({"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}),
+            self._patched_backend(owner_id=self.owner_id),
+        ):
             resp = self.client.get(f"/sandbox-redirect/{HEX}/{PORT}")
         self.assertEqual(resp.status_code, 401)
 
     def test_not_owner_returns_403(self):
         self._override_user(self.user)
-        with self._patched_env(
-            {"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}
-        ), self._patched_backend(owner_id=uuid.uuid4()):  # different owner
+        with (
+            self._patched_env({"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}),
+            self._patched_backend(owner_id=uuid.uuid4()),
+        ):  # different owner
             resp = self.client.get(f"/sandbox-redirect/{HEX}/{PORT}")
         self.assertEqual(resp.status_code, 403)
 
     def test_unknown_sandbox_returns_404(self):
         self._override_user(self.user)
-        with self._patched_env(
-            {"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}
-        ), self._patched_backend(owner_id=None):
+        with (
+            self._patched_env({"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}),
+            self._patched_backend(owner_id=None),
+        ):
             resp = self.client.get(f"/sandbox-redirect/{HEX}/{PORT}")
         self.assertEqual(resp.status_code, 404)
 
     def test_bad_hex_returns_404(self):
         self._override_user(self.user)
-        with self._patched_env(
-            {"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}
-        ), self._patched_backend(owner_id=self.owner_id):
+        with (
+            self._patched_env({"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "gigapp.ru"}),
+            self._patched_backend(owner_id=self.owner_id),
+        ):
             resp = self.client.get(f"/sandbox-redirect/not-a-hex/{PORT}")
         self.assertEqual(resp.status_code, 404)
 
     def test_owner_gets_302_to_sandbox_with_token(self):
         self._override_user(self.user)
-        with self._patched_env(
-            {"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "GigApp.RU."}
-        ), self._patched_backend(owner_id=self.owner_id):
+        with (
+            self._patched_env({"GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE": "GigApp.RU."}),
+            self._patched_backend(owner_id=self.owner_id),
+        ):
             resp = self.client.get(f"/sandbox-redirect/{HEX}/{PORT}")
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(

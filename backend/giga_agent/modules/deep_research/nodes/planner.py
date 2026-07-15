@@ -6,6 +6,7 @@
 LLM вызывается через `bind_tools(submit_plan)` с `parallel_tool_calls=False`,
 как в существующих субагентах (landing_agent/graph.py).
 """
+
 from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder

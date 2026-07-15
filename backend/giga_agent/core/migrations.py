@@ -65,8 +65,7 @@ def _get_module_target_prefix(mod: BaseModule) -> str:
 def _validate_module_id(module_id: str) -> None:
     if not _MODULE_ID_RE.fullmatch(module_id):
         raise ModuleMigrationScopeError(
-            "Module migration scope id must match ^[a-z0-9_]+$: "
-            f"got '{module_id}'."
+            f"Module migration scope id must match ^[a-z0-9_]+$: got '{module_id}'."
         )
 
 
@@ -159,7 +158,7 @@ def wait_for_db(db_url: str, retries: int = 15, delay: int = 2) -> None:
             logger.info("Database is ready!")
             return
         except OperationalError:
-            logger.info(f"Database not ready yet. Retrying {i+1}/{retries}...")
+            logger.info(f"Database not ready yet. Retrying {i + 1}/{retries}...")
             time.sleep(delay)
         except Exception as e:
             logger.error(f"Error checking DB: {e}")

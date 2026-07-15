@@ -14,7 +14,9 @@ from giga_agent.models.users import User, UserShort
 
 class Group(Base):
     __tablename__ = "core_groups"
-    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_core_groups_owner_name"),)
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_core_groups_owner_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, index=True, default=uuid.uuid4
@@ -27,7 +29,9 @@ class Group(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
-    data: Mapped[dict | None] = mapped_column(JSON_VARIANT(), nullable=True, default=None)
+    data: Mapped[dict | None] = mapped_column(
+        JSON_VARIANT(), nullable=True, default=None
+    )
     permissions: Mapped[dict | None] = mapped_column(
         JSON_VARIANT(), nullable=True, default=None
     )
@@ -44,13 +48,17 @@ class GroupMember(Base):
 
     group_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
-        ForeignKey("core_groups.id", name="fk_core_group_members_group_id", ondelete="CASCADE"),
+        ForeignKey(
+            "core_groups.id", name="fk_core_group_members_group_id", ondelete="CASCADE"
+        ),
         primary_key=True,
         index=True,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid,
-        ForeignKey("core_users.id", name="fk_core_group_members_user_id", ondelete="CASCADE"),
+        ForeignKey(
+            "core_users.id", name="fk_core_group_members_user_id", ondelete="CASCADE"
+        ),
         primary_key=True,
         index=True,
     )
@@ -152,19 +160,23 @@ class GroupRepository:
         )
         return {row[0]: row[1] for row in result.all()}
 
-    async def get_existing_group_ids(self, group_ids: list[uuid.UUID]) -> list[uuid.UUID]:
+    async def get_existing_group_ids(
+        self, group_ids: list[uuid.UUID]
+    ) -> list[uuid.UUID]:
         normalized_group_ids = list(dict.fromkeys(group_ids))
         if not normalized_group_ids:
             return []
 
-        result = await self.db.execute(select(Group.id).where(Group.id.in_(normalized_group_ids)))
+        result = await self.db.execute(
+            select(Group.id).where(Group.id.in_(normalized_group_ids))
+        )
         return [row[0] for row in result.all()]
 
     async def get_group_users(self, group_id: uuid.UUID) -> list[UserShort]:
         result = await self.db.execute(
-            select(User).join(GroupMember, GroupMember.user_id == User.id).where(
-                GroupMember.group_id == group_id
-            )
+            select(User)
+            .join(GroupMember, GroupMember.user_id == User.id)
+            .where(GroupMember.group_id == group_id)
         )
         users = list(result.scalars().all())
         return [UserShort.model_validate(user) for user in users]
@@ -193,7 +205,9 @@ class GroupRepository:
         )
         existing_user_ids = {row[0] for row in existing_users_result.all()}
         if len(existing_user_ids) != len(normalized_user_ids):
-            missing = [uid for uid in normalized_user_ids if uid not in existing_user_ids]
+            missing = [
+                uid for uid in normalized_user_ids if uid not in existing_user_ids
+            ]
             missing_str = ", ".join(str(uid) for uid in missing)
             raise ValueError(f"Users not found: {missing_str}")
 
@@ -233,4 +247,6 @@ class GroupRepository:
 
     @staticmethod
     def to_response(group: Group, *, users_count: int = 0) -> GroupResponse:
-        return GroupResponse.model_validate(group).model_copy(update={"users_count": users_count})
+        return GroupResponse.model_validate(group).model_copy(
+            update={"users_count": users_count}
+        )

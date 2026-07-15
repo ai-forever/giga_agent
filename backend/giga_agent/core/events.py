@@ -1,11 +1,15 @@
 from typing import Callable, Type, Awaitable, Dict, List
 from pydantic import BaseModel
 
+
 class BaseEvent(BaseModel):
     """Base class for all application events."""
+
     pass
 
+
 EventHandler = Callable[[BaseEvent], Awaitable[None]]
+
 
 class EventBus:
     def __init__(self):
@@ -22,10 +26,10 @@ class EventBus:
         """
         event_type = type(event)
         handlers = self._subscribers.get(event_type, [])
-        
+
         for handler in handlers:
             await handler(event)
 
+
 # Global event bus instance
 event_bus = EventBus()
-

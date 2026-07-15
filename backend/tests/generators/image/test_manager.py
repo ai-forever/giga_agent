@@ -68,19 +68,24 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             async def init(self):
                 captured["initialized"] = True
 
-        with patch(
-            "giga_agent.generators.image.manager.ImageGeneratorRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.generators.image.manager.ImageGeneratorRegistry.get",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.generators.image.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.generators.image.manager.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=fake_connector_runtime),
-        ) as mocked_get_runtime:
+        with (
+            patch(
+                "giga_agent.generators.image.manager.ImageGeneratorRepository.get_cached_or_db",
+                AsyncMock(return_value=record),
+            ),
+            patch(
+                "giga_agent.generators.image.manager.ImageGeneratorRegistry.get",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.generators.image.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.generators.image.manager.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=fake_connector_runtime),
+            ) as mocked_get_runtime,
+        ):
             generator = await ImageGeneratorManager.resolve_by_id(
                 gen_id,
                 session=session,
@@ -116,15 +121,19 @@ class ImageGeneratorManagerTests(unittest.IsolatedAsyncioTestCase):
             def supported_connector_types(cls) -> list[str]:
                 return ["openai"]
 
-        with patch(
-            "giga_agent.generators.image.manager.ImageGeneratorRepository.get_cached_or_db",
-            AsyncMock(return_value=record),
-        ), patch(
-            "giga_agent.generators.image.manager.ImageGeneratorRegistry.get",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.generators.image.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
+        with (
+            patch(
+                "giga_agent.generators.image.manager.ImageGeneratorRepository.get_cached_or_db",
+                AsyncMock(return_value=record),
+            ),
+            patch(
+                "giga_agent.generators.image.manager.ImageGeneratorRegistry.get",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.generators.image.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "not supported"):
                 await ImageGeneratorManager.resolve_by_id(gen_id, session=session)

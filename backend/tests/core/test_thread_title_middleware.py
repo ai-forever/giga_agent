@@ -21,12 +21,15 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         }
 
         update = AsyncMock()
-        with patch(
-            "giga_agent.middlewares.thread_title.get_thread_metadata",
-            AsyncMock(return_value={"thread_title": "Уже есть"}),
-        ), patch(
-            "giga_agent.middlewares.thread_title.update_thread_metadata",
-            update,
+        with (
+            patch(
+                "giga_agent.middlewares.thread_title.get_thread_metadata",
+                AsyncMock(return_value={"thread_title": "Уже есть"}),
+            ),
+            patch(
+                "giga_agent.middlewares.thread_title.update_thread_metadata",
+                update,
+            ),
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
 
@@ -64,16 +67,20 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
         update = AsyncMock()
-        with patch(
-            "giga_agent.middlewares.thread_title.get_thread_metadata",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.middlewares.thread_title.update_thread_metadata",
-            update,
-        ), patch.object(
-            RuntimeResolver,
-            "get_fast_llm_runtime",
-            AsyncMock(return_value=llm_runtime),
+        with (
+            patch(
+                "giga_agent.middlewares.thread_title.get_thread_metadata",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "giga_agent.middlewares.thread_title.update_thread_metadata",
+                update,
+            ),
+            patch.object(
+                RuntimeResolver,
+                "get_fast_llm_runtime",
+                AsyncMock(return_value=llm_runtime),
+            ),
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
 
@@ -111,16 +118,20 @@ class ThreadTitleMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         llm_runtime = types.SimpleNamespace(get_llm=AsyncMock(return_value=llm))
 
         update = AsyncMock()
-        with patch(
-            "giga_agent.middlewares.thread_title.get_thread_metadata",
-            AsyncMock(return_value={}),
-        ), patch(
-            "giga_agent.middlewares.thread_title.update_thread_metadata",
-            update,
-        ), patch.object(
-            RuntimeResolver,
-            "get_fast_llm_runtime",
-            AsyncMock(return_value=llm_runtime),
+        with (
+            patch(
+                "giga_agent.middlewares.thread_title.get_thread_metadata",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "giga_agent.middlewares.thread_title.update_thread_metadata",
+                update,
+            ),
+            patch.object(
+                RuntimeResolver,
+                "get_fast_llm_runtime",
+                AsyncMock(return_value=llm_runtime),
+            ),
         ):
             await middleware.before_agent(state, runtime=AsyncMock(), config=config)
 

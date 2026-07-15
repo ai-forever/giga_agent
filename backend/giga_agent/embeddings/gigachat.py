@@ -82,7 +82,9 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
     async def _create_embeddings(self) -> GigaChatEmbeddings:
         connection_kwargs = self.connector.get_connection_kwargs()
         if connection_kwargs is None:
-            raise ValueError("Invalid connection settings for GigaChat embedding runtime")
+            raise ValueError(
+                "Invalid connection settings for GigaChat embedding runtime"
+            )
         settings = self._settings_payload()
         client_kwargs: dict[str, Any] = {
             "model": self.model_id,

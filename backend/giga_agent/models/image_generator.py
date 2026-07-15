@@ -89,6 +89,7 @@ class ImageGeneratorResponse(ImageGeneratorBase):
 
 class ImageGeneratorRepository(ACLResourceRepositoryMixin[ImageGenerator]):
     """Repository for image generators."""
+
     resource_model = ImageGenerator
     resource_type = "image_generator"
 
@@ -238,7 +239,9 @@ class ImageGeneratorRepository(ACLResourceRepositoryMixin[ImageGenerator]):
         resource_ids: list[uuid.UUID],
         user_group_ids: list[uuid.UUID] | None = None,
     ) -> set[uuid.UUID]:
-        return await ResourcePermissionRepository(self.db).list_resource_ids_with_access(
+        return await ResourcePermissionRepository(
+            self.db
+        ).list_resource_ids_with_access(
             user_id=user_id,
             resource_type="image_generator",
             resource_ids=resource_ids,

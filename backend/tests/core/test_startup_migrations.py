@@ -37,15 +37,19 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
             async def _run_hooks(*_args, **_kwargs):
                 call_order.append("hooks")
 
-            with patch.object(
-                BaseAgent,
-                "run_startup_migrations",
-                AsyncMock(side_effect=_run_migrations),
-            ) as run_migrations, patch.object(
-                BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
-            ) as run_hooks, patch(
-                "giga_agent.channels.manager.get_channel_manager",
-                return_value=channel_manager,
+            with (
+                patch.object(
+                    BaseAgent,
+                    "run_startup_migrations",
+                    AsyncMock(side_effect=_run_migrations),
+                ) as run_migrations,
+                patch.object(
+                    BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
+                ) as run_hooks,
+                patch(
+                    "giga_agent.channels.manager.get_channel_manager",
+                    return_value=channel_manager,
+                ),
             ):
                 async with agent.app.router.lifespan_context(agent.app):
                     pass
@@ -63,15 +67,17 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(
             os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
         ):
-            with patch.object(
-                BaseAgent,
-                "run_startup_migrations",
-                AsyncMock(side_effect=RuntimeError("boom")),
-            ), patch.object(
-                BaseAgent, "run_startup_hooks", AsyncMock()
-            ) as run_hooks, patch(
-                "giga_agent.channels.manager.get_channel_manager",
-                return_value=channel_manager,
+            with (
+                patch.object(
+                    BaseAgent,
+                    "run_startup_migrations",
+                    AsyncMock(side_effect=RuntimeError("boom")),
+                ),
+                patch.object(BaseAgent, "run_startup_hooks", AsyncMock()) as run_hooks,
+                patch(
+                    "giga_agent.channels.manager.get_channel_manager",
+                    return_value=channel_manager,
+                ),
             ):
                 with self.assertRaises(RuntimeError):
                     async with agent.app.router.lifespan_context(agent.app):
@@ -90,11 +96,13 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
             giga_agent_startup_migrations_lock_ttl_sec=1800,
         )
 
-        with patch(
-            "giga_agent.core.agent.base.get_settings", return_value=settings
-        ), patch("giga_agent.core.agent.base.cache.lock") as lock, patch(
-            "giga_agent.core.agent.base.asyncio.to_thread", AsyncMock()
-        ) as to_thread:
+        with (
+            patch("giga_agent.core.agent.base.get_settings", return_value=settings),
+            patch("giga_agent.core.agent.base.cache.lock") as lock,
+            patch(
+                "giga_agent.core.agent.base.asyncio.to_thread", AsyncMock()
+            ) as to_thread,
+        ):
             await agent.run_startup_migrations()
 
         lock.assert_not_called()
@@ -118,10 +126,10 @@ class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
         lock_mock = Mock(side_effect=_lock_context)
         to_thread = AsyncMock()
 
-        with patch(
-            "giga_agent.core.agent.base.get_settings", return_value=settings
-        ), patch("giga_agent.core.agent.base.cache.lock", lock_mock), patch(
-            "giga_agent.core.agent.base.asyncio.to_thread", to_thread
+        with (
+            patch("giga_agent.core.agent.base.get_settings", return_value=settings),
+            patch("giga_agent.core.agent.base.cache.lock", lock_mock),
+            patch("giga_agent.core.agent.base.asyncio.to_thread", to_thread),
         ):
             await agent.run_startup_migrations()
 

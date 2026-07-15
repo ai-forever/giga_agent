@@ -37,7 +37,9 @@ from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
 )
-from giga_agent.routes._shared.schema import build_settings_schema_with_computed_defaults
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 from giga_agent.search_engines.registry import SearchEngineRegistry
 
 router = APIRouter(prefix="/connectors", tags=["connectors"])
@@ -267,7 +269,9 @@ async def create_connector(
     if data.permissions is not None:
         require_superuser(current_user)
 
-    runtime_cls = _resolve_runtime_cls(data.type, status_code=status.HTTP_400_BAD_REQUEST)
+    runtime_cls = _resolve_runtime_cls(
+        data.type, status_code=status.HTTP_400_BAD_REQUEST
+    )
     validated_settings = await _validate_settings(data.type, data.settings)
     if data.check_connection:
         await _check_connection_or_http_error(
@@ -368,9 +372,7 @@ async def patch_connector(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="settings must be an object when provided",
             )
-        validated_settings = await _validate_settings(
-            effective_type, data.settings
-        )
+        validated_settings = await _validate_settings(effective_type, data.settings)
         if data.check_connection:
             runtime_cls = _resolve_runtime_cls(
                 effective_type,

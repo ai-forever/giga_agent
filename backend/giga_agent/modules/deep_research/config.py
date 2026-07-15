@@ -82,9 +82,7 @@ class ConfigSchema(TypedDict, total=False):
     print_messages: bool
 
 
-def union_strings(
-    existing: list[str] | None, new: list[str] | None
-) -> list[str]:
+def union_strings(existing: list[str] | None, new: list[str] | None) -> list[str]:
     """Reducer: union сохраняя порядок первого появления."""
     existing = existing or []
     new = new or []

@@ -18,6 +18,7 @@
 ОДИН всплывший элемент отдельным super-step'ом, поэтому число чекпойнтов ≈ числу
 всплывших сообщений (несколько на ход), а не по одному на poll-тик.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -287,7 +288,7 @@ def _get_rewrite_llm() -> GigaChat:
             verify_ssl_certs=False,
             profanity_check=True,
             streaming=True,
-            timeout=60
+            timeout=60,
         )
     return _rewrite_llm
 
@@ -428,7 +429,9 @@ def _ask_questions_messages(interrupt_value: Any, answer: Any) -> list[AnyMessag
     сам тул, поэтому он совпадает с inner-результатом. id заглушки детерминирован
     (совпадает с фронт-оптимистикой) → без дублей и морганий.
     """
-    if not (isinstance(interrupt_value, dict) and interrupt_value.get("type") == "questions"):
+    if not (
+        isinstance(interrupt_value, dict) and interrupt_value.get("type") == "questions"
+    ):
         return []
     tcid = interrupt_value.get("tool_call_id") or ""
     if not tcid:
@@ -814,9 +817,7 @@ async def kickoff(state: ExperimentalState, config) -> dict:
         else:
             with contextlib.suppress(Exception):
                 snap = await client.threads.get_state(inner_thread_id)
-                inner_baseline = len(
-                    (snap.get("values") or {}).get("messages") or []
-                )
+                inner_baseline = len((snap.get("values") or {}).get("messages") or [])
         if is_retry and inner_thread_id:
             # Резюмим упавшую inner-таску с последнего чекпойнта: checkpoint-only,
             # БЕЗ input/command. command.resume дал бы 400 (тред в статусе "error",
@@ -857,9 +858,7 @@ async def kickoff(state: ExperimentalState, config) -> dict:
         started_at = _now()
         await _reset_activity(outer_thread_id, started_at)
         await _set_activity_baseline(outer_thread_id, inner_baseline)
-        marker = _activity_marker_messages(
-            activity_id, _empty_activity(started_at)
-        )
+        marker = _activity_marker_messages(activity_id, _empty_activity(started_at))
 
     return {
         "messages": marker,

@@ -120,9 +120,7 @@ async def list_servers(
         only_active=only_active,
     )
     # oauth2 token state lives in core_oauth_connections (per user), not settings.
-    has_oauth = any(
-        (item.auth_type or "").lower() == "oauth2" for item, _ in rows
-    )
+    has_oauth = any((item.auth_type or "").lower() == "oauth2" for item, _ in rows)
     authorized: set[str] = (
         await OAuthConnectionRepository(repo.db).authorized_provider_keys(
             current_user.id
@@ -458,7 +456,11 @@ async def test_connection(
     tool_count = await _discover_or_http_error(
         server, user_id=current_user.id, db=repo.db
     )
-    return {"ok": tool_count is not None, "tool_count": tool_count, "auth_required": tool_count is None}
+    return {
+        "ok": tool_count is not None,
+        "tool_count": tool_count,
+        "auth_required": tool_count is None,
+    }
 
 
 @router.post("/{server_id}/refresh-tools", response_model=dict)
@@ -683,5 +685,3 @@ async def ui_call_tool(
             detail=f"MCP tool call failed: {exc}",
         ) from exc
     return {"content": parts, "structuredContent": structured, "isError": is_error}
-
-

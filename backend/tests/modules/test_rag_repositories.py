@@ -52,7 +52,9 @@ class RagRepositoriesTests(unittest.IsolatedAsyncioTestCase):
 
     async def _create_embedding(self, owner_id: uuid.UUID) -> Embedding:
         async with self.session_factory() as session:
-            connector = Connector(owner_id=owner_id, type="openai", settings={}, is_active=True)
+            connector = Connector(
+                owner_id=owner_id, type="openai", settings={}, is_active=True
+            )
             session.add(connector)
             await session.commit()
             await session.refresh(connector)
@@ -86,7 +88,9 @@ class RagRepositoriesTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(created.owner_id, user.id)
             self.assertEqual(created.metadata_.get("description"), "test")
 
-            fetched = await col_repo.get_by_id(owner_id=user.id, collection_id=created.id)
+            fetched = await col_repo.get_by_id(
+                owner_id=user.id, collection_id=created.id
+            )
             self.assertIsNotNone(fetched)
 
             updated = await col_repo.update(

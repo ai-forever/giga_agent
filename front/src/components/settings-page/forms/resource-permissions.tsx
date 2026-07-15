@@ -21,6 +21,8 @@ type GroupOption = {
   id: string;
   name: string;
   description: string | null;
+  // Маркер системной группы (data.system === "all_members" → вся команда).
+  data?: { system?: string } | null;
 };
 
 interface ResourcePermissionsProps {
@@ -109,6 +111,14 @@ const ResourcePermissions: React.FC<ResourcePermissionsProps> = ({
     [groups],
   );
 
+  const allMembersId = useMemo(
+    () => groups.find((g) => g.data?.system === "all_members")?.id ?? null,
+    [groups],
+  );
+  const sharedWithTeam = Boolean(
+    allMembersId && value.read_group_ids.includes(allMembersId),
+  );
+
   if (!canManage) {
     return null;
   }
@@ -120,8 +130,36 @@ const ResourcePermissions: React.FC<ResourcePermissionsProps> = ({
       ? `${resourceType}:${resourceId.slice(0, 8)}`
       : `${resourceType}:new`;
 
+  const toggleTeamShare = (checked: boolean) => {
+    if (!allMembersId) return;
+    const rest = value.read_group_ids.filter((id) => id !== allMembersId);
+    onChange({
+      ...value,
+      read_group_ids: checked ? [...rest, allMembersId] : rest,
+    });
+  };
+
   return (
     <div className="space-y-3">
+      {/* Быстрый шаринг на всю команду — виден без разворачивания секции */}
+      {allMembersId && (
+        <div className="flex items-center justify-between rounded-md border border-border p-3">
+          <div>
+            <Label htmlFor="permission-team-share" className="cursor-pointer">
+              Доступно команде
+            </Label>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Все участники получат доступ на чтение
+            </p>
+          </div>
+          <Switch
+            id="permission-team-share"
+            checked={sharedWithTeam}
+            onCheckedChange={toggleTeamShare}
+            disabled={isDisabled}
+          />
+        </div>
+      )}
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}

@@ -102,11 +102,15 @@ def contents(msgs) -> list[str]:
 # реконструкция из снапшота даёт согласованную линейную историю.
 # --------------------------------------------------------------------------- #
 async def test_basic_conversation(graph):
-    print("\n##################  СЦЕНАРИЙ 1: обычный диалог (sqlite)  ##################")
+    print(
+        "\n##################  СЦЕНАРИЙ 1: обычный диалог (sqlite)  ##################"
+    )
     config = {"configurable": {"thread_id": "conv"}}
     for turn in ("привет", "как дела", "пока", "ещё"):
         await graph.ainvoke({"messages": [HumanMessage(content=turn)]}, config)
-    msgs = await dump(graph, config, f"после 4 ходов (snapshot_frequency={SNAPSHOT_FREQUENCY})")
+    msgs = await dump(
+        graph, config, f"после 4 ходов (snapshot_frequency={SNAPSHOT_FREQUENCY})"
+    )
     assert len(msgs) == 8, f"ожидали 8 сообщений, получили {len(msgs)}"
 
     # Каждое историческое состояние — префикс финальной истории (линейность).
@@ -127,18 +131,21 @@ async def test_basic_conversation(graph):
 # --------------------------------------------------------------------------- #
 async def test_fork_no_branch_bleed(graph, label: str, thread_id: str) -> bool:
     """Возвращает True если ветки НЕ смешиваются (всё ок), False если баг есть."""
-    print(f"\n##################  СЦЕНАРИЙ 2 [{label}]: форк из прошлого — ветки не смешиваются  ##################")
+    print(
+        f"\n##################  СЦЕНАРИЙ 2 [{label}]: форк из прошлого — ветки не смешиваются  ##################"
+    )
     config = {"configurable": {"thread_id": thread_id}}
     await graph.ainvoke({"messages": [HumanMessage(content="ход 1")]}, config)
     await graph.ainvoke({"messages": [HumanMessage(content="ход 2-ОРИГИНАЛ")]}, config)
-    orig_msgs = await dump(graph, config, "исходная ветка (2 хода)")
     original_head_cfg = (await graph.aget_state(config)).config
 
     # Чекпоинт после первого хода (messages == 2) → точка форка.
     history = [s async for s in graph.aget_state_history(config)]
     fork_point = next(s for s in history if len(s.values.get("messages", [])) == 2)
     fork_cfg = fork_point.config
-    print(f"\n  форкаемся от checkpoint={_short(fork_cfg)} (messages={len(fork_point.values['messages'])})")
+    print(
+        f"\n  форкаемся от checkpoint={_short(fork_cfg)} (messages={len(fork_point.values['messages'])})"
+    )
 
     # Новый ввод от точки форка → новая ветка.
     new_branch = await graph.ainvoke(
@@ -153,7 +160,9 @@ async def test_fork_no_branch_bleed(graph, label: str, thread_id: str) -> bool:
     assert "ход 2-ОРИГИНАЛ" in contents(original)
     assert "ход 2-ФОРК" not in contents(original), "БАГ: форк протёк в исходную ветку"
     assert "ход 2-ФОРК" in contents(new_branch["messages"])
-    assert "ход 2-ОРИГИНАЛ" not in contents(new_branch["messages"]), "БАГ: исходная ветка протекла в форк"
+    assert "ход 2-ОРИГИНАЛ" not in contents(new_branch["messages"]), (
+        "БАГ: исходная ветка протекла в форк"
+    )
 
     # ПРОД-ИНВАРИАНТ: склейка writes соседних веток при форке DeltaChannel —
     # известный апстрим-баг, но проявляется ТОЛЬКО на staging-чекпоинтах
@@ -171,19 +180,29 @@ async def test_fork_no_branch_bleed(graph, label: str, thread_id: str) -> bool:
         return "ход 2-ОРИГИНАЛ" in c and "ход 2-ФОРК" in c
 
     completed = [st for st in full_history if is_completed(st)]
-    completed_bleed = [(_short(st.config), contents(st.values["messages"])) for st in completed if is_bleed(st)]
+    completed_bleed = [
+        (_short(st.config), contents(st.values["messages"]))
+        for st in completed
+        if is_bleed(st)
+    ]
     staging_bleed = [st for st in full_history if not is_completed(st) and is_bleed(st)]
 
     if staging_bleed:
-        print(f"\n  ℹ [{label}] склейка на {len(staging_bleed)} staging-чекпоинт(ах) "
-              f"(ожидаемо для DeltaChannel; фронт их не строит в дерево)")
+        print(
+            f"\n  ℹ [{label}] склейка на {len(staging_bleed)} staging-чекпоинт(ах) "
+            f"(ожидаемо для DeltaChannel; фронт их не строит в дерево)"
+        )
     if completed_bleed:
-        print(f"\n  ❌ [{label}] СКЛЕЙКА СРЕДИ ЗАВЕРШЁННЫХ состояний (это уже видно фронту!):")
+        print(
+            f"\n  ❌ [{label}] СКЛЕЙКА СРЕДИ ЗАВЕРШЁННЫХ состояний (это уже видно фронту!):"
+        )
         for cid, c in completed_bleed:
             print(f"    checkpoint={cid}: {c}")
         return False
-    print(f"\n  ✓ [{label}] завершённых состояний: {len(completed)}, склейки среди них нет "
-          f"(прод-инвариант соблюдён)")
+    print(
+        f"\n  ✓ [{label}] завершённых состояний: {len(completed)}, склейки среди них нет "
+        f"(прод-инвариант соблюдён)"
+    )
     return True
 
 
@@ -191,7 +210,9 @@ async def test_fork_no_branch_bleed(graph, label: str, thread_id: str) -> bool:
 # Сценарий 3: правка человеческого сообщения + регенерация (канонический UI-flow).
 # --------------------------------------------------------------------------- #
 async def test_edit_message(graph):
-    print("\n##################  СЦЕНАРИЙ 3: правка сообщения + регенерация (sqlite)  ##################")
+    print(
+        "\n##################  СЦЕНАРИЙ 3: правка сообщения + регенерация (sqlite)  ##################"
+    )
     config = {"configurable": {"thread_id": "edit"}}
     first = await graph.ainvoke(
         {"messages": [HumanMessage(content="оригинальный вопрос", id="h1")]}, config
@@ -222,13 +243,17 @@ async def test_edit_message(graph):
 
     # Доп. проверка: полный сброс канала через REMOVE_ALL_MESSAGES (не фатально —
     # это отдельный край DeltaChannel, репортим как находку).
-    await graph.aupdate_state(config, {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES)]})
+    await graph.aupdate_state(
+        config, {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES)]}
+    )
     cleared = (await graph.aget_state(config)).values["messages"]
     if cleared == []:
         print("  ✓ RemoveMessage(REMOVE_ALL_MESSAGES) очищает канал")
         return True
-    print(f"  ⚠ RemoveMessage(REMOVE_ALL_MESSAGES) НЕ очистил канал на DeltaChannel+sqlite "
-          f"(осталось {len(cleared)} сообщ.)")
+    print(
+        f"  ⚠ RemoveMessage(REMOVE_ALL_MESSAGES) НЕ очистил канал на DeltaChannel+sqlite "
+        f"(осталось {len(cleared)} сообщ.)"
+    )
     return False
 
 
@@ -241,17 +266,27 @@ async def main():
             plain_graph = build_graph(saver, PlainState)
 
             await test_basic_conversation(delta_graph)
-            delta_ok = await test_fork_no_branch_bleed(delta_graph, "DeltaChannel", "fork_delta")
+            delta_ok = await test_fork_no_branch_bleed(
+                delta_graph, "DeltaChannel", "fork_delta"
+            )
             # Контроль: обычный add_messages-канал на том же сценарии.
-            plain_ok = await test_fork_no_branch_bleed(plain_graph, "add_messages", "fork_plain")
+            plain_ok = await test_fork_no_branch_bleed(
+                plain_graph, "add_messages", "fork_plain"
+            )
             clear_ok = await test_edit_message(delta_graph)
 
     print("\n\n" + "=" * 70)
     print(f"ИТОГ (AsyncSqliteSaver, snapshot_frequency={SNAPSHOT_FREQUENCY} = прод):")
-    print(f"  форк, DeltaChannel : {'⚠ внезапно чисто (проверь snapshot_frequency)' if delta_ok else '❌ склейка в завершённых (ОЖИДАЕМО — потому и не используем)'}")
-    print(f"  форк, add_messages : {'✅ завершённые состояния чисты' if plain_ok else '❌ СКЛЕЙКА В ЗАВЕРШЁННЫХ (РЕГРЕСС!)'}")
-    print(f"  правка+регенерация : ✅ работает (канонический UI-flow)")
-    print(f"  REMOVE_ALL_MESSAGES: {'✅ очищает' if clear_ok else '⚠ не очищает на DeltaChannel+sqlite'}")
+    print(
+        f"  форк, DeltaChannel : {'⚠ внезапно чисто (проверь snapshot_frequency)' if delta_ok else '❌ склейка в завершённых (ОЖИДАЕМО — потому и не используем)'}"
+    )
+    print(
+        f"  форк, add_messages : {'✅ завершённые состояния чисты' if plain_ok else '❌ СКЛЕЙКА В ЗАВЕРШЁННЫХ (РЕГРЕСС!)'}"
+    )
+    print("  правка+регенерация : ✅ работает (канонический UI-flow)")
+    print(
+        f"  REMOVE_ALL_MESSAGES: {'✅ очищает' if clear_ok else '⚠ не очищает на DeltaChannel+sqlite'}"
+    )
     print("=" * 70)
     if not plain_ok:
         print(

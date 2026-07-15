@@ -39,7 +39,9 @@ class EmbeddingRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalidate_cache_removes_ctx_key(self):
         embedding_id = uuid.uuid4()
-        await cache.set(EmbeddingRepository.cache_key(embedding_id), {"x": 1}, expire="5m")
+        await cache.set(
+            EmbeddingRepository.cache_key(embedding_id), {"x": 1}, expire="5m"
+        )
 
         await EmbeddingRepository.invalidate_cache(embedding_id)
 

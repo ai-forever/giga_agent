@@ -294,14 +294,7 @@ class TestTelegramMarkdownConversion:
         )
 
     def test_preserves_text_after_wrapped_markdown_table(self):
-        text = (
-            "Результаты:\n\n"
-            "| Name | Value |\n"
-            "| --- | --- |\n"
-            "| alpha | 1 |\n"
-            "\n"
-            "Итог!"
-        )
+        text = "Результаты:\n\n| Name | Value |\n| --- | --- |\n| alpha | 1 |\n\nИтог!"
 
         assert _md_to_tg_markdown_v2(text) == (
             "Результаты:\n\n"
@@ -402,7 +395,10 @@ class TestScanCurrentTurnAttachments:
         result = {
             "messages": [
                 {"type": "human", "content": "go"},
-                {"type": "ai", "content": "Смотри [отчет](attachment:/bucket/x/report.pdf)"},
+                {
+                    "type": "ai",
+                    "content": "Смотри [отчет](attachment:/bucket/x/report.pdf)",
+                },
             ]
         }
         paths = _scan_current_turn_attachments(result)

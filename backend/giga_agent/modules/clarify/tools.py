@@ -133,7 +133,9 @@ def build_questions_result(formatted_questions: list[dict], value) -> dict:
     return {
         "ask_questions": True,
         "skipped": False,
-        "summary": "\n\n".join(parts) if parts else "Пользователь не предоставил ответ.",
+        "summary": "\n\n".join(parts)
+        if parts
+        else "Пользователь не предоставил ответ.",
         "items": items,
     }
 

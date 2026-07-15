@@ -51,9 +51,7 @@ def month_payload(
 
 def _client(token: str) -> caldav.DAVClient:
     """CalDAV-клиент на OAuth-токене: Яндекс принимает ``Authorization: OAuth``."""
-    return caldav.DAVClient(
-        url=CALDAV_URL, headers={"Authorization": f"OAuth {token}"}
-    )
+    return caldav.DAVClient(url=CALDAV_URL, headers={"Authorization": f"OAuth {token}"})
 
 
 def _cal_name(cal: caldav.Calendar) -> str:

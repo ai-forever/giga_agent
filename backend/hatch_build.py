@@ -54,4 +54,3 @@ class CustomBuildHook(BuildHookInterface):
             "`backend/giga_agent/ui_dist` before packaging. To skip this check, "
             "set `GIGA_AGENT_SKIP_UI_BUNDLE_CHECK=1`."
         )
-

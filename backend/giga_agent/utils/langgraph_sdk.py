@@ -34,11 +34,13 @@ async def client_session(config: RunnableConfig):
     finally:
         await client.aclose()
 
+
 def get_user_value_from_config(config: RunnableConfig, value: str) -> str:
     auth_user = (config.get("configurable") or {}).get("langgraph_auth_user")
     if isinstance(auth_user, BaseModel):
         return getattr(auth_user, value, None)
     return auth_user.get(value)
+
 
 def get_user_id_from_config(config: RunnableConfig) -> str:
     return get_user_value_from_config(config, "identity")

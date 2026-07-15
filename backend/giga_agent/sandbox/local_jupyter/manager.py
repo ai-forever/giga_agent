@@ -164,9 +164,7 @@ class LocalJupyterServerManager:
             if not kernels:
                 self._owner_kernels.pop(key, None)
 
-    async def _delete_kernel(
-        self, base_url: str, token: str, kernel_id: str
-    ) -> None:
+    async def _delete_kernel(self, base_url: str, token: str, kernel_id: str) -> None:
         headers = {"Authorization": f"token {token}"}
         try:
             timeout = aiohttp.ClientTimeout(total=5)
@@ -183,9 +181,7 @@ class LocalJupyterServerManager:
                             response.status,
                         )
         except Exception:
-            logger.warning(
-                "Error while evicting local Jupyter kernel %s", kernel_id
-            )
+            logger.warning("Error while evicting local Jupyter kernel %s", kernel_id)
 
     async def _get_active_handle(self) -> LocalJupyterHandle | None:
         candidates: list[LocalJupyterHandle] = []
@@ -369,9 +365,7 @@ class LocalJupyterServerManager:
             get_settings().giga_agent_local_jupyter_health_probe_timeout_sec
         )
         for attempt in range(3):
-            if await self._probe_server(
-                handle.base_url, handle.token, timeout=timeout
-            ):
+            if await self._probe_server(handle.base_url, handle.token, timeout=timeout):
                 return True
             if attempt < 2:
                 await asyncio.sleep(0.5)

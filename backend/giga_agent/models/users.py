@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from cashews import cache
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -20,6 +20,30 @@ import giga_agent.models.sandbox  # noqa: F401
 import giga_agent.models.search_engine  # noqa: F401
 
 
+# ============ Roles ============
+
+# Роли команды (инстанс = одна команда):
+#   owner  — первый пользователь; всё + управление админами; не деактивируется
+#   admin  — коннекторы/LLM/секреты, приглашения, группы, управление member'ами
+#   member — пользуется расшаренными ресурсами; свои данные приватны
+ROLE_OWNER = "owner"
+ROLE_ADMIN = "admin"
+ROLE_MEMBER = "member"
+ROLES = (ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER)
+
+# Иерархия для проверок вида "минимум admin".
+_ROLE_RANK = {ROLE_MEMBER: 0, ROLE_ADMIN: 1, ROLE_OWNER: 2}
+
+
+def role_at_least(role: str | None, minimum: str) -> bool:
+    return _ROLE_RANK.get(role or ROLE_MEMBER, 0) >= _ROLE_RANK[minimum]
+
+
+def role_implies_superuser(role: str | None) -> bool:
+    """is_superuser поддерживается синхронно с role для обратной совместимости."""
+    return role in (ROLE_OWNER, ROLE_ADMIN)
+
+
 # ============ SQLAlchemy Models ============
 
 
@@ -35,6 +59,11 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Источник правды по роли в команде; is_superuser держится синхронным
+    # (role in {owner, admin} => is_superuser=True) для старых проверок.
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=ROLE_MEMBER, server_default=ROLE_MEMBER
+    )
     experimental_mode: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -132,6 +161,7 @@ class UserBase(BaseModel):
     is_active: bool = True
     is_superuser: bool = False
     experimental_mode: bool = True
+    role: str = ROLE_MEMBER
     settings: Optional[dict] = None
     secrets: Optional[dict] = None
     image_generator_id: Optional[uuid.UUID] = None
@@ -184,6 +214,7 @@ class UserShort(UserBase):
                 self.email,
                 self.is_active,
                 self.is_superuser,
+                self.role,
                 _freeze(self.settings),
                 _freeze(self.secrets),
                 _freeze(self.image_generator_id),
@@ -237,6 +268,7 @@ class AdminUserUpdate(BaseModel):
     last_name: str | None = None
     is_active: bool | None = None
     is_superuser: bool | None = None
+    role: Literal["owner", "admin", "member"] | None = None
     experimental_mode: bool | None = None
 
 
@@ -326,16 +358,25 @@ class UserRepository:
         is_active: bool = True,
         is_superuser: bool = False,
         *,
+        role: str | None = None,
         commit: bool = True,
     ) -> User:
-        """Создать нового пользователя"""
+        """Создать нового пользователя.
+
+        role — источник правды; если не передана, выводится из is_superuser
+        (True → admin). is_superuser всегда синхронизируется с ролью.
+        """
+        resolved_role = role or (ROLE_ADMIN if is_superuser else ROLE_MEMBER)
+        if resolved_role not in ROLES:
+            raise ValueError(f"Unknown role: {resolved_role}")
         user = User(
             email=email,
             hashed_password=hashed_password,
             first_name=first_name,
             last_name=last_name,
             is_active=is_active,
-            is_superuser=is_superuser,
+            is_superuser=role_implies_superuser(resolved_role),
+            role=resolved_role,
         )
         self.db.add(user)
         if commit:

@@ -36,13 +36,16 @@ class ResourcePermissionsRouterTests(unittest.TestCase):
             "read_group_ids": [str(uuid.uuid4())],
             "public_read": True,
         }
-        with patch(
-            "giga_agent.routes.resource_permissions._ensure_resource_exists",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.resource_permissions.ResourcePermissionRepository.get_read_acl",
-            AsyncMock(return_value=payload),
-        ) as mocked_get:
+        with (
+            patch(
+                "giga_agent.routes.resource_permissions._ensure_resource_exists",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.resource_permissions.ResourcePermissionRepository.get_read_acl",
+                AsyncMock(return_value=payload),
+            ) as mocked_get,
+        ):
             response = self.client.get(
                 f"/resource-permissions/connector/{resource_id}",
             )
@@ -65,16 +68,20 @@ class ResourcePermissionsRouterTests(unittest.TestCase):
             "read_group_ids": [str(uuid.uuid4())],
             "public_read": False,
         }
-        with patch(
-            "giga_agent.routes.resource_permissions._ensure_resource_exists",
-            AsyncMock(return_value=None),
-        ), patch(
-            "giga_agent.routes.resource_permissions.ResourcePermissionRepository.set_read_acl",
-            AsyncMock(return_value=None),
-        ) as mocked_set, patch(
-            "giga_agent.routes.resource_permissions.ResourcePermissionRepository.get_read_acl",
-            AsyncMock(return_value=payload),
-        ) as mocked_get:
+        with (
+            patch(
+                "giga_agent.routes.resource_permissions._ensure_resource_exists",
+                AsyncMock(return_value=None),
+            ),
+            patch(
+                "giga_agent.routes.resource_permissions.ResourcePermissionRepository.set_read_acl",
+                AsyncMock(return_value=None),
+            ) as mocked_set,
+            patch(
+                "giga_agent.routes.resource_permissions.ResourcePermissionRepository.get_read_acl",
+                AsyncMock(return_value=payload),
+            ) as mocked_get,
+        ):
             response = self.client.put(
                 f"/resource-permissions/llm/{resource_id}",
                 json=payload,

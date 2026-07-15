@@ -99,7 +99,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
     def test_parse_payload_unescapes_html_entities(self):
         payload = parse_telegram_message_tool_payload(
             {
-                "content": 'Толпа кричит: &quot;Еще!&quot;',
+                "content": "Толпа кричит: &quot;Еще!&quot;",
                 "buttons": [{"text": "Сказать &quot;да&quot;"}],
             }
         )
@@ -129,7 +129,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         }
         client = types.SimpleNamespace(runs=types.SimpleNamespace(wait=AsyncMock()))
 
-        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[pending_call])
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(
+            return_value=[pending_call]
+        )
         app.message_tool_runtime.send_message_tool_prompt = AsyncMock()
 
         result = await app.message_tool_runtime.continue_run_until_ready(
@@ -197,7 +199,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIsNone(result)
-        self.assertEqual(app.message_tool_runtime.send_message_tool_prompt.await_count, 2)
+        self.assertEqual(
+            app.message_tool_runtime.send_message_tool_prompt.await_count, 2
+        )
         self.assertEqual(
             app.message_tool_runtime.send_message_tool_prompt.await_args_list,
             [
@@ -341,7 +345,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload["reply"], {})
 
-    async def test_resume_pending_message_tool_includes_attachments_from_message_and_reply(self):
+    async def test_resume_pending_message_tool_includes_attachments_from_message_and_reply(
+        self,
+    ):
         app = _bot_app()
         reply_message = _message(
             "Смотри сюда ![ref](attachment:/bucket/reply/ref.png)",
@@ -399,7 +405,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"messages": [{"type": "ai", "content": "ok"}]})
         resume_payload = client.runs.wait.await_args.kwargs["command"]["resume"]
-        payload = json.loads(resume_payload["results"][0]["result"]["content"][0]["text"])
+        payload = json.loads(
+            resume_payload["results"][0]["result"]["content"][0]["text"]
+        )
         self.assertEqual(
             payload["attachments"],
             ["/bucket/current/uploaded.jpg"],
@@ -434,7 +442,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         }
         client = types.SimpleNamespace(
             runs=types.SimpleNamespace(
-                wait=AsyncMock(return_value={"messages": [{"type": "ai", "content": "ok"}]})
+                wait=AsyncMock(
+                    return_value={"messages": [{"type": "ai", "content": "ok"}]}
+                )
             )
         )
 
@@ -618,7 +628,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             chat_title="Ops Room",
             message_id=92,
         )
-        command_message.document = types.SimpleNamespace(file_id="doc-1", file_name="task.txt")
+        command_message.document = types.SimpleNamespace(
+            file_id="doc-1", file_name="task.txt"
+        )
         app.message_handlers.handle_message = AsyncMock()
 
         await app.handle_message_command(command_message)
@@ -685,11 +697,15 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         app.access_service.register_contact = AsyncMock()
         app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-1")
-        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[pending_call])
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(
+            return_value=[pending_call]
+        )
         app.message_tool_runtime.continue_run_until_ready = AsyncMock(
             return_value={"messages": [{"type": "ai", "content": "Готово"}]},
         )
-        app.message_tool_runtime.resume_message_tool_calls = AsyncMock(return_value={"messages": []})
+        app.message_tool_runtime.resume_message_tool_calls = AsyncMock(
+            return_value={"messages": []}
+        )
         app.media_service.send_run_result = AsyncMock()
         app.thread_service.create_client = lambda token: client
         app.thread_service.create_token = lambda: "token"
@@ -821,7 +837,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         app.access_service.register_contact = AsyncMock()
         app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-1")
-        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[])
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(
+            return_value=[]
+        )
         app.media_service.collect_incoming_files = AsyncMock(return_value=[])
         app.thread_service.load_collections_payload = AsyncMock(return_value=[])
         app.message_tool_runtime.continue_run_until_ready = AsyncMock(
@@ -888,7 +906,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         app.access_service.register_contact = AsyncMock()
         app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-1")
-        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[])
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(
+            return_value=[]
+        )
         app.media_service.collect_incoming_files = AsyncMock(
             side_effect=[
                 [
@@ -979,7 +999,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         app.access_service.register_contact = AsyncMock()
         app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-1")
-        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[])
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(
+            return_value=[]
+        )
         app.thread_service.create_client = lambda token: client
         app.thread_service.create_token = lambda: "token"
 
@@ -1048,7 +1070,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         app.thread_service.get_or_create_thread.assert_not_awaited()
         client.runs.wait.assert_not_awaited()
 
-    async def test_handle_message_uses_shared_group_chat_access_for_different_users(self):
+    async def test_handle_message_uses_shared_group_chat_access_for_different_users(
+        self,
+    ):
         app = _bot_app()
         group_chat_id = -1005550001113
         first_message = _message(
@@ -1115,7 +1139,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
 
         app.access_service.register_contact = AsyncMock()
         app.thread_service.get_or_create_thread = AsyncMock(return_value="thread-group")
-        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(return_value=[])
+        app.message_tool_runtime.get_pending_message_tool_calls = AsyncMock(
+            return_value=[]
+        )
         app.media_service.collect_incoming_files = AsyncMock(return_value=[])
         app.thread_service.load_collections_payload = AsyncMock(return_value=[])
         app.message_tool_runtime.continue_run_until_ready = AsyncMock(
@@ -1195,12 +1221,16 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             "giga_agent.channels.telegram.services.message_tool_runtime._convert_plotly_attachment",
             return_value=(b"png-bytes", "chart.png", True),
         ):
-            await app.message_tool_runtime.send_message_tool_prompt(message, "token", tool_call)
+            await app.message_tool_runtime.send_message_tool_prompt(
+                message, "token", tool_call
+            )
 
         message.answer_photo.assert_awaited_once()
         message.answer_document.assert_not_awaited()
 
-    async def test_send_message_tool_prompt_skips_duplicate_attachment_from_content(self):
+    async def test_send_message_tool_prompt_skips_duplicate_attachment_from_content(
+        self,
+    ):
         app = _bot_app()
         message = _message()
         app.media_service.download_attachment = AsyncMock(return_value=b"image-bytes")
@@ -1221,7 +1251,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        await app.message_tool_runtime.send_message_tool_prompt(message, "token", tool_call)
+        await app.message_tool_runtime.send_message_tool_prompt(
+            message, "token", tool_call
+        )
 
         message.answer_photo.assert_awaited_once()
         app.media_service.download_attachment.assert_awaited_once_with(
@@ -1247,14 +1279,14 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             "name": TELEGRAM_MESSAGE_TOOL_NAME,
             "args": {
                 "content": (
-                    "тест\n"
-                    "![test](attachment:/bucket/generated/image.png)\n"
-                    "тест"
+                    "тест\n![test](attachment:/bucket/generated/image.png)\nтест"
                 ),
             },
         }
 
-        await app.message_tool_runtime.send_message_tool_prompt(message, "token", tool_call)
+        await app.message_tool_runtime.send_message_tool_prompt(
+            message, "token", tool_call
+        )
 
         self.assertEqual(
             events,
@@ -1265,7 +1297,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_send_message_tool_prompt_deduplicates_prompt_attachment_and_content_part(self):
+    async def test_send_message_tool_prompt_deduplicates_prompt_attachment_and_content_part(
+        self,
+    ):
         app = _bot_app()
         message = _message()
         app.media_service.download_attachment = AsyncMock(return_value=b"image-bytes")
@@ -1284,9 +1318,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             "name": TELEGRAM_MESSAGE_TOOL_NAME,
             "args": {
                 "content": (
-                    "до\n"
-                    "![copy](attachment:/bucket/generated/image.png)\n"
-                    "после"
+                    "до\n![copy](attachment:/bucket/generated/image.png)\nпосле"
                 ),
                 "attachments": [
                     {
@@ -1297,7 +1329,9 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        await app.message_tool_runtime.send_message_tool_prompt(message, "token", tool_call)
+        await app.message_tool_runtime.send_message_tool_prompt(
+            message, "token", tool_call
+        )
 
         self.assertEqual(events, ["photo", "text:до", "text:после"])
         self.assertEqual(message.answer_photo.await_count, 1)
@@ -1350,9 +1384,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
                 {
                     "type": "ai",
                     "content": (
-                        "тест\n"
-                        "![test](attachment:/bucket/generated/image.png)\n"
-                        "тест"
+                        "тест\n![test](attachment:/bucket/generated/image.png)\nтест"
                     ),
                 },
             ],

@@ -79,4 +79,3 @@ async def delete_by_filter(
         collection_name=collection_name,
         points_selector=qmodels.FilterSelector(filter=query_filter),
     )
-

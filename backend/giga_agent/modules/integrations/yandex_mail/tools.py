@@ -76,6 +76,8 @@ def _extract_html(msg: Message) -> str:
 
 # Zero-width символы (спейсеры вёрстки писем) — удаляем целиком.
 _ZERO_WIDTH_MAP = dict.fromkeys(map(ord, "​‌‍﻿"), None)
+
+
 def _flatten_html_tables(html: str) -> str:
     """Расплющивает таблицы вёрстки письма ДО конвертации в markdown.
 
@@ -354,6 +356,4 @@ async def mail_send(
         body: Текст письма.
     """
     email_addr, token = await get_mail_auth(runtime)
-    return await asyncio.to_thread(
-        _send_sync, email_addr, token, to, subject, body
-    )
+    return await asyncio.to_thread(_send_sync, email_addr, token, to, subject, body)

@@ -7,12 +7,16 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/auth.tsx";
 import AdminUsersTab from "./users";
 import AdminGroupsTab from "./groups";
+import AdminInvitesTab from "./invites";
 
-type AdminTab = "users" | "groups";
+type AdminTab = "users" | "groups" | "invites";
 
 const resolveActiveTab = (pathname: string): AdminTab => {
   if (pathname.includes("/admin-panel/groups")) {
     return "groups";
+  }
+  if (pathname.includes("/admin-panel/invites")) {
+    return "invites";
   }
   return "users";
 };
@@ -31,6 +35,7 @@ const AdminPanelPage: React.FC = () => {
   const tabs: { id: AdminTab; label: string; url: string }[] = [
     { id: "users", label: "Пользователи", url: "/admin-panel/users" },
     { id: "groups", label: "Группы", url: "/admin-panel/groups" },
+    { id: "invites", label: "Приглашения", url: "/admin-panel/invites" },
   ];
 
   return (
@@ -54,7 +59,13 @@ const AdminPanelPage: React.FC = () => {
         </div>
 
         <div className="flex-1 overflow-auto p-6 flex flex-col">
-          {activeTab === "users" ? <AdminUsersTab /> : <AdminGroupsTab />}
+          {activeTab === "users" ? (
+            <AdminUsersTab />
+          ) : activeTab === "groups" ? (
+            <AdminGroupsTab />
+          ) : (
+            <AdminInvitesTab />
+          )}
         </div>
       </div>
     </div>

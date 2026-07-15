@@ -54,7 +54,9 @@ def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
     return f"temporary/{uuid.uuid4().hex}"
 
 
-async def _resolve_grok_generator(runtime: ToolRuntime) -> tuple[uuid.UUID, GrokImagineImageGen]:
+async def _resolve_grok_generator(
+    runtime: ToolRuntime,
+) -> tuple[uuid.UUID, GrokImagineImageGen]:
     from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
     resolver = RuntimeResolver.from_config(runtime.config)
@@ -66,7 +68,9 @@ async def _resolve_grok_generator(runtime: ToolRuntime) -> tuple[uuid.UUID, Grok
     generator = await resolver.get_image_generator()
 
     if not isinstance(generator, GrokImagineImageGen):
-        raise ValueError("Текущий генератор изображений не поддерживает этот tool gen_image.")
+        raise ValueError(
+            "Текущий генератор изображений не поддерживает этот tool gen_image."
+        )
 
     return resolver.user.id, generator
 
@@ -81,7 +85,9 @@ async def _download_redirect_bytes(*, url: str) -> tuple[bytes, str | None]:
     async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
         response = await client.get(url)
         response.raise_for_status()
-        return response.content, _normalize_mime_type(response.headers.get("content-type"))
+        return response.content, _normalize_mime_type(
+            response.headers.get("content-type")
+        )
 
 
 def _normalize_sandbox_path(path: str) -> str:
@@ -114,7 +120,9 @@ async def _read_sandbox_file_bytes(
         return data, mime_type or guessed_mime or "application/octet-stream"
 
     if isinstance(result, ContentResult):
-        return result.data, _normalize_mime_type(result.media_type) or guessed_mime or "image/png"
+        return result.data, _normalize_mime_type(
+            result.media_type
+        ) or guessed_mime or "image/png"
 
     if isinstance(result, StreamResult):
         chunks: list[bytes] = []
@@ -180,10 +188,14 @@ async def _upload_generated_image(
         )
 
     if not uploaded.files:
-        raise RuntimeError("Не удалось загрузить сгенерированное изображение в sandbox.")
+        raise RuntimeError(
+            "Не удалось загрузить сгенерированное изображение в sandbox."
+        )
 
     file = uploaded.files[0]
-    return file.sandbox_path, [FileResponse.model_validate(file).model_dump(mode="json")]
+    return file.sandbox_path, [
+        FileResponse.model_validate(file).model_dump(mode="json")
+    ]
 
 
 @tool(parse_docstring=True, extras={"repl_save": False})
@@ -222,9 +234,7 @@ async def gen_image(
         image_b64=image_b64,
     )
 
-    render_hint = (
-        f'Покажи это пользователю через "![описание изображения](attachment:{sandbox_path})"'
-    )
+    render_hint = f'Покажи это пользователю через "![описание изображения](attachment:{sandbox_path})"'
     result_text = (
         f"Изображение успешно сгенерировано. Путь: '{sandbox_path}'. {render_hint}"
     )

@@ -46,9 +46,7 @@ class ManagedProcessRecord:
             stop_strategy=str(raw.get("stop_strategy", "term_then_kill")),  # type: ignore[arg-type]
             graceful_timeout_sec=float(raw.get("graceful_timeout_sec", 5.0)),
             metadata=(
-                dict(raw["metadata"])
-                if isinstance(raw.get("metadata"), dict)
-                else {}
+                dict(raw["metadata"]) if isinstance(raw.get("metadata"), dict) else {}
             ),
             registered_at=float(raw.get("registered_at", time.time())),
         )
@@ -81,7 +79,9 @@ class ProcessSupervisor:
 
         self._update_records(_mutate)
 
-    def list_processes(self, *, cleanup_stale: bool = False) -> list[ManagedProcessRecord]:
+    def list_processes(
+        self, *, cleanup_stale: bool = False
+    ) -> list[ManagedProcessRecord]:
         records = self._read_records()
         if not cleanup_stale:
             return records

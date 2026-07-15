@@ -18,6 +18,6 @@ SKILLS_SYSTEM_PROMPT_HEADER = """\
 
 SKILLS_EXPLICIT_ACTIVATION_HINT = (
     "Пользователь явно запросил навык '{name}'. "
-    "Вызови read_skill_manifest(name=\"{name}\"), затем при необходимости "
+    'Вызови read_skill_manifest(name="{name}"), затем при необходимости '
     "читай файлы навыка через read_file."
 )

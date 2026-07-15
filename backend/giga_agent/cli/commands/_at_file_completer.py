@@ -105,7 +105,8 @@ class AtFileCompleter(Completer):
 
         for dirpath, dirnames, filenames in walker:
             dirnames[:] = [
-                d for d in dirnames
+                d
+                for d in dirnames
                 if d not in EXCLUDED_DIR_NAMES and not d.startswith(".")
             ]
 

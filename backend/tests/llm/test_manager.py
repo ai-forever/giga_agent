@@ -69,18 +69,23 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             async def validate_settings(cls, settings: dict) -> dict:
                 return settings
 
-        with patch(
-            "giga_agent.llm.manager.LLMRepository.get_cached_or_db",
-            AsyncMock(return_value=llm),
-        ), patch(
-            "giga_agent.llm.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.llm.manager.LLMRegistry.get",
-            return_value=_RuntimeStub,
-        ), patch(
-            "giga_agent.llm.manager.ConnectorRegistry.get_runtime",
-            AsyncMock(return_value=connector_runtime),
+        with (
+            patch(
+                "giga_agent.llm.manager.LLMRepository.get_cached_or_db",
+                AsyncMock(return_value=llm),
+            ),
+            patch(
+                "giga_agent.llm.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.llm.manager.LLMRegistry.get",
+                return_value=_RuntimeStub,
+            ),
+            patch(
+                "giga_agent.llm.manager.ConnectorRegistry.get_runtime",
+                AsyncMock(return_value=connector_runtime),
+            ),
         ):
             resolved = await LLMManager.resolve_by_id(llm_id, session=session)
 
@@ -113,15 +118,19 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             def is_connector_supported(cls, connector_type: str) -> bool:
                 return False
 
-        with patch(
-            "giga_agent.llm.manager.LLMRepository.get_cached_or_db",
-            AsyncMock(return_value=llm),
-        ), patch(
-            "giga_agent.llm.manager.ConnectorRepository.get_cached_or_db",
-            AsyncMock(return_value=connector),
-        ), patch(
-            "giga_agent.llm.manager.LLMRegistry.get",
-            return_value=_RuntimeStub,
+        with (
+            patch(
+                "giga_agent.llm.manager.LLMRepository.get_cached_or_db",
+                AsyncMock(return_value=llm),
+            ),
+            patch(
+                "giga_agent.llm.manager.ConnectorRepository.get_cached_or_db",
+                AsyncMock(return_value=connector),
+            ),
+            patch(
+                "giga_agent.llm.manager.LLMRegistry.get",
+                return_value=_RuntimeStub,
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "not compatible"):
                 await LLMManager.resolve_by_id(llm_id, session=session)

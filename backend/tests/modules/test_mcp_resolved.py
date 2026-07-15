@@ -50,12 +50,8 @@ class ConfigSigTests(unittest.TestCase):
         self.assertNotEqual(a.config_sig, b.config_sig)
 
     def test_bearer_token_edit_changes_sig(self) -> None:
-        a = resolve_db_server(
-            _server(auth_type="bearer", settings={"token": "old"})
-        )
-        b = resolve_db_server(
-            _server(auth_type="bearer", settings={"token": "new"})
-        )
+        a = resolve_db_server(_server(auth_type="bearer", settings={"token": "old"}))
+        b = resolve_db_server(_server(auth_type="bearer", settings={"token": "new"}))
         self.assertNotEqual(a.config_sig, b.config_sig)
 
     def test_oauth_client_identity_change_changes_sig(self) -> None:

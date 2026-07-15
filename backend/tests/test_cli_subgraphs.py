@@ -56,17 +56,15 @@ class CLISubgraphsTests(unittest.TestCase):
             ]
         )
 
-        with patch.dict(
-            sys.modules, self._make_langgraph_api_modules(_run_server)
-        ), patch(
-            "giga_agent.cli.load_graph_and_app_from_string",
-            return_value=(graph, FastAPI()),
-        ), patch(
-            "giga_agent.cli.apply_migrations"
-        ) as apply_migrations, patch(
-            "giga_agent.cli.asyncio.run"
-        ), patch(
-            "giga_agent.core.cache.setup_cache"
+        with (
+            patch.dict(sys.modules, self._make_langgraph_api_modules(_run_server)),
+            patch(
+                "giga_agent.cli.load_graph_and_app_from_string",
+                return_value=(graph, FastAPI()),
+            ),
+            patch("giga_agent.cli.apply_migrations") as apply_migrations,
+            patch("giga_agent.cli.asyncio.run"),
+            patch("giga_agent.core.cache.setup_cache"),
         ):
             dev(
                 graph_and_app_path="giga_agent.agents.run:graph:app",
@@ -93,17 +91,18 @@ class CLISubgraphsTests(unittest.TestCase):
     def test_dev_uses_default_graph_and_app_path(self):
         graph = self._make_agent_graph(modules=[])
 
-        with patch.dict(
-            sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
-        ), patch(
-            "giga_agent.cli.load_graph_and_app_from_string",
-            return_value=(graph, FastAPI()),
-        ) as load_graph_and_app, patch(
-            "giga_agent.cli.apply_migrations"
-        ) as apply_migrations, patch(
-            "giga_agent.cli.asyncio.run"
-        ), patch(
-            "giga_agent.core.cache.setup_cache"
+        with (
+            patch.dict(
+                sys.modules,
+                self._make_langgraph_api_modules(lambda *args, **kwargs: None),
+            ),
+            patch(
+                "giga_agent.cli.load_graph_and_app_from_string",
+                return_value=(graph, FastAPI()),
+            ) as load_graph_and_app,
+            patch("giga_agent.cli.apply_migrations") as apply_migrations,
+            patch("giga_agent.cli.asyncio.run"),
+            patch("giga_agent.core.cache.setup_cache"),
         ):
             dev(no_reload=True)
 
@@ -115,17 +114,18 @@ class CLISubgraphsTests(unittest.TestCase):
 
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("GIGA_AGENT_RUNTIME_LOCAL", None)
-            with patch.dict(
-                sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
-            ), patch(
-                "giga_agent.cli.load_graph_and_app_from_string",
-                return_value=(graph, FastAPI()),
-            ), patch(
-                "giga_agent.cli.apply_migrations"
-            ), patch(
-                "giga_agent.cli.asyncio.run"
-            ), patch(
-                "giga_agent.core.cache.setup_cache"
+            with (
+                patch.dict(
+                    sys.modules,
+                    self._make_langgraph_api_modules(lambda *args, **kwargs: None),
+                ),
+                patch(
+                    "giga_agent.cli.load_graph_and_app_from_string",
+                    return_value=(graph, FastAPI()),
+                ),
+                patch("giga_agent.cli.apply_migrations"),
+                patch("giga_agent.cli.asyncio.run"),
+                patch("giga_agent.core.cache.setup_cache"),
             ):
                 dev(no_reload=True)
 
@@ -142,17 +142,15 @@ class CLISubgraphsTests(unittest.TestCase):
             ]
         )
 
-        with patch.dict(
-            sys.modules, self._make_langgraph_api_modules(_run_server)
-        ), patch(
-            "giga_agent.cli.load_graph_and_app_from_string",
-            return_value=(graph, FastAPI()),
-        ), patch(
-            "giga_agent.cli.apply_migrations"
-        ) as apply_migrations, patch(
-            "giga_agent.cli.asyncio.run"
-        ), patch(
-            "giga_agent.core.cache.setup_cache"
+        with (
+            patch.dict(sys.modules, self._make_langgraph_api_modules(_run_server)),
+            patch(
+                "giga_agent.cli.load_graph_and_app_from_string",
+                return_value=(graph, FastAPI()),
+            ),
+            patch("giga_agent.cli.apply_migrations") as apply_migrations,
+            patch("giga_agent.cli.asyncio.run"),
+            patch("giga_agent.core.cache.setup_cache"),
         ):
             with self.assertRaises(CLIException) as exc:
                 dev(
@@ -167,21 +165,23 @@ class CLISubgraphsTests(unittest.TestCase):
         graph = self._make_agent_graph(modules=[])
         dispose_coro = object()
 
-        with patch.dict(
-            sys.modules, self._make_langgraph_api_modules(lambda *args, **kwargs: None)
-        ), patch(
-            "giga_agent.cli.load_graph_and_app_from_string",
-            return_value=(graph, FastAPI()),
-        ), patch(
-            "giga_agent.cli.apply_migrations"
-        ), patch(
-            "giga_agent.core.cache.setup_cache"
-        ), patch(
-            "giga_agent.core.db.dispose_engine",
-            return_value=dispose_coro,
-        ) as dispose_engine, patch(
-            "giga_agent.cli.asyncio.run"
-        ) as asyncio_run:
+        with (
+            patch.dict(
+                sys.modules,
+                self._make_langgraph_api_modules(lambda *args, **kwargs: None),
+            ),
+            patch(
+                "giga_agent.cli.load_graph_and_app_from_string",
+                return_value=(graph, FastAPI()),
+            ),
+            patch("giga_agent.cli.apply_migrations"),
+            patch("giga_agent.core.cache.setup_cache"),
+            patch(
+                "giga_agent.core.db.dispose_engine",
+                return_value=dispose_coro,
+            ) as dispose_engine,
+            patch("giga_agent.cli.asyncio.run") as asyncio_run,
+        ):
             dev(no_reload=True)
 
         dispose_engine.assert_called_once_with()

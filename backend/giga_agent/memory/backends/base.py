@@ -29,9 +29,7 @@ class MemoryFileDTO:
 
 
 class MemoryBackend(Protocol):
-    async def get(
-        self, *, owner_id: uuid.UUID, path: str
-    ) -> MemoryFileDTO | None: ...
+    async def get(self, *, owner_id: uuid.UUID, path: str) -> MemoryFileDTO | None: ...
 
     async def create(
         self,
@@ -62,9 +60,7 @@ class MemoryBackend(Protocol):
         include_global: bool,
     ) -> list[MemoryFileDTO]: ...
 
-    async def list_all(
-        self, *, owner_id: uuid.UUID
-    ) -> list[MemoryFileDTO]: ...
+    async def list_all(self, *, owner_id: uuid.UUID) -> list[MemoryFileDTO]: ...
 
     async def list_needs_reindex(
         self,

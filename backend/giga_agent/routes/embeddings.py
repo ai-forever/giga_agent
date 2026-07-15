@@ -10,11 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Ensure runtime registrations
+import giga_agent.connectors  # noqa: F401
+import giga_agent.embeddings  # noqa: F401
 from giga_agent.connectors.registry import ConnectorRegistry
 from giga_agent.core.db import get_session
+from giga_agent.core.events import event_bus
 from giga_agent.embeddings.registry import EmbeddingRegistry
-from giga_agent.models.connector import Connector, ConnectorRepository
-from giga_agent.models.embedding import (
+from giga_agent.models import (
     AvailableEmbeddingModel,
     Embedding,
     EmbeddingCreate,
@@ -23,11 +26,11 @@ from giga_agent.models.embedding import (
     EmbeddingRepository,
     EmbeddingResponse,
 )
+from giga_agent.models.connector import Connector, ConnectorRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserRepository, UserShort
-from giga_agent.core.events import event_bus
-from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
+from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 from giga_agent.routes._shared.access import (
     fetch_resource_with_access_check,
     fetch_resource_with_read_and_edit,
@@ -45,10 +48,6 @@ from giga_agent.routes._shared.users import (
     clear_user_current_link_if_matches,
     get_user_model,
 )
-
-# Ensure runtime registrations
-import giga_agent.connectors  # noqa: F401
-import giga_agent.embeddings  # noqa: F401
 
 router = APIRouter(prefix="/embeddings", tags=["embeddings"])
 
@@ -191,7 +190,9 @@ async def _probe_embedding_vector_size(
         if hasattr(embeddings, "aembed_query"):
             vector = await embeddings.aembed_query("vector size probe")
         else:
-            vector = await asyncio.to_thread(embeddings.embed_query, "vector size probe")
+            vector = await asyncio.to_thread(
+                embeddings.embed_query, "vector size probe"
+            )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -293,7 +294,9 @@ async def get_embedding_types_meta(
     return [
         EmbeddingTypeMeta(
             type=item,
-            supported_connector_types=EmbeddingRegistry.get(item).supported_connector_types(),
+            supported_connector_types=EmbeddingRegistry.get(
+                item
+            ).supported_connector_types(),
         )
         for item in EmbeddingRegistry.available_types()
     ]
@@ -465,8 +468,7 @@ async def get_available_models_by_connector(
         connector=connector,
         fetch_error_type=EmbeddingModelFetchError,
         failure_message_builder=lambda e: (
-            f"Failed to fetch models from embeddings '{e.embedding_type}': "
-            f"{e.detail}"
+            f"Failed to fetch models from embeddings '{e.embedding_type}': {e.detail}"
         ),
         connector_runtime_error_message="Некорректные настройки коннектора для эмбеддингов",
         get_runtime=ConnectorRegistry.get_runtime,
@@ -501,8 +503,7 @@ async def fetch_available_models(
         connector_settings=normalized_settings,
         fetch_error_type=EmbeddingModelFetchError,
         failure_message_builder=lambda e: (
-            f"Failed to fetch models from embeddings '{e.embedding_type}': "
-            f"{e.detail}"
+            f"Failed to fetch models from embeddings '{e.embedding_type}': {e.detail}"
         ),
         connector_runtime_error_message="Некорректные настройки коннектора для эмбеддингов",
         get_runtime=ConnectorRegistry.get_runtime,
@@ -557,9 +558,7 @@ async def delete_embedding(
         user_id=current_user.id,
         embedding_repo=embedding_repo,
     )
-    old_embedding_id = (
-        user.embedding_id if user.embedding_id == embedding.id else None
-    )
+    old_embedding_id = user.embedding_id if user.embedding_id == embedding.id else None
     await embedding_repo.delete(embedding)
     was_cleared = await clear_user_current_link_if_matches(
         db=db,

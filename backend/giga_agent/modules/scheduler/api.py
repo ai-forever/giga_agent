@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from giga_agent.core.db import get_session
 from giga_agent.models.scheduled_task import (
     KIND_CRON,
-    KIND_ONCE,
     ScheduledTaskCreate,
     ScheduledTaskRepository,
     ScheduledTaskResponse,

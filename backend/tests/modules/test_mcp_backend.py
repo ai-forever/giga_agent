@@ -130,7 +130,9 @@ class McpServerRepositoryTests(unittest.IsolatedAsyncioTestCase):
         other = await self._user("other@e.io")
         async with self.session_factory() as session:
             repo = McpServerRepository(session)
-            await repo.create(owner_id=owner.id, url="https://x.example.com/mcp", name="s")
+            await repo.create(
+                owner_id=owner.id, url="https://x.example.com/mcp", name="s"
+            )
 
         async with self.session_factory() as session:
             repo = McpServerRepository(session)
@@ -170,7 +172,9 @@ class DbTokenStorageTests(unittest.IsolatedAsyncioTestCase):
         self.user_id = uuid.uuid4()
         async with self.session_factory() as session:
             session.add(
-                User(id=self.user_id, email="t@e.io", hashed_password="h", is_active=True)
+                User(
+                    id=self.user_id, email="t@e.io", hashed_password="h", is_active=True
+                )
             )
             server = McpServer(
                 owner_id=self.user_id,
@@ -242,10 +246,9 @@ class LocalConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "mcp.json"
             path.write_text(json.dumps(payload), encoding="utf-8")
-            with mock.patch.object(
-                local_config, "is_local_runtime", return_value=True
-            ), mock.patch.object(
-                local_config, "local_config_path", return_value=path
+            with (
+                mock.patch.object(local_config, "is_local_runtime", return_value=True),
+                mock.patch.object(local_config, "local_config_path", return_value=path),
             ):
                 return local_config.load_local_servers()
 
@@ -323,9 +326,7 @@ class McpAppsUiTests(unittest.TestCase):
             _visible_to_model({"meta": {"ui": {"visibility": ["model", "app"]}}})
         )
         # App-only → hidden from the LLM.
-        self.assertFalse(
-            _visible_to_model({"meta": {"ui": {"visibility": ["app"]}}})
-        )
+        self.assertFalse(_visible_to_model({"meta": {"ui": {"visibility": ["app"]}}}))
 
     def test_app_gate(self) -> None:
         from giga_agent.modules.mcp.tools import _callable_by_app
@@ -337,9 +338,7 @@ class McpAppsUiTests(unittest.TestCase):
             _callable_by_app({"meta": {"ui": {"visibility": ["model", "app"]}}})
         )
         # Model-only tools must not be reachable from the widget bridge.
-        self.assertFalse(
-            _callable_by_app({"meta": {"ui": {"visibility": ["model"]}}})
-        )
+        self.assertFalse(_callable_by_app({"meta": {"ui": {"visibility": ["model"]}}}))
 
 
 class UiResourceServerRefTests(unittest.IsolatedAsyncioTestCase):
@@ -435,7 +434,10 @@ class CallServerToolTests(unittest.IsolatedAsyncioTestCase):
         call = mock.AsyncMock(return_value=result)
         with self._patch(call):
             parts, is_error, structured = await client.call_server_tool(
-                self._server(), "export", {}, user_id=uuid.uuid4(),
+                self._server(),
+                "export",
+                {},
+                user_id=uuid.uuid4(),
             )
         self.assertEqual(call.await_count, 1)
         self.assertFalse(is_error)
@@ -449,7 +451,10 @@ class CallServerToolTests(unittest.IsolatedAsyncioTestCase):
         call = mock.AsyncMock(side_effect=asyncio.TimeoutError())
         with self._patch(call), self.assertRaises(McpTimeoutError):
             await client.call_server_tool(
-                self._server(), "export", {}, user_id=uuid.uuid4(),
+                self._server(),
+                "export",
+                {},
+                user_id=uuid.uuid4(),
             )
         self.assertEqual(call.await_count, 1)
 
@@ -460,7 +465,10 @@ class CallServerToolTests(unittest.IsolatedAsyncioTestCase):
         call = mock.AsyncMock(side_effect=McpToolError("boom"))
         with self._patch(call), self.assertRaises(McpToolError):
             await client.call_server_tool(
-                self._server(), "x", {}, user_id=uuid.uuid4(),
+                self._server(),
+                "x",
+                {},
+                user_id=uuid.uuid4(),
             )
         self.assertEqual(call.await_count, 1)
 

@@ -51,43 +51,49 @@ class RagCollectionsRouterTests(unittest.TestCase):
         docs_repo_instance = Mock()
         docs_repo_instance.list_by_collection = AsyncMock(
             side_effect=[
-                [
-                    types.SimpleNamespace(
-                        sandbox_path="/bucket/rag1.txt"
-                    )
-                ],
+                [types.SimpleNamespace(sandbox_path="/bucket/rag1.txt")],
                 [],
             ]
         )
 
-        with patch(
-            "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
-            return_value=repo_instance,
-        ), patch(
-            "giga_agent.modules.rag.api.collections.RagDocumentsRepository",
-            return_value=docs_repo_instance,
-        ), patch(
-            "giga_agent.modules.rag.api.collections.SandboxManager.delete_file_by_path_for_user",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_file_by_path, patch(
-            "giga_agent.modules.rag.api.collections.SandboxManager.__init__",
-            return_value=None,
-        ), patch(
-            "giga_agent.modules.rag.api.collections.EmbeddingManager.resolve_by_id",
-            AsyncMock(return_value=runtime),
-        ), patch(
-            "giga_agent.modules.rag.api.collections.get_qdrant_client",
-            return_value=qdrant_client,
-        ), patch(
-            "giga_agent.modules.rag.api.collections.resolve_qdrant_collection",
-            AsyncMock(return_value="rag_chunks__test"),
-        ), patch(
-            "giga_agent.modules.rag.api.collections.build_filter",
-            return_value=object(),
-        ) as mocked_build_filter, patch(
-            "giga_agent.modules.rag.api.collections.delete_by_filter",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_by_filter:
+        with (
+            patch(
+                "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
+                return_value=repo_instance,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.RagDocumentsRepository",
+                return_value=docs_repo_instance,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.SandboxManager.delete_file_by_path_for_user",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_file_by_path,
+            patch(
+                "giga_agent.modules.rag.api.collections.SandboxManager.__init__",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.EmbeddingManager.resolve_by_id",
+                AsyncMock(return_value=runtime),
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.get_qdrant_client",
+                return_value=qdrant_client,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.resolve_qdrant_collection",
+                AsyncMock(return_value="rag_chunks__test"),
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.build_filter",
+                return_value=object(),
+            ) as mocked_build_filter,
+            patch(
+                "giga_agent.modules.rag.api.collections.delete_by_filter",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_by_filter,
+        ):
             resp = self.client.delete(f"/collections/{collection_id}")
 
         self.assertEqual(resp.status_code, 204)
@@ -108,22 +114,28 @@ class RagCollectionsRouterTests(unittest.TestCase):
         repo_instance = Mock()
         repo_instance.get_by_id_with_access_for_user = AsyncMock(return_value=None)
 
-        with patch(
-            "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
-            return_value=repo_instance,
-        ), patch(
-            "giga_agent.modules.rag.api.collections.RagDocumentsRepository",
-            return_value=Mock(),
-        ) as mocked_docs_repo, patch(
-            "giga_agent.modules.rag.api.collections.SandboxManager.delete_file_by_path_for_user",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_file_by_path, patch(
-            "giga_agent.modules.rag.api.collections.SandboxManager.__init__",
-            return_value=None,
-        ), patch(
-            "giga_agent.modules.rag.api.collections.delete_by_filter",
-            AsyncMock(return_value=None),
-        ) as mocked_delete_by_filter:
+        with (
+            patch(
+                "giga_agent.modules.rag.api.collections.RagCollectionsRepository",
+                return_value=repo_instance,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.RagDocumentsRepository",
+                return_value=Mock(),
+            ) as mocked_docs_repo,
+            patch(
+                "giga_agent.modules.rag.api.collections.SandboxManager.delete_file_by_path_for_user",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_file_by_path,
+            patch(
+                "giga_agent.modules.rag.api.collections.SandboxManager.__init__",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.modules.rag.api.collections.delete_by_filter",
+                AsyncMock(return_value=None),
+            ) as mocked_delete_by_filter,
+        ):
             resp = self.client.delete(f"/collections/{collection_id}")
 
         self.assertEqual(resp.status_code, 404)

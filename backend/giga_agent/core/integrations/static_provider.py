@@ -69,9 +69,7 @@ class StaticOAuthProvider(IntegrationProvider):
 
     # -- connect -------------------------------------------------------------- #
 
-    async def authorization_url(
-        self, *, user_id: uuid.UUID, db, base_url: str
-    ) -> str:
+    async def authorization_url(self, *, user_id: uuid.UUID, db, base_url: str) -> str:
         cfg = self._cfg
         if not (cfg.authorization_endpoint and cfg.token_endpoint and cfg.client_id):
             raise ValueError(f"provider '{self.key}' is not configured for OAuth")

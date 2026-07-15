@@ -108,9 +108,12 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
             started_at=1.0,
         )
 
-        with tempfile.TemporaryDirectory() as tmp_dir, self._patched_env(
-            {"GIGA_AGENT_PROJECT_ROOT": tmp_dir},
-            clear=False,
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env(
+                {"GIGA_AGENT_PROJECT_ROOT": tmp_dir},
+                clear=False,
+            ),
         ):
             manager._write_metadata_file(handle)
             loaded = manager._read_metadata_file()
@@ -136,15 +139,19 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
         manager._shims_dir = Mock(return_value=shims_dir)  # type: ignore[method-assign]
         manager._wait_until_ready = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
-        with patch(
-            "giga_agent.sandbox.local_jupyter.manager.ensure_jupyter_dependencies",
-            return_value=None,
-        ), patch(
-            "giga_agent.sandbox.local_jupyter.manager.subprocess.Popen",
-            return_value=proc,
-        ) as popen_mock, patch(
-            "giga_agent.sandbox.local_jupyter.manager.get_process_supervisor",
-            return_value=supervisor,
+        with (
+            patch(
+                "giga_agent.sandbox.local_jupyter.manager.ensure_jupyter_dependencies",
+                return_value=None,
+            ),
+            patch(
+                "giga_agent.sandbox.local_jupyter.manager.subprocess.Popen",
+                return_value=proc,
+            ) as popen_mock,
+            patch(
+                "giga_agent.sandbox.local_jupyter.manager.get_process_supervisor",
+                return_value=supervisor,
+            ),
         ):
             handle = await manager._start_new_server()
 
@@ -153,7 +160,9 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
 
         command = popen_mock.call_args.args[0]
         env = popen_mock.call_args.kwargs["env"]
-        kernel_spec_path = data_dir / "kernels" / LOCAL_JUPYTER_KERNEL_NAME / "kernel.json"
+        kernel_spec_path = (
+            data_dir / "kernels" / LOCAL_JUPYTER_KERNEL_NAME / "kernel.json"
+        )
         kernel_spec = json.loads(kernel_spec_path.read_text(encoding="utf-8"))
 
         self.assertIn("--IdentityProvider.token=", " ".join(command))
@@ -171,9 +180,7 @@ class LocalJupyterServerManagerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(kernel_spec["env"]["PIP_REQUIRE_VIRTUALENV"], "1")
         self.assertTrue(
-            kernel_spec["env"]["PATH"].startswith(
-                f"{shims_dir}{os.pathsep}"
-            )
+            kernel_spec["env"]["PATH"].startswith(f"{shims_dir}{os.pathsep}")
         )
         supervisor.register_process.assert_called_once()
 

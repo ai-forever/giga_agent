@@ -11,7 +11,10 @@ from giga_agent.core.agent.types import AgentState
 from giga_agent.core.module import BaseModule
 from giga_agent.models.users import UserShort
 from giga_agent.modules.analyze_images.prompts import ANALYZE_IMAGES_MODULE_INSTRUCTIONS
-from giga_agent.modules.analyze_images.tool import analyze_image, resolve_image_analyzer_llm
+from giga_agent.modules.analyze_images.tool import (
+    analyze_image,
+    resolve_image_analyzer_llm,
+)
 
 
 class AnalyzeImagesModule(BaseModule):
@@ -20,9 +23,7 @@ class AnalyzeImagesModule(BaseModule):
     description: str = "Распознавание и описание содержимого изображений"
     icon: str = "ScanSearch"
 
-    async def _is_enabled(
-        self, user: UserShort | None, *, config=None
-    ) -> bool:
+    async def _is_enabled(self, user: UserShort | None, *, config=None) -> bool:
         from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
         if config is None:

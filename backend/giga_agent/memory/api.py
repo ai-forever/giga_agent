@@ -20,7 +20,6 @@ from giga_agent.memory.frontmatter import parse_frontmatter
 from giga_agent.memory.paths import InvalidMemoryPathError, parse_memory_path
 from giga_agent.memory.runtime import build_memory_service_for_user
 from giga_agent.memory.service import (
-    MAX_MEMORY_FILE_LINES,
     MemoryFileTooLargeError,
     SEARCH_DEFAULT_N,
 )
@@ -86,7 +85,8 @@ def _to_summary(file: MemoryFileDTO) -> MemoryFileSummary:
         tag=file.tag,
         description=file.description,
         content_hash=file.content_hash,
-        indexed=file.indexed_hash == file.content_hash and file.indexed_hash is not None,
+        indexed=file.indexed_hash == file.content_hash
+        and file.indexed_hash is not None,
         updated_at=file.updated_at,
     )
 
@@ -117,15 +117,15 @@ def _parse_path_or_400(path: str):
     try:
         return parse_memory_path(path)
     except InvalidMemoryPathError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get("/by-path", response_model=MemoryFileDetails)
 async def get_memory_by_path(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    path: Annotated[str, Query(description="Memory file path, e.g. /memories/ABOUT.md")],
+    path: Annotated[
+        str, Query(description="Memory file path, e.g. /memories/ABOUT.md")
+    ],
 ) -> MemoryFileDetails:
     """Return a memory file by its virtual path (e.g. ``/memories/ABOUT.md``)."""
     _parse_path_or_400(path)
@@ -145,40 +145,31 @@ async def upsert_memory_by_path(
 ) -> MemoryFileDetails:
     """Create the memory file if it does not exist, otherwise update its content."""
     _parse_path_or_400(payload.path)
-    service = await build_memory_service_for_user(
-        current_user, include_fast_llm=True
-    )
-    existing = await get_backend().get(
-        owner_id=current_user.id, path=payload.path
-    )
+    service = await build_memory_service_for_user(current_user, include_fast_llm=True)
+    existing = await get_backend().get(owner_id=current_user.id, path=payload.path)
     try:
         if existing is None:
             result = await service.create(path=payload.path, content=payload.content)
         else:
             result = await service.update(path=payload.path, content=payload.content)
     except MemoryFileTooLargeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except InvalidMemoryPathError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except MemoryFileExistsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except MemoryFileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return _to_details(result.file)
 
 
 @router.get("", response_model=list[MemoryFileSummary])
 async def list_memories(
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
-    tag: Annotated[str | None, Query(description="Filter by tag (use 'global' for global memories)")] = None,
+    tag: Annotated[
+        str | None,
+        Query(description="Filter by tag (use 'global' for global memories)"),
+    ] = None,
 ) -> list[MemoryFileSummary]:
     """List the user's memory files (summary only; no content)."""
     backend = get_backend()
@@ -195,32 +186,22 @@ async def list_memories(
     return [_to_summary(f) for f in files]
 
 
-@router.post(
-    "", response_model=MemoryFileDetails, status_code=status.HTTP_201_CREATED
-)
+@router.post("", response_model=MemoryFileDetails, status_code=status.HTTP_201_CREATED)
 async def create_memory(
     payload: MemoryFileCreate,
     current_user: Annotated[UserShort, Depends(get_current_active_user)],
 ) -> MemoryFileDetails:
     """Create a new memory file at the given path."""
     _parse_path_or_400(payload.path)
-    service = await build_memory_service_for_user(
-        current_user, include_fast_llm=True
-    )
+    service = await build_memory_service_for_user(current_user, include_fast_llm=True)
     try:
         result = await service.create(path=payload.path, content=payload.content)
     except MemoryFileTooLargeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except MemoryFileExistsError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except InvalidMemoryPathError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return _to_details(result.file)
 
 
@@ -242,19 +223,13 @@ async def update_memory(
 ) -> MemoryFileDetails:
     """Replace the content of an existing memory file."""
     file = await _find_file_by_id(owner_id=current_user.id, memory_id=memory_id)
-    service = await build_memory_service_for_user(
-        current_user, include_fast_llm=True
-    )
+    service = await build_memory_service_for_user(current_user, include_fast_llm=True)
     try:
         result = await service.update(path=file.path, content=payload.content)
     except MemoryFileTooLargeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except MemoryFileNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     return _to_details(result.file)
 
 
@@ -319,8 +294,7 @@ async def search_memories(
         )
     return MemorySearchResponse(
         hits=[
-            MemorySearchHit(path=h.path, snippet=h.snippet, score=h.score)
-            for h in hits
+            MemorySearchHit(path=h.path, snippet=h.snippet, score=h.score) for h in hits
         ]
     )
 

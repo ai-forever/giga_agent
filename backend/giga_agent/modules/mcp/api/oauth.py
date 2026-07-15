@@ -44,7 +44,7 @@ def _callback_html(success: bool, error: str | None = None) -> HTMLResponse:
 try {{ if (window.opener) window.opener.postMessage({json.dumps(payload)}, "*"); }} catch (e) {{}}
 window.close();
 </script>
-<p>{'Authorization complete. You can close this window.' if success else 'Authorization failed.'}</p>
+<p>{"Authorization complete. You can close this window." if success else "Authorization failed."}</p>
 </body></html>"""
     return HTMLResponse(content=body)
 
@@ -105,9 +105,7 @@ async def oauth_callback(
     if not code or not state_param:
         return _callback_html(False, error="missing code/state")
 
-    data = await state.pop_oauth_state(
-        namespace=state.MCP_STATE_NS, state=state_param
-    )
+    data = await state.pop_oauth_state(namespace=state.MCP_STATE_NS, state=state_param)
     if not data:
         return _callback_html(False, error="invalid or expired state")
 
@@ -117,6 +115,6 @@ async def oauth_callback(
         logger.warning("MCP OAuth token exchange failed: %s", exc)
         return _callback_html(False, error="token exchange failed")
 
-    server_id = uuid.UUID(data["provider_key"][len("mcp:"):])
+    server_id = uuid.UUID(data["provider_key"][len("mcp:") :])
     await McpServerRepository.invalidate_tools_cache(server_id)
     return _callback_html(True)

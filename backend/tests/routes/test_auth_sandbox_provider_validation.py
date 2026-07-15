@@ -7,7 +7,9 @@ from giga_agent.modules.auth.api import _validate_sandbox_provider_id
 
 
 class AuthSandboxProviderValidationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_validate_sandbox_provider_id_allows_local_provider_for_non_admin(self):
+    async def test_validate_sandbox_provider_id_allows_local_provider_for_non_admin(
+        self,
+    ):
         provider_id = uuid.uuid4()
         db = types.SimpleNamespace()
 

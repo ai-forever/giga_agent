@@ -15,6 +15,7 @@ Revises: 4d6b2a0f3e88
 Create Date: 2026-06-24 12:00:00.000000
 
 """
+
 import uuid
 from typing import Sequence, Union
 
@@ -220,7 +221,7 @@ def downgrade() -> None:
     payload = []
     for r in rows:
         try:
-            server_id = uuid.UUID(r.provider_key[len("mcp:"):])
+            server_id = uuid.UUID(r.provider_key[len("mcp:") :])
         except (ValueError, TypeError):
             continue
         payload.append(

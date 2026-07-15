@@ -42,9 +42,10 @@ class OpenAIConnector(BaseConnector):
         return validated
 
     def get_connection_kwargs(self) -> dict[str, Any] | None:
-        api_key = str(self.api_key or "").strip() or (
-            os.getenv("OPENAI_API_KEY") or ""
-        ).strip()
+        api_key = (
+            str(self.api_key or "").strip()
+            or (os.getenv("OPENAI_API_KEY") or "").strip()
+        )
         base_url = str(self.base_url or "").strip().rstrip("/")
 
         if not api_key:

@@ -116,7 +116,9 @@ def _is_prompt_visible_path(path: str) -> bool:
     return not any(part in _PROMPT_EXCLUDED_NAMES for part in Path(path).parts)
 
 
-def _format_prompt_entries(entries: list[str], *, limit: int = _PROMPT_FILE_LIST_LIMIT) -> str:
+def _format_prompt_entries(
+    entries: list[str], *, limit: int = _PROMPT_FILE_LIST_LIMIT
+) -> str:
     if not entries:
         return "- (пусто)\n"
     visible_entries = [entry for entry in entries if _is_prompt_visible_path(entry)]
@@ -319,9 +321,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             else ""
         )
         temp_write_prompt = (
-            " Также доступна на запись папка /tmp."
-            if os.name != "nt"
-            else ""
+            " Также доступна на запись папка /tmp." if os.name != "nt" else ""
         )
         return (
             f"- Текущая рабочая директория: {_format_directory(cwd)}\n"
@@ -363,9 +363,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         return {"name": LOCAL_JUPYTER_KERNEL_NAME}
 
     def _kernel_startup_timeout(self) -> float | None:
-        return float(
-            get_settings().giga_agent_local_jupyter_kernel_startup_timeout_sec
-        )
+        return float(get_settings().giga_agent_local_jupyter_kernel_startup_timeout_sec)
 
     async def _before_kernel_create(self, session: Any) -> None:
         del session
@@ -384,9 +382,7 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     async def _on_kernel_active(self, kernel_id: str) -> None:
         if self.owner_id is None:
             return
-        get_local_jupyter_server_manager().note_kernel_use(
-            self.owner_id, kernel_id
-        )
+        get_local_jupyter_server_manager().note_kernel_use(self.owner_id, kernel_id)
 
     async def run_code(
         self,
@@ -893,6 +889,6 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
                             "storage_path": storage_path,
                         }
                     )
-                except (SkillParseError, OSError) as exc:
+                except (SkillParseError, OSError):
                     continue
         return found

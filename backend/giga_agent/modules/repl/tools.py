@@ -746,9 +746,7 @@ async def shell(
             envs=secret_envs,
         )
     except NotImplementedError as exc:
-        raise ValueError(
-            "Текущий sandbox не поддерживает shell-инструмент."
-        ) from exc
+        raise ValueError("Текущий sandbox не поддерживает shell-инструмент.") from exc
 
     is_error = result.status == "failed" or (
         result.exit_code is not None and result.exit_code != 0

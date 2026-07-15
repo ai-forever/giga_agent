@@ -26,7 +26,9 @@ from giga_agent.models.channel import (
 )
 from giga_agent.models.users import UserShort
 from giga_agent.modules.auth.api import get_current_active_user
-from giga_agent.routes._shared.schema import build_settings_schema_with_computed_defaults
+from giga_agent.routes._shared.schema import (
+    build_settings_schema_with_computed_defaults,
+)
 
 router = APIRouter(prefix="/channels", tags=["channels"])
 
@@ -117,7 +119,9 @@ async def _get_owned_contact(
     user_id: uuid.UUID,
     channel_repo: ChannelBotRepository,
 ) -> tuple[ChannelBot, ChannelContact]:
-    bot = await _get_owned_bot(bot_id=bot_id, user_id=user_id, channel_repo=channel_repo)
+    bot = await _get_owned_bot(
+        bot_id=bot_id, user_id=user_id, channel_repo=channel_repo
+    )
     contact = await channel_repo.get_contact_by_id(contact_id)
     if contact is None or contact.bot_id != bot.id:
         raise HTTPException(
@@ -324,7 +328,9 @@ async def update_channel_contact_by_chat_id(
     return ChannelContactResponse.model_validate(updated)
 
 
-@router.delete("/{bot_id}/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{bot_id}/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 async def delete_channel_contact(
     bot_id: uuid.UUID,
     contact_id: uuid.UUID,

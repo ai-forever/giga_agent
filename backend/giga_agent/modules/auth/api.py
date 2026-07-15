@@ -6,7 +6,15 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from cashews import cache
 from jwt.exceptions import ExpiredSignatureError, PyJWTError
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel
@@ -188,6 +196,17 @@ def require_superuser(current_user: UserShort) -> None:
         )
 
 
+def require_role(current_user: UserShort, minimum: str) -> None:
+    """Проверка роли по иерархии member < admin < owner."""
+    from giga_agent.models.users import role_at_least
+
+    if not role_at_least(current_user.role, minimum):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+
 def _collect_runtime_grant_targets_from_user_model(
     user_model: User,
 ) -> set[tuple[str, uuid.UUID]]:
@@ -281,7 +300,9 @@ async def _validate_llm_id(
         resource_type="llm",
         resource_id=llm_id,
         field_name=field_name,
-        loader=lambda resource_id: LLMRepository.get_cached_or_db(resource_id, session=db),
+        loader=lambda resource_id: LLMRepository.get_cached_or_db(
+            resource_id, session=db
+        ),
     )
 
 
@@ -531,7 +552,9 @@ async def _build_user_storage_cleanup_batches(
         )
         sandbox_snapshots_by_owner: dict[str, SandboxSnapshot] = {}
         for owner_id in {item.owner_id for item in provider_refs}:
-            sandbox = await sandbox_repo.get_by_owner_and_provider(owner_id, provider_id)
+            sandbox = await sandbox_repo.get_by_owner_and_provider(
+                owner_id, provider_id
+            )
             if sandbox is None:
                 continue
             pair = SandboxRepository.to_pair_snapshot(provider, sandbox)
@@ -609,7 +632,9 @@ async def login_for_access_token(
 async def logout(response: Response):
     cookie_domain = _app_session_cookie_domain()
     response.delete_cookie(
-        key=AUTH_COOKIE_NAME, path="/", domain=cookie_domain,
+        key=AUTH_COOKIE_NAME,
+        path="/",
+        domain=cookie_domain,
     )
 
 
@@ -898,6 +923,19 @@ async def create_user(
                 detail=f"Groups not found: {missing_group_ids_str}",
             )
 
+    # role — источник правды, если задана явно; иначе легаси-вывод из
+    # is_superuser. Создать owner'а нельзя — владение только передаётся
+    # (PATCH существующего пользователя самим owner'ом).
+    explicit_role = "role" in user.model_fields_set
+    if explicit_role and user.role not in ("admin", "member"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="role must be 'admin' or 'member' (owner is transfer-only)",
+        )
+    resolved_role = (
+        user.role if explicit_role else ("admin" if user.is_superuser else "member")
+    )
+
     try:
         db_user = await user_repo.create(
             email=user.email,
@@ -905,7 +943,7 @@ async def create_user(
             first_name=user.first_name,
             last_name=user.last_name,
             is_active=user.is_active,
-            is_superuser=user.is_superuser,
+            role=resolved_role,
             commit=False,
         )
 
@@ -979,11 +1017,44 @@ async def patch_user_by_id(
             "is_superuser" in body.model_fields_set
             and body.is_superuser != user.is_superuser
         )
+        or ("role" in body.model_fields_set and body.role != user.role)
     )
     if user_id == current_user.id and changes_current_user_flags:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Cannot change is_active or is_superuser for current user",
+        )
+
+    # Защита владельца: менять роль/активность owner'а может только сам owner
+    # (свои флаги и так менять нельзя — правило выше). Назначить owner'ом
+    # другого пользователя может тоже только текущий owner (передача владения).
+    from giga_agent.models.users import (
+        ROLE_OWNER,
+        role_implies_superuser,
+    )
+
+    touches_protected = (
+        "role" in body.model_fields_set
+        or "is_active" in body.model_fields_set
+        or "is_superuser" in body.model_fields_set
+    )
+    if (
+        touches_protected
+        and user.role == ROLE_OWNER
+        and current_user.role != ROLE_OWNER
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can modify the owner account",
+        )
+    if (
+        "role" in body.model_fields_set
+        and body.role == ROLE_OWNER
+        and current_user.role != ROLE_OWNER
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can transfer ownership",
         )
 
     if "email" in body.model_fields_set:
@@ -1019,13 +1090,27 @@ async def patch_user_by_id(
             )
         user.is_active = body.is_active
 
-    if "is_superuser" in body.model_fields_set:
+    # role — источник правды; is_superuser поддерживается синхронно.
+    # Легаси-путь: если пришёл только is_superuser (старый фронт), выводим
+    # роль из него (True → admin, False → member; owner так не разжаловать —
+    # защищено проверками выше).
+    if "role" in body.model_fields_set:
+        if body.role is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="role must not be null",
+            )
+        user.role = body.role
+        user.is_superuser = role_implies_superuser(body.role)
+    elif "is_superuser" in body.model_fields_set:
         if body.is_superuser is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="is_superuser must not be null",
             )
         user.is_superuser = body.is_superuser
+        if user.role != ROLE_OWNER:
+            user.role = "admin" if body.is_superuser else "member"
 
     if "experimental_mode" in body.model_fields_set:
         if body.experimental_mode is None:

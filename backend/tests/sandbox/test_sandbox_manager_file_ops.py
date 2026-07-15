@@ -48,7 +48,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             await session.refresh(user)
             return user
 
-    async def _create_provider(self, owner_id: uuid.UUID, provider_type: str = "e2b") -> SandboxProvider:
+    async def _create_provider(
+        self, owner_id: uuid.UUID, provider_type: str = "e2b"
+    ) -> SandboxProvider:
         async with self.session_factory() as session:
             provider = SandboxProvider(
                 owner_id=owner_id,
@@ -60,7 +62,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                     "s3_region": "ru-central-1",
                     "aws_access_key_id": "ak",
                     "aws_secret_access_key": "sk",
-                } if provider_type == "e2b" else {},
+                }
+                if provider_type == "e2b"
+                else {},
                 idle_timeout=300,
                 is_active=True,
             )
@@ -108,7 +112,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             )
             manager._lifecycle.ensure_running_for_user.assert_not_awaited()
 
-    async def test_resolve_provider_raises_when_user_sandbox_provider_not_configured(self):
+    async def test_resolve_provider_raises_when_user_sandbox_provider_not_configured(
+        self,
+    ):
         user = await self._create_user("m1b@example.com")
 
         async with self.session_factory() as session:
@@ -130,7 +136,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             await session.commit()
 
             manager = SandboxManager(session)
-            resolved = await manager._resolve_provider(user_id=user.id, provider_id=None)
+            resolved = await manager._resolve_provider(
+                user_id=user.id, provider_id=None
+            )
             self.assertEqual(resolved.id, provider.id)
 
     async def test_resolve_provider_allows_local_provider_for_non_admin_user(self):
@@ -139,7 +147,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
         async with self.session_factory() as session:
             manager = SandboxManager(session)
-            resolved = await manager._resolve_provider(user_id=user.id, provider_id=None)
+            resolved = await manager._resolve_provider(
+                user_id=user.id, provider_id=None
+            )
             self.assertEqual(resolved.id, provider.id)
 
     async def test_read_file_for_user_dispatches_to_runtime(self):
@@ -196,11 +206,15 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 requires_running_for_read=lambda path: True,
             )
             content = ContentResult(data=b"abc")
-            hot_runtime = types.SimpleNamespace(read_file=AsyncMock(return_value=content))
+            hot_runtime = types.SimpleNamespace(
+                read_file=AsyncMock(return_value=content)
+            )
 
             manager = SandboxManager(session)
             manager._runtime_factory.build = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
-            manager._lifecycle.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
+            manager._lifecycle.ensure_running_for_user = AsyncMock(
+                return_value=hot_runtime
+            )
 
             fetched, result = await manager.read_file_for_user(
                 user_id=user.id,
@@ -304,7 +318,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 patch(
                     "giga_agent.sandbox.manager.file_service.UserRepository.get_cached_or_db",
-                    side_effect=AssertionError("DB user lookup should not run in CLI mode"),
+                    side_effect=AssertionError(
+                        "DB user lookup should not run in CLI mode"
+                    ),
                 ),
             ):
                 fetched, result = await manager.read_file_by_path_for_user(
@@ -375,7 +391,10 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(len(files), 4)
             self.assertEqual(result.errors, [])
-            self.assertEqual([f.file_type for f in files], ["image", "audio", "video", "plotly_graph"])
+            self.assertEqual(
+                [f.file_type for f in files],
+                ["image", "audio", "video", "plotly_graph"],
+            )
             self.assertEqual(
                 [f.sandbox_path for f in files],
                 [
@@ -395,7 +414,9 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             for call in runtime.upload_file.await_args_list:
                 self.assertEqual(call.kwargs["owner_id"], user.id)
 
-    async def test_delete_file_for_user_deletes_from_storage_best_effort_and_removes_db_record(self):
+    async def test_delete_file_for_user_deletes_from_storage_best_effort_and_removes_db_record(
+        self,
+    ):
         user = await self._create_user("m7@example.com")
         viewer = await self._create_user("m7_viewer@example.com")
         provider = await self._create_provider(user.id)
@@ -461,11 +482,15 @@ class SandboxManagerFileOpsTests(unittest.IsolatedAsyncioTestCase):
             cold_runtime = types.SimpleNamespace(
                 requires_running_for_delete=lambda path: True,
             )
-            hot_runtime = types.SimpleNamespace(delete_file=AsyncMock(return_value=None))
+            hot_runtime = types.SimpleNamespace(
+                delete_file=AsyncMock(return_value=None)
+            )
 
             manager = SandboxManager(session)
             manager._runtime_factory.build = lambda provider, sandbox: cold_runtime  # type: ignore[method-assign]
-            manager._lifecycle.ensure_running_for_user = AsyncMock(return_value=hot_runtime)
+            manager._lifecycle.ensure_running_for_user = AsyncMock(
+                return_value=hot_runtime
+            )
 
             await manager.delete_file_for_user(user_id=user.id, file_id=file.id)
 

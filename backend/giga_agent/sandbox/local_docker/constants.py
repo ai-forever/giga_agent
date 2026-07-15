@@ -2,7 +2,9 @@ from pathlib import PurePosixPath
 
 JUPYTER_PORT = 8888
 BUCKET_PREFIX = "/bucket/"
-_LOCAL_FILE_SUFFIX_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_LOCAL_FILE_SUFFIX_ALPHABET = (
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
 MANAGED_LABEL = "giga_agent.managed"
 PROVIDER_TYPE_LABEL = "giga_agent.provider_type"
 PROVIDER_ID_LABEL = "giga_agent.provider_id"

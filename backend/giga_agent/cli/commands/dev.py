@@ -214,7 +214,7 @@ def dev(
     graph_and_app_path: Annotated[
         str,
         typer.Argument(
-            help=("Path to graph and app, " "e.g. giga_agent.agents.run:graph:app")
+            help=("Path to graph and app, e.g. giga_agent.agents.run:graph:app")
         ),
     ] = "giga_agent.agents.run:graph:app",
     log_level: Annotated[

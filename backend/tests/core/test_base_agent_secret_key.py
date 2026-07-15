@@ -1,6 +1,5 @@
-import os
 import unittest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from giga_agent.core.agent.base import BaseAgent
 
@@ -15,13 +14,16 @@ class BaseAgentSecretKeyRequirementTests(unittest.TestCase):
         async def _run_hooks(*_args, **_kwargs):
             call_order.append("hooks")
 
-        with patch.object(
-            BaseAgent,
-            "run_startup_migrations",
-            AsyncMock(side_effect=_run_migrations),
-        ) as run_migrations, patch.object(
-            BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
-        ) as run_hooks:
+        with (
+            patch.object(
+                BaseAgent,
+                "run_startup_migrations",
+                AsyncMock(side_effect=_run_migrations),
+            ),
+            patch.object(
+                BaseAgent, "run_startup_hooks", AsyncMock(side_effect=_run_hooks)
+            ),
+        ):
             with self.assertRaises(Exception) as exc:
                 agent = BaseAgent(modules=[], tools=[])
                 async with agent.app.router.lifespan_context(agent.app):

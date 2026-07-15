@@ -108,13 +108,16 @@ async def get_gigachat_access_token_uncached(
             await asyncio.sleep(delay_sec)
             delay_sec = min(delay_sec * 2, 2)
 
-    access_token = getattr(token_data, "access_token", None) if token_data is not None else None
+    access_token = (
+        getattr(token_data, "access_token", None) if token_data is not None else None
+    )
     if not access_token and isinstance(token_data, dict):
         access_token = token_data.get("access_token")
 
     token_str = str(access_token or "").strip()
     if not token_str:
-        raise ValueError("Could not obtain GigaChat access token from connector runtime")
+        raise ValueError(
+            "Could not obtain GigaChat access token from connector runtime"
+        )
 
     return token_str
-

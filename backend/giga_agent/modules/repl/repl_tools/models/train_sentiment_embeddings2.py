@@ -24,7 +24,9 @@ from sklearn.preprocessing import StandardScaler
 _HERE = Path(__file__).resolve().parent
 _BACKEND = _HERE.parents[4]  # backend/
 _CONFIG = _BACKEND / "giga_agent.conf.gigachat.json"
-_CSV = _BACKEND / "additional_data" / "sentiment_analysis" / "rusentiment_random_posts.csv"
+_CSV = (
+    _BACKEND / "additional_data" / "sentiment_analysis" / "rusentiment_random_posts.csv"
+)
 _BATCH = 64
 _LABELS = ["neutral", "positive", "negative"]
 

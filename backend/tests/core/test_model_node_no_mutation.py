@@ -33,7 +33,9 @@ class MessageCopyContractTests(unittest.TestCase):
         original_list = [msg]
 
         messages_for_llm = list(original_list)
-        enriched = msg.model_copy(update={"content": "<task>Оригинал</task>\nинструкции"})
+        enriched = msg.model_copy(
+            update={"content": "<task>Оригинал</task>\nинструкции"}
+        )
         messages_for_llm[-1] = enriched
 
         self.assertEqual(original_list[0].content, "Оригинал")

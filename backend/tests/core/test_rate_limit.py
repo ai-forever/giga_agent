@@ -22,9 +22,7 @@ def _make_limiter(
 ):
     base = f"rl:test:{uuid.uuid4()}"
     return CashewsTokenBucketLimiter(
-        global_bucket=_build_bucket(
-            f"{base}:global", requests_global, period_seconds
-        ),
+        global_bucket=_build_bucket(f"{base}:global", requests_global, period_seconds),
         user_bucket=_build_bucket(
             f"{base}:user:{user_id}", requests_per_user, period_seconds
         ),

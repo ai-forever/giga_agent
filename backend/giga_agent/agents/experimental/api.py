@@ -10,6 +10,7 @@
 Монтируется ядром под `{GIGA_AGENT_PREFIX_API}/experimental` (см.
 `ExperimentalModule.get_api_router` и base.py) → `GET /agent/experimental/activity/{thread_id}`.
 """
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -98,9 +99,7 @@ async def delete_thread(
         try:
             snap = await client.threads.get_state(thread_id)
         except Exception as exc:  # noqa: BLE001 — любой сбой = нет доступа
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, "Thread not found"
-            ) from exc
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Thread not found") from exc
 
         values = snap.get("values") or {}
         inner_thread_id = values.get("inner_thread_id")

@@ -16,7 +16,9 @@ def _content(result) -> str:
 class RagToolsTests(unittest.IsolatedAsyncioTestCase):
     def _runtime(self, owner_id: uuid.UUID):
         return types.SimpleNamespace(
-            config={"configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}},
+            config={
+                "configurable": {"langgraph_auth_user": {"identity": str(owner_id)}}
+            },
             tool_call_id="tool-call-1",
         )
 
@@ -29,13 +31,19 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
-        with patch(
-            "giga_agent.modules.io.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(
-                return_value=(file_record, ContentResult(data="hello world".encode("utf-8")))
+        with (
+            patch(
+                "giga_agent.modules.io.tools.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(
+                    return_value=(
+                        file_record,
+                        ContentResult(data="hello world".encode("utf-8")),
+                    )
+                ),
             ),
         ):
             assert read_file.coroutine is not None
@@ -59,16 +67,19 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
-        with patch(
-            "giga_agent.modules.io.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(
-                return_value=(
-                    file_record,
-                    ContentResult(data="alpha\nbeta\ngamma\ndelta".encode("utf-8")),
-                )
+        with (
+            patch(
+                "giga_agent.modules.io.tools.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(
+                    return_value=(
+                        file_record,
+                        ContentResult(data="alpha\nbeta\ngamma\ndelta".encode("utf-8")),
+                    )
+                ),
             ),
         ):
             assert read_file.coroutine is not None
@@ -95,15 +106,24 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
-        with patch(
-            "giga_agent.modules.io.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(return_value=(file_record, RedirectResult(url="https://example.com/file"))),
-        ), patch(
-            "giga_agent.modules.io.tools._download_redirect_bytes",
-            AsyncMock(return_value="redirect body".encode("utf-8")),
+        with (
+            patch(
+                "giga_agent.modules.io.tools.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(
+                    return_value=(
+                        file_record,
+                        RedirectResult(url="https://example.com/file"),
+                    )
+                ),
+            ),
+            patch(
+                "giga_agent.modules.io.tools._download_redirect_bytes",
+                AsyncMock(return_value="redirect body".encode("utf-8")),
+            ),
         ):
             assert read_file.coroutine is not None
             command = await read_file.coroutine(
@@ -124,20 +144,26 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
-        with patch(
-            "giga_agent.modules.io.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(
-                return_value=(
-                    file_record,
-                    ContentResult(data=b"%PDF-1.7...", media_type="application/pdf"),
-                )
+        with (
+            patch(
+                "giga_agent.modules.io.tools.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
             ),
-        ), patch(
-            "giga_agent.modules.io.tools._extract_pdf_text",
-            return_value="pdf line one\npdf line two",
+            patch(
+                "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(
+                    return_value=(
+                        file_record,
+                        ContentResult(
+                            data=b"%PDF-1.7...", media_type="application/pdf"
+                        ),
+                    )
+                ),
+            ),
+            patch(
+                "giga_agent.modules.io.tools._extract_pdf_text",
+                return_value="pdf line one\npdf line two",
+            ),
         ):
             assert read_file.coroutine is not None
             command = await read_file.coroutine(
@@ -159,12 +185,15 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
-        with patch(
-            "giga_agent.modules.io.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(return_value=(file_record, ContentResult(data=b"\xff\xfe"))),
+        with (
+            patch(
+                "giga_agent.modules.io.tools.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(return_value=(file_record, ContentResult(data=b"\xff\xfe"))),
+            ),
         ):
             assert read_file.coroutine is not None
             command = await read_file.coroutine(
@@ -185,12 +214,15 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         async def _session_context():
             yield object()
 
-        with patch(
-            "giga_agent.modules.io.tools.get_session_factory",
-            AsyncMock(return_value=lambda: _session_context()),
-        ), patch(
-            "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
-            AsyncMock(return_value=(file_record, ContentResult(data=b""))),
+        with (
+            patch(
+                "giga_agent.modules.io.tools.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.sandbox.manager.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(return_value=(file_record, ContentResult(data=b""))),
+            ),
         ):
             assert read_file.coroutine is not None
             command = await read_file.coroutine(

@@ -29,9 +29,7 @@ _MIGRATION_LOCK_TTL_SECONDS = 30 * 60
 _MIGRATION_LOCK_CHECK_INTERVAL = 0.5
 
 
-async def _drop_collection_points(
-    *, collection: str, owner_id: uuid.UUID
-) -> None:
+async def _drop_collection_points(*, collection: str, owner_id: uuid.UUID) -> None:
     from qdrant_client.http import models as qmodels
 
     client = get_qdrant_client()

@@ -81,7 +81,7 @@ async def _generate_title(llm: Any, first_message: str) -> str:
     prompt = (
         "Сгенерируй короткое название чата по первому сообщению пользователя.\n"
         "Верни ответ в формате JSON.\n"
-        f'{{"thread_title": "<название>"}} \n'
+        '{"thread_title": "<название>"} \n'
         "Требования к thread_title:\n"
         "- 3–8 слов\n"
         "- без кавычек, без точки в конце, без эмодзи\n"
@@ -104,7 +104,7 @@ async def _generate_title(llm: Any, first_message: str) -> str:
         if extracted is not None:
             return extracted
         return _fallback_title_from_message(excerpt)
-    except Exception as e:
+    except Exception:
         return _fallback_title_from_message(excerpt)
 
 

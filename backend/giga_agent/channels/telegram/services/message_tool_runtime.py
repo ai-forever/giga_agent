@@ -138,7 +138,9 @@ class TelegramMessageToolRuntime:
         client: Any,
         thread_id: str,
     ) -> dict[str, Any] | None:
-        pending_tool_calls = await self.get_pending_message_tool_calls(client, thread_id)
+        pending_tool_calls = await self.get_pending_message_tool_calls(
+            client, thread_id
+        )
         return pending_tool_calls[-1] if pending_tool_calls else None
 
     async def get_pending_message_tool_calls(
@@ -149,7 +151,9 @@ class TelegramMessageToolRuntime:
         try:
             thread_state = await client.threads.get_state(thread_id)
         except Exception:
-            logger.debug("Failed to fetch thread state for %s", thread_id, exc_info=True)
+            logger.debug(
+                "Failed to fetch thread state for %s", thread_id, exc_info=True
+            )
             return []
         return _find_pending_message_tool_calls(thread_state)
 
@@ -165,7 +169,9 @@ class TelegramMessageToolRuntime:
         reply_kwargs = build_reply_kwargs(reply_to_message_id)
         sent_attachment_paths: set[str] = set()
         for attachment in prompt.attachments:
-            file_bytes = await self.media_service.download_attachment(token, attachment.path)
+            file_bytes = await self.media_service.download_attachment(
+                token, attachment.path
+            )
             if not file_bytes:
                 continue
             filename = attachment.filename or attachment.path.rsplit("/", 1)[-1]
@@ -391,7 +397,9 @@ class TelegramMessageToolRuntime:
     ) -> dict[str, Any] | None:
         pending_tool_call = pending_tool_calls[-1]
         reply_message = getattr(message, "reply_to_message", None)
-        reply_text = reply_message.text or reply_message.caption or "" if reply_message else ""
+        reply_text = (
+            reply_message.text or reply_message.caption or "" if reply_message else ""
+        )
         reply_file_data: list[dict[str, Any]] = []
         if reply_message is not None:
             reply_file_data = await self.media_service.collect_incoming_files(

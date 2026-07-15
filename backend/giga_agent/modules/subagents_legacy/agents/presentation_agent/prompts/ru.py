@@ -58,11 +58,7 @@ IMAGE_PROMPT = ChatPromptTemplate.from_messages(
     }
   ]
 }
-```""".replace(
-                "{", "{{"
-            ).replace(
-                "}", "}}"
-            ),
+```""".replace("{", "{{").replace("}", "}}"),
         ),
         MessagesPlaceholder("messages"),
     ],

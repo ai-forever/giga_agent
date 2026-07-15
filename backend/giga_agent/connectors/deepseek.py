@@ -41,9 +41,10 @@ class DeepSeekConnector(BaseConnector):
         return validated
 
     def get_connection_kwargs(self) -> dict[str, Any] | None:
-        api_key = str(self.api_key or "").strip() or (
-            os.getenv("DEEPSEEK_API_KEY") or ""
-        ).strip()
+        api_key = (
+            str(self.api_key or "").strip()
+            or (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+        )
 
         base_url = str(self.base_url or "").strip().rstrip("/")
 
@@ -58,7 +59,9 @@ class DeepSeekConnector(BaseConnector):
     def get_api_object(self) -> Any:
         kwargs = self.get_connection_kwargs()
         if kwargs is None:
-            raise ValueError("Invalid connection settings for connector type 'deepseek'")
+            raise ValueError(
+                "Invalid connection settings for connector type 'deepseek'"
+            )
         from langchain_deepseek import ChatDeepSeek
 
         return ChatDeepSeek(model="deepseek-chat", **kwargs)
@@ -66,7 +69,9 @@ class DeepSeekConnector(BaseConnector):
     async def check_connection(self) -> bool:
         kwargs = self.get_connection_kwargs()
         if kwargs is None:
-            raise ValueError("Invalid connection settings for connector type 'deepseek'")
+            raise ValueError(
+                "Invalid connection settings for connector type 'deepseek'"
+            )
 
         client = AsyncOpenAI(
             **kwargs,

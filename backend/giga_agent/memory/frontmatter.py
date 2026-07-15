@@ -50,7 +50,7 @@ def parse_frontmatter(content: str) -> FrontmatterParseResult:
         )
 
     header = match.group("header")
-    body = content[match.end():]
+    body = content[match.end() :]
 
     try:
         data = yaml.safe_load(header)

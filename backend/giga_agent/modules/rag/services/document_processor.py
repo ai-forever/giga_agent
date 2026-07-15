@@ -56,7 +56,9 @@ async def process_document(
     if file_id is None:
         file_uuid = uuid.uuid4()
     else:
-        file_uuid = file_id if isinstance(file_id, uuid.UUID) else uuid.UUID(str(file_id))
+        file_uuid = (
+            file_id if isinstance(file_id, uuid.UUID) else uuid.UUID(str(file_id))
+        )
 
     contents = await file.read()
     content_type = file.content_type
@@ -78,10 +80,14 @@ async def process_document(
 
     # Add the file_id + end_index to all split documents' metadata
     for split_doc in split_docs:
-        if not hasattr(split_doc, "metadata") or not isinstance(split_doc.metadata, dict):
+        if not hasattr(split_doc, "metadata") or not isinstance(
+            split_doc.metadata, dict
+        ):
             split_doc.metadata = {}
         split_doc.metadata["file_id"] = str(file_uuid)
         start_index = int(split_doc.metadata.get("start_index") or 0)
-        split_doc.metadata["end_index"] = start_index + len(split_doc.page_content or "")
+        split_doc.metadata["end_index"] = start_index + len(
+            split_doc.page_content or ""
+        )
 
     return str(file_uuid), full_text, split_docs

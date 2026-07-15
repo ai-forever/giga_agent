@@ -23,6 +23,13 @@ export const ApiProvider: React.FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     // Обработка 401 ошибки
     apiClient.setUnauthorizedHandler(() => {
+      // На публичных страницах (вступление по инвайту, логин) фоновые 401 от
+      // провайдеров — норма: пользователь ещё не аутентифицирован. Не дёргаем
+      // toast и не уводим со страницы.
+      const publicPath =
+        window.location.pathname.startsWith("/join/") ||
+        window.location.pathname.startsWith("/login");
+      if (publicPath) return;
       toast.error("Сессия истекла", {
         description: "Пожалуйста, войдите в систему снова",
         richColors: true,

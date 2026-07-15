@@ -23,8 +23,12 @@ def upgrade() -> None:
     with op.batch_alter_table("core_rag_documents", schema=None) as batch_op:
         batch_op.add_column(sa.Column("file_id", sa.Uuid(), nullable=True))
         batch_op.add_column(sa.Column("sandbox_provider_id", sa.Uuid(), nullable=True))
-        batch_op.alter_column("sandbox_path", existing_type=sa.String(length=2048), nullable=True)
-        batch_op.create_index(batch_op.f("ix_core_rag_documents_file_id"), ["file_id"], unique=False)
+        batch_op.alter_column(
+            "sandbox_path", existing_type=sa.String(length=2048), nullable=True
+        )
+        batch_op.create_index(
+            batch_op.f("ix_core_rag_documents_file_id"), ["file_id"], unique=False
+        )
         batch_op.create_index(
             batch_op.f("ix_core_rag_documents_sandbox_provider_id"),
             ["sandbox_provider_id"],
@@ -84,6 +88,8 @@ def downgrade() -> None:
         )
         batch_op.drop_index(batch_op.f("ix_core_rag_documents_sandbox_provider_id"))
         batch_op.drop_index(batch_op.f("ix_core_rag_documents_file_id"))
-        batch_op.alter_column("sandbox_path", existing_type=sa.String(length=2048), nullable=False)
+        batch_op.alter_column(
+            "sandbox_path", existing_type=sa.String(length=2048), nullable=False
+        )
         batch_op.drop_column("sandbox_provider_id")
         batch_op.drop_column("file_id")

@@ -172,7 +172,9 @@ class TelegramBotApp:
         # The caption/@mention of an album lives on a single part; pick a
         # processable part (preferring one with text) as primary so handle_message
         # passes its own access check and the agent gets the user's text.
-        primary = next((m for m in processable if (m.caption or m.text)), processable[0])
+        primary = next(
+            (m for m in processable if (m.caption or m.text)), processable[0]
+        )
         extras = [m for m in messages if m is not primary]
         try:
             await self.handle_message(primary, extra_file_messages=extras)
@@ -192,8 +194,14 @@ class TelegramBotApp:
             "message",
         )
         has_reply_content = _has_processable_reply_content(message.reply_to_message)
-        if not command_text and not _has_supported_attachment(message) and not has_reply_content:
-            await message.answer("После /message нужен текст или вложение для обработки.")
+        if (
+            not command_text
+            and not _has_supported_attachment(message)
+            and not has_reply_content
+        ):
+            await message.answer(
+                "После /message нужен текст или вложение для обработки."
+            )
             return
 
         await self.message_handlers.handle_message(

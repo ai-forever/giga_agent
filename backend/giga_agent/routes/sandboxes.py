@@ -43,7 +43,7 @@ from giga_agent.models.sandbox import (
 )
 from giga_agent.sandbox.access import (
     ensure_provider_type_creatable_by_user,
-    filter_provider_types_for_user
+    filter_provider_types_for_user,
 )
 from giga_agent.sandbox.local_jupyter.dependencies import MissingDependenciesError
 from giga_agent.sandbox.cleanup_tasks import cleanup_storage_files_best_effort
@@ -189,7 +189,9 @@ def _to_provider_instance_response(
 async def create_sandbox_provider(
     data: SandboxProviderCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
 ):
     """
     Создать нового провайдера песочниц для текущего пользователя.
@@ -238,7 +240,9 @@ async def create_sandbox_provider(
 @router.get("/providers", response_model=list[SandboxProviderResponse])
 async def get_sandbox_providers(
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
     only_active: bool = Query(False, description="Только активные"),
 ):
     """Получить список провайдеров песочниц текущего пользователя."""
@@ -270,7 +274,9 @@ async def get_sandbox_provider_types(
 async def get_provider_sandboxes(
     provider_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
 ):
     """Получить список sandbox'ов конкретного провайдера."""
     _, can_edit = await fetch_resource_with_read_and_edit(
@@ -307,7 +313,9 @@ async def stop_provider_sandbox(
     provider_id: uuid.UUID,
     sandbox_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
 ):
     """Остановить sandbox в рамках конкретного провайдера."""
     _, can_edit = await fetch_resource_with_read_and_edit(
@@ -397,7 +405,9 @@ async def get_sandbox_provider_settings_schema(
 async def get_sandbox_provider(
     provider_id: uuid.UUID,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
 ):
     """Получить провайдера по ID."""
     provider, can_edit = await fetch_resource_with_read_and_edit(
@@ -414,7 +424,9 @@ async def update_sandbox_provider(
     provider_id: uuid.UUID,
     data: SandboxProviderUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
 ):
     """
     Обновить провайдера песочниц.
@@ -469,7 +481,9 @@ async def delete_sandbox_provider(
     provider_id: uuid.UUID,
     background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    provider_repo: Annotated[SandboxProviderRepository, Depends(get_provider_repository)],
+    provider_repo: Annotated[
+        SandboxProviderRepository, Depends(get_provider_repository)
+    ],
 ):
     """
     Удалить провайдера песочниц.

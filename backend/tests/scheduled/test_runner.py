@@ -21,7 +21,9 @@ class FakeRuntime:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
-    async def deliver(self, bot, external_chat_id, parts, *, token, external_user_id=None):
+    async def deliver(
+        self, bot, external_chat_id, parts, *, token, external_user_id=None
+    ):
         self.calls.append((bot.id, external_chat_id, external_user_id, tuple(parts)))
         return True
 

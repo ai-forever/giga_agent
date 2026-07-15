@@ -43,39 +43,70 @@ SHALLOW_THINK_BULLET_RE = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s", re.MULTILINE)
 # words) so we catch infinitives, conjugations, and noun forms in one go.
 SHALLOW_THINK_PLAN_MARKERS = (
     # Russian — sequence words
-    "сначала", "затем", "далее", "потом", "после", "наконец",
+    "сначала",
+    "затем",
+    "далее",
+    "потом",
+    "после",
+    "наконец",
     # Russian — action verb stems
-    "вызов", "вызову", "вызвать",
-    "прочит", "прочесть",
+    "вызов",
+    "вызову",
+    "вызвать",
+    "прочит",
+    "прочесть",
     "провер",
-    "запущ", "запустить",
+    "запущ",
+    "запустить",
     "обнов",
     "получ",
-    "выбер", "выбра", "выбрать",
-    "собер", "собра", "собрать", "собир",
+    "выбер",
+    "выбра",
+    "выбрать",
+    "собер",
+    "собра",
+    "собрать",
+    "собир",
     "подготов",
     "определ",
-    "найд", "найт", "найдём",
+    "найд",
+    "найт",
+    "найдём",
     "сформир",
-    "составл", "составить",
+    "составл",
+    "составить",
     "сохран",
-    "загруж", "загрузить",
+    "загруж",
+    "загрузить",
     "записать",
-    "напиш", "написать",
+    "напиш",
+    "написать",
     # English — sequence words (anchored to reduce false positives)
-    "first, ", "then i ", "then we ", "next, ", "next step",
-    "after that", "finally,",
-    "step 1", "step 2", "step 3",
+    "first, ",
+    "then i ",
+    "then we ",
+    "next, ",
+    "next step",
+    "after that",
+    "finally,",
+    "step 1",
+    "step 2",
+    "step 3",
     # English — action verb stems (combined with " i " or " i'll " markers
     # would be ideal; we keep verb stems but prefer ones unlikely to appear
     # as common nouns in unrelated prose).
-    "i will ", "i'll ", "i need to ",
+    "i will ",
+    "i'll ",
+    "i need to ",
     "let me ",
-    "invoke ", "execute ",
-    "fetch ", "retrieve ",
+    "invoke ",
+    "execute ",
+    "fetch ",
+    "retrieve ",
     "gather ",
     "prepare ",
-    "determine ", "identify ",
+    "determine ",
+    "identify ",
     "compose ",
 )
 
@@ -135,8 +166,7 @@ def _is_think_pair(ai_msg: AnyMessage, tool_msg: AnyMessage) -> bool:
         return False
     call = ai_msg.tool_calls[0]
     return (
-        call.get("name") == THINK_TOOL_NAME
-        and call.get("id") == tool_msg.tool_call_id
+        call.get("name") == THINK_TOOL_NAME and call.get("id") == tool_msg.tool_call_id
     )
 
 
@@ -167,9 +197,7 @@ def _merge_think_group(
     merged_args["thoughts"] = merged_thoughts
     merged_call["args"] = merged_args
 
-    merged_ai = last_ai.model_copy(
-        update={"tool_calls": [merged_call], "content": ""}
-    )
+    merged_ai = last_ai.model_copy(update={"tool_calls": [merged_call], "content": ""})
     return [merged_ai, last_tool]
 
 
@@ -188,13 +216,14 @@ def collapse_think_hops(messages: list[AnyMessage]) -> list[AnyMessage]:
     while i < len(messages) - 1:
         if _is_think_pair(messages[i], messages[i + 1]):
             group: list[tuple[AIMessage, ToolMessage]] = []
-            while (
-                i < len(messages) - 1
-                and _is_think_pair(messages[i], messages[i + 1])
+            while i < len(messages) - 1 and _is_think_pair(
+                messages[i], messages[i + 1]
             ):
                 group.append(
-                    (cast("AIMessage", messages[i]),
-                     cast("ToolMessage", messages[i + 1]))
+                    (
+                        cast("AIMessage", messages[i]),
+                        cast("ToolMessage", messages[i + 1]),
+                    )
                 )
                 i += 2
             result.extend(_merge_think_group(group))
@@ -296,7 +325,9 @@ async def process_think_via_fast_model(
         update={"tool_calls": [], "content": f"{thoughts}", "additional_kwargs": {}}
     )
     critique_request = HumanMessage(content=FAST_MODEL_THINK_PROMPT)
-    fast_messages = [system_message] + messages_for_llm[:-1] + [ai_as_content, critique_request]
+    fast_messages = (
+        [system_message] + messages_for_llm[:-1] + [ai_as_content, critique_request]
+    )
     agent = fast_llm
     fast_response = await agent.ainvoke(fast_messages)
     fast_text = (
@@ -304,6 +335,6 @@ async def process_think_via_fast_model(
         if isinstance(fast_response.content, str)
         else str(fast_response.content)
     )
-    think_call['args']['thoughts'] = thoughts + "\n" + fast_text
+    think_call["args"]["thoughts"] = thoughts + "\n" + fast_text
 
     return [ai_message.model_copy(update={"tool_calls": [think_call]})]

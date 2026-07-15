@@ -1,6 +1,9 @@
 import unittest
 
-from giga_agent.modules.rag.services.document_processor import SUPPORTED_MIMETYPES, process_document
+from giga_agent.modules.rag.services.document_processor import (
+    SUPPORTED_MIMETYPES,
+    process_document,
+)
 
 
 class _DummyUploadFile:
@@ -26,7 +29,9 @@ class RagDocumentProcessorTests(unittest.IsolatedAsyncioTestCase):
             content=text.encode("utf-8"),
         )
 
-        file_id, full_text, docs = await process_document(dummy, metadata={"name": "test.txt"})
+        file_id, full_text, docs = await process_document(
+            dummy, metadata={"name": "test.txt"}
+        )
 
         self.assertTrue(file_id)
         self.assertEqual(full_text, text)
@@ -76,4 +81,3 @@ class RagDocumentProcessorTests(unittest.IsolatedAsyncioTestCase):
     def test_markdown_mimetypes_in_supported_list(self) -> None:
         self.assertIn("text/markdown", SUPPORTED_MIMETYPES)
         self.assertIn("text/x-markdown", SUPPORTED_MIMETYPES)
-

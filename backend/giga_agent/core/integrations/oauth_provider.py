@@ -44,9 +44,7 @@ def build_oauth_client_provider(
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
         scope=scope,
-        token_endpoint_auth_method=(
-            "client_secret_post" if client_secret else "none"
-        ),
+        token_endpoint_auth_method=("client_secret_post" if client_secret else "none"),
     )
     return OAuthClientProvider(
         server_url=server_url,

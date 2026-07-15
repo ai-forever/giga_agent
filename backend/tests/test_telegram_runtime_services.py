@@ -167,7 +167,10 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
 
             async def get(self, url, **kwargs):
                 params = kwargs.get("params") or {}
-                if url.endswith("/files/content/by-path") and params.get("path") == "/bucket/missing/12345--chart.png":
+                if (
+                    url.endswith("/files/content/by-path")
+                    and params.get("path") == "/bucket/missing/12345--chart.png"
+                ):
                     return _FakeResponse(404)
                 if url.endswith("/files"):
                     return _FakeResponse(
@@ -178,7 +181,10 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
                             }
                         ],
                     )
-                if url.endswith("/files/content/by-path") and params.get("path") == "/bucket/fallback/12345--chart.png":
+                if (
+                    url.endswith("/files/content/by-path")
+                    and params.get("path") == "/bucket/fallback/12345--chart.png"
+                ):
                     return _FakeResponse(200, content=b"image-bytes")
                 raise AssertionError(f"Unexpected request: {url} {params}")
 

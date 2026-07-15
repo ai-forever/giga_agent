@@ -67,9 +67,7 @@ async def _get_vk_token(runtime: ToolRuntime) -> str:
     provider = get_static_provider(VK_PROVIDER_KEY)
     if provider is not None:
         try:
-            await provider.store_manual_token(
-                user_id=user.id, fields={"token": legacy}
-            )
+            await provider.store_manual_token(user_id=user.id, fields={"token": legacy})
         except Exception:  # noqa: BLE001
             pass
     return legacy

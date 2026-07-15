@@ -8,7 +8,11 @@ from typing import Any
 from openai import AsyncOpenAI
 from pydantic import Field, PrivateAttr
 
-from giga_agent.generators.image.base import BaseImageGenerator, DEFAULT_HEIGHT, DEFAULT_WIDTH
+from giga_agent.generators.image.base import (
+    BaseImageGenerator,
+    DEFAULT_HEIGHT,
+    DEFAULT_WIDTH,
+)
 from giga_agent.generators.image.registry import ImageGeneratorRegistry
 from giga_agent.core.logging import get_logger
 
