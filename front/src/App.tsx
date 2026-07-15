@@ -237,7 +237,7 @@ const App: React.FC = () => {
                       <Routes>
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/join/:token" element={<JoinPage />} />
-                          <Route
+                        <Route
                           path="/*"
                           element={
                             <ProtectedRoute>

@@ -112,7 +112,10 @@ const AdminUsersTab: React.FC = () => {
 
   // Потребление LLM за 30 дней (страница «Команда»): user_id → агрегат.
   const [usageByUser, setUsageByUser] = useState<
-    Record<string, { requests: number; input_tokens: number; output_tokens: number }>
+    Record<
+      string,
+      { requests: number; input_tokens: number; output_tokens: number }
+    >
   >({});
 
   const fetchUsage = useCallback(async () => {
@@ -125,9 +128,7 @@ const AdminUsersTab: React.FC = () => {
           output_tokens: number;
         }[];
       }>(`${API_AGENT_PREFIX}/auth/team/usage?days=30`);
-      setUsageByUser(
-        Object.fromEntries(data.users.map((u) => [u.user_id, u])),
-      );
+      setUsageByUser(Object.fromEntries(data.users.map((u) => [u.user_id, u])));
     } catch {
       // Не критично для списка пользователей.
     }
@@ -359,8 +360,7 @@ const AdminUsersTab: React.FC = () => {
                             <span className="text-muted-foreground">—</span>
                           );
                         }
-                        const total =
-                          usage.input_tokens + usage.output_tokens;
+                        const total = usage.input_tokens + usage.output_tokens;
                         return (
                           <span
                             title={`Запросов: ${usage.requests} · вход: ${usage.input_tokens.toLocaleString("ru-RU")} · выход: ${usage.output_tokens.toLocaleString("ru-RU")}`}
