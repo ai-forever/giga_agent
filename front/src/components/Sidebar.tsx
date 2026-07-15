@@ -693,13 +693,16 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   // from a project page, project deletion) signals a refresh.
   useEffect(() => {
     const handler = () => {
+      // Список проектов мог измениться (создание/удаление на странице
+      // проекта), поэтому перезагружаем и его, и треды раскрытых проектов.
+      void reloadProjects();
       for (const projectId of expandedProjects) {
         void loadProjectThreads(projectId);
       }
     };
     appEvents.addEventListener(THREADS_REFRESH_EVENT, handler);
     return () => appEvents.removeEventListener(THREADS_REFRESH_EVENT, handler);
-  }, [expandedProjects, loadProjectThreads]);
+  }, [expandedProjects, loadProjectThreads, reloadProjects]);
 
   const handleNewChatInProject = async (projectId: string) => {
     if (!langGraphClient) return;

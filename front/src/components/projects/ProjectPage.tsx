@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, MessageSquarePlus, Trash2 } from "lucide-react";
-import { Client } from "@langchain/langgraph-sdk";
 import type { Thread } from "@langchain/langgraph-sdk";
+import { Client } from "@langchain/langgraph-sdk";
 
 import { ApiError } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
@@ -162,6 +162,10 @@ const ProjectPage: React.FC = () => {
     if (!project) return;
     try {
       await deleteProject(project.id);
+      // Просигналить сайдбару перезагрузить список проектов (и треды
+      // раскрытых проектов), иначе удалённый проект висит в списке до
+      // полной перезагрузки страницы.
+      refreshThreads();
       toast.success("Проект удалён");
       navigate("/");
     } catch (e) {
@@ -222,13 +226,19 @@ const ProjectPage: React.FC = () => {
             size="sm"
             onClick={() => navigate("/")}
             className="-ml-2"
+            style={{ zIndex: 100 }}
           >
             <ArrowLeft className="w-4 h-4 mr-1" />
             Назад
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-red-500">
+              <Button
+                variant="ghost"
+                size="sm"
+                style={{ zIndex: 100 }}
+                className="text-red-500"
+              >
                 <Trash2 className="w-4 h-4 mr-1" />
                 Удалить
               </Button>
