@@ -1,6 +1,7 @@
 ---
 title: "Обзор GigaAgent"
 description: "Что такое GigaAgent 0.1.9, как он запускается и куда идти дальше."
+slug: /
 ---
 
 # Обзор GigaAgent

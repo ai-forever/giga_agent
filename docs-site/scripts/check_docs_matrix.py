@@ -14,7 +14,7 @@ import pathlib
 import re
 import sys
 
-SIDE_BAR_ITEM_RE = re.compile(r"'([^']+/[^']+|intro|examples/index)'")
+SIDE_BAR_ITEM_RE = re.compile(r"'([^']+/[^']+|overview|examples/index)'")
 
 
 def fail(errors: list[str]) -> None:

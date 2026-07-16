@@ -17,7 +17,7 @@
   },
   "link.item.label.Обзор": {
     "message": "Overview",
-    "description": "The label of footer link with label=Обзор linking to /docs/intro"
+    "description": "The label of footer link with label=Обзор linking to /"
   },
   "link.item.label.Быстрый старт": {
     "message": "Quickstart",
