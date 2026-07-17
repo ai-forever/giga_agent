@@ -1,29 +1,22 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
+// Категории раскрыты и не сворачиваются (`collapsible: false`), поэтому в
+// сайдбаре они выглядят как заголовки-разделы, а не как складные группы.
 const sidebars: SidebarsConfig = {
   docs: [
     'overview',
     {
       type: 'category',
       label: 'Быстрый старт',
+      collapsible: false,
+      collapsed: false,
       items: ['quickstart/local', 'quickstart/first-chat', 'quickstart/docker'],
     },
     {
       type: 'category',
-      label: 'Примеры',
-      items: [
-        'examples/index',
-        'examples/data-analysis',
-        'examples/vk-social-listening',
-        'examples/business-analytics',
-        'examples/presentations',
-        'examples/image-to-business-canvas',
-        'examples/security-logs',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Руководство пользователя',
+      collapsible: false,
+      collapsed: false,
       items: [
         'user-guide/chat',
         'user-guide/projects',
@@ -44,6 +37,8 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Разработчикам',
+      collapsible: false,
+      collapsed: false,
       items: [
         'developer/architecture',
         'developer/runtime-resolver',
@@ -58,11 +53,28 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Эксплуатация',
+      collapsible: false,
+      collapsed: false,
       items: [
         'operations/configuration',
         'operations/sandbox-security',
         'operations/shared-server',
         'operations/troubleshooting',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Примеры',
+      collapsible: false,
+      collapsed: false,
+      items: [
+        'examples/index',
+        'examples/data-analysis',
+        'examples/vk-social-listening',
+        'examples/business-analytics',
+        'examples/presentations',
+        'examples/image-to-business-canvas',
+        'examples/security-logs',
       ],
     },
   ],
