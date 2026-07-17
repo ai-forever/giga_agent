@@ -28,7 +28,7 @@ const config: Config = {
   },
 
   url: `https://${GH_OWNER}.github.io`,
-  baseUrl: `/${GH_REPO}/`,
+  baseUrl: '/docs/',
   organizationName: GH_OWNER,
   projectName: GH_REPO,
 
@@ -53,6 +53,7 @@ const config: Config = {
       'classic',
       {
         docs: {
+          routeBasePath: '/',
           sidebarPath: './sidebars.ts',
           editUrl: `https://github.com/${GH_OWNER}/${GH_REPO}/tree/main/docs-site/`,
           lastVersion: '0.1.9',
@@ -101,10 +102,10 @@ const config: Config = {
           position: 'left',
           label: 'Документация',
         },
-        {to: '/docs/quickstart/local', label: 'Быстрый старт', position: 'left'},
-        {to: '/docs/user-guide/chat', label: 'Пользователю', position: 'left'},
-        {to: '/docs/developer/architecture', label: 'Разработчикам', position: 'left'},
-        {to: '/docs/operations/configuration', label: 'Эксплуатация', position: 'left'},
+        {to: '/quickstart/local', label: 'Быстрый старт', position: 'left'},
+        {to: '/user-guide/chat', label: 'Пользователю', position: 'left'},
+        {to: '/developer/architecture', label: 'Разработчикам', position: 'left'},
+        {to: '/operations/configuration', label: 'Эксплуатация', position: 'left'},
         {
           type: 'docsVersionDropdown',
           position: 'right',
@@ -124,24 +125,24 @@ const config: Config = {
         {
           title: 'Документация',
           items: [
-            {label: 'Обзор', to: '/docs/intro'},
-            {label: 'Быстрый старт', to: '/docs/quickstart/local'},
-            {label: 'Руководство пользователя', to: '/docs/user-guide/chat'},
+            {label: 'Обзор', to: '/'},
+            {label: 'Быстрый старт', to: '/quickstart/local'},
+            {label: 'Руководство пользователя', to: '/user-guide/chat'},
           ],
         },
         {
           title: 'Разработчикам',
           items: [
-            {label: 'Архитектура', to: '/docs/developer/architecture'},
-            {label: 'Расширение', to: '/docs/developer/extending'},
+            {label: 'Архитектура', to: '/developer/architecture'},
+            {label: 'Расширение', to: '/developer/extending'},
           ],
         },
         {
           title: 'Эксплуатация',
           items: [
-            {label: 'Конфигурация', to: '/docs/operations/configuration'},
-            {label: 'Sandbox и безопасность', to: '/docs/operations/sandbox-security'},
-            {label: 'Troubleshooting', to: '/docs/operations/troubleshooting'},
+            {label: 'Конфигурация', to: '/operations/configuration'},
+            {label: 'Sandbox и безопасность', to: '/operations/sandbox-security'},
+            {label: 'Troubleshooting', to: '/operations/troubleshooting'},
           ],
         },
         {

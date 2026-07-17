@@ -1,6 +1,7 @@
 ---
 title: "GigaAgent overview"
 description: "What GigaAgent 0.1.9 is and where to start."
+slug: /
 ---
 
 # GigaAgent overview

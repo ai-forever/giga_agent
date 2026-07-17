@@ -1,6 +1,7 @@
 ---
 title: "Overview"
 description: "What GigaAgent is and where to start."
+slug: /
 ---
 
 # GigaAgent overview
