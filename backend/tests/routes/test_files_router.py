@@ -49,7 +49,7 @@ class FilesRouterTests(unittest.TestCase):
         created = self._file_obj("/bucket/thread-42/report.txt")
 
         with patch(
-            "giga_agent.routes.files.SandboxManager.upload_file_for_user",
+            "giga_agent.routes.files.SandboxManager.upload_stream_for_user",
             AsyncMock(return_value=created),
         ) as mocked_upload:
             response = self.client.post(
@@ -68,13 +68,17 @@ class FilesRouterTests(unittest.TestCase):
         kwargs = mocked_upload.await_args.kwargs
         self.assertEqual(kwargs["file_name"], "thread-42/report.txt")
         self.assertEqual(kwargs["file_type"], "text")
+        self.assertEqual(kwargs["size"], 5)
+        # тело передаётся файловым объектом (стрим), а не собранными bytes
+        self.assertIsNotNone(kwargs["fileobj"])
+        self.assertTrue(hasattr(kwargs["fileobj"], "read"))
 
     def test_upload_infers_video_file_type(self):
         created = self._file_obj("/bucket/movie.mp4")
         created.file_type = "video"
 
         with patch(
-            "giga_agent.routes.files.SandboxManager.upload_file_for_user",
+            "giga_agent.routes.files.SandboxManager.upload_stream_for_user",
             AsyncMock(return_value=created),
         ) as mocked_upload:
             response = self.client.post(
@@ -86,6 +90,23 @@ class FilesRouterTests(unittest.TestCase):
         self.assertEqual(response.json()["file_type"], "video")
         mocked_upload.assert_awaited_once()
         self.assertEqual(mocked_upload.await_args.kwargs["file_type"], "video")
+
+    def test_upload_rejects_oversize_with_413(self):
+        # Патчим лимит на маленькое значение, чтобы файл его превысил.
+        with (
+            patch("giga_agent.routes.files.MAX_UPLOAD_BYTES", 3),
+            patch(
+                "giga_agent.routes.files.SandboxManager.upload_stream_for_user",
+                AsyncMock(),
+            ) as mocked_upload,
+        ):
+            response = self.client.post(
+                "/files/upload",
+                files={"file": ("big.bin", b"hello world", "application/octet-stream")},
+            )
+
+        self.assertEqual(response.status_code, 413)
+        mocked_upload.assert_not_awaited()
 
     def test_read_s3_file_returns_redirect(self):
         file_obj = self._file_obj("/bucket/u/report.txt")

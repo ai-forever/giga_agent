@@ -8,15 +8,19 @@ import mimetypes
 import uuid
 from typing import Literal
 
-import httpx
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
 from giga_agent.core.db import get_session_factory
 from giga_agent.generators.image.grok.generator import GrokImagineImageGen
 from giga_agent.models.file import FileResponse
-from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
+from giga_agent.sandbox.base import RedirectResult
 from giga_agent.sandbox.manager import SandboxManager, UploadFileSpec
+from giga_agent.sandbox.materialize import materialize_bounded
+
+# Потолок на входную картинку: материализуем её в RAM (+base64), поэтому
+# ограничиваем размер и обрываем чтение, если файл больше.
+MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024
 
 GrokAspectRatio = Literal[
     "1:1",
@@ -81,15 +85,6 @@ def _normalize_mime_type(value: str | None) -> str | None:
     return value.split(";", 1)[0].strip().lower() or None
 
 
-async def _download_redirect_bytes(*, url: str) -> tuple[bytes, str | None]:
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.content, _normalize_mime_type(
-            response.headers.get("content-type")
-        )
-
-
 def _normalize_sandbox_path(path: str) -> str:
     clean = (path or "").strip()
     if clean.startswith("attachment:"):
@@ -115,25 +110,19 @@ async def _read_sandbox_file_bytes(
 
     guessed_mime = _normalize_mime_type(mimetypes.guess_type(normalized_path)[0])
 
-    if isinstance(result, RedirectResult):
-        data, mime_type = await _download_redirect_bytes(url=result.url)
-        return data, mime_type or guessed_mime or "application/octet-stream"
-
-    if isinstance(result, ContentResult):
-        return result.data, _normalize_mime_type(
-            result.media_type
-        ) or guessed_mime or "image/png"
-
-    if isinstance(result, StreamResult):
-        chunks: list[bytes] = []
-        async for chunk in result.stream:
-            chunks.append(chunk)
-        return (
-            b"".join(chunks),
-            _normalize_mime_type(result.media_type) or guessed_mime or "image/png",
+    data, too_large = await materialize_bounded(result, MAX_INPUT_IMAGE_BYTES)
+    if too_large:
+        raise ValueError(
+            f"Файл {normalized_path} слишком большой для входного изображения "
+            f"(лимит {MAX_INPUT_IMAGE_BYTES} байт)."
         )
+    if data is None:
+        raise ValueError("Неподдерживаемый формат результата чтения файла.")
 
-    raise ValueError("Неподдерживаемый формат результата чтения файла.")
+    if isinstance(result, RedirectResult):
+        return data, guessed_mime or "application/octet-stream"
+    media_type = _normalize_mime_type(getattr(result, "media_type", None))
+    return data, media_type or guessed_mime or "image/png"
 
 
 async def _resolve_input_images(

@@ -34,8 +34,12 @@ from giga_agent.sandbox.access import (
     sandbox_redirect_url_pattern,
     sandbox_url_pattern,
 )
+from giga_agent.sandbox.materialize import materialize_bounded
 
 logger = get_logger(__name__)
+
+# Потолок на медиа, которое телеграм-бот держит в RAM целиком перед отправкой.
+MAX_TELEGRAM_MEDIA_BYTES = 50 * 1024 * 1024
 
 
 def _convert_plotly_attachment(
@@ -325,13 +329,17 @@ class TelegramMediaService:
                         user_id=self.bot_row.user_id,
                     )
                     result = await sandbox.read_file(path)
-                    if hasattr(result, "data") and result.data:
-                        return result.data
-                    if hasattr(result, "stream"):
-                        chunks = []
-                        async for chunk in result.stream:
-                            chunks.append(chunk)
-                        return b"".join(chunks)
+                    data, too_large = await materialize_bounded(
+                        result, MAX_TELEGRAM_MEDIA_BYTES
+                    )
+                    if too_large:
+                        logger.warning(
+                            "Sandbox media %s exceeds telegram limit, skipping",
+                            path[:80],
+                        )
+                        return None
+                    if data is not None:
+                        return data
             except Exception:
                 logger.warning("Sandbox fallback also failed for %s", path[:80])
 

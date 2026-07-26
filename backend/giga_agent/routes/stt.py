@@ -18,6 +18,11 @@ from pydub import AudioSegment
 from giga_agent.conf import GIGA_AGENT_STT_RUNTIME
 from giga_agent.models.users import User
 from giga_agent.modules.auth.api import get_current_active_user
+from giga_agent.sandbox.manager.file_policy import (
+    MAX_STT_BYTES,
+    FileTooLargeError,
+    enforce_upload_limit,
+)
 
 router = APIRouter(prefix="/stt", tags=["stt"])
 
@@ -201,6 +206,14 @@ async def recognize_speech(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="SALUTE_SPEECH credential is not configured",
         )
+
+    try:
+        enforce_upload_limit(declared_size=audio.size, limit=MAX_STT_BYTES)
+    except FileTooLargeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(e),
+        ) from e
 
     raw = await audio.read()
     if not raw:

@@ -2,6 +2,7 @@ import unittest
 import uuid
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from unittest.mock import patch
 
 from pydantic import Field
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -12,6 +13,7 @@ from giga_agent.models.skill import SkillRepository, SkillSourceType
 from giga_agent.models.users import User
 from giga_agent.modules.skills.service import SkillsService
 from giga_agent.sandbox.base import BaseSandbox, RuntimeSkillInfo
+from giga_agent.sandbox.manager.file_policy import FileTooLargeError
 
 
 class FakeRuntimeSkillSandbox(BaseSandbox):
@@ -279,3 +281,17 @@ Instructions.
                 {skill.name for skill in refreshed},
                 {"first-skill", "second-skill"},
             )
+
+    async def test_install_from_upload_rejects_oversized_archive(self) -> None:
+        # Бэкстоп по факту прочитанных байт: роут отбивает по метаданным, но
+        # вызывающий без размера в метаданных должен упереться здесь.
+        service = SkillsService(session=object())
+
+        with patch("giga_agent.modules.skills.service.MAX_SKILL_ARCHIVE_BYTES", 4):
+            with self.assertRaises(FileTooLargeError) as ctx:
+                await service.install_from_upload(
+                    uuid.uuid4(), b"x" * 5, "skill.zip", FakeRuntimeSkillSandbox()
+                )
+
+        self.assertEqual(ctx.exception.declared_size, 5)
+        self.assertEqual(ctx.exception.limit, 4)

@@ -15,6 +15,7 @@ class _FakeS3Client:
     ):
         self.existing_keys = existing_keys or set()
         self.put_calls: list[dict] = []
+        self.upload_calls: list[dict] = []
         self._content_length = content_length
 
     async def head_object(self, Bucket: str, Key: str):
@@ -25,6 +26,18 @@ class _FakeS3Client:
     async def put_object(self, **kwargs):
         self.put_calls.append(kwargs)
         return {"ETag": "etag"}
+
+    async def upload_fileobj(self, Fileobj, Bucket, Key, ExtraArgs=None):
+        self.upload_calls.append(
+            {
+                "Bucket": Bucket,
+                "Key": Key,
+                "ExtraArgs": ExtraArgs,
+                "data": Fileobj.read(),
+            }
+        )
+        self.existing_keys.add(Key)
+        return None
 
     def generate_presigned_url(self, operation_name: str, Params: dict, ExpiresIn: int):
         return (
@@ -163,6 +176,68 @@ class E2BFileOpsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             fake_client.put_calls[1]["Key"],
             f"giga_agent/{sandbox.owner_id}/thread-42/reports/report--ABCDEFGH.txt",
+        )
+
+    async def test_upload_file_stream_uses_multipart_upload_fileobj(self):
+        import io as _io
+
+        sandbox = self._sandbox()
+        fake_client = _FakeS3Client()
+        fileobj = _io.BytesIO(b"streamed")
+
+        with (
+            patch("aioboto3.Session", return_value=_FakeSession(fake_client)),
+            patch.object(
+                sandbox,
+                "_uniquify_relative_s3_path",
+                return_value="file--ABCDEFGH.txt",
+            ),
+        ):
+            sandbox_path = await sandbox.upload_file_stream(
+                owner_id=sandbox.owner_id,
+                file_name="file.txt",
+                fileobj=fileobj,
+                size=8,
+            )
+
+        self.assertEqual(sandbox_path, "/bucket/file--ABCDEFGH.txt")
+        self.assertEqual(len(fake_client.upload_calls), 1)
+        call = fake_client.upload_calls[0]
+        self.assertEqual(
+            call["Key"], f"giga_agent/{sandbox.owner_id}/file--ABCDEFGH.txt"
+        )
+        self.assertEqual(call["data"], b"streamed")
+        self.assertIn("charset", call["ExtraArgs"]["ContentType"])
+
+    async def test_upload_file_stream_retries_on_key_collision(self):
+        import io as _io
+
+        sandbox = self._sandbox()
+        # первый ключ уже занят -> stream должен перегенерировать имя
+        taken = f"giga_agent/{sandbox.owner_id}/file--AAAAAAAA.txt"
+        fake_client = _FakeS3Client(existing_keys={taken})
+        fileobj = _io.BytesIO(b"payload")
+
+        with (
+            patch("aioboto3.Session", return_value=_FakeSession(fake_client)),
+            patch.object(
+                sandbox,
+                "_uniquify_relative_s3_path",
+                side_effect=["file--AAAAAAAA.txt", "file--BBBBBBBB.txt"],
+            ),
+        ):
+            sandbox_path = await sandbox.upload_file_stream(
+                owner_id=sandbox.owner_id,
+                file_name="file.txt",
+                fileobj=fileobj,
+                size=7,
+            )
+
+        self.assertEqual(sandbox_path, "/bucket/file--BBBBBBBB.txt")
+        self.assertEqual(len(fake_client.upload_calls), 1)
+        self.assertEqual(
+            fake_client.upload_calls[0]["Key"],
+            f"giga_agent/{sandbox.owner_id}/file--BBBBBBBB.txt",
         )
 
     async def test_read_file_returns_redirect_for_s3(self):

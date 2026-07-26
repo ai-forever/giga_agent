@@ -134,6 +134,38 @@ class LocalDockerSandboxTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(FileNotFoundError):
                 await runtime.read_file(sandbox_path)
 
+    async def test_upload_file_stream_writes_bucket_file(self):
+        import io as _io
+
+        owner_id = uuid.uuid4()
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env(
+                {"GIGA_AGENT_LOCAL_DOCKER_FILES_PATH": tmp_dir},
+                clear=False,
+            ),
+            patch(
+                "giga_agent.sandbox.local_docker.runtime.docker.from_env",
+                return_value=types.SimpleNamespace(),
+            ),
+        ):
+            runtime = LocalDockerSandbox(owner_id=owner_id, max_active_sandboxes=1)
+
+            payload = b"streamed-hello" * 1000
+            fileobj = _io.BytesIO(payload)
+            with patch.object(runtime, "_random_key_suffix", return_value="ABCDEFGH"):
+                sandbox_path = await runtime.upload_file_stream(
+                    owner_id=owner_id,
+                    file_name="notes/report.txt",
+                    fileobj=fileobj,
+                    size=len(payload),
+                )
+            self.assertEqual(sandbox_path, "/bucket/notes/report--ABCDEFGH.txt")
+
+            result = await runtime.read_file(sandbox_path)
+            self.assertIsInstance(result, ContentResult)
+            self.assertEqual(result.data, payload)
+
     async def test_bucket_path_rejects_traversal(self):
         owner_id = uuid.uuid4()
         with (

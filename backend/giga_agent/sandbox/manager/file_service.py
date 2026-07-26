@@ -172,6 +172,47 @@ class SandboxFileService:
                 f"Failed to read file '{sandbox_path}' (id={file_id}): {e}"
             ) from e
 
+    async def _persist_uploaded_file(
+        self,
+        *,
+        user_id: uuid.UUID,
+        provider_id: uuid.UUID,
+        sandbox_path: str,
+        file_name: str,
+        file_type: FileType,
+        size: int,
+    ) -> File:
+        """Записать метаданные загруженного файла (общий хвост для bytes- и
+        stream-путей загрузки)."""
+        original_name = PurePosixPath(file_name).name
+        if _is_cli_runtime():
+            return _build_transient_file(
+                owner_id=user_id,
+                provider_id=provider_id,
+                sandbox_path=sandbox_path,
+                original_name=original_name,
+                file_type=file_type,
+                size=size,
+            )
+
+        file = await self._file_repo.create(
+            owner_id=user_id,
+            provider_id=provider_id,
+            sandbox_path=sandbox_path,
+            original_name=original_name,
+            file_type=file_type,
+            size=size,
+        )
+        if file is None:
+            file = await self._file_repo.get_by_owner_provider_path(
+                owner_id=user_id,
+                provider_id=provider_id,
+                sandbox_path=sandbox_path,
+            )
+            if file is None:
+                raise StorageOperationError("Failed to persist uploaded file metadata")
+        return file
+
     async def upload_file_for_user(
         self,
         user_id: uuid.UUID,
@@ -199,34 +240,55 @@ class SandboxFileService:
             content=content,
         )
 
-        original_name = PurePosixPath(file_name).name
-        if _is_cli_runtime():
-            return _build_transient_file(
-                owner_id=user_id,
-                provider_id=provider.id,
-                sandbox_path=sandbox_path,
-                original_name=original_name,
-                file_type=file_type,
-                size=len(content),
-            )
-
-        file = await self._file_repo.create(
-            owner_id=user_id,
+        return await self._persist_uploaded_file(
+            user_id=user_id,
             provider_id=provider.id,
             sandbox_path=sandbox_path,
-            original_name=original_name,
+            file_name=file_name,
             file_type=file_type,
             size=len(content),
         )
-        if file is None:
-            file = await self._file_repo.get_by_owner_provider_path(
-                owner_id=user_id,
+
+    async def upload_stream_for_user(
+        self,
+        user_id: uuid.UUID,
+        file_name: str,
+        fileobj,
+        size: int,
+        file_type: FileType = "other",
+    ) -> File:
+        """Загрузить файл из seekable файлового объекта (спул UploadFile), не
+        собирая тело целиком в RAM API-процесса. Размер берём из ``size``
+        (метаданные запроса), а не из len(content)."""
+        resolved = await self._resolve.get_or_create_for_user(
+            user_id=user_id,
+            provider_id=None,
+            use_cache=True,
+        )
+        provider = resolved.provider
+        sandbox = resolved.sandbox
+        runtime = self._runtime_factory.build(provider, sandbox)
+        if runtime.requires_running_for_upload():
+            runtime = await self._lifecycle.ensure_running_for_user(
+                user_id=user_id,
                 provider_id=provider.id,
-                sandbox_path=sandbox_path,
             )
-            if file is None:
-                raise StorageOperationError("Failed to persist uploaded file metadata")
-        return file
+
+        sandbox_path = await runtime.upload_file_stream(
+            owner_id=user_id,
+            file_name=file_name,
+            fileobj=fileobj,
+            size=size,
+        )
+
+        return await self._persist_uploaded_file(
+            user_id=user_id,
+            provider_id=provider.id,
+            sandbox_path=sandbox_path,
+            file_name=file_name,
+            file_type=file_type,
+            size=size,
+        )
 
     async def upload_files_for_user(
         self,

@@ -31,6 +31,12 @@ if TYPE_CHECKING:
     from giga_agent.sandbox.manager import UploadFileSpec
 
 
+# Потолок на один base64-блоб из результата MCP-тула (декодируется в RAM целиком,
+# исходная строка ещё жива в сообщении). Проверяем длину строки ДО декодирования.
+MAX_MCP_BLOB_BYTES = 32 * 1024 * 1024
+_MAX_MCP_BLOB_B64_CHARS = (MAX_MCP_BLOB_BYTES // 3 + 1) * 4
+
+
 def _get_schema_builder_cls():
     from genson import SchemaBuilder
 
@@ -368,6 +374,8 @@ def _normalize_mcp_parts(content: Any) -> list[dict[str, Any]]:
 
 def _decode_base64_payload(raw: Any) -> bytes | None:
     if not isinstance(raw, str):
+        return None
+    if len(raw) > _MAX_MCP_BLOB_B64_CHARS:
         return None
     try:
         return base64.b64decode(raw)

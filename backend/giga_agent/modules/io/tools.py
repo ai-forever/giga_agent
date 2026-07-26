@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import io
 import mimetypes
 import re
 import uuid
 from pathlib import PurePosixPath
 from typing import Annotated
-from urllib.request import urlopen
 
 from docx import Document as DocxDocument
 from langchain.tools import ToolRuntime, tool
@@ -23,6 +21,12 @@ from giga_agent.modules.io.memory_bridge import (
     _memory_edit,
     _memory_read,
     _memory_write,
+)
+from giga_agent.sandbox.materialize import (
+    materialize_bounded as _materialize_bounded,
+)
+from giga_agent.sandbox.materialize import (
+    metadata_size as _metadata_size,
 )
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
@@ -172,14 +176,6 @@ def _text_from_file_bytes(
         return _extract_docx_text(data)
 
     return _decode_text_bytes(data)
-
-
-async def _download_redirect_bytes(url: str) -> bytes:
-    def _read_bytes() -> bytes:
-        with urlopen(url, timeout=30.0) as response:
-            return response.read()
-
-    return await asyncio.to_thread(_read_bytes)
 
 
 def _slice_lines(
@@ -439,38 +435,6 @@ def _build_io_command(
     return Command(update={"messages": [ToolMessage(**tool_message_kwargs)]})
 
 
-async def _materialize_bounded(result, max_bytes: int) -> tuple[bytes | None, bool]:
-    """Материализует результат чтения в bytes с ранним обрывом на max_bytes.
-
-    Возвращает (data, too_large):
-    - (data, False) — контент целиком влез в лимит;
-    - (None, True) — контент превысил max_bytes, чтение прервано (поток не дочитан);
-    - (None, False) — результат недоступен для прямого чтения (только URL).
-
-    RedirectResult скачивается по URL, поэтому его размер по метаданным лучше
-    проверять до вызова, если хранилище большое.
-    """
-    from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
-
-    if isinstance(result, ContentResult):
-        if len(result.data) > max_bytes:
-            return None, True
-        return result.data, False
-    if isinstance(result, StreamResult):
-        buffer = bytearray()
-        async for chunk in result.stream:
-            buffer.extend(chunk)
-            if len(buffer) > max_bytes:
-                return None, True
-        return bytes(buffer), False
-    if isinstance(result, RedirectResult):
-        data = await _download_redirect_bytes(result.url)
-        if len(data) > max_bytes:
-            return None, True
-        return data, False
-    return None, False
-
-
 def _overwrite_too_large_error(file_path: str, size: int | None) -> str:
     size_part = (
         f"{size} байт" if size is not None else f"больше {MAX_TEXT_FILE_BYTES} байт"
@@ -531,19 +495,6 @@ async def _probe_existing_file(
             sandbox_path=file_path,
         )
     return result, getattr(file_record, "size", None)
-
-
-def _metadata_size(result, known_size: int | None) -> int | None:
-    """Размер файла из метаданных без материализации потока (или None, если неизвестен)."""
-    from giga_agent.sandbox.base import ContentResult, StreamResult
-
-    if known_size is not None:
-        return known_size
-    if isinstance(result, StreamResult):
-        return result.content_length
-    if isinstance(result, ContentResult):
-        return len(result.data)
-    return None
 
 
 async def _read_text_for_edit(

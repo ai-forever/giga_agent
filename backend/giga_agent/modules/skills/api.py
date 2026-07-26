@@ -26,6 +26,11 @@ from giga_agent.modules.skills.service import (
     SkillsService,
 )
 from giga_agent.sandbox.manager import ProviderNotFoundError, SandboxManager
+from giga_agent.sandbox.manager.file_policy import (
+    MAX_SKILL_ARCHIVE_BYTES,
+    FileTooLargeError,
+    enforce_upload_limit,
+)
 from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 logger = get_logger(__name__)
@@ -73,6 +78,11 @@ async def upload_skill(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
+    try:
+        enforce_upload_limit(declared_size=file.size, limit=MAX_SKILL_ARCHIVE_BYTES)
+    except FileTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e)) from e
+
     content = await file.read()
     sandbox = await _get_sandbox_runtime(current_user, db)
     svc = SkillsService(db)
@@ -80,6 +90,9 @@ async def upload_skill(
         skill = await svc.install_from_upload(
             current_user.id, content, file.filename, sandbox
         )
+    except FileTooLargeError as e:
+        # Порог по факту прочитанных байт — на случай вызывающего без .size.
+        raise HTTPException(status_code=413, detail=str(e)) from e
     except SkillInstallError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

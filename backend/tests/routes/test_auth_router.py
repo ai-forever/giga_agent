@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from giga_agent.core.cache import setup_cache
 from giga_agent.core.db import get_session
+from giga_agent.models.users import ROLE_ADMIN, ROLE_MEMBER
 from giga_agent.modules.auth.api import get_current_active_user, router
 from giga_agent.modules.auth.events import UserEmbeddingChangedEvent
 
@@ -22,10 +24,18 @@ class _ModuleStub:
 
 class AuthRouterTests(unittest.TestCase):
     def setUp(self) -> None:
+        # update_user дергает SkillsService.invalidate_list_cache, а cashews без
+        # setup падает NotConfiguredError. Настраиваем сами (идемпотентно), чтобы
+        # файл не зависел от того, успел ли другой тест поднять кэш раньше.
+        setup_cache()
+
         self.user = types.SimpleNamespace(
             id=uuid.uuid4(),
             is_active=True,
             is_superuser=True,
+            # role — источник правды, is_superuser держится синхронно с ней
+            # (role_implies_superuser): admin => is_superuser=True.
+            role=ROLE_ADMIN,
             email="admin@example.com",
         )
         self.db = types.SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
@@ -52,6 +62,7 @@ class AuthRouterTests(unittest.TestCase):
             hashed_password="x",
             is_active=True,
             is_superuser=False,
+            role=ROLE_MEMBER,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
             settings={"theme": "dark", "keep": "value"},
@@ -1344,6 +1355,8 @@ class AuthRouterTests(unittest.TestCase):
         self.assertEqual(payload["last_name"], "Doe")
         self.assertFalse(payload["is_active"])
         self.assertTrue(payload["is_superuser"])
+        # Легаси-путь: пришёл только is_superuser, role выводится из него.
+        self.assertEqual(target.role, ROLE_ADMIN)
         mocked_exists_by_email.assert_awaited_once_with("updated@example.com")
         mocked_invalidate_cache.assert_awaited_once_with(target.id)
 

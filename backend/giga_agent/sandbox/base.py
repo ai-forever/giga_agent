@@ -236,6 +236,31 @@ class BaseSandbox(BaseModel, ABC):
             f"{self.__class__.__name__} does not implement upload_file()"
         )
 
+    async def upload_file_stream(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        file_name: str,
+        fileobj: Any,
+        size: int,
+    ) -> str:
+        """
+        Загрузить файл из seekable бинарного файлового объекта (напр. спул
+        UploadFile), не собирая тело целиком в RAM API-процесса.
+
+        Базовая реализация — безопасный fallback: читает fileobj в потоке и
+        делегирует ``upload_file``. Провайдеры, умеющие стримить (диск / S3
+        multipart), переопределяют метод для настоящего стриминга.
+        """
+        import asyncio
+
+        content = await asyncio.to_thread(fileobj.read)
+        return await self.upload_file(
+            owner_id=owner_id,
+            file_name=file_name,
+            content=content,
+        )
+
     async def read_file(self, sandbox_path: str) -> FileReadResult:
         """
         Прочитать файл из sandbox_path.

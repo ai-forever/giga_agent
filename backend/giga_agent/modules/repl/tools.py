@@ -37,6 +37,12 @@ from giga_agent.sandbox.manager import (
 
 logger = get_logger(__name__)
 
+# Потолок на один display_data payload: вывод ядра приходит base64-строкой без
+# лимита размера ZMQ-сообщения, поэтому декодируем не больше этого объёма.
+MAX_DISPLAY_PAYLOAD_BYTES = 32 * 1024 * 1024
+# base64 раздувает данные ~на 4/3; проверяем длину строки ДО декодирования.
+_MAX_DISPLAY_PAYLOAD_B64_CHARS = (MAX_DISPLAY_PAYLOAD_BYTES // 3 + 1) * 4
+
 _DISPLAY_MIME_CONFIG: dict[str, tuple[str, str, str]] = {
     "application/vnd.plotly.v1+json": ("plotly_graph", ".plotly.json", "json"),
     "image/png": ("image", ".png", "base64"),
@@ -82,6 +88,13 @@ def _decode_display_payload(
                 "Unexpected base64 payload type for %s: %s",
                 mime_type,
                 type(payload),
+            )
+            return None
+        if len(payload) > _MAX_DISPLAY_PAYLOAD_B64_CHARS:
+            logger.warning(
+                "display_data payload for %s exceeds cap (%d bytes), skipping",
+                mime_type,
+                MAX_DISPLAY_PAYLOAD_BYTES,
             )
             return None
         try:

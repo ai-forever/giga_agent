@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from giga_agent.core.db import get_session
 from giga_agent.conf import GIGA_PREFIX_API
+from giga_agent.models.users import ROLE_ADMIN, ROLE_MEMBER
 from giga_agent.modules.auth.api import get_current_active_user
 from giga_agent.routes import router as api_router
 from giga_agent.routes.groups import router
@@ -19,6 +20,7 @@ class GroupsRouterTests(unittest.TestCase):
             id=uuid.uuid4(),
             is_active=True,
             is_superuser=True,
+            role=ROLE_ADMIN,
             email="admin@example.com",
             settings=None,
             secrets=None,
@@ -81,6 +83,7 @@ class GroupsRouterTests(unittest.TestCase):
             "last_name": None,
             "is_active": True,
             "is_superuser": False,
+            "role": ROLE_MEMBER,
             "settings": None,
             "secrets": None,
             "image_generator_id": None,
@@ -229,6 +232,7 @@ class GroupsRouterTests(unittest.TestCase):
                             last_name=None,
                             is_active=True,
                             is_superuser=False,
+                            role=ROLE_MEMBER,
                             settings=None,
                             secrets=None,
                             image_generator_id=None,

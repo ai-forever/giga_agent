@@ -102,6 +102,73 @@ class S3FilesMixin:
             "Failed to upload file after retries due to concurrent name collisions"
         ) from last_error
 
+    async def upload_file_stream(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        file_name: str,
+        fileobj,
+        size: int,
+    ) -> str:
+        """Стриминговая загрузка в S3 через multipart upload_fileobj — тело не
+        собирается в RAM API-процесса. fileobj — seekable бинарный объект.
+
+        Уникальное имя генерируем случайным суффиксом; вместо атомарного
+        IfNoneMatch (недоступен для multipart) проверяем существование ключа
+        head_object'ом и при коллизии перегенерируем имя (seekable fileobj
+        позволяет безопасно повторить)."""
+        import aioboto3
+        from botocore.exceptions import BotoCoreError, ClientError
+
+        clean_name = file_name.strip()
+        if not clean_name:
+            raise ValueError("file_name must not be empty")
+
+        await self._ensure_user_prefix_exists(owner_id=owner_id)
+
+        content_type, _ = mimetypes.guess_type(clean_name)
+        if not content_type:
+            content_type = "application/octet-stream"
+        if content_type.startswith("text/") and "charset" not in content_type:
+            content_type += "; charset=utf-8"
+
+        session = aioboto3.Session()
+        try:
+            async with session.client(
+                "s3",
+                endpoint_url=self.s3_endpoint,
+                region_name=self.s3_region,
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+            ) as s3:
+                for _ in range(10):
+                    rel_path = self._uniquify_relative_s3_path(file_name=clean_name)
+                    key = self._s3_key_for_relative_path(rel_path, owner_id=owner_id)
+                    try:
+                        await s3.head_object(Bucket=self.s3_bucket, Key=key)
+                        # ключ занят — перегенерируем имя
+                        continue
+                    except ClientError as e:
+                        code = (e.response.get("Error") or {}).get("Code")
+                        if code not in {"NoSuchKey", "404"}:
+                            raise
+                    fileobj.seek(0)
+                    await s3.upload_fileobj(
+                        fileobj,
+                        self.s3_bucket,
+                        key,
+                        ExtraArgs={"ContentType": content_type},
+                    )
+                    return f"{S3_MOUNT_PREFIX}{rel_path}"
+        except ClientError as e:
+            raise RuntimeError(f"S3 stream upload failed: {e}") from e
+        except BotoCoreError as e:
+            raise RuntimeError(f"S3 stream upload failed: {e}") from e
+
+        raise RuntimeError(
+            "Failed to upload file after retries due to concurrent name collisions"
+        )
+
     def requires_running_for_upload(self) -> bool:
         return False
 

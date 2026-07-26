@@ -218,8 +218,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
                 ),
             ),
             patch(
-                "giga_agent.modules.analyze_images.tool._download_redirect_bytes",
-                AsyncMock(return_value=(self._png_bytes(), "image/png")),
+                "giga_agent.modules.analyze_images.tool.materialize_bounded",
+                AsyncMock(return_value=(self._png_bytes(), False)),
             ),
         ):
             assert analyze_image.coroutine is not None
