@@ -15,6 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from giga_agent.core.db import get_session
@@ -33,6 +34,11 @@ from giga_agent.sandbox.manager import (
     ProviderNotFoundError,
     SandboxManager,
     StorageOperationError,
+)
+from giga_agent.sandbox.manager.file_policy import (
+    MAX_UPLOAD_BYTES,
+    FileTooLargeError,
+    enforce_upload_limit,
 )
 
 router = APIRouter(prefix="/files", tags=["files"])
@@ -67,6 +73,15 @@ def _infer_file_type(upload: UploadFile) -> FileType:
     if name.endswith(".plotly.json"):
         return "plotly_graph"
     return "other"
+
+
+def _fileobj_size(fileobj) -> int:
+    """Размер seekable файлового объекта, если UploadFile.size не заполнен."""
+    current = fileobj.tell()
+    fileobj.seek(0, os.SEEK_END)
+    size = fileobj.tell()
+    fileobj.seek(current)
+    return size
 
 
 def _apply_thread_prefix(file_name: str, thread_id: str | None) -> str:
@@ -125,16 +140,30 @@ async def upload_file(
             detail="File name must not be empty",
         )
 
-    content = await file.read()
+    try:
+        enforce_upload_limit(declared_size=file.size, limit=MAX_UPLOAD_BYTES)
+    except FileTooLargeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=str(e),
+        ) from e
+
     effective_file_name = _apply_thread_prefix(file_name=file_name, thread_id=thread_id)
     effective_file_type = file_type or _infer_file_type(file)
 
+    # Стримим спул UploadFile в бэкенд, не собирая тело целиком в RAM API-процесса.
+    fileobj = file.file
+    size = file.size
+    if size is None:
+        size = await run_in_threadpool(_fileobj_size, fileobj)
+
     manager = SandboxManager(db)
     try:
-        created = await manager.upload_file_for_user(
+        created = await manager.upload_stream_for_user(
             user_id=current_user.id,
             file_name=effective_file_name,
-            content=content,
+            fileobj=fileobj,
+            size=size,
             file_type=effective_file_type,
         )
     except ProviderNotFoundError as e:

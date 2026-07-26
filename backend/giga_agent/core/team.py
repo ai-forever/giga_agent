@@ -41,9 +41,7 @@ async def find_all_members_group(session: AsyncSession) -> Group | None:
     return None
 
 
-async def create_all_members_group(
-    session: AsyncSession, owner_id: uuid.UUID
-) -> Group:
+async def create_all_members_group(session: AsyncSession, owner_id: uuid.UUID) -> Group:
     """Создаёт системную группу «All Members» при первичной инициализации инстанса.
 
     Вызывается один раз — при создании первого пользователя (владельца команды),

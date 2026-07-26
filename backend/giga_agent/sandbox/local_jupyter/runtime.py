@@ -506,6 +506,30 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             await file_obj.write(content)
         return str(target.resolve())
 
+    async def upload_file_stream(
+        self,
+        *,
+        owner_id: uuid.UUID,
+        file_name: str,
+        fileobj,
+        size: int,
+    ) -> str:
+        """Скопировать содержимое из fileobj на диск чанками, не собирая тело
+        целиком в RAM."""
+        rel_path = self._uniquify_bucket_rel_path(
+            owner_id=owner_id, file_name=file_name
+        )
+        target = self._user_root_dir(owner_id) / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        def _copy() -> None:
+            fileobj.seek(0)
+            with open(target, "wb") as dst:
+                shutil.copyfileobj(fileobj, dst, length=1024 * 1024)
+
+        await asyncio.to_thread(_copy)
+        return str(target.resolve())
+
     def requires_running_for_upload(self) -> bool:
         return False
 

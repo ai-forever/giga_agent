@@ -27,6 +27,8 @@ logger = get_logger(__name__)
 
 _WS_MAX_SIZE = 32 * 1024 * 1024
 _STREAM_CHUNK = 1024 * 1024
+# Потолок для служебного read_file_bytes (метаданные и мелкие чтения).
+_READ_BYTES_CAP = 32 * 1024 * 1024
 _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=None, connect=10, sock_read=None)
 
 
@@ -221,15 +223,29 @@ class SandboxAPIClient:
             content_length=content_length,
         )
 
-    async def read_file_bytes(self, sandbox_path: str) -> bytes:
-        """Собрать весь файл в память (для мелких служебных чтений, напр. meta)."""
+    async def read_file_bytes(
+        self, sandbox_path: str, *, max_bytes: int = _READ_BYTES_CAP
+    ) -> bytes:
+        """Собрать весь файл в память (для мелких служебных чтений, напр. meta).
+
+        Ограничено max_bytes с ранним обрывом, чтобы служебное чтение не смогло
+        затянуть в RAM гигабайты; при превышении — SandboxAPIError.
+        """
         result = await self.read_file(sandbox_path)
         if isinstance(result, ContentResult):
+            if len(result.data) > max_bytes:
+                raise SandboxAPIError(
+                    f"File exceeds read_file_bytes cap ({max_bytes} bytes)"
+                )
             return result.data
         if isinstance(result, StreamResult):
             buf = bytearray()
             async for chunk in result.stream:
                 buf.extend(chunk)
+                if len(buf) > max_bytes:
+                    raise SandboxAPIError(
+                        f"File exceeds read_file_bytes cap ({max_bytes} bytes)"
+                    )
             return bytes(buf)
         raise SandboxAPIError("Unexpected read result type")
 

@@ -17,8 +17,9 @@ from plotly import io as plotly_io
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.db import get_session_factory
 from giga_agent.llm.base import BaseLLMRuntime
-from giga_agent.sandbox.base import ContentResult, RedirectResult, StreamResult
+from giga_agent.sandbox.base import RedirectResult
 from giga_agent.sandbox.manager import SandboxManager
+from giga_agent.sandbox.materialize import materialize_bounded
 
 # Максимальный размер изображения, скачиваемого по ссылке.
 MAX_URL_IMAGE_BYTES = 9 * 1024 * 1024
@@ -56,14 +57,6 @@ def _normalize_mime_type(value: str | None) -> str | None:
     if not value:
         return None
     return value.split(";", 1)[0].strip().lower() or None
-
-
-async def _download_redirect_bytes(*, url: str) -> tuple[bytes, str | None]:
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-        mime_type = _normalize_mime_type(response.headers.get("content-type"))
-        return response.content, mime_type
 
 
 async def _download_image_bytes(
@@ -181,20 +174,16 @@ async def _read_file_bytes(
             sandbox_path=image_path,
         )
 
+    data, too_large = await materialize_bounded(result, MAX_URL_IMAGE_BYTES)
+    if too_large:
+        limit_mb = MAX_URL_IMAGE_BYTES // (1024 * 1024)
+        raise ValueError(f"Изображение больше {limit_mb} МБ.")
+    if data is None:
+        raise ValueError("Неподдерживаемый формат результата чтения файла.")
+
     if isinstance(result, RedirectResult):
-        data, mime_type = await _download_redirect_bytes(url=result.url)
-        return data, mime_type or "application/octet-stream"
-
-    if isinstance(result, ContentResult):
-        return result.data, result.media_type or "image/png"
-
-    if isinstance(result, StreamResult):
-        chunks: list[bytes] = []
-        async for chunk in result.stream:
-            chunks.append(chunk)
-        return b"".join(chunks), result.media_type or "image/png"
-
-    raise ValueError("Неподдерживаемый формат результата чтения файла.")
+        return data, "application/octet-stream"
+    return data, getattr(result, "media_type", None) or "image/png"
 
 
 @tool(parse_docstring=True)

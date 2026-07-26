@@ -128,6 +128,22 @@ class SandboxManager:
             file_type=file_type,
         )
 
+    async def upload_stream_for_user(
+        self,
+        user_id: uuid.UUID,
+        file_name: str,
+        fileobj,
+        size: int,
+        file_type: FileType = "other",
+    ) -> File:
+        return await self._files.upload_stream_for_user(
+            user_id=user_id,
+            file_name=file_name,
+            fileobj=fileobj,
+            size=size,
+            file_type=file_type,
+        )
+
     async def upload_files_for_user(
         self,
         user_id: uuid.UUID,

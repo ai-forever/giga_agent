@@ -10,6 +10,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.rag.services.doc_parser import CustomDocxParser
+from giga_agent.sandbox.manager.file_policy import (
+    MAX_RAG_DOC_BYTES,
+    enforce_upload_limit,
+)
 
 logger = get_logger(__name__)
 
@@ -60,7 +64,19 @@ async def process_document(
             file_id if isinstance(file_id, uuid.UUID) else uuid.UUID(str(file_id))
         )
 
+    # Защитный лимит на единый документ (буфер + парсинг идут целиком в RAM).
+    # Основной 413-отказ делает эндпоинт до цикла; здесь — на случай прочих
+    # вызывающих process_document.
+    enforce_upload_limit(
+        declared_size=getattr(file, "size", None), limit=MAX_RAG_DOC_BYTES
+    )
+
     contents = await file.read()
+    # Проверка выше проходит вхолостую, если у file-like нет .size, — а это ровно
+    # те «прочие вызывающие», для которых она и стоит. Поэтому дублируем по факту:
+    # парсинг/сплит дальше на переростке не пойдут.
+    enforce_upload_limit(declared_size=len(contents), limit=MAX_RAG_DOC_BYTES)
+
     content_type = file.content_type
     if not content_type or content_type == "application/octet-stream":
         guessed, _ = mimetypes.guess_type(file.filename or "")

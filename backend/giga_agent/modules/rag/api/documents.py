@@ -25,6 +25,11 @@ from giga_agent.modules.rag.schemas.document import (
     SearchResult,
 )
 from giga_agent.sandbox.manager import SandboxManager
+from giga_agent.sandbox.manager.file_policy import (
+    MAX_RAG_DOC_BYTES,
+    FileTooLargeError,
+    enforce_upload_limit,
+)
 
 # Create a TypeAdapter that enforces “list of dict”
 _metadata_adapter = TypeAdapter(list[dict[str, Any]])
@@ -104,6 +109,14 @@ async def documents_create(
 ):
     """Processes and indexes (adds) new document files with optional metadata."""
     from giga_agent.modules.rag.services import process_document
+
+    # Отклоняем весь батч, если хоть один файл превышает лимит (до тяжёлого
+    # цикла парсинга/эмбеддинга), — чтобы не буферизовать гигантский документ.
+    for upload in files:
+        try:
+            enforce_upload_limit(declared_size=upload.size, limit=MAX_RAG_DOC_BYTES)
+        except FileTooLargeError as e:
+            raise HTTPException(status_code=413, detail=str(e)) from e
 
     # If no metadata JSON is provided, fill with None
     if not metadatas_json:

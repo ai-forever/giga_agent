@@ -120,10 +120,13 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ),
             ),
+            # read_file материализует результат через materialize_bounded, а тот
+            # для RedirectResult уходит в скачивание по URL — подменяем именно
+            # эту границу, чтобы диспатч redirect-ветки остался под тестом.
             patch(
-                "giga_agent.modules.io.tools._download_redirect_bytes",
-                AsyncMock(return_value="redirect body".encode("utf-8")),
-            ),
+                "giga_agent.sandbox.materialize._download_redirect_bounded",
+                AsyncMock(return_value=("redirect body".encode("utf-8"), False)),
+            ) as mocked_download,
         ):
             assert read_file.coroutine is not None
             command = await read_file.coroutine(
@@ -134,6 +137,7 @@ class RagToolsTests(unittest.IsolatedAsyncioTestCase):
         payload = _content(command)
         self.assertIsInstance(payload, str)
         self.assertIn("1|redirect body", payload)
+        self.assertEqual(mocked_download.await_args.args[0], "https://example.com/file")
 
     async def test_read_file_extracts_pdf_text(self):
         owner_id = uuid.uuid4()

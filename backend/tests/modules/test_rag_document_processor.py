@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 
 from giga_agent.modules.rag.services.document_processor import (
     SUPPORTED_MIMETYPES,
     process_document,
 )
+from giga_agent.sandbox.manager.file_policy import FileTooLargeError
 
 
 class _DummyUploadFile:
@@ -11,9 +13,18 @@ class _DummyUploadFile:
         self.filename = filename
         self.content_type = content_type
         self._content = content
+        self.size = len(content)
 
     async def read(self) -> bytes:
         return self._content
+
+
+class _SizelessUploadFile(_DummyUploadFile):
+    """file-like без .size — метаданных размера у такого вызывающего нет."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        del self.size
 
 
 class RagDocumentProcessorTests(unittest.IsolatedAsyncioTestCase):
@@ -77,6 +88,36 @@ class RagDocumentProcessorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(file_id)
         self.assertEqual(full_text, md_text.strip())
         self.assertGreater(len(docs), 0)
+
+    async def test_oversized_declared_size_rejected(self) -> None:
+        dummy = _DummyUploadFile(
+            filename="big.txt",
+            content_type="text/plain",
+            content=b"x" * 10,
+        )
+
+        with patch(
+            "giga_agent.modules.rag.services.document_processor.MAX_RAG_DOC_BYTES", 3
+        ):
+            with self.assertRaises(FileTooLargeError):
+                await process_document(dummy)
+
+    async def test_oversized_without_declared_size_rejected(self) -> None:
+        # Без .size проверка по метаданным не срабатывает — ловим по факту чтения.
+        dummy = _SizelessUploadFile(
+            filename="big.txt",
+            content_type="text/plain",
+            content=b"x" * 10,
+        )
+        self.assertFalse(hasattr(dummy, "size"))
+
+        with patch(
+            "giga_agent.modules.rag.services.document_processor.MAX_RAG_DOC_BYTES", 3
+        ):
+            with self.assertRaises(FileTooLargeError) as ctx:
+                await process_document(dummy)
+        self.assertEqual(ctx.exception.declared_size, 10)
+        self.assertEqual(ctx.exception.limit, 3)
 
     def test_markdown_mimetypes_in_supported_list(self) -> None:
         self.assertIn("text/markdown", SUPPORTED_MIMETYPES)

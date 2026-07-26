@@ -29,6 +29,10 @@ from giga_agent.modules.skills.manifest import (
     select_skill_manifest_file,
 )
 from giga_agent.modules.skills.parser import parse_skill_md
+from giga_agent.sandbox.manager.file_policy import (
+    MAX_SKILL_ARCHIVE_BYTES,
+    enforce_upload_limit,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +41,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-MAX_ARCHIVE_SIZE = 10 * 1024 * 1024  # 10 MB
 _SKILLS_LIST_CACHE_ENABLED = (
     os.getenv("GIGA_AGENT_SKILLS_LIST_CACHE_ENABLED", "true").lower() != "false"
 )
@@ -92,10 +95,11 @@ class SkillsService:
         filename: str,
         sandbox: BaseSandbox,
     ) -> Skill:
-        if len(archive_bytes) > MAX_ARCHIVE_SIZE:
-            raise SkillInstallError(
-                f"Archive exceeds {MAX_ARCHIVE_SIZE // (1024 * 1024)} MB limit"
-            )
+        # По факту прочитанных байт: роут отбивает 413 по метаданным до чтения,
+        # здесь — бэкстоп для вызывающих без размера в метаданных.
+        enforce_upload_limit(
+            declared_size=len(archive_bytes), limit=MAX_SKILL_ARCHIVE_BYTES
+        )
 
         with tempfile.TemporaryDirectory(prefix="skill_upload_") as tmpdir:
             tmp_path = Path(tmpdir)
