@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from giga_agent.core.db import Base, JSON_VARIANT
+from giga_agent.core.db import JSON_VARIANT, Base
 from giga_agent.core.time import default_tz
 
 DEFAULT_INVITE_TTL_DAYS = 7
@@ -122,7 +122,7 @@ class InviteCreate(BaseModel):
     copy_runtime_ids: bool = True
     copy_module_secrets: bool = False
     max_uses: int = Field(default=1, ge=1, le=1000)
-    expires_in_days: int = Field(default=DEFAULT_INVITE_TTL_DAYS, ge=1, le=90)
+    expires_in_days: int = Field(default=DEFAULT_INVITE_TTL_DAYS, ge=1, le=365 * 2)
 
 
 class InviteResponse(BaseModel):
