@@ -1,4 +1,4 @@
-import React, { useEffect, useState, FormEvent } from "react";
+import React, { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "@/components/providers/auth";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,7 @@ const JoinPage: React.FC = () => {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">
-            Вступление в{" "}
+            Подключение к{" "}
             <img
               className="w-10 h-10 inline-block"
               src={LogoWhiteImage}
