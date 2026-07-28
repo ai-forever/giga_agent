@@ -6,6 +6,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.logging import get_logger
 from giga_agent.memory.runtime import (
     build_memory_service,
@@ -36,7 +37,12 @@ def _command(*, runtime: ToolRuntime, content: str, is_error: bool = False) -> C
         "Семантический поиск по файлам памяти пользователя. "
         "Возвращает top-N релевантных фрагментов с путём, цитатой и оценкой."
     ),
-    extras={"repl_skip": True, "not_compress": True, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.READ,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    ),
 )
 async def search_memories(
     query: Annotated[str, "Запрос для поиска по памяти"],

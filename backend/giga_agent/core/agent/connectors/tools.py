@@ -23,6 +23,12 @@ from giga_agent.core.agent.connectors.sources import (
     match_source,
 )
 from giga_agent.core.agent.tool_results import build_error_tool_message
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    blocked_tool_message,
+    is_tool_allowed,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
@@ -53,6 +59,7 @@ def _names(sources: list[ToolSource]) -> str:
 
 @tool(
     GET_INFO_TOOL_NAME,
+    extras=tool_extras(ToolEffect.READ),
     description=(
         "Получить список инструментов конкретного коннектора и схему их аргументов. "
         f"Вызывай это ПЕРЕД {CALL_TOOL_NAME}, чтобы узнать имена инструментов и поля params. "
@@ -78,6 +85,9 @@ async def connector_get_info(
             tool_name=GET_INFO_TOOL_NAME,
         )
     specs = await target.list_tools(user_id=owner_id)
+    state = getattr(runtime, "state", None)
+    mode = state.get("mode") if isinstance(state, dict) else None
+    specs = [spec for spec in specs if is_tool_allowed(spec.policy, mode)]
     return {
         "connector": target.name,
         "tools": [s.as_dict() for s in specs],
@@ -90,6 +100,7 @@ async def connector_get_info(
 
 @tool(
     CALL_TOOL_NAME,
+    extras=tool_extras(ToolEffect.DELEGATED),
     description=(
         "Вызвать инструмент коннектора. connector — имя коннектора, tool — имя инструмента "
         f"(узнай через {GET_INFO_TOOL_NAME}), params — JSON-строка с аргументами, например "
@@ -145,6 +156,11 @@ async def connector_call_tool(
             f"connector '{target.name}' has no tool '{tool}'; "
             f"available: {available}; call {GET_INFO_TOOL_NAME}('{target.name}')"
         )
+    selected = next(spec for spec in specs if spec.name == tool)
+    state = getattr(runtime, "state", None)
+    mode = state.get("mode") if isinstance(state, dict) else None
+    if not is_tool_allowed(selected.policy, mode, args=parsed_params):
+        return blocked_tool_message(tool, runtime.tool_call_id)
 
     outcome = await target.call_tool(tool, parsed_params, runtime, user_id=owner_id)
 

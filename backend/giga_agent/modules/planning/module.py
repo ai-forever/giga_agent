@@ -24,8 +24,8 @@ class PlanningModule(BaseModule):
       - update_plan / present_plan: tools.py, пушат план в UI (push_ui_message).
       - plan / mode поля: AgentState (core/agent/types.py).
       - сидирование mode из config.configurable.plan_mode: PlanningMiddleware.
-      - гейтинг тулов по state["mode"]: graph_factory._filter_plan_mode_tools
-        (PLAN_MODE_BLOCKED_MODULES).
+      - гейтинг тулов по state["mode"]: единая policy из
+        core/agent/tool_policy.py проверяется при bind и перед исполнением.
       - фронт: тумблер «Режим планирования» (InputArea), чеклист (ToolCallsList),
         карточка approve/edit/reject (PlanApprovalCard на interrupt plan_approval).
       - тесты: tests/modules/planning/test_planning.py.

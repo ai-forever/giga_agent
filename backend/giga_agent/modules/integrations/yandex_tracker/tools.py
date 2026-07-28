@@ -7,6 +7,7 @@ import httpx
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.modules.integrations.widget_hint import with_widget_note
 from giga_agent.modules.integrations.tracker_base import (
@@ -126,7 +127,7 @@ def _to_issue(
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def tracker_search_issues(
     runtime: ToolRuntime,
     query: str | None = None,
@@ -263,7 +264,7 @@ def _build_groups(items: list[dict[str, Any]], group_by: str) -> list[dict[str, 
     return groups
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def tracker_board(
     runtime: ToolRuntime,
     group_by: str = "status",
@@ -300,7 +301,7 @@ async def tracker_board(
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def tracker_get_issue(runtime: ToolRuntime, issue_key: str) -> dict[str, Any]:
     """Возвращает карточку задачи Яндекс.Трекера по её ключу.
 
@@ -323,7 +324,7 @@ async def tracker_get_issue(runtime: ToolRuntime, issue_key: str) -> dict[str, A
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def tracker_create_issue(
     runtime: ToolRuntime,
     queue: str,
@@ -352,7 +353,7 @@ async def tracker_create_issue(
     return {"status": "created", **_trim_issue(item)}
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def tracker_update_issue(
     runtime: ToolRuntime,
     issue_key: str,
@@ -385,7 +386,7 @@ async def tracker_update_issue(
     return {"status": "updated", **_trim_issue(item)}
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def tracker_add_comment(
     runtime: ToolRuntime, issue_key: str, text: str
 ) -> dict[str, Any]:
@@ -406,7 +407,7 @@ async def tracker_add_comment(
     return {"status": "commented", "issue_key": issue_key}
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def tracker_transition(
     runtime: ToolRuntime, issue_key: str, transition: str
 ) -> dict[str, Any]:

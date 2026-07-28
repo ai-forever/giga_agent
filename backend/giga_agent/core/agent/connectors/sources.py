@@ -25,6 +25,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.agent.tool_invoke import invoke_inner_tool
+from giga_agent.core.agent.tool_policy import ToolPolicy, resolve_tool_policy
 
 if TYPE_CHECKING:
     from giga_agent.core.agent.base import BaseAgent
@@ -79,10 +80,16 @@ class ToolSpec:
     description: str
     required: list[str] = field(default_factory=list)
     params_example: str = "{}"
+    policy: ToolPolicy | None = None
 
     @classmethod
     def from_schema(
-        cls, *, name: str, description: str, schema: dict[str, Any] | None
+        cls,
+        *,
+        name: str,
+        description: str,
+        schema: dict[str, Any] | None,
+        policy: ToolPolicy | None = None,
     ) -> "ToolSpec":
         schema = schema or {}
         required = schema.get("required") if isinstance(schema, dict) else None
@@ -98,6 +105,7 @@ class ToolSpec:
             params_example=json.dumps(
                 build_args_example(schema, required), ensure_ascii=False
             ),
+            policy=policy,
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -177,7 +185,10 @@ class ModuleToolSource:
                 schema = {}
             specs.append(
                 ToolSpec.from_schema(
-                    name=t.name, description=t.description or "", schema=schema
+                    name=t.name,
+                    description=t.description or "",
+                    schema=schema,
+                    policy=resolve_tool_policy(t),
                 )
             )
         return specs

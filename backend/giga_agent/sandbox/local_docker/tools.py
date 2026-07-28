@@ -6,10 +6,22 @@ import json
 
 from langchain.tools import tool, ToolRuntime
 
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.modules.repl.tools import _resolve_repl_runtime_context
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        confirmation=ToolConfirmation.CONDITIONAL,
+        repl_save=False,
+    ),
+)
 async def open_port(port: int, runtime: ToolRuntime) -> str:
     """Opens a port in the local Docker sandbox and returns a URL the user can open in a browser. The access scope of the URL (private vs public) depends on the deployment — follow the sandbox runtime instructions in the system prompt.
 

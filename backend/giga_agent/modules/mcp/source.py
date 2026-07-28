@@ -15,6 +15,7 @@ from typing import Any
 from langchain.tools import ToolRuntime
 
 from giga_agent.core.agent.connectors.sources import ToolCallOutcome, ToolSpec
+from giga_agent.core.agent.tool_policy import policy_from_mcp_annotations
 from giga_agent.middlewares.tool_result import process_mcp_content
 from giga_agent.modules.mcp.client import call_server_tool, list_server_tools
 from giga_agent.modules.mcp.errors import McpError
@@ -43,6 +44,7 @@ class McpToolSource:
                 name=t.get("name"),
                 description=t.get("description") or "",
                 schema=t.get("inputSchema") or {},
+                policy=policy_from_mcp_annotations(t.get("annotations")),
             )
             for t in tools
             if _visible_to_model(t)

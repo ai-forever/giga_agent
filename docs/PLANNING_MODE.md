@@ -146,20 +146,33 @@ fixed for the whole run. But `present_plan`'s approval flips `mode` to `normal` 
 resumes the *same* run, so the tool set has to change mid-turn — config can't do
 that. This is new code (a few lines), not reuse of the existing filter.
 
-The tool list is rebuilt on every entry to `amodel_node`, so add the gate there
-(`graph_factory.py:630-643`, where `all_tools` is assembled — `state` is in scope):
+The tool list is rebuilt on every entry to `amodel_node`. Every production tool
+declares a policy in `BaseTool.extras["giga_agent"]`:
 
 ```python
-if state.get("mode") == "plan":
-    all_tools = [t for t in all_tools
-                 if t.name in READ_ONLY_TOOLS | {"present_plan", "update_plan"}]
+extras=tool_extras(
+    ToolEffect.READ,                 # read | write | destructive | delegated
+    plan_mode=ToolPlanMode.AUTO,     # auto | allow | deny
+    confirmation=ToolConfirmation.NEVER,
+)
 ```
 
-`READ_ONLY_TOOLS` = search, scraper, rag, analyze_images. Disabled in plan mode:
-repl write, io, github/vk posting, image generation. The agent can research before
-proposing, but cannot cause side effects. Because the loop returns to `amodel_node`
-after every tool batch (verified: `graph_factory.py:780-794`), the flip to `normal`
-re-enables the full tool set for the very next LLM call, in the same turn.
+In plan mode, `auto` permits `read` and dispatcher tools marked `delegated`;
+`allow` always permits and `deny` always blocks. Missing or invalid policy fails
+closed. `write` and `destructive` tools are hidden from the model. The same
+decision is checked again immediately before execution, including calls routed
+through connectors and in-process bridges. Provider metadata and the callable
+argument resolver are removed from the model-facing tool copy.
+
+MCP policy is derived from trusted annotations: `readOnlyHint=true` is read,
+otherwise `destructiveHint=true` is destructive, otherwise write. Missing
+annotations use the pessimistic MCP default and are destructive.
+
+Because the loop returns to `amodel_node` after every tool batch (verified:
+`graph_factory.py:780-794`), the flip to `normal` re-enables the full tool set
+for the very next LLM call in the same turn. Policy does not restrict tools in
+normal mode. `module_id` remains independent and is used only for user-disabled
+modules.
 
 ### Prompt — `get_instructions()`
 

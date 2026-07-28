@@ -20,6 +20,11 @@ from giga_agent.core.agent.connectors.sources import (
     collect_sources,
     match_source,
 )
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    resolve_tool_policy,
+    tool_extras,
+)
 from giga_agent.core.module import BaseModule
 from giga_agent.middlewares.tool_result import (
     _should_compress,
@@ -28,7 +33,7 @@ from giga_agent.middlewares.tool_result import (
 )
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 def echo(x: int) -> dict:
     """Echo x back.
 
@@ -38,7 +43,7 @@ def echo(x: int) -> dict:
     return {"x": x}
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 def boom() -> ToolMessage:
     """Always errors."""
     return ToolMessage(
@@ -49,17 +54,24 @@ def boom() -> ToolMessage:
     )
 
 
-@tool(extras={"not_compress": True})
+@tool(extras=tool_extras(ToolEffect.READ, not_compress=True))
 def big() -> dict:
     """Returns a chunky payload."""
     return {"data": "x" * 100}
 
 
-def _runtime():
+@tool(extras=tool_extras(ToolEffect.WRITE))
+def mutate() -> dict:
+    """Perform a test mutation."""
+    return {"mutated": True}
+
+
+def _runtime(mode: str = "normal"):
     return types.SimpleNamespace(
         config={"configurable": {"user_id": str(uuid.uuid4())}},
         tool_call_id="call-1",
         agent=object(),
+        state={"mode": mode},
     )
 
 
@@ -90,7 +102,10 @@ class ModuleToolSourceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(outcome.is_error)
         self.assertEqual(outcome.content, {"x": 7})
         self.assertEqual(outcome.inner_name, "echo")
-        self.assertEqual(outcome.inner_extras, {})
+        self.assertEqual(
+            resolve_tool_policy(outcome.inner_extras).effect,
+            ToolEffect.READ,
+        )
 
     async def test_call_tool_normalizes_error_tool_message(self):
         src = ModuleToolSource("demo", "Demo", None, [boom])
@@ -103,7 +118,11 @@ class ModuleToolSourceTests(unittest.IsolatedAsyncioTestCase):
     async def test_call_tool_carries_inner_extras(self):
         src = ModuleToolSource("demo", "Demo", None, [big])
         outcome = await src.call_tool("big", {}, _runtime(), user_id=uuid.uuid4())
-        self.assertEqual(outcome.inner_extras, {"not_compress": True})
+        self.assertTrue(outcome.inner_extras["not_compress"])
+        self.assertEqual(
+            resolve_tool_policy(outcome.inner_extras).effect,
+            ToolEffect.READ,
+        )
 
     async def test_call_tool_unknown_tool_is_error(self):
         src = ModuleToolSource("demo", "Demo", None, [echo])
@@ -159,7 +178,35 @@ class ConnectorMetaToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(msg.content), {"x": 7})
         self.assertEqual(msg.additional_kwargs["tool_name"], "echo")
         self.assertEqual(msg.additional_kwargs["tool_args"], {"x": 7})
-        self.assertEqual(msg.additional_kwargs["effective_extras"], {})
+        self.assertEqual(
+            resolve_tool_policy(msg.additional_kwargs["effective_extras"]).effect,
+            ToolEffect.READ,
+        )
+
+    async def test_plan_mode_hides_and_blocks_write_tool(self):
+        src = ModuleToolSource("demo", "Demo", None, [echo, mutate])
+        runtime = _runtime("plan")
+        ctx = (object(), types.SimpleNamespace(id=uuid.uuid4()), uuid.uuid4())
+        with (
+            patch.object(ctools, "_resolve_context", AsyncMock(return_value=ctx)),
+            patch.object(ctools, "collect_sources", AsyncMock(return_value=[src])),
+        ):
+            info = await connector_get_info.coroutine(
+                connector="demo",
+                runtime=runtime,
+            )
+            msg = await connector_call_tool.coroutine(
+                connector="demo",
+                tool="mutate",
+                runtime=runtime,
+            )
+
+        self.assertEqual([t["name"] for t in info["tools"]], ["echo"])
+        self.assertEqual(msg.status, "error")
+        self.assertEqual(
+            msg.additional_kwargs["error_code"],
+            "tool_not_allowed_in_plan",
+        )
 
     async def test_call_tool_unknown_connector_errors(self):
         runtime = _runtime()

@@ -16,6 +16,8 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
+from giga_agent.core.agent.tool_policy import blocked_tool_message, is_tool_allowed
+
 
 def tool_accepts_parameter(tool_or_callable: Any, param_name: str) -> bool:
     """True if the tool's underlying callable declares ``param_name``.
@@ -49,6 +51,14 @@ async def invoke_inner_tool(
     other framework injections still work; on a schema mismatch we fall back to
     calling the raw coroutine/func directly with the injected ``runtime``.
     """
+    state = getattr(runtime, "state", None)
+    mode = state.get("mode") if isinstance(state, dict) else None
+    if not is_tool_allowed(tool_, mode, args=kwargs):
+        return blocked_tool_message(
+            tool_.name,
+            getattr(runtime, "tool_call_id", tool_.name),
+        )
+
     call_kwargs = dict(kwargs)
     if tool_accepts_parameter(tool_, "runtime"):
         call_kwargs.setdefault("runtime", runtime)

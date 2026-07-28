@@ -13,6 +13,7 @@ import uuid
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.generators.image.base import (
@@ -60,7 +61,10 @@ def _resolve_upload_prefix(runtime: ToolRuntime) -> str:
     return f"temporary/{uuid.uuid4().hex}"
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(ToolEffect.WRITE, repl_save=False),
+)
 async def gen_image(
     prompt: str,
     runtime: ToolRuntime,

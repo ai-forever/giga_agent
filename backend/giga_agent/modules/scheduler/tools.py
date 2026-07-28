@@ -6,6 +6,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from pydantic import Field
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.channel import ChannelBotRepository, ChannelContact
@@ -168,7 +169,7 @@ async def _resolve_targets(
     return targets
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def list_task_recipients(runtime: ToolRuntime):
     """Получить возможных получателей результата фоновой задачи (одобренные контакты каналов).
 
@@ -199,7 +200,7 @@ async def list_task_recipients(runtime: ToolRuntime):
     return recipients
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def schedule_task(
     runtime: ToolRuntime,
     prompt: str = Field(
@@ -256,7 +257,7 @@ async def schedule_task(
     )
 
 
-@tool("schedule_task")
+@tool("schedule_task", extras=tool_extras(ToolEffect.WRITE))
 async def schedule_task_in_chat(
     runtime: ToolRuntime,
     prompt: str = Field(
@@ -317,7 +318,7 @@ def _task_summary(t) -> dict:
     }
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def list_scheduled_tasks(runtime: ToolRuntime):
     """Показать запланированные фоновые задачи пользователя."""
     owner_id = _owner_id(runtime)
@@ -328,7 +329,7 @@ async def list_scheduled_tasks(runtime: ToolRuntime):
     return [_task_summary(t) for t in tasks]
 
 
-@tool("list_scheduled_tasks")
+@tool("list_scheduled_tasks", extras=tool_extras(ToolEffect.READ))
 async def list_scheduled_tasks_in_chat(runtime: ToolRuntime):
     """Показать запланированные задачи, созданные в этом чате."""
     owner_id = _owner_id(runtime)
@@ -342,7 +343,7 @@ async def list_scheduled_tasks_in_chat(runtime: ToolRuntime):
         return [_task_summary(t) for t in tasks if _task_belongs_to_chat(t, current)]
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def cancel_scheduled_task(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -367,7 +368,7 @@ async def cancel_scheduled_task(
     return {"task_id": task_id, "status": "cancelled"}
 
 
-@tool("cancel_scheduled_task")
+@tool("cancel_scheduled_task", extras=tool_extras(ToolEffect.WRITE))
 async def cancel_scheduled_task_in_chat(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -417,7 +418,7 @@ def _apply_schedule_edit(fields: dict, when: str) -> dict | None:
     return None
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def edit_scheduled_task(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -484,7 +485,7 @@ async def edit_scheduled_task(
     )
 
 
-@tool("edit_scheduled_task")
+@tool("edit_scheduled_task", extras=tool_extras(ToolEffect.WRITE))
 async def edit_scheduled_task_in_chat(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),

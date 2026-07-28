@@ -24,6 +24,11 @@ from giga_agent.core.agent.tool_invoke import (
     tool_accepts_parameter,
 )
 from giga_agent.core.agent.tool_node import AgentToolNode
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models import UserShort
@@ -415,7 +420,15 @@ class PythonArgsSchema(BaseModel):
     code: str = Field(description="Python код для выполнения в Jupyter kernel.")
 
 
-@tool(extras={"repl_save": False, "args_hack": True}, args_schema=PythonArgsSchema)
+@tool(
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        confirmation=ToolConfirmation.CONDITIONAL,
+        repl_save=False,
+        args_hack=True,
+    ),
+    args_schema=PythonArgsSchema,
+)
 async def python(
     code: str,
     runtime: ToolRuntime,
@@ -728,7 +741,14 @@ def _check_shell_command_safety(command: str) -> str | None:
     return None
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        confirmation=ToolConfirmation.CONDITIONAL,
+        repl_save=False,
+    ),
+)
 async def shell(
     command: str,
     runtime: ToolRuntime,
@@ -772,7 +792,10 @@ async def shell(
     )
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(ToolEffect.READ, repl_save=False),
+)
 async def await_shell(
     shell_id: str,
     runtime: ToolRuntime,

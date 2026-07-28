@@ -17,6 +17,12 @@ from langgraph.graph.ui import push_ui_message
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, Field
 
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    ToolPlanMode,
+    tool_extras,
+)
+
 TodoStatus = Literal["pending", "in_progress", "completed", "skipped"]
 
 
@@ -77,7 +83,14 @@ def _validate(todos: list[TodoItemArg]) -> str | None:
     return None
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        plan_mode=ToolPlanMode.ALLOW,
+        repl_save=False,
+    ),
+)
 async def update_plan(
     todos: list[TodoItemArg],
     runtime: ToolRuntime,
@@ -118,7 +131,14 @@ async def update_plan(
     )
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        plan_mode=ToolPlanMode.ALLOW,
+        repl_save=False,
+    ),
+)
 async def present_plan(
     todos: list[TodoItemArg],
     runtime: ToolRuntime,

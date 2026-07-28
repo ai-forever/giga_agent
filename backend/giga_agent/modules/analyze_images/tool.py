@@ -15,6 +15,7 @@ from PIL import Image, ImageOps
 from plotly import io as plotly_io
 
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.llm.base import BaseLLMRuntime
 from giga_agent.sandbox.base import RedirectResult
@@ -186,7 +187,7 @@ async def _read_file_bytes(
     return data, getattr(result, "media_type", None) or "image/png"
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def analyze_image(
     image_path: str,
     prompt: str,

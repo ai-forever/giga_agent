@@ -62,6 +62,13 @@ from giga_agent.core.agent.think import (
     resolve_bound_tool_choice,
 )
 from giga_agent.core.agent.tool_node import ToolCallsWithContext, ToolNode
+from giga_agent.core.agent.tool_policy import (
+    annotate_known_provider_tool,
+    attach_provider_policy,
+    filter_tools_for_mode,
+    policy_from_mcp_annotations,
+    sanitize_tool_for_model,
+)
 from giga_agent.core.agent.tools import multi_tool_use, think
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
@@ -94,30 +101,18 @@ ANTI_LOOP_STOP_MESSAGE = (
     "действовать, и я попробую снова."
 )
 
-# Модули с побочными эффектами: недоступны в plan mode, пока план не подтверждён.
-# Гейтинг по state["mode"] (не config) — present_plan флипает mode в том же run.
-# См. docs/PLANNING_MODE.md.
-PLAN_MODE_BLOCKED_MODULES = frozenset(
-    {"repl", "io", "image", "github", "vk", "skills", "subagents_legacy"}
-)
-
 
 def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
     """Фильтрует список тулов под текущий режим.
 
-    plan mode: убираем тулы модулей с побочными эффектами; read-only,
-    update_plan/present_plan и built-in dict-тулы (без .extras) остаются.
+    plan mode: policy разрешает read/delegated и явные plan_mode=allow.
+    Неизвестные, write и destructive тулы скрываются.
 
     normal: убираем present_plan — пауза на подтверждение возможна только при
     включённом plan mode. update_plan остаётся (динамический todo-лист).
     """
     if mode == "plan":
-        return [
-            t
-            for t in tools
-            if (getattr(t, "extras", None) or {}).get("module_id")
-            not in PLAN_MODE_BLOCKED_MODULES
-        ]
+        return filter_tools_for_mode(tools, mode)
     return [t for t in tools if getattr(t, "name", None) != "present_plan"]
 
 
@@ -504,7 +499,9 @@ def create_graph(
         wrap_tool_call_wrapper = _chain_async_tool_call_wrappers(wrappers)
 
     # Extract built-in provider tools (dict format) and regular tools (BaseTool/callables)
-    built_in_tools = [t for t in tools if isinstance(t, dict)]
+    built_in_tools = [
+        annotate_known_provider_tool(t) for t in tools if isinstance(t, dict)
+    ]
     regular_tools = [t for t in tools if not isinstance(t, dict)]
 
     builtin_tools: list[BaseTool] = [connector_call_tool, connector_get_info]
@@ -690,16 +687,21 @@ def create_graph(
                 for t in agent_tools
                 if (t.extras or {}).get("module_id") not in disabled_set
             ]
-        mcp_tools = [
-            transform_tool(
-                {
-                    "name": tool["name"],
-                    "description": tool.get("description", "."),
-                    "parameters": tool.get("inputSchema", {}),
-                },
+        mcp_tools = []
+        for tool in state.get("mcp_tools", []):
+            definition = {
+                "name": tool["name"],
+                "description": tool.get("description", "."),
+                "parameters": tool.get("inputSchema", {}),
+            }
+            mcp_tools.append(
+                transform_tool(
+                    attach_provider_policy(
+                        definition,
+                        policy_from_mcp_annotations(tool.get("annotations")),
+                    )
+                )
             )
-            for tool in state.get("mcp_tools", [])
-        ]
 
         tool_choice = (
             resolve_bound_tool_choice(state["messages"]) if think_enabled else "auto"
@@ -739,6 +741,7 @@ def create_graph(
             + mcp_tools
         )
         all_tools = _filter_plan_mode_tools(all_tools, state.get("mode"))
+        all_tools = [sanitize_tool_for_model(tool) for tool in all_tools]
         llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
         scheduled_prompt = _resolve_scheduled_prompt(config)

@@ -8,6 +8,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
@@ -76,7 +77,10 @@ async def _resolve_owner_and_runtime(runtime: ToolRuntime):
     return resolver.user.id, sandbox
 
 
-@tool(parse_docstring=False, extras={"repl_save": False})
+@tool(
+    parse_docstring=False,
+    extras=tool_extras(ToolEffect.READ, repl_save=False),
+)
 async def read_skill_manifest(
     name: str,
     runtime: ToolRuntime,

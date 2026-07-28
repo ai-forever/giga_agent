@@ -10,9 +10,14 @@ import types
 import unittest
 from unittest.mock import patch
 
-from giga_agent.core.agent.graph_factory import (
-    PLAN_MODE_BLOCKED_MODULES,
-    _filter_plan_mode_tools,
+from langchain_core.tools import tool
+
+from giga_agent.core.agent.graph_factory import _filter_plan_mode_tools
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    ToolPlanMode,
+    annotate_known_provider_tool,
+    tool_extras,
 )
 from giga_agent.modules.planning.middleware import PlanningMiddleware
 from giga_agent.modules.planning.tools import (
@@ -128,21 +133,33 @@ class PresentPlanTests(unittest.TestCase):
 
 
 class GatingTests(unittest.TestCase):
-    class _Tool:
-        def __init__(self, name, module_id=None):
-            self.name = name
-            self.extras = {"module_id": module_id} if module_id else None
+    @staticmethod
+    def _Tool(name, effect=None, *, plan_mode=ToolPlanMode.AUTO):
+        def placeholder():
+            """Test-only placeholder tool."""
+            return None
+
+        extras = tool_extras(effect, plan_mode=plan_mode) if effect else None
+        return tool(name, extras=extras)(placeholder)
 
     def _tools(self):
         return [
-            {"type": "web_search"},  # built-in dict, без extras
-            self._Tool("update_plan"),  # planning, без module_id
-            self._Tool("present_plan"),
-            self._Tool("python", "repl"),
-            self._Tool("upload_file", "io"),
-            self._Tool("post_to_vk", "vk"),
-            self._Tool("web_search_tool", "search"),
-            self._Tool("rag_search", "rag"),
+            annotate_known_provider_tool({"type": "web_search"}),
+            self._Tool(
+                "update_plan",
+                ToolEffect.WRITE,
+                plan_mode=ToolPlanMode.ALLOW,
+            ),
+            self._Tool(
+                "present_plan",
+                ToolEffect.WRITE,
+                plan_mode=ToolPlanMode.ALLOW,
+            ),
+            self._Tool("python", ToolEffect.DESTRUCTIVE),
+            self._Tool("upload_file", ToolEffect.WRITE),
+            self._Tool("web_search_tool", ToolEffect.READ),
+            self._Tool("connector_call_tool", ToolEffect.DELEGATED),
+            self._Tool("unknown"),
         ]
 
     def _names(self, tools):
@@ -150,13 +167,13 @@ class GatingTests(unittest.TestCase):
 
     def test_plan_mode_drops_side_effects_keeps_rest(self):
         kept = self._names(_filter_plan_mode_tools(self._tools(), "plan"))
-        for blocked in ("python", "upload_file", "post_to_vk"):
+        for blocked in ("python", "upload_file", "unknown"):
             self.assertNotIn(blocked, kept)
         for keep in (
             "update_plan",
             "present_plan",
             "web_search_tool",
-            "rag_search",
+            "connector_call_tool",
             "web_search",
         ):
             self.assertIn(keep, kept)
@@ -166,16 +183,14 @@ class GatingTests(unittest.TestCase):
             kept = self._names(_filter_plan_mode_tools(self._tools(), mode))
             self.assertNotIn("present_plan", kept)  # пауза только в plan mode
             # всё остальное (включая update_plan и побочные) остаётся
-            for keep in ("update_plan", "python", "upload_file", "web_search"):
+            for keep in (
+                "update_plan",
+                "python",
+                "upload_file",
+                "unknown",
+                "web_search",
+            ):
                 self.assertIn(keep, kept)
-
-    def test_blocked_set_is_side_effecting_modules(self):
-        self.assertEqual(
-            PLAN_MODE_BLOCKED_MODULES,
-            frozenset(
-                {"repl", "io", "image", "github", "vk", "skills", "subagents_legacy"}
-            ),
-        )
 
 
 class MiddlewareSeedTests(unittest.TestCase):

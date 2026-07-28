@@ -60,6 +60,7 @@ from langgraph.types import Command, Send
 from pydantic import BaseModel, ValidationError
 
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import blocked_tool_message, is_tool_allowed
 from giga_agent.core.agent.types import AgentState
 
 if TYPE_CHECKING:
@@ -631,6 +632,10 @@ class ToolNode(RunnableCallable):
             # This should never happen if validation works correctly
             msg = f"Tool {call['name']} is not registered with ToolNode"
             raise TypeError(msg)
+
+        mode = request.state.get("mode") if isinstance(request.state, dict) else None
+        if not is_tool_allowed(tool, mode, args=call.get("args") or {}):
+            return blocked_tool_message(call["name"], call["id"])
 
         # Inject state, store, and runtime right before invocation
         injected_call = self._inject_tool_args(call, request.runtime)

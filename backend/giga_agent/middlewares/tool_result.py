@@ -16,6 +16,11 @@ from langgraph.types import Command, interrupt
 
 from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
+from giga_agent.core.agent.tool_policy import (
+    blocked_tool_message,
+    is_tool_allowed,
+    policy_from_mcp_annotations,
+)
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
@@ -565,6 +570,52 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
+
+        if state.get("mode") == "plan":
+            mcp_by_name = {
+                tool.get("name"): tool
+                for tool in state.get("mcp_tools", [])
+                if tool.get("name")
+            }
+            blocked_actions = [
+                action
+                for action in actions
+                if action.get("name") in mcp_by_name
+                and not is_tool_allowed(
+                    policy_from_mcp_annotations(
+                        mcp_by_name[action.get("name")].get("annotations")
+                    ),
+                    "plan",
+                    args=action.get("args") or {},
+                )
+            ]
+            if blocked_actions:
+                blocked_ids = {action.get("id") for action in blocked_actions}
+                responses = []
+                for action in actions:
+                    name = action.get("name") or "unknown"
+                    call_id = action.get("id") or str(uuid.uuid4())
+                    if action.get("id") in blocked_ids:
+                        responses.append(blocked_tool_message(name, call_id))
+                    else:
+                        responses.append(
+                            ToolMessage(
+                                status="error",
+                                content=(
+                                    "Пакет вызовов отменён: один из инструментов "
+                                    "недоступен в режиме планирования."
+                                ),
+                                tool_call_id=call_id,
+                                name=name,
+                                additional_kwargs={
+                                    "error_code": "tool_batch_cancelled_by_policy",
+                                    "tool_name": name,
+                                    "mode": "plan",
+                                },
+                            )
+                        )
+                return {"messages": responses}
+
         # Тулы без дженерик-одобрения: think (служебный), update_plan (bookkeeping)
         # и present_plan (у него своя карточка подтверждения plan_approval).
         if all(action.get("name") in _NO_APPROVE_TOOLS for action in actions):

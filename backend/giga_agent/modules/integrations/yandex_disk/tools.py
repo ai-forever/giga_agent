@@ -6,6 +6,11 @@ import httpx
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.modules.integrations.widget_hint import with_widget_note
 from giga_agent.modules.integrations.yandex_disk.auth import get_disk_token
@@ -67,7 +72,7 @@ def file_browser_payload(path: str, items: list[dict[str, Any]]) -> dict[str, An
     }
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def disk_list_files(
     runtime: ToolRuntime,
     path: str = "/",
@@ -86,7 +91,7 @@ async def disk_list_files(
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def disk_read_text(runtime: ToolRuntime, path: str) -> str:
     """Скачивает текстовый файл с Яндекс.Диска и возвращает его содержимое.
 
@@ -119,7 +124,7 @@ async def disk_read_text(runtime: ToolRuntime, path: str) -> str:
         return "Файл не является текстовым (UTF-8). Обработайте его через sandbox."
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def disk_create_folder(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     """Создаёт новую папку (директорию) на Яндекс.Диске.
 
@@ -142,7 +147,13 @@ async def disk_create_folder(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     return {"status": "created", "path": path}
 
 
-@tool(parse_docstring=True)
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        confirmation=ToolConfirmation.CONDITIONAL,
+    ),
+)
 async def disk_upload_text(
     runtime: ToolRuntime,
     path: str,
@@ -199,7 +210,13 @@ async def _unpublish_resource(token: str, path: str) -> None:
         resp.raise_for_status()
 
 
-@tool(parse_docstring=True)
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        confirmation=ToolConfirmation.ALWAYS,
+    ),
+)
 async def disk_publish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     """Делает файл или папку публичными и возвращает публичную ссылку.
 
@@ -211,7 +228,7 @@ async def disk_publish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     return {"path": path, "public_url": public_url}
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def disk_unpublish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     """Снимает публикацию: файл/папка перестаёт быть доступным по ссылке.
 
@@ -223,7 +240,13 @@ async def disk_unpublish(runtime: ToolRuntime, path: str) -> dict[str, Any]:
     return {"status": "unpublished", "path": path}
 
 
-@tool(parse_docstring=True)
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        confirmation=ToolConfirmation.ALWAYS,
+    ),
+)
 async def disk_delete(
     runtime: ToolRuntime,
     path: str,

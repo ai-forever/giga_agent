@@ -14,6 +14,11 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    ToolPlanMode,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.modules.deep_research.config import (
     DEFAULT_MAX_SUBQUESTIONS,
@@ -50,7 +55,11 @@ class _PlanSchema(BaseModel):
     )
 
 
-@tool("submit_plan", args_schema=_PlanSchema)
+@tool(
+    "submit_plan",
+    args_schema=_PlanSchema,
+    extras=tool_extras(ToolEffect.WRITE, plan_mode=ToolPlanMode.ALLOW),
+)
 def submit_plan(sub_questions: list[_SubQuestionSchema]) -> str:
     """Submit the research plan — list of sub-questions with diverse search queries each."""
     _ = sub_questions

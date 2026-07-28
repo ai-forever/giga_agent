@@ -9,9 +9,10 @@ from pydantic import Field
 
 # Убедимся, что провайдеры зарегистрированы
 import giga_agent.search_engines  # noqa: F401
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def search(
     queries: Annotated[list[str], Field(description="Список поисковых запросов")],
     runtime: ToolRuntime,

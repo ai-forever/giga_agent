@@ -10,6 +10,7 @@ import uuid
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.generators.image.nano_banana.generator import (
     NanoBananaAspectRatio,
@@ -168,7 +169,10 @@ async def _upload_generated_image(
     ]
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(ToolEffect.WRITE, repl_save=False),
+)
 async def gen_image(
     prompt: str,
     runtime: ToolRuntime,

@@ -11,6 +11,7 @@ from giga_agent.core.agent.think import (
     _count_trailing_think_tool_pairs,
     _is_shallow_think,
 )
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 
 
 class ThinkArgsSchema(BaseModel):
@@ -24,7 +25,12 @@ class ThinkArgsSchema(BaseModel):
 
 
 @tool(
-    extras={"repl_skip": True, "repl_save": False, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.READ,
+        repl_skip=True,
+        repl_save=False,
+        not_process=True,
+    ),
     args_schema=ThinkArgsSchema,
 )
 def think(thoughts: str, runtime: ToolRuntime) -> str:
@@ -62,7 +68,12 @@ class MultiToolUseArgsSchema(BaseModel):
 
 
 @tool(
-    extras={"repl_skip": True, "repl_save": False, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.DELEGATED,
+        repl_skip=True,
+        repl_save=False,
+        not_process=True,
+    ),
     args_schema=MultiToolUseArgsSchema,
 )
 async def multi_tool_use(tool_uses: list[ToolUse]) -> dict[str, Any]:
