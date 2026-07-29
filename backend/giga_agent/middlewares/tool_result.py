@@ -197,7 +197,9 @@ _MIME_EXTENSION_MAP = {
 
 
 # Тулы, не требующие дженерик-одобрения запуска (см. after_model).
-_NO_APPROVE_TOOLS = frozenset({"think", "update_plan", "present_plan", "ask_questions"})
+_NO_APPROVE_TOOLS = frozenset(
+    {"think", "write_todo", "update_plan", "present_plan", "ask_questions"}
+)
 
 
 def _should_skip_process(extras: dict[str, Any]) -> bool:
@@ -616,8 +618,8 @@ class ToolResultMiddleware(AgentMiddleware):
                         )
                 return {"messages": responses}
 
-        # Тулы без дженерик-одобрения: think (служебный), update_plan (bookkeeping)
-        # и present_plan (у него своя карточка подтверждения plan_approval).
+        # Тулы без дженерик-одобрения: think (служебный), write_todo/update_plan
+        # (bookkeeping) и present_plan (у него своя карточка plan_approval).
         if all(action.get("name") in _NO_APPROVE_TOOLS for action in actions):
             return None
 

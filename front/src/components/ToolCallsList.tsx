@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Ban, Check, Loader, Minus, Plus, X, ListChecks } from "lucide-react";
+import { Ban, Check, Loader, Minus, Plus, X } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { Message } from "@langchain/langgraph-sdk";
 import type { ToolCall } from "@langchain/core/messages/tool";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 
-import { GraphState } from "../interfaces";
+import type { GraphState } from "../interfaces";
 import { PROGRESS_AGENTS, TOOL_MAP } from "../config";
 import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
@@ -68,107 +68,6 @@ const DeepResearchPlan: React.FC<{ plan: DeepResearchSubQ[] }> = ({ plan }) => (
     })}
   </div>
 );
-
-interface PlanTodo {
-  id: string;
-  title: string;
-  status?: string;
-  note?: string;
-}
-
-const PLAN_STATUS_DOT: Record<string, string> = {
-  pending: "bg-muted-foreground/40",
-  in_progress: "bg-blue-400",
-  completed: "bg-emerald-500",
-  skipped: "bg-muted-foreground/30",
-};
-
-// Живой чеклист плана (update_plan / present_plan). Статусы:
-// pending · in_progress (спиннер) · completed (галка) · skipped (зачёркнут).
-const PlanChecklist: React.FC<{ todos: PlanTodo[]; active?: boolean }> = ({
-  todos,
-  active = false,
-}) => {
-  const done = todos.filter(
-    (t) => t.status === "completed" || t.status === "skipped",
-  ).length;
-  const pct = todos.length ? Math.round((done / todos.length) * 100) : 0;
-  return (
-    <div className="mt-1 rounded-xl border border-border bg-muted/20 p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <ListChecks size={15} className="text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">План</span>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-          {done}/{todos.length}
-        </span>
-      </div>
-      <div className="mb-2.5 h-1 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <div className="flex flex-col gap-0.5">
-        {todos.map((t) => {
-          const status = t.status || "pending";
-          const isActive = status === "in_progress";
-          const isSkipped = status === "skipped";
-          const isDone = status === "completed";
-          return (
-            <div
-              key={t.id}
-              className={`flex items-start gap-2.5 rounded-md px-2 py-1.5 text-sm ${
-                isActive ? "bg-blue-500/10" : ""
-              }`}
-            >
-              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-                {isActive ? (
-                  active ? (
-                    <Loader size={14} className="animate-spin text-blue-500" />
-                  ) : (
-                    // ход завершён, а шаг остался активным — красный маркер:
-                    // шаг прерван/не завершён, а не «в работе».
-                    <span
-                      className="inline-block h-2 w-2 rounded-full bg-rose-500"
-                      aria-hidden
-                    />
-                  )
-                ) : isDone ? (
-                  <Check size={14} className="text-emerald-500" />
-                ) : (
-                  <span
-                    className={`inline-block h-2 w-2 rounded-full ${
-                      PLAN_STATUS_DOT[status] || PLAN_STATUS_DOT.pending
-                    }`}
-                    aria-hidden
-                  />
-                )}
-              </span>
-              <span
-                className={
-                  isActive
-                    ? "font-medium text-foreground"
-                    : isSkipped
-                      ? "text-muted-foreground line-through decoration-muted-foreground/50"
-                      : isDone
-                        ? "text-muted-foreground"
-                        : "text-foreground"
-                }
-              >
-                {t.title}
-              </span>
-              {t.note && (
-                <span className="ml-auto shrink-0 self-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  {t.note}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
 
 const DeepResearchToolCall: React.FC<{
   toolCall: ToolCall;
@@ -992,7 +891,6 @@ interface ToolCallsListProps {
   resultsById: Record<string, Message>;
   isStreaming: boolean;
   thread?: UseStream<GraphState>;
-  messageId?: string;
 }
 
 const ToolCallsList: React.FC<ToolCallsListProps> = ({
@@ -1000,7 +898,6 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   resultsById,
   isStreaming,
   thread,
-  messageId,
 }) => {
   const [previewFile, setPreviewFile] = useState<any | null>(null);
   const notifiedDeepResearchIdsRef = useRef<Set<string>>(new Set());
@@ -1012,30 +909,10 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   const visible = toolCalls.filter(
     (tc) =>
       tc.name !== "ask_questions" &&
+      tc.name !== "write_todo" &&
+      tc.name !== "update_plan" &&
       !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
   );
-
-  // Один живой чеклист на весь диалог: рисуем только у глобально последнего
-  // вызова update_plan. id сообщения-якоря ищем по всей истории.
-  const lastPlanMessageId = useMemo(() => {
-    const msgs = thread?.messages ?? [];
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const tcs = (msgs[i] as any).tool_calls;
-      if (
-        Array.isArray(tcs) &&
-        tcs.some((t: any) => t.name === "update_plan")
-      ) {
-        return msgs[i].id;
-      }
-    }
-    return null;
-  }, [thread?.messages]);
-  const isPlanAnchor = !!messageId && messageId === lastPlanMessageId;
-
-  // Индекс последнего update_plan внутри этого сообщения.
-  const lastUpdatePlanIdx = visible
-    .map((tc) => tc.name)
-    .lastIndexOf("update_plan");
 
   useEffect(() => {
     for (const tc of visible) {
@@ -1064,20 +941,7 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
     <>
       <div className="flex flex-col gap-0.5">
         {visible.map((tc) => {
-          if (tc.name === "present_plan") return null;
-          // update_plan: один чистый чеклист — только у глобально последнего
-          // вызова (в сообщении-якоре, и последний внутри него).
-          if (tc.name === "update_plan") {
-            if (!isPlanAnchor || idx !== lastUpdatePlanIdx) return null;
-            const todos = (tc.args as any)?.todos;
-            return Array.isArray(todos) && todos.length ? (
-              <PlanChecklist
-                key={tc.id ?? tc.name}
-                todos={todos}
-                active={isStreaming}
-              />
-            ) : null;
-          }
+          const result = tc.id ? resultsById[tc.id] : undefined;
           // run_deep_research — особый кейс (глубоко завязан на стриминг).
           if (tc.name === "run_deep_research") {
             return (
@@ -1093,7 +957,6 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
           }
           // Генеративная доска: композиция из результата (персистентно) или из
           // thread.values.ui (лайв во время стрима). Provider-agnostic.
-          const result = tc.id ? resultsById[tc.id] : undefined;
           const composition =
             compositionFromResult(result) ?? compositionFor(thread, tc.id);
           if (composition) {

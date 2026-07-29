@@ -1,10 +1,4 @@
-"""E2E режима планирования: реальный interrupt/resume против чекпойнтера.
-
-Собираем минимальный StateGraph с настоящими тулами (update_plan / present_plan)
-через prebuilt ToolNode + InMemorySaver и скриптуем узел модели (без реального LLM).
-Это покрывает то, что юниты с замоканным interrupt не могут: что пауза и
-возобновление реально работают через чекпойнтер.
-"""
+"""E2E plan approval и последующего прогресса через write_todo."""
 
 import asyncio
 import unittest
@@ -16,12 +10,9 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 
 from giga_agent.core.agent.types import AgentState
-from giga_agent.modules.planning.tools import present_plan, update_plan
+from giga_agent.modules.planning.tools import present_plan, update_plan, write_todo
 
-PLAN = [
-    {"id": "1", "title": "шаг 1", "status": "pending"},
-    {"id": "2", "title": "шаг 2", "status": "pending"},
-]
+PLAN_CONTENT = "# Цель\n\nСделать результат.\n\n## Проверка\n\nПроверить итог."
 
 
 def _route(state: AgentState):
@@ -29,126 +20,99 @@ def _route(state: AgentState):
     return "tools" if getattr(last, "tool_calls", None) else END
 
 
-def _build(model_fn):
-    g = StateGraph(AgentState)
-    g.add_node("model", model_fn)
-    g.add_node("tools", ToolNode([update_plan, present_plan]))
-    g.add_edge(START, "model")
-    g.add_conditional_edges("model", _route, {"tools": "tools", END: END})
-    g.add_edge("tools", "model")
-    return g.compile(checkpointer=InMemorySaver())
+def _model(state: AgentState):
+    if state.get("mode") == "plan" and not state.get("plan_content"):
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "update",
+                            "name": "update_plan",
+                            "args": {
+                                "find_string": "",
+                                "replace_string": PLAN_CONTENT,
+                                "todos": [
+                                    {"content": "Шаг 1"},
+                                    {"content": "Шаг 2"},
+                                ],
+                            },
+                        }
+                    ],
+                )
+            ]
+        }
+    if state.get("mode") == "plan":
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"id": "present", "name": "present_plan", "args": {}}],
+                )
+            ]
+        }
+    if state.get("plan_approved") and state["todos"][0]["status"] == "pending":
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "progress",
+                            "name": "write_todo",
+                            "args": {
+                                "merge": True,
+                                "todos": [
+                                    {
+                                        "id": "1",
+                                        "status": "completed",
+                                        "note": "готово",
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                )
+            ]
+        }
+    return {"messages": [AIMessage(content="исполнение продолжается")]}
 
 
-def _present_plan_model(state: AgentState):
-    """В plan mode предлагает план; в normal — завершает. Ограничен 2 попытками."""
-    msgs = state["messages"]
-    pp_calls = sum(
-        1
-        for m in msgs
-        if getattr(m, "tool_calls", None)
-        and any(tc["name"] == "present_plan" for tc in m.tool_calls)
-    )
-    if state.get("mode") == "normal":
-        return {"messages": [AIMessage(content="исполняю план")]}
-    if pp_calls >= 2:
-        return {"messages": [AIMessage(content="достаточно планирования")]}
-    return {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "id": f"pp{pp_calls}",
-                        "name": "present_plan",
-                        "args": {"todos": PLAN},
-                    }
-                ],
-            )
-        ]
-    }
+def _build():
+    graph = StateGraph(AgentState)
+    graph.add_node("model", _model)
+    graph.add_node("tools", ToolNode([write_todo, update_plan, present_plan]))
+    graph.add_edge(START, "model")
+    graph.add_conditional_edges("model", _route, {"tools": "tools", END: END})
+    graph.add_edge("tools", "model")
+    return graph.compile(checkpointer=InMemorySaver())
 
 
-class PresentPlanE2ETests(unittest.TestCase):
-    def test_interrupts_with_plan_approval_payload(self):
-        app = _build(_present_plan_model)
-        cfg = {"configurable": {"thread_id": "t-int"}}
-        out = asyncio.run(
-            app.ainvoke({"messages": [HumanMessage("сделай")], "mode": "plan"}, cfg)
-        )
-        interrupts = out.get("__interrupt__")
-        self.assertTrue(interrupts)
-        payload = interrupts[0].value
+class PlanningE2ETests(unittest.TestCase):
+    def test_interrupt_payload_and_approved_progress(self):
+        app = _build()
+        config = {"configurable": {"thread_id": "plan-e2e"}}
+        initial = {
+            "messages": [HumanMessage("сделай")],
+            "mode": "plan",
+            "plan_content": "",
+            "todos": [],
+            "todo_id_seq": 0,
+            "plan_approved": False,
+        }
+        paused = asyncio.run(app.ainvoke(initial, config))
+        payload = paused["__interrupt__"][0].value
         self.assertEqual(payload["type"], "plan_approval")
-        self.assertEqual(len(payload["plan"]), 2)
+        self.assertEqual(payload["plan_content"], PLAN_CONTENT)
+        self.assertEqual([todo["id"] for todo in payload["todos"]], ["1", "2"])
 
-    def test_approve_flips_to_normal_and_continues(self):
-        app = _build(_present_plan_model)
-        cfg = {"configurable": {"thread_id": "t-approve"}}
-        asyncio.run(
-            app.ainvoke({"messages": [HumanMessage("сделай")], "mode": "plan"}, cfg)
-        )
-        out = asyncio.run(app.ainvoke(Command(resume={"action": "approve"}), cfg))
-        self.assertIsNone(out.get("__interrupt__"))  # паузы больше нет
-        self.assertEqual(out.get("mode"), "normal")
-        self.assertEqual(len(out.get("plan") or []), 2)
-        self.assertEqual(out["messages"][-1].content, "исполняю план")
-
-    def test_edit_applies_edited_plan(self):
-        app = _build(_present_plan_model)
-        cfg = {"configurable": {"thread_id": "t-edit"}}
-        asyncio.run(
-            app.ainvoke({"messages": [HumanMessage("сделай")], "mode": "plan"}, cfg)
-        )
-        edited = [{"id": "1", "title": "ИЗМЕНЁННЫЙ", "status": "pending"}]
-        out = asyncio.run(
-            app.ainvoke(Command(resume={"action": "edit", "plan": edited}), cfg)
-        )
-        self.assertEqual(out.get("mode"), "normal")
-        self.assertEqual(out["plan"], edited)
-
-    def test_reject_stays_in_plan_and_appends_feedback(self):
-        app = _build(_present_plan_model)
-        cfg = {"configurable": {"thread_id": "t-reject"}}
-        asyncio.run(
-            app.ainvoke({"messages": [HumanMessage("сделай")], "mode": "plan"}, cfg)
-        )
-        out = asyncio.run(
-            app.ainvoke(
-                Command(resume={"action": "reject", "feedback": "сделай иначе"}), cfg
-            )
-        )
-        self.assertNotEqual(out.get("mode"), "normal")  # остаёмся в plan
-        contents = [getattr(m, "content", "") for m in out["messages"]]
-        self.assertIn("сделай иначе", contents)  # фидбек попал в историю
-        self.assertTrue(out.get("__interrupt__"))  # агент перепланировал → новая пауза
-
-
-def _update_plan_model(state: AgentState):
-    """Один раз обновляет план, потом завершает."""
-    if state.get("plan"):
-        return {"messages": [AIMessage(content="план зафиксирован")]}
-    return {
-        "messages": [
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {"id": "up0", "name": "update_plan", "args": {"todos": PLAN}}
-                ],
-            )
-        ]
-    }
-
-
-class UpdatePlanE2ETests(unittest.TestCase):
-    def test_update_plan_writes_to_state(self):
-        app = _build(_update_plan_model)
-        cfg = {"configurable": {"thread_id": "t-update"}}
-        out = asyncio.run(
-            app.ainvoke({"messages": [HumanMessage("сделай")], "mode": "normal"}, cfg)
-        )
-        self.assertIsNone(out.get("__interrupt__"))
-        self.assertEqual(len(out.get("plan") or []), 2)
-        self.assertEqual(out["messages"][-1].content, "план зафиксирован")
+        result = asyncio.run(app.ainvoke(Command(resume={"action": "approve"}), config))
+        self.assertEqual(result["mode"], "normal")
+        self.assertTrue(result["plan_approved"])
+        self.assertEqual(result["todos"][0]["status"], "completed")
+        self.assertEqual(result["todos"][0]["note"], "готово")
+        self.assertEqual(result["messages"][-1].content, "исполнение продолжается")
 
 
 if __name__ == "__main__":

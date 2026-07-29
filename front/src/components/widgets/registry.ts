@@ -111,6 +111,7 @@ export function compositionFromResult(
 export function isResponseWidget(result?: Message): boolean {
   const ak = (result?.additional_kwargs as any) ?? {};
   if (ak.response_widget === true) return true;
+  if (ak.planning?.type === "approved_plan") return true;
   const atts = (ak.tool_attachments as any[]) ?? [];
   return atts.some((a) => a?.file_type === "mcp_ui" && a?.resource_uri);
 }

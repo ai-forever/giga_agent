@@ -11,10 +11,6 @@ import type { UseStream } from "@langchain/langgraph-sdk/react";
 import { GraphState, GraphTemplate } from "../interfaces.ts";
 import MessageEditor from "./MessageEditor.tsx";
 import ToolCallsList from "./ToolCallsList.tsx";
-import PlanApprovalCard, {
-  type PlanApprovalResolve,
-} from "./PlanApprovalCard.tsx";
-import { type PlanTodo } from "../interfaces.ts";
 import { findScrollRoot } from "@/lib/scroll";
 import { useBranches } from "@/hooks/useBranches";
 import { Check, Download, Pencil, RefreshCw, X } from "lucide-react";
@@ -452,21 +448,6 @@ const Message: React.FC<MessageProps> = ({
     !!message.tool_calls?.length &&
     thread?.messages.at(-1)?.id === message.id;
 
-  // Plan mode: подтверждение плана — отдельный interrupt, без auto-approve.
-  const isPlanApprovalInterrupt =
-    message.type === "ai" &&
-    !!thread?.interrupt?.value &&
-    thread.interrupt.value.type === "plan_approval" &&
-    thread?.messages.at(-1)?.id === message.id;
-
-  const handlePlanApproval = (payload: PlanApprovalResolve) => {
-    if (!thread?.interrupt?.value) return;
-    thread.submit(undefined, {
-      command: { resume: payload },
-      onDisconnect: "continue",
-    });
-  };
-
   const handleInterruptAction = async (type: "comment" | "approve") => {
     if (!thread?.interrupt?.value || isApprovalLoading) return;
     const interruptType = thread.interrupt.value.type;
@@ -540,6 +521,9 @@ const Message: React.FC<MessageProps> = ({
     const id = (toolCall as any).id as string | undefined;
     return (
       toolCall.name !== "ask_questions" &&
+      toolCall.name !== "write_todo" &&
+      toolCall.name !== "update_plan" &&
+      toolCall.name !== "present_plan" &&
       !isResponseWidget(id ? resultsById?.[id] : undefined)
     );
   });
@@ -639,7 +623,6 @@ const Message: React.FC<MessageProps> = ({
                     resultsById={resultsById ?? {}}
                     isStreaming={stepInFlight}
                     thread={thread as any}
-                    messageId={message.id}
                   />
                 </div>
               ) : (
@@ -785,14 +768,6 @@ const Message: React.FC<MessageProps> = ({
                 </motion.button>
               </AnimatePresence>
             </motion.div>
-          )}
-          {isPlanApprovalInterrupt && (
-            <PlanApprovalCard
-              plan={(thread!.interrupt!.value!.plan ?? []) as PlanTodo[]}
-              disabled={thread?.isLoading}
-              loading={thread?.isLoading}
-              onResolve={handlePlanApproval}
-            />
           )}
           {
             //@ts-ignore

@@ -162,27 +162,6 @@ def filter_tools_for_mode(tools: list[Any], mode: str | None) -> list[Any]:
     return [tool for tool in tools if is_tool_allowed(tool, mode)]
 
 
-def sanitize_tool_for_model(tool: Any) -> Any:
-    """Remove GigaAgent-only metadata before provider serialization."""
-    if isinstance(tool, BaseTool):
-        extras = dict(tool.extras or {})
-        extras.pop(GIGA_AGENT_EXTRAS_KEY, None)
-        return tool.model_copy(update={"extras": extras or None})
-    if isinstance(tool, Mapping):
-        clean = deepcopy(dict(tool))
-        clean.pop(PROVIDER_POLICY_KEY, None)
-        extras = clean.get("extras")
-        if isinstance(extras, Mapping):
-            clean_extras = dict(extras)
-            clean_extras.pop(GIGA_AGENT_EXTRAS_KEY, None)
-            if clean_extras:
-                clean["extras"] = clean_extras
-            else:
-                clean.pop("extras", None)
-        return clean
-    return tool
-
-
 def blocked_tool_message(tool_name: str, tool_call_id: str) -> ToolMessage:
     return ToolMessage(
         status="error",

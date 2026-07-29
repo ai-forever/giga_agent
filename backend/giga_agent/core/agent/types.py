@@ -1,18 +1,15 @@
-from typing import Annotated, Required, TypedDict
-
-from typing import TypedDict, Annotated, Literal
-from typing_extensions import NotRequired
 from langchain.messages import AnyMessage
 from langgraph.graph.message import add_messages
+from typing_extensions import Annotated, Literal, NotRequired, Required, TypedDict
 
 
 class TodoItem(TypedDict):
-    """Один пункт плана. Хранится в AgentState["plan"]."""
+    """Один пункт рабочего todo-листа."""
 
     id: str
-    title: str
-    status: Literal["pending", "in_progress", "completed", "skipped"]
-    note: NotRequired[str]  # краткий результат или причина skip
+    content: str
+    status: Literal["pending", "in_progress", "completed", "cancelled"]
+    note: NotRequired[str]
 
 
 class CollectionMetadata(TypedDict):
@@ -34,7 +31,10 @@ class AgentState(TypedDict):  # noqa: D101
     kernel_id: str
     collections: list[Collection]
     mcp_tools: list[dict[str, dict]]
-    plan: NotRequired[list[TodoItem]]
+    plan_content: NotRequired[str]
+    todos: NotRequired[list[TodoItem]]
+    todo_id_seq: NotRequired[int]
+    plan_approved: NotRequired[bool]
     mode: NotRequired[Literal["normal", "plan"]]
 
 

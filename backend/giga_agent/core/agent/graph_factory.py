@@ -67,7 +67,6 @@ from giga_agent.core.agent.tool_policy import (
     attach_provider_policy,
     filter_tools_for_mode,
     policy_from_mcp_annotations,
-    sanitize_tool_for_model,
 )
 from giga_agent.core.agent.tools import multi_tool_use, think
 from giga_agent.core.db import get_session_factory
@@ -108,12 +107,12 @@ def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
     plan mode: policy разрешает read/delegated и явные plan_mode=allow.
     Неизвестные, write и destructive тулы скрываются.
 
-    normal: убираем present_plan — пауза на подтверждение возможна только при
-    включённом plan mode. update_plan остаётся (динамический todo-лист).
+    normal: убираем update_plan/present_plan; рабочий чеклист ведёт write_todo.
     """
     if mode == "plan":
         return filter_tools_for_mode(tools, mode)
-    return [t for t in tools if getattr(t, "name", None) != "present_plan"]
+    plan_only = {"update_plan", "present_plan"}
+    return [t for t in tools if getattr(t, "name", None) not in plan_only]
 
 
 def _is_feature_enabled_for_provider(
@@ -741,7 +740,6 @@ def create_graph(
             + mcp_tools
         )
         all_tools = _filter_plan_mode_tools(all_tools, state.get("mode"))
-        all_tools = [sanitize_tool_for_model(tool) for tool in all_tools]
         llm = llm.bind_tools(tools=all_tools)
         channel_prompt = _resolve_channel_prompt(config)
         scheduled_prompt = _resolve_scheduled_prompt(config)
@@ -757,6 +755,7 @@ def create_graph(
                 connector_sources=connector_sources,
             )
         )
+        print(system_message.content)
 
         request = ModelRequest(
             model=llm,

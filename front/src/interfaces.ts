@@ -15,15 +15,33 @@ export interface GraphState extends Record<string, unknown> {
   collections: Collection[];
   mcp_tools: Tool[];
   disabled_modules: string[];
+  plan_content?: string;
+  todos?: PlanTodo[];
+  todo_id_seq?: number;
+  plan_approved?: boolean;
   ui?: any[];
 }
 
 export interface PlanTodo {
   id: string;
-  title: string;
-  status?: "pending" | "in_progress" | "completed" | "skipped";
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
   note?: string;
 }
+
+export interface TodoSnapshot {
+  type: "todo_snapshot";
+  todos: PlanTodo[];
+  assigned_ids: string[];
+}
+
+export interface ApprovedPlanSnapshot {
+  type: "approved_plan";
+  plan_content: string;
+  todos: PlanTodo[];
+}
+
+export type PlanningSnapshot = TodoSnapshot | ApprovedPlanSnapshot;
 
 type BagTemplate = {
   ConfigurableType?: Record<string, unknown>;
@@ -76,7 +94,8 @@ export interface GraphInterrupt {
     | "confirm_destructive"
     | "plan_approval";
   tools?: ToolCall[];
-  plan?: PlanTodo[];
+  plan_content?: string;
+  todos?: PlanTodo[];
   questions?: Question[];
   // tool_call_id вопросов ask_questions. Проставляет обёртка
   // giga_agent_experimental (во внешнем графе AI-сообщения с этим tool_call на

@@ -15,24 +15,23 @@ if TYPE_CHECKING:
 
 
 class PlanningModule(BaseModule):
-    """Режим планирования: динамический todo-лист + plan-mode с подтверждением.
+    """Подробный plan-mode и рабочий todo-лист normal-mode.
 
     Сервисный модуль (label="") — его тулы всегда доступны и не отключаются
     пользователем через disabled_modules.
 
     Статус: реализовано end-to-end (бэкенд + фронт + тесты).
-      - update_plan / present_plan: tools.py, пушат план в UI (push_ui_message).
-      - plan / mode поля: AgentState (core/agent/types.py).
+      - write_todo / update_plan / present_plan: tools.py.
+      - plan_content / todos / mode поля: AgentState (core/agent/types.py).
       - сидирование mode из config.configurable.plan_mode: PlanningMiddleware.
       - гейтинг тулов по state["mode"]: единая policy из
         core/agent/tool_policy.py проверяется при bind и перед исполнением.
       - фронт: тумблер «Режим планирования» (InputArea), чеклист (ToolCallsList),
-        карточка approve/edit/reject (PlanApprovalCard на interrupt plan_approval).
+        карточка approve/reject (PlanApprovalCard на interrupt plan_approval).
       - тесты: tests/modules/planning/test_planning.py.
     См. docs/PLANNING_MODE.md. plan mode включается тумблером на фронте
-    (config.configurable.plan_mode). В normal-режиме present_plan жёстко
-    отфильтровывается гейтингом (пауза-подтверждение возможна только при
-    включённом plan mode), а update_plan работает всегда — динамический todo-лист.
+    (config.configurable.plan_mode). В normal-mode доступен write_todo, а
+    update_plan/present_plan доступны только в plan-mode.
     """
 
     id: str = "planning"
@@ -49,9 +48,13 @@ class PlanningModule(BaseModule):
         **kwargs: Any,
     ) -> List[BaseTool]:
         _ = user, agent, config, kwargs
-        from giga_agent.modules.planning.tools import present_plan, update_plan
+        from giga_agent.modules.planning.tools import (
+            present_plan,
+            update_plan,
+            write_todo,
+        )
 
-        return [update_plan, present_plan]
+        return [write_todo, update_plan, present_plan]
 
     def get_middleware(self, **kwargs: Any) -> Optional["AgentMiddleware"]:
         _ = kwargs

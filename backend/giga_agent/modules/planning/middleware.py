@@ -23,4 +23,12 @@ class PlanningMiddleware(AgentMiddleware):
     ) -> dict[str, Any] | None:
         _ = state, runtime
         configurable = (config or {}).get("configurable") or {}
-        return {"mode": "plan" if configurable.get("plan_mode") else "normal"}
+        if configurable.get("plan_mode"):
+            return {
+                "mode": "plan",
+                "plan_content": "",
+                "todos": [],
+                "todo_id_seq": 0,
+                "plan_approved": False,
+            }
+        return {"mode": "normal", "plan_approved": False}

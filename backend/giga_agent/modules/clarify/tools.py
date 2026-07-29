@@ -45,7 +45,7 @@ class AskQuestionsInput(BaseModel):
 @tool(
     "ask_questions",
     args_schema=AskQuestionsInput,
-    extras=tool_extras(ToolEffect.WRITE, plan_mode=ToolPlanMode.ALLOW),
+    extras=tool_extras(ToolEffect.WRITE, plan_mode=ToolPlanMode.ALLOW, not_process=True),
 )
 async def ask_questions(
     questions: list,
@@ -148,6 +148,3 @@ def build_questions_result(formatted_questions: list[dict], value) -> dict:
         else "Пользователь не предоставил ответ.",
         "items": items,
     }
-
-
-ask_questions.extras = {"not_process": True}

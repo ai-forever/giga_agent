@@ -7,29 +7,25 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from langchain_core.messages import AIMessage
-from langchain_core.tools import tool
-
 from giga_agent.core.agent.multi_tool_use import expand_multi_tool_use
 from giga_agent.core.agent.tool_invoke import invoke_inner_tool
 from giga_agent.core.agent.tool_node import AgentToolRuntime, ToolNode
 from giga_agent.core.agent.tool_policy import (
     BLOCKED_ERROR_CODE,
     GIGA_AGENT_EXTRAS_KEY,
-    PROVIDER_POLICY_KEY,
     ToolConfirmation,
     ToolEffect,
     ToolPlanMode,
     annotate_known_provider_tool,
-    attach_provider_policy,
     blocked_tool_message,
     is_tool_allowed,
     policy_from_mcp_annotations,
     resolve_tool_policy,
-    sanitize_tool_for_model,
     tool_extras,
 )
 from giga_agent.middlewares.tool_result import ToolResultMiddleware
+from langchain_core.messages import AIMessage
+from langchain_core.tools import tool
 
 
 def test_tool_extras_preserves_existing_metadata() -> None:
@@ -120,40 +116,6 @@ def test_effect_resolver_uses_arguments_and_fails_closed() -> None:
         "plan",
         args={},
     )
-
-
-def test_sanitize_base_tool_removes_only_internal_policy() -> None:
-    @tool(extras=tool_extras(ToolEffect.READ, repl_save=False))
-    def sample() -> str:
-        """Return a sample."""
-        return "ok"
-
-    clean = sanitize_tool_for_model(sample)
-
-    assert clean is not sample
-    assert clean.extras == {"repl_save": False}
-    assert resolve_tool_policy(sample).effect is ToolEffect.READ
-
-
-def test_provider_sidecar_is_removed_from_model_copy() -> None:
-    definition = {
-        "type": "custom",
-        "name": "provider_tool",
-        "extras": {
-            "other": True,
-            GIGA_AGENT_EXTRAS_KEY: {"effect": "read"},
-        },
-    }
-    annotated = attach_provider_policy(
-        definition,
-        resolve_tool_policy({"effect": "read"}),
-    )
-    clean = sanitize_tool_for_model(annotated)
-
-    assert PROVIDER_POLICY_KEY in annotated
-    assert PROVIDER_POLICY_KEY not in clean
-    assert clean["extras"] == {"other": True}
-    assert definition["extras"][GIGA_AGENT_EXTRAS_KEY] == {"effect": "read"}
 
 
 def test_known_provider_tool_and_unknown_default() -> None:
@@ -358,5 +320,5 @@ def test_all_production_tool_declarations_have_policy() -> None:
                 if not has_policy:
                     missing.append((path, node.lineno))
 
-    assert len(declarations) == 77
+    assert len(declarations) == 78
     assert missing == []
