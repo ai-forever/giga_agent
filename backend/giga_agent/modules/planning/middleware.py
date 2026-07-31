@@ -30,5 +30,6 @@ class PlanningMiddleware(AgentMiddleware):
                 "todos": [],
                 "todo_id_seq": 0,
                 "plan_approved": False,
+                "todos_editable": False,
             }
-        return {"mode": "normal", "plan_approved": False}
+        return {"mode": "normal", "plan_approved": False, "todos_editable": False}

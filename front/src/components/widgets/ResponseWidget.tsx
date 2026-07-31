@@ -5,7 +5,7 @@ import type { UseStream } from "@langchain/langgraph-sdk/react";
 
 import type { GraphState, PlanningSnapshot } from "../../interfaces";
 import { getScheduledTaskId } from "../scheduler/detect";
-import { ApprovedPlanCard } from "../PlanApprovalCard";
+import { ApprovedPlanCard, RejectedPlanCard } from "../PlanApprovalCard";
 import { ComposedBoard } from "./kit";
 import {
   compositionFor,
@@ -89,6 +89,14 @@ const ResponseWidget: React.FC<ResponseWidgetProps> = ({
   if (planning?.type === "approved_plan") {
     return (
       <ApprovedPlanCard
+        planContent={planning.plan_content}
+        todos={planning.todos}
+      />
+    );
+  }
+  if (planning?.type === "rejected_plan") {
+    return (
+      <RejectedPlanCard
         planContent={planning.plan_content}
         todos={planning.todos}
       />

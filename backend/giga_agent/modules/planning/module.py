@@ -71,11 +71,11 @@ class PlanningModule(BaseModule):
         **kwargs: Any,
     ) -> str | None:
         _ = user, agent, config, kwargs
-        from giga_agent.modules.planning.prompts import (
-            NORMAL_INSTRUCTIONS,
-            PLAN_MODE_INSTRUCTIONS,
-        )
-
         if state is not None and state.get("mode") == "plan":
-            return PLAN_MODE_INSTRUCTIONS
+            # В plan mode инструкция добавляется BaseAgent.get_prompt в самый
+            # низ основного system prompt, чтобы её не затерли другие модули.
+            return None
+
+        from giga_agent.modules.planning.prompts import NORMAL_INSTRUCTIONS
+
         return NORMAL_INSTRUCTIONS

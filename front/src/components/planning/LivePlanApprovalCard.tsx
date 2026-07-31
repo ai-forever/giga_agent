@@ -5,6 +5,11 @@ import type { GraphState, GraphTemplate, PlanTodo } from "../../interfaces";
 import PlanApprovalCard, {
   type PlanApprovalResolve,
 } from "../PlanApprovalCard";
+import {
+  appendApprovedPlanResult,
+  appendRejectedPlanResult,
+  findPresentPlanToolCallId,
+} from "./optimistic";
 
 /**
  * Active `plan_approval` interrupt rendered outside agent runs.
@@ -18,6 +23,10 @@ const LivePlanApprovalCard: React.FC<{
 }> = ({ thread }) => {
   const [handled, setHandled] = useState(false);
   const interrupt = thread?.interrupt?.value;
+  const planContent =
+    interrupt?.type === "plan_approval" ? (interrupt.plan_content ?? "") : "";
+  const todos =
+    interrupt?.type === "plan_approval" ? (interrupt.todos ?? []) : [];
 
   if (
     !interrupt ||
@@ -30,8 +39,24 @@ const LivePlanApprovalCard: React.FC<{
 
   const handleResolve = (payload: PlanApprovalResolve) => {
     setHandled(true);
+    const carrierToolCallId = findPresentPlanToolCallId(thread?.messages ?? []);
+    const toolCallId = carrierToolCallId ?? interrupt.tool_call_id;
     thread?.submit(undefined, {
       command: { resume: payload },
+      optimisticValues:
+        payload.action === "approve"
+          ? appendApprovedPlanResult(
+              toolCallId,
+              Boolean(carrierToolCallId),
+              planContent,
+              todos as PlanTodo[],
+            )
+          : appendRejectedPlanResult(
+              toolCallId,
+              Boolean(carrierToolCallId),
+              planContent,
+              todos as PlanTodo[],
+            ),
       onDisconnect: "continue",
     });
   };
@@ -39,8 +64,8 @@ const LivePlanApprovalCard: React.FC<{
   return (
     <div className="px-[20px]">
       <PlanApprovalCard
-        planContent={interrupt.plan_content ?? ""}
-        todos={(interrupt.todos ?? []) as PlanTodo[]}
+        planContent={planContent}
+        todos={todos as PlanTodo[]}
         onResolve={handleResolve}
       />
     </div>

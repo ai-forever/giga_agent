@@ -35,6 +35,7 @@ class AgentState(TypedDict):  # noqa: D101
     todos: NotRequired[list[TodoItem]]
     todo_id_seq: NotRequired[int]
     plan_approved: NotRequired[bool]
+    todos_editable: NotRequired[bool]
     mode: NotRequired[Literal["normal", "plan"]]
 
 

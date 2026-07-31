@@ -62,6 +62,27 @@ class AsyncModuleHooksTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([tool_.name for tool_ in tools], ["async_contract_tool"])
         self.assertIn("async module instructions", prompt)
 
+    async def test_plan_instructions_are_last_before_user_context(self):
+        module = _AsyncHooksModule()
+        with patch.dict(
+            os.environ, {"GIGA_AGENT_SECRET_KEY": "test-secret"}, clear=False
+        ):
+            agent = BaseAgent(modules=[module], tools=[])
+        user = types.SimpleNamespace(
+            settings={"contextInstructions": "CUSTOM_CONTEXT_SENTINEL"}
+        )
+
+        prompt = await agent.get_prompt(user, state={"mode": "plan"})
+
+        plan_heading = "## Режим планирования (plan mode)"
+        self.assertEqual(prompt.count(plan_heading), 1)
+        self.assertLess(
+            prompt.index("async module instructions"), prompt.index(plan_heading)
+        )
+        self.assertLess(
+            prompt.index(plan_heading), prompt.index("CUSTOM_CONTEXT_SENTINEL")
+        )
+
     async def test_tool_node_fill_tools_awaits_agent_get_tools(self):
         user = types.SimpleNamespace(id=uuid.uuid4())
         agent = types.SimpleNamespace(

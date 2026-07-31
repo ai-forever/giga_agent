@@ -185,6 +185,22 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   );
   const browserTranscriptRef = useRef("");
   const cancelRecordingRef = useRef(false);
+  const isPlanConfirmed =
+    thread?.values?.mode === "normal" && Boolean(thread.values.plan_approved);
+  const wasPlanConfirmedRef = useRef(isPlanConfirmed);
+
+  // `present_plan` switches the graph back to normal mode after approval.
+  // Keep the local composer toggle in sync so the next user message does not
+  // accidentally start another planning turn. React only to a new approval:
+  // an approved plan from the chat history must not prevent another plan turn.
+  useEffect(() => {
+    const wasPlanConfirmed = wasPlanConfirmedRef.current;
+    wasPlanConfirmedRef.current = isPlanConfirmed;
+
+    if (planMode && isPlanConfirmed && !wasPlanConfirmed) {
+      setPlanMode(false);
+    }
+  }, [isPlanConfirmed, planMode]);
 
   const {
     collections,
@@ -298,7 +314,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
           config: {
             configurable: {
               ...(deepResearchForced ? { deep_research_forced: true } : {}),
-              ...(planMode ? { plan_mode: true } : {}),
+              plan_mode: planMode,
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),

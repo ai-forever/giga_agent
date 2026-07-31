@@ -910,7 +910,6 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
     (tc) =>
       tc.name !== "ask_questions" &&
       tc.name !== "write_todo" &&
-      tc.name !== "update_plan" &&
       !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
   );
 

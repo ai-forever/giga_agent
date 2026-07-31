@@ -100,6 +100,14 @@ ANTI_LOOP_STOP_MESSAGE = (
     "действовать, и я попробую снова."
 )
 
+PLAN_MODE_HUMAN_REMINDER = (
+    "<planning_mode>Сейчас активен режим планирования. Не выполняй задачу и не "
+    "вызывай write/destructive-инструменты: исследуй контекст только доступными "
+    "read-only инструментами. Если информации недостаточно, ты можешь уточнить её "
+    "у пользователя через ask_questions тул; веди черновик через update_plan и покажи "
+    "готовый непустой план вызовом present_plan.</planning_mode>"
+)
+
 
 def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
     """Фильтрует список тулов под текущий режим.
@@ -113,6 +121,11 @@ def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
         return filter_tools_for_mode(tools, mode)
     plan_only = {"update_plan", "present_plan"}
     return [t for t in tools if getattr(t, "name", None) not in plan_only]
+
+
+def _plan_mode_human_reminder(state: AgentState) -> str | None:
+    """Return the model-visible plan-mode reminder for the current turn."""
+    return PLAN_MODE_HUMAN_REMINDER if state.get("mode") == "plan" else None
 
 
 def _is_feature_enabled_for_provider(
@@ -656,6 +669,8 @@ def create_graph(
                 final_parts.append(selected_prompt)
             if extended_task:
                 final_parts.append(extended_task)
+            if plan_mode_reminder := _plan_mode_human_reminder(state):
+                final_parts.append(plan_mode_reminder)
             # final_parts.append(
             #     "Активно планируй и следуй своему плану! "
             #     "Действуй по простым шагам!"
@@ -755,7 +770,6 @@ def create_graph(
                 connector_sources=connector_sources,
             )
         )
-        print(system_message.content)
 
         request = ModelRequest(
             model=llm,

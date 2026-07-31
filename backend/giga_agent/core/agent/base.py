@@ -353,10 +353,12 @@ class BaseAgent(BaseModel):
             enable_think=enable_think,
             enable_multi_tool_use=enable_multi_tool_use,
         )
-        return (
-            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
-            + instructions_prompt
-        )
+        prompt = base_prompt.format(modules="\n===\n\n".join(modules_prompts))
+        if state is not None and state.get("mode") == "plan":
+            from giga_agent.modules.planning.prompts import PLAN_MODE_INSTRUCTIONS
+
+            prompt += "\n===\n\n" + PLAN_MODE_INSTRUCTIONS
+        return prompt + instructions_prompt
 
     async def get_tools(
         self, user: UserShort, *, config: RunnableConfig | None = None

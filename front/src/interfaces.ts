@@ -19,6 +19,7 @@ export interface GraphState extends Record<string, unknown> {
   todos?: PlanTodo[];
   todo_id_seq?: number;
   plan_approved?: boolean;
+  mode?: "normal" | "plan";
   ui?: any[];
 }
 
@@ -35,13 +36,28 @@ export interface TodoSnapshot {
   assigned_ids: string[];
 }
 
+export interface TodoErrorSnapshot {
+  type: "todo_error";
+  todos: PlanTodo[];
+}
+
 export interface ApprovedPlanSnapshot {
   type: "approved_plan";
   plan_content: string;
   todos: PlanTodo[];
 }
 
-export type PlanningSnapshot = TodoSnapshot | ApprovedPlanSnapshot;
+export interface RejectedPlanSnapshot {
+  type: "rejected_plan";
+  plan_content: string;
+  todos: PlanTodo[];
+}
+
+export type PlanningSnapshot =
+  | TodoSnapshot
+  | TodoErrorSnapshot
+  | ApprovedPlanSnapshot
+  | RejectedPlanSnapshot;
 
 type BagTemplate = {
   ConfigurableType?: Record<string, unknown>;

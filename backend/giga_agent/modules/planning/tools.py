@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import Any, Literal
 
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,6 +77,27 @@ def _error(runtime: ToolRuntime, content: str) -> Command:
     )
 
 
+def _todo_error(runtime: ToolRuntime, content: str) -> Command:
+    """Сохранить неудачную попытку изменить todo вместе с текущим снимком."""
+    state = _runtime_state(runtime)
+    snapshot = {
+        "type": "todo_error",
+        "todos": deepcopy(list(state.get("todos") or [])),
+    }
+    return Command(
+        update={
+            "messages": [
+                _tool_message(
+                    runtime,
+                    content,
+                    is_error=True,
+                    planning=snapshot,
+                )
+            ]
+        }
+    )
+
+
 def _runtime_state(runtime: ToolRuntime) -> dict[str, Any]:
     state = runtime.state
     if isinstance(state, dict):
@@ -115,21 +136,17 @@ def _apply_patches(
     if len(index) != len(result):
         return current, seq, [], "В текущем todo-листе обнаружены повторяющиеся id."
 
-    patch_ids = [patch.id for patch in patches if patch.id is not None]
+    patch_ids = [patch.id.strip() for patch in patches if patch.id is not None]
+    if any(not todo_id for todo_id in patch_ids):
+        return current, seq, [], "id создаваемого todo не может быть пустым."
     if len(patch_ids) != len(set(patch_ids)):
         return current, seq, [], "Один id нельзя изменять несколько раз за вызов."
 
     assigned: list[str] = []
     for patch in patches:
         fields = _patch_fields(patch)
-        if patch.id is None:
-            if "id" in patch.model_fields_set:
-                return (
-                    current,
-                    seq,
-                    [],
-                    "При создании todo поле id нельзя передавать, включая null.",
-                )
+        todo_id = patch.id.strip() if patch.id is not None else None
+        if todo_id is None or todo_id not in index:
             if locked:
                 return (
                     current,
@@ -142,8 +159,13 @@ def _apply_patches(
                 return current, seq, [], "При создании todo обязателен content."
             if "status" in patch.model_fields_set and patch.status is None:
                 return current, seq, [], "status создаваемого todo не может быть null."
-            seq += 1
-            todo_id = str(seq)
+            if todo_id is None:
+                seq += 1
+                while str(seq) in index:
+                    seq += 1
+                todo_id = str(seq)
+            elif todo_id.isdigit():
+                seq = max(seq, int(todo_id))
             item: dict[str, Any] = {
                 "id": todo_id,
                 "content": content,
@@ -156,23 +178,8 @@ def _apply_patches(
             assigned.append(todo_id)
             continue
 
-        todo_id = patch.id
-        if todo_id not in index:
-            return (
-                current,
-                seq,
-                [],
-                f"Todo с id={todo_id!r} не существует. Для создания не передавай id.",
-            )
         if not fields:
             return current, seq, [], f"Patch todo id={todo_id!r} не содержит изменений."
-        if locked and not fields <= {"status", "note"}:
-            return (
-                current,
-                seq,
-                [],
-                "После подтверждения плана можно менять только status и note.",
-            )
 
         item = result[index[todo_id]]
         if "content" in fields:
@@ -203,24 +210,30 @@ def _replace_todos(
 ) -> tuple[list[dict[str, Any]], int, list[str], str | None]:
     if len(patches) < 2:
         return [], 0, [], "При полной замене требуется минимум два todo."
-    for patch in patches:
-        if "id" in patch.model_fields_set:
-            return (
-                [],
-                0,
-                [],
-                "При полной замене нельзя передавать поле id, включая null.",
-            )
+    explicit_ids = [patch.id.strip() for patch in patches if patch.id is not None]
+    if any(not todo_id for todo_id in explicit_ids):
+        return [], 0, [], "id создаваемого todo не может быть пустым."
+    if len(explicit_ids) != len(set(explicit_ids)):
+        return [], 0, [], "Todos должны иметь уникальные id."
 
     result: list[dict[str, Any]] = []
     assigned: list[str] = []
-    for position, patch in enumerate(patches, start=1):
+    used_ids = set(explicit_ids)
+    seq = max((int(todo_id) for todo_id in used_ids if todo_id.isdigit()), default=0)
+    for patch in patches:
         content = _clean_content(patch.content)
         if content is None:
             return [], 0, [], "При создании каждого todo обязателен content."
         if "status" in patch.model_fields_set and patch.status is None:
             return [], 0, [], "status создаваемого todo не может быть null."
-        todo_id = str(position)
+        if patch.id is None:
+            seq += 1
+            while str(seq) in used_ids:
+                seq += 1
+            todo_id = str(seq)
+            used_ids.add(todo_id)
+        else:
+            todo_id = patch.id.strip()
         item: dict[str, Any] = {
             "id": todo_id,
             "content": content,
@@ -230,7 +243,7 @@ def _replace_todos(
             item["note"] = patch.note.strip()
         result.append(item)
         assigned.append(todo_id)
-    return result, len(result), assigned, None
+    return result, seq, assigned, None
 
 
 def _assigned_text(assigned: list[str]) -> str:
@@ -259,15 +272,18 @@ async def write_todo(
     """Создать, заменить или частично обновить рабочий todo-лист."""
     state = _runtime_state(runtime)
     if state.get("mode") == "plan":
-        return _error(runtime, "write_todo недоступен в режиме планирования.")
+        return _todo_error(runtime, "write_todo недоступен в режиме планирования.")
     if not todos:
-        return _error(runtime, "Список todos не может быть пустым.")
+        return _todo_error(runtime, "Список todos не может быть пустым.")
 
     current = list(state.get("todos") or [])
     seq = _next_seq(current, state.get("todo_id_seq"))
-    locked = bool(state.get("plan_approved"))
+    # Todo created after approving a plan without one are working notes, not a
+    # confirmed part of the plan. Preserve that decision after the first write.
+    todos_editable = bool(state.get("todos_editable", not current))
+    locked = bool(state.get("plan_approved")) and not todos_editable
     if locked and not merge:
-        return _error(
+        return _todo_error(
             runtime,
             "После подтверждения плана нельзя полностью заменять todo-лист.",
         )
@@ -282,7 +298,7 @@ async def write_todo(
     else:
         updated, next_seq, assigned, error = _replace_todos(todos)
     if error:
-        return _error(runtime, f"Todo не обновлён. {error}")
+        return _todo_error(runtime, f"Todo не обновлён. {error}")
 
     done = sum(t["status"] in ("completed", "cancelled") for t in updated)
     snapshot = {
@@ -290,27 +306,29 @@ async def write_todo(
         "todos": updated,
         "assigned_ids": assigned,
     }
-    return Command(
-        update={
-            "todos": updated,
-            "todo_id_seq": next_seq,
-            "messages": [
-                _tool_message(
-                    runtime,
-                    f"Todo обновлён: {done}/{len(updated)} завершено."
-                    + _assigned_text(assigned),
-                    planning=snapshot,
-                )
-            ],
-        }
-    )
+    update: dict[str, Any] = {
+        "todos": updated,
+        "todo_id_seq": next_seq,
+        "messages": [
+            _tool_message(
+                runtime,
+                f"Todo обновлён: {done}/{len(updated)} завершено."
+                + _assigned_text(assigned),
+                planning=snapshot,
+            )
+        ],
+    }
+    if state.get("plan_approved"):
+        update["todos_editable"] = todos_editable
+    return Command(update=update)
 
 
 @tool(
     description=(
         "Создаёт или точечно обновляет подробный Markdown-план и его todo-пункты "
-        "в режиме планирования. Текст изменяется только через точную пару "
-        "find_string/replace_string; todo без id создаётся, todo с id обновляется."
+        "в режиме планирования. Для пустого плана достаточно replace_string; "
+        "дальнейшие правки требуют точную пару find_string/replace_string. Todo "
+        "без id создаётся, todo с id обновляется."
     ),
     extras=tool_extras(
         ToolEffect.WRITE,
@@ -336,17 +354,22 @@ async def update_plan(
         return _error(runtime, "Не передано ни одного изменения плана.")
 
     current_content = (
-        str(state.get("plan_content") or "")
-        .replace("\r\n", "\n")
-        .replace("\r", "\n")
+        str(state.get("plan_content") or "").replace("\r\n", "\n").replace("\r", "\n")
     )
     updated_content = current_content
     if has_text_operation:
-        if find_string is None or replace_string is None:
+        if replace_string is None:
             return _error(
                 runtime,
-                "find_string и replace_string должны передаваться вместе.",
+                "Для изменения текста плана обязателен replace_string.",
             )
+        if find_string is None:
+            if current_content:
+                return _error(
+                    runtime,
+                    "В непустом плане find_string обязателен.",
+                )
+            find_string = ""
         find_string = find_string.replace("\r\n", "\n").replace("\r", "\n")
         replace_string = replace_string.replace("\r\n", "\n").replace("\r", "\n")
         if find_string == replace_string:
@@ -405,6 +428,22 @@ async def update_plan(
     if error:
         return _error(runtime, f"План не обновлён. {error}")
 
+    readiness_error = _validate_present_plan(updated_content, updated_todos)
+    if readiness_error:
+        next_step = (
+            " Режим планирования остаётся активным. План пока нельзя показать: "
+            f"{readiness_error} Продолжи read-only исследование, при необходимости "
+            "задай существенные вопросы через ask_questions и обнови черновик "
+            "через update_plan."
+        )
+    else:
+        next_step = (
+            " Режим планирования остаётся активным. Если план уже полностью "
+            "проработан, вызови present_plan без аргументов; иначе продолжи "
+            "read-only исследование, задай существенные вопросы через "
+            "ask_questions или уточни черновик через update_plan."
+        )
+
     return Command(
         update={
             "plan_content": updated_content,
@@ -413,7 +452,7 @@ async def update_plan(
             "messages": [
                 _tool_message(
                     runtime,
-                    "Черновик плана обновлён." + _assigned_text(assigned),
+                    "Черновик плана обновлён." + _assigned_text(assigned) + next_step,
                 )
             ],
         }
@@ -426,8 +465,8 @@ def _validate_present_plan(
 ) -> str | None:
     if not plan_content.strip():
         return "plan_content отсутствует или пуст."
-    if len(todos) < 2:
-        return "Для подтверждения требуется минимум два todo."
+    if not todos:
+        return None
     ids = [str(todo.get("id", "")) for todo in todos]
     if not all(ids) or len(ids) != len(set(ids)):
         return "Todos должны иметь уникальные непустые id."
@@ -443,7 +482,8 @@ def _validate_present_plan(
     description=(
         "Показывает готовый подробный план пользователю и приостанавливает "
         "выполнение до подтверждения. Вызывай без аргументов только после того, "
-        "как update_plan создал plan_content и минимум два pending todo."
+        "как update_plan создал непустой plan_content. Todo необязательны; если "
+        "они есть, все должны иметь status='pending'."
     ),
     extras=tool_extras(
         ToolEffect.WRITE,
@@ -475,11 +515,21 @@ async def present_plan(runtime: ToolRuntime) -> Command:
         feedback = str((decision or {}).get("feedback") or "").strip()
         if not feedback:
             return _error(runtime, "Для отклонения плана обязателен feedback.")
+        snapshot = {
+            "type": "rejected_plan",
+            "plan_content": plan_content,
+            "todos": todos,
+        }
         return Command(
             update={
                 "plan_approved": False,
                 "messages": [
-                    _tool_message(runtime, "План отклонён."),
+                    _tool_message(
+                        runtime,
+                        "План отменён.",
+                        planning=snapshot,
+                    ),
+                    AIMessage("План отправлен на доработку."),
                     HumanMessage(feedback),
                 ],
             }
@@ -496,6 +546,7 @@ async def present_plan(runtime: ToolRuntime) -> Command:
         update={
             "mode": "normal",
             "plan_approved": True,
+            "todos_editable": not bool(todos),
             "messages": [
                 _tool_message(
                     runtime,

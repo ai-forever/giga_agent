@@ -14,6 +14,7 @@ from giga_agent.core.agent.graph_factory import (
     _build_file_prompt,
     _build_selected_prompt,
     _generate_user_info,
+    _plan_mode_human_reminder,
 )
 
 
@@ -135,3 +136,13 @@ class HelperFunctionTests(unittest.TestCase):
         original_instructions = state["instructions"]
         _generate_user_info(state)
         self.assertEqual(state["instructions"], original_instructions)
+
+    def test_plan_mode_human_reminder_is_emitted_only_in_plan_mode(self):
+        reminder = _plan_mode_human_reminder({"mode": "plan"})
+
+        self.assertIsNotNone(reminder)
+        self.assertIn("режим планирования", reminder)
+        self.assertIn("ask_questions", reminder)
+        self.assertIn("update_plan", reminder)
+        self.assertIn("present_plan", reminder)
+        self.assertIsNone(_plan_mode_human_reminder({"mode": "normal"}))

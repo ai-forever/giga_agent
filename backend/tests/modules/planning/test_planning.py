@@ -15,6 +15,7 @@ from giga_agent.core.agent.tool_policy import (
     tool_extras,
 )
 from giga_agent.modules.planning.middleware import PlanningMiddleware
+from giga_agent.modules.planning.module import PlanningModule
 from giga_agent.modules.planning.tools import (
     TodoPatchArg,
     present_plan,
@@ -73,7 +74,7 @@ class WriteTodoTests(unittest.TestCase):
             ["in_progress", "in_progress"],
         )
 
-    def test_unknown_id_is_error_and_does_not_update_state(self):
+    def test_unknown_id_without_content_is_error_and_does_not_update_state(self):
         cmd = asyncio.run(
             write_todo.coroutine(
                 merge=True,
@@ -89,8 +90,43 @@ class WriteTodoTests(unittest.TestCase):
         )
         self.assertNotIn("todos", cmd.update)
         self.assertEqual(cmd.update["messages"][0].status, "error")
+        self.assertEqual(
+            cmd.update["messages"][0].additional_kwargs["planning"],
+            {"type": "todo_error", "todos": [_todo("1", "A")]},
+        )
 
-    def test_locked_plan_allows_only_status_and_note(self):
+    def test_creation_accepts_explicit_id(self):
+        replaced = asyncio.run(
+            write_todo.coroutine(
+                merge=False,
+                todos=[
+                    TodoPatchArg(id="analysis", content="Собрать данные"),
+                    TodoPatchArg(id="42", content="Подготовить результат"),
+                ],
+                runtime=_runtime({"mode": "normal"}),
+            )
+        )
+        self.assertEqual(
+            [todo["id"] for todo in replaced.update["todos"]], ["analysis", "42"]
+        )
+        self.assertEqual(replaced.update["todo_id_seq"], 42)
+
+        created = asyncio.run(
+            write_todo.coroutine(
+                merge=True,
+                todos=[TodoPatchArg(id="verify", content="Проверить результат")],
+                runtime=_runtime(
+                    {
+                        "mode": "normal",
+                        "todos": replaced.update["todos"],
+                        "todo_id_seq": replaced.update["todo_id_seq"],
+                    }
+                ),
+            )
+        )
+        self.assertEqual(created.update["todos"][-1]["id"], "verify")
+
+    def test_locked_plan_allows_content_status_and_note(self):
         state = {
             "mode": "normal",
             "plan_approved": True,
@@ -108,15 +144,59 @@ class WriteTodoTests(unittest.TestCase):
         )
         self.assertEqual(ok.update["todos"][0]["note"], "готово")
 
-        blocked = asyncio.run(
+        content_changed = asyncio.run(
             write_todo.coroutine(
                 merge=True,
                 todos=[TodoPatchArg(id="1", content="другая формулировка")],
                 runtime=_runtime(state),
             )
         )
-        self.assertNotIn("todos", blocked.update)
-        self.assertEqual(blocked.update["messages"][0].status, "error")
+        self.assertEqual(
+            content_changed.update["todos"][0]["content"],
+            "другая формулировка",
+        )
+
+        new_item = asyncio.run(
+            write_todo.coroutine(
+                merge=True,
+                todos=[TodoPatchArg(content="Новый пункт")],
+                runtime=_runtime(state),
+            )
+        )
+        self.assertNotIn("todos", new_item.update)
+        self.assertEqual(new_item.update["messages"][0].status, "error")
+
+    def test_empty_approved_plan_allows_future_todo_edits(self):
+        initial_state = {
+            "mode": "normal",
+            "plan_approved": True,
+            "todos_editable": True,
+            "todos": [],
+            "todo_id_seq": 0,
+        }
+        created = asyncio.run(
+            write_todo.coroutine(
+                merge=False,
+                todos=[TodoPatchArg(content="A"), TodoPatchArg(content="B")],
+                runtime=_runtime(initial_state),
+            )
+        )
+        self.assertTrue(created.update["todos_editable"])
+
+        changed = asyncio.run(
+            write_todo.coroutine(
+                merge=True,
+                todos=[TodoPatchArg(id="1", content="Обновлённый A")],
+                runtime=_runtime(
+                    {
+                        **initial_state,
+                        "todos": created.update["todos"],
+                        "todo_id_seq": created.update["todo_id_seq"],
+                    }
+                ),
+            )
+        )
+        self.assertEqual(changed.update["todos"][0]["content"], "Обновлённый A")
 
     def test_empty_and_single_replacement_are_invalid(self):
         empty = asyncio.run(
@@ -136,7 +216,7 @@ class WriteTodoTests(unittest.TestCase):
         self.assertEqual(empty.update["messages"][0].status, "error")
         self.assertEqual(single.update["messages"][0].status, "error")
 
-    def test_replacement_rejects_explicit_null_id(self):
+    def test_replacement_accepts_explicit_null_id(self):
         result = asyncio.run(
             write_todo.coroutine(
                 merge=False,
@@ -147,15 +227,13 @@ class WriteTodoTests(unittest.TestCase):
                 runtime=_runtime({"mode": "normal"}),
             )
         )
-        self.assertEqual(result.update["messages"][0].status, "error")
-        self.assertNotIn("todos", result.update)
+        self.assertEqual([todo["id"] for todo in result.update["todos"]], ["1", "2"])
 
 
 class UpdatePlanTests(unittest.TestCase):
     def test_initializes_markdown_and_todos_atomically(self):
         cmd = asyncio.run(
             update_plan.coroutine(
-                find_string="",
                 replace_string="# Цель\n\nСделать результат",
                 todos=[
                     TodoPatchArg(content="Шаг A"),
@@ -167,6 +245,20 @@ class UpdatePlanTests(unittest.TestCase):
         self.assertEqual(cmd.update["plan_content"], "# Цель\n\nСделать результат")
         self.assertEqual([todo["id"] for todo in cmd.update["todos"]], ["1", "2"])
         self.assertEqual(cmd.update["todo_id_seq"], 2)
+        result = cmd.update["messages"][0].content
+        self.assertIn("Режим планирования остаётся активным", result)
+        self.assertIn("вызови present_plan без аргументов", result)
+
+    def test_nonempty_plan_requires_find_string(self):
+        cmd = asyncio.run(
+            update_plan.coroutine(
+                replace_string="# Новый план",
+                runtime=_runtime({"mode": "plan", "plan_content": "# Старый план"}),
+            )
+        )
+
+        self.assertEqual(cmd.update["messages"][0].status, "error")
+        self.assertIn("find_string обязателен", cmd.update["messages"][0].content)
 
     def test_exact_replace_remove_and_create_preserve_sequence(self):
         state = {
@@ -225,6 +317,7 @@ class UpdatePlanTests(unittest.TestCase):
             )
         )
         self.assertNotIn("plan_content", cmd.update)
+        self.assertEqual(cmd.update["messages"][0].status, "error")
         self.assertIn("найдено 2", cmd.update["messages"][0].content)
 
     def test_update_plan_is_rejected_in_normal_mode(self):
@@ -236,6 +329,18 @@ class UpdatePlanTests(unittest.TestCase):
             )
         )
         self.assertEqual(cmd.update["messages"][0].status, "error")
+
+    def test_markdown_only_draft_can_be_presented(self):
+        cmd = asyncio.run(
+            update_plan.coroutine(
+                find_string="",
+                replace_string="# План",
+                runtime=_runtime({"mode": "plan"}),
+            )
+        )
+
+        result = cmd.update["messages"][0].content
+        self.assertIn("вызови present_plan без аргументов", result)
 
 
 class PresentPlanTests(unittest.TestCase):
@@ -255,9 +360,24 @@ class PresentPlanTests(unittest.TestCase):
             cmd = asyncio.run(present_plan.coroutine(runtime=_runtime(self._state())))
         self.assertEqual(cmd.update["mode"], "normal")
         self.assertTrue(cmd.update["plan_approved"])
+        self.assertFalse(cmd.update["todos_editable"])
         planning = cmd.update["messages"][0].additional_kwargs["planning"]
         self.assertEqual(planning["type"], "approved_plan")
         self.assertEqual(planning["plan_content"], "# План\n\nПодробности")
+
+    def test_approve_allows_plan_without_todos(self):
+        state = {"mode": "plan", "plan_content": "# План", "todos": []}
+        with patch(
+            "giga_agent.modules.planning.tools.interrupt",
+            return_value={"action": "approve"},
+        ):
+            cmd = asyncio.run(present_plan.coroutine(runtime=_runtime(state)))
+
+        self.assertEqual(cmd.update["mode"], "normal")
+        self.assertEqual(
+            cmd.update["messages"][0].additional_kwargs["planning"]["todos"], []
+        )
+        self.assertTrue(cmd.update["todos_editable"])
 
     def test_reject_requires_feedback(self):
         with patch(
@@ -275,15 +395,23 @@ class PresentPlanTests(unittest.TestCase):
             cmd = asyncio.run(present_plan.coroutine(runtime=_runtime(self._state())))
         self.assertNotIn("mode", cmd.update)
         self.assertFalse(cmd.update["plan_approved"])
+        planning = cmd.update["messages"][0].additional_kwargs["planning"]
+        self.assertEqual(planning["type"], "rejected_plan")
+        self.assertEqual(planning["plan_content"], "# План\n\nПодробности")
+        self.assertEqual(len(planning["todos"]), 2)
+        self.assertIn(
+            "План отправлен на доработку.",
+            [message.content for message in cmd.update["messages"]],
+        )
         self.assertIn("human", [message.type for message in cmd.update["messages"]])
 
-    def test_requires_nonempty_content_and_two_pending_todos(self):
+    def test_requires_nonempty_content_and_validates_present_todos(self):
         invalid_states = [
-            {"mode": "plan", "plan_content": "", "todos": [_todo("1", "A")]},
+            {"mode": "plan", "plan_content": "", "todos": []},
             {
                 "mode": "plan",
                 "plan_content": "# План",
-                "todos": [_todo("1", "A")],
+                "todos": [_todo("1", "A", "completed")],
             },
             {
                 "mode": "plan",
@@ -373,14 +501,28 @@ class MiddlewareSeedTests(unittest.TestCase):
                 "todos": [],
                 "todo_id_seq": 0,
                 "plan_approved": False,
+                "todos_editable": False,
             },
         )
 
     def test_normal_turn_only_unlocks_plan(self):
         self.assertEqual(
             self._seed({"configurable": {}}),
-            {"mode": "normal", "plan_approved": False},
+            {"mode": "normal", "plan_approved": False, "todos_editable": False},
         )
+
+    def test_module_does_not_duplicate_plan_mode_instructions(self):
+        module = PlanningModule()
+
+        instructions = asyncio.run(
+            module.get_instructions(
+                user=None,
+                agent=None,
+                state={"mode": "plan"},
+            )
+        )
+
+        self.assertIsNone(instructions)
 
 
 if __name__ == "__main__":

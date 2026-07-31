@@ -522,7 +522,6 @@ const Message: React.FC<MessageProps> = ({
     return (
       toolCall.name !== "ask_questions" &&
       toolCall.name !== "write_todo" &&
-      toolCall.name !== "update_plan" &&
       toolCall.name !== "present_plan" &&
       !isResponseWidget(id ? resultsById?.[id] : undefined)
     );

@@ -110,11 +110,53 @@ const collectResponseWidgets = (
   return out;
 };
 
+// После resume у `present_plan` результат иногда приходит без доступного
+// AI-tool-call с тем же id. Карточка live-interrupt к этому моменту уже снята,
+// поэтому решение по плану нужно взять непосредственно из персистентного
+// ToolMessage. При штатном сопоставлении не добавляем его повторно.
+const collectUnlinkedPlanWidgets = (
+  messages: Message_[],
+  linkedToolCallIds: Set<string>,
+): ResponseWidgetItem[] => {
+  const out: ResponseWidgetItem[] = [];
+  for (const message of messages) {
+    if (message.type !== "tool") continue;
+    const planning = (message.additional_kwargs as any)?.planning as
+      | PlanningSnapshot
+      | undefined;
+    if (
+      planning?.type !== "approved_plan" &&
+      planning?.type !== "rejected_plan"
+    ) {
+      continue;
+    }
+
+    const toolCallId = (message as any).tool_call_id as string | undefined;
+    if (toolCallId && linkedToolCallIds.has(toolCallId)) continue;
+
+    out.push({
+      toolCall: {
+        id: toolCallId ?? message.id ?? `plan-decision-${out.length}`,
+        name: PRESENT_PLAN_TOOL_NAME,
+        args: {},
+      } as any,
+      result: message,
+    });
+  }
+  return out;
+};
+
 // Completed `ask_questions` calls render as a standalone read-only card (the
 // questions asked + how the user answered them), like scheduled-task cards.
 export interface QuestionsCardItem {
   id: string;
   data: QuestionsResult;
+}
+
+interface TodoCallItem {
+  messageId?: string;
+  toolCallId?: string;
+  key: string;
 }
 
 const collectAnsweredQuestions = (
@@ -140,7 +182,12 @@ type RenderItem =
   // the card/widget renders right after it as its own block (see items grouping).
   | { kind: "questions"; cards: QuestionsCardItem[]; key: string }
   | { kind: "response"; items: ResponseWidgetItem[]; key: string }
-  | { kind: "todo"; toolCallId?: string; key: string };
+  | {
+      kind: "todo";
+      toolCallId?: string;
+      key: string;
+      isLatest: boolean;
+    };
 
 const MessageList: React.FC<MessageListProps> = ({
   messages: messagesProp,
@@ -178,28 +225,26 @@ const MessageList: React.FC<MessageListProps> = ({
     [messages],
   );
 
-  const latestWriteTodoCall = useMemo(() => {
-    for (
-      let messageIndex = messages.length - 1;
-      messageIndex >= 0;
-      messageIndex--
-    ) {
+  const writeTodoCalls = useMemo<TodoCallItem[]>(() => {
+    const calls: TodoCallItem[] = [];
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
       const message = messages[messageIndex];
       if (message.type !== "ai") continue;
-      const calls = ((message as any).tool_calls ?? []) as Array<{
-        id?: string;
-        name?: string;
-      }>;
-      for (let callIndex = calls.length - 1; callIndex >= 0; callIndex--) {
-        if (calls[callIndex].name === WRITE_TODO_TOOL_NAME) {
-          return {
-            messageId: message.id,
-            toolCallId: calls[callIndex].id,
-          };
-        }
+      for (const [callIndex, call] of (
+        ((message as any).tool_calls ?? []) as Array<{
+          id?: string;
+          name?: string;
+        }>
+      ).entries()) {
+        if (call.name !== WRITE_TODO_TOOL_NAME) continue;
+        calls.push({
+          messageId: message.id,
+          toolCallId: call.id,
+          key: `todo-${call.id ?? `${message.id ?? messageIndex}-${callIndex}`}`,
+        });
       }
     }
-    return null;
+    return calls;
   }, [messages]);
 
   const latestTodoSnapshot = useMemo<PlanTodo[] | undefined>(() => {
@@ -212,11 +257,44 @@ const MessageList: React.FC<MessageListProps> = ({
     return undefined;
   }, [messages]);
 
+  const unlinkedPlanWidgets = useMemo(() => {
+    const linkedToolCallIds = new Set<string>();
+    for (const message of renderable) {
+      for (const toolCall of ((message as any).tool_calls ?? []) as Array<{
+        id?: string;
+      }>) {
+        const result = toolCall.id ? resultsById[toolCall.id] : undefined;
+        if (toolCall.id && isResponseWidget(result)) {
+          linkedToolCallIds.add(toolCall.id);
+        }
+      }
+    }
+    return collectUnlinkedPlanWidgets(messages, linkedToolCallIds);
+  }, [messages, renderable, resultsById]);
+
   const items: RenderItem[] = useMemo(() => {
     const out: RenderItem[] = [];
     let buffer: Message_[] = [];
     let bufferHasVisibleToolCalls = false;
-    let bufferHasLatestTodo = false;
+    let bufferTodoCalls: TodoCallItem[] = [];
+    const todoCallsByMessageId = new Map<string, TodoCallItem[]>();
+    for (const call of writeTodoCalls) {
+      if (!call.messageId) continue;
+      const calls = todoCallsByMessageId.get(call.messageId) ?? [];
+      calls.push(call);
+      todoCallsByMessageId.set(call.messageId, calls);
+    }
+    const latestTodoKey = writeTodoCalls.at(-1)?.key;
+    const appendTodoCards = (calls: TodoCallItem[]) => {
+      for (const call of calls) {
+        out.push({
+          kind: "todo",
+          toolCallId: call.toolCallId,
+          key: call.key,
+          isLatest: call.key === latestTodoKey,
+        });
+      }
+    };
     const flush = () => {
       if (buffer.length) {
         if (bufferHasVisibleToolCalls) {
@@ -230,16 +308,10 @@ const MessageList: React.FC<MessageListProps> = ({
             out.push({ kind: "single", message });
           }
         }
-        if (bufferHasLatestTodo && latestWriteTodoCall) {
-          out.push({
-            kind: "todo",
-            toolCallId: latestWriteTodoCall.toolCallId,
-            key: `todo-${latestWriteTodoCall.toolCallId ?? latestWriteTodoCall.messageId}`,
-          });
-        }
+        appendTodoCards(bufferTodoCalls);
         buffer = [];
         bufferHasVisibleToolCalls = false;
-        bufferHasLatestTodo = false;
+        bufferTodoCalls = [];
       }
     };
     for (const m of renderable) {
@@ -249,8 +321,7 @@ const MessageList: React.FC<MessageListProps> = ({
         const responseWidgets = collectResponseWidgets([m], resultsById);
         const hasCard = questionCards.length > 0 || responseWidgets.length > 0;
         const hasVisible = hasVisibleToolCalls(m, resultsById);
-        const hasLatestTodo =
-          !!latestWriteTodoCall && m.id === latestWriteTodoCall.messageId;
+        const todoCalls = m.id ? (todoCallsByMessageId.get(m.id) ?? []) : [];
 
         // Pure card step (no other visible tool): render the message standalone
         // with its card/widget under its reasoning/content (attached via the
@@ -258,13 +329,7 @@ const MessageList: React.FC<MessageListProps> = ({
         if (hasCard && !hasVisible) {
           flush();
           out.push({ kind: "single", message: m });
-          if (hasLatestTodo) {
-            out.push({
-              kind: "todo",
-              toolCallId: latestWriteTodoCall.toolCallId,
-              key: `todo-${latestWriteTodoCall.toolCallId ?? latestWriteTodoCall.messageId}`,
-            });
-          }
+          appendTodoCards(todoCalls);
           continue;
         }
 
@@ -278,7 +343,13 @@ const MessageList: React.FC<MessageListProps> = ({
         }
         buffer.push(m);
         bufferHasVisibleToolCalls = bufferHasVisibleToolCalls || hasVisible;
-        bufferHasLatestTodo = bufferHasLatestTodo || hasLatestTodo;
+        bufferTodoCalls.push(...todoCalls);
+
+        // `write_todo` — самостоятельный исторический снимок: не ждём конца
+        // всего AgentRun, иначе несколько обновлений окажутся одной пачкой внизу.
+        if (todoCalls.length) {
+          flush();
+        }
 
         // Parallel call: the visible tool stays in the run; close the run right
         // after this message and emit the card(s)/widget(s) as their own block —
@@ -307,8 +378,15 @@ const MessageList: React.FC<MessageListProps> = ({
       }
     }
     flush();
+    if (unlinkedPlanWidgets.length) {
+      out.push({
+        kind: "response",
+        items: unlinkedPlanWidgets,
+        key: "unlinked-plan-decisions",
+      });
+    }
     return out;
-  }, [latestWriteTodoCall, renderable, resultsById]);
+  }, [renderable, resultsById, unlinkedPlanWidgets, writeTodoCalls]);
 
   // Response-widget-результаты рендерятся под контентом того AI-сообщения,
   // которое их породило (pure-card "single" — оно прерывает ран, см. группировку
@@ -527,15 +605,21 @@ const MessageList: React.FC<MessageListProps> = ({
           const planning = (result?.additional_kwargs as any)?.planning as
             | PlanningSnapshot
             | undefined;
+          const isError = planning?.type === "todo_error";
           const todos =
-            planning?.type === "todo_snapshot"
+            planning?.type === "todo_snapshot" ||
+            planning?.type === "todo_error"
               ? planning.todos
-              : branches.isViewingNonHead
-                ? latestTodoSnapshot
-                : (thread?.values?.todos ?? latestTodoSnapshot);
-          return todos?.length ? (
+              : item.isLatest && !branches.isViewingNonHead
+                ? (thread?.values?.todos ?? latestTodoSnapshot)
+                : undefined;
+          return todos ? (
             <div key={item.key} className="px-[20px] mb-[20px]">
-              <TodoListWidget todos={todos} active={!!thread?.isLoading} />
+              <TodoListWidget
+                todos={todos}
+                active={item.isLatest && !!thread?.isLoading}
+                error={isError}
+              />
             </div>
           ) : null;
         }
