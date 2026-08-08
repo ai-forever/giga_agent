@@ -63,6 +63,7 @@ export interface LLMResponse {
   type: string;
   connector_id: string;
   model_id: string;
+  context_window: number | null;
   name: string | null;
   parallel_calls: number;
   settings: LLMSettings;

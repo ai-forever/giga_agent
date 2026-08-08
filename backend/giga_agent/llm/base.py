@@ -35,10 +35,12 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
 
     connector: BaseConnector
     model_id: str
+    context_window: int | None = None
 
     _runtime_fields: ClassVar[set[str]] = {
         "connector",
         "model_id",
+        "context_window",
     }
     _registered_llm_type: ClassVar[str] = ""
 

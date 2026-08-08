@@ -92,6 +92,40 @@ app, graph = agent.app, agent.graph
 Модуль `analyze_images` включает tool `analyze_image` только если активный для пользователя
 LLM runtime поддерживает `can_analyze_image()`.
 
+### Сокращение контекста
+
+Основной граф перед очередным вызовом модели смотрит только на
+`usage_metadata.input_tokens` последнего `AIMessage`. При достижении порога он
+создаёт сводку основной LLM и сохраняет её отдельным `SystemMessage` с метаданными
+`additional_kwargs.giga_agent.context_compaction`. Исходные сообщения checkpoint
+не удаляются: в модель проецируются последняя валидная сводка и сообщения после
+указанной в ней границы (`through_message_id`, а для id-less истории — fallback
+через `through_message_index`).
+
+Граница сокращения не разделяет `AIMessage` с tool calls и соответствующие
+`ToolMessage`. Последние сообщения сохраняются целиком; удерживаемый хвост
+ограничивается примерным budget в токенах через
+`GIGA_AGENT_CONTEXT_COMPACTION_KEEP_TOKENS`. Основной сигнал для авто-сжатия —
+`usage_metadata.input_tokens` последнего `AIMessage`; если его нет, используется
+`count_tokens_approximately(...)` по спроецированной истории. Точное значение
+контекстного окна задаётся в настройках LLM полем `context_window`, затем
+берётся из `models_config.json`, иначе используется fallback 128000.
+
+Ручной exact slash-command `/compact` запускает отдельную ветку графа без
+пользовательского сообщения и без обычного ответа агента. В CLI-конфигурации окно
+можно указать рядом с моделью:
+
+```json
+{
+  "llm": {
+    "connector": { "__type": "openai", "api_key": "sk-..." },
+    "__type": "openai",
+    "model_id": "gpt-4o",
+    "context_window": 128000
+  }
+}
+```
+
 ## 3. Управление миграциями
 
 Alembic работает в режиме scope-based migration execution.

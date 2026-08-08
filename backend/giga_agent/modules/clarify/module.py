@@ -36,6 +36,7 @@ class ClarifyModule(BaseModule):
             metadata.get("is_channel")
             or metadata.get("is_scheduled")
             or metadata.get("type") == "scheduled_task"
+            or metadata.get("cli_prompt_mode")
         )
 
     async def _get_tools(

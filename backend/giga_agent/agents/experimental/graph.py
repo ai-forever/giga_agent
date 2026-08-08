@@ -338,6 +338,8 @@ class ExperimentalState(TypedDict, total=False):
 # пробросить в inner-ран (plan mode, режим исследования, выбранные скилы).
 # Остальное (thread_id и пр.) НЕ пробрасываем — оно относится к внешнему рану.
 _FORWARDED_CONFIGURABLE_KEYS = (
+    "context_compaction_only",
+    "context_compaction_operation_id",
     "deep_research_forced",
     "plan_mode",
     "selected_skills",
@@ -389,6 +391,39 @@ def _content_str(message: dict) -> str:
     return json.dumps(content, ensure_ascii=False)
 
 
+def _context_compaction_payload(message: dict) -> dict[str, Any] | None:
+    ak = message.get("additional_kwargs") or {}
+    namespace = ak.get("giga_agent")
+    if not isinstance(namespace, dict):
+        return None
+    payload = namespace.get("context_compaction")
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return None
+    return payload
+
+
+def _is_context_compaction_message(message: dict) -> bool:
+    return _context_compaction_payload(message) is not None
+
+
+def _forward_context_compaction_message(message: dict) -> AnyMessage:
+    kwargs = dict(message.get("additional_kwargs") or {})
+    common: dict[str, Any] = {
+        "id": message.get("id"),
+        "content": message.get("content", ""),
+        "additional_kwargs": kwargs,
+        "name": message.get("name"),
+    }
+    if message.get("type") == "system":
+        return SystemMessage(**common)
+
+    return AIMessage(
+        **common,
+        tool_calls=list(message.get("tool_calls") or []),
+        usage_metadata=message.get("usage_metadata"),
+    )
+
+
 def _is_widget_tool(message: dict) -> bool:
     ak = message.get("additional_kwargs") or {}
     if ak.get("response_widget") is True:
@@ -410,6 +445,8 @@ def _eligible_output(message: dict) -> bool:
     после resume (иначе карточка ответов моргает, пока inner-ран заново прогоняет
     тул). Поэтому его inner-ToolMessage помечается processed и не форвардится.
     """
+    if _is_context_compaction_message(message):
+        return True
     mtype = message.get("type")
     if mtype == "ai":
         return bool(strip_thinking(_content_text(message)))
@@ -898,10 +935,16 @@ async def _sync_title_from_inner(config: Any, client, inner_thread_id: str) -> b
 
 async def kickoff(state: ExperimentalState, config) -> dict:
     """Создать/переиспользовать скрытый inner-тред и запустить фоновый ран."""
+    outer_conf = (config or {}).get("configurable") or {}
+    compaction_only = outer_conf.get("context_compaction_only") is True
     messages = state.get("messages") or []
-    human = next(
-        (m for m in reversed(messages) if getattr(m, "type", None) == "human"),
-        None,
+    human = (
+        None
+        if compaction_only
+        else next(
+            (m for m in reversed(messages) if getattr(m, "type", None) == "human"),
+            None,
+        )
     )
     human_content = human.content if human is not None else ""
     # Пробрасываем ВСЕ вложения человека (files, selected, user_input, ...) —
@@ -919,7 +962,6 @@ async def kickoff(state: ExperimentalState, config) -> dict:
         "mcp_tools": state.get("mcp_tools") or [],
     }
     # Режим исследования / выбранные скилы + автономность.
-    outer_conf = (config or {}).get("configurable") or {}
     # Ретрай после ошибки inner-рана (флаг ставит фронт на кнопке «Повторить» в
     # пилюле активности): kickoff резюмит упавший inner-ран с чекпойнта вместо
     # старта нового хода. Флаг приходит в submit'е — durable по построению (в
@@ -980,15 +1022,16 @@ async def kickoff(state: ExperimentalState, config) -> dict:
                 stream_mode=["values", "messages", "updates"],
             )
         else:
-            run = await client.runs.create(
-                inner_thread_id,
-                assistant_id=INNER_ASSISTANT_ID,
-                input=inner_input,
-                config={"configurable": inner_configurable},
+            run_kwargs: dict[str, Any] = {
+                "assistant_id": INNER_ASSISTANT_ID,
+                "config": {"configurable": inner_configurable},
                 # Объявляем режимы, чтобы pump мог join_stream'ить messages (живой
                 # прогресс) и values (закоммиченный стейт).
-                stream_mode=["values", "messages", "updates"],
-            )
+                "stream_mode": ["values", "messages", "updates"],
+            }
+            if not compaction_only:
+                run_kwargs["input"] = inner_input
+            run = await client.runs.create(inner_thread_id, **run_kwargs)
 
     push_ui_message(STATUS_UI_NAME, {"text": "Думаю"}, id=STATUS_UI_ID)
 
@@ -1072,7 +1115,9 @@ async def pump(state: ExperimentalState, config) -> dict:
                         processed.append(mid)
                         continue
                     # Нашли следующий всплывающий элемент.
-                    if msg.get("type") == "ai":
+                    if _is_context_compaction_message(msg):
+                        produced = [_forward_context_compaction_message(msg)]
+                    elif msg.get("type") == "ai":
                         produced = [await _rewrite_ai(_content_text(msg))]
                     else:
                         produced = _forward_widget(msg, inner_messages)

@@ -53,6 +53,17 @@ async def _record(user_id: uuid.UUID, model: str | None, usage: dict) -> None:
         logger.exception("UsageTracking: failed to record usage")
 
 
+def schedule_usage_record(
+    config: RunnableConfig | dict[str, Any],
+    model: str | None,
+    usage: dict[str, Any],
+) -> None:
+    """Record an out-of-band LLM call without delaying the graph."""
+    user_id = _resolve_user_id(config)
+    if user_id is not None:
+        asyncio.create_task(_record(user_id, model, usage))
+
+
 class UsageTrackingMiddleware(AgentMiddleware):
     async def after_model(
         self,
@@ -68,15 +79,12 @@ class UsageTrackingMiddleware(AgentMiddleware):
             usage = getattr(message, "usage_metadata", None)
             if not usage:
                 return None
-            user_id = _resolve_user_id(config)
-            if user_id is None:
-                return None
             model = None
             meta = getattr(message, "response_metadata", None)
             if isinstance(meta, dict):
                 model = meta.get("model_name") or meta.get("model")
             # Не задерживаем основной поток записью в БД.
-            asyncio.create_task(_record(user_id, model, dict(usage)))
+            schedule_usage_record(config, model, dict(usage))
         except Exception:
             logger.exception("UsageTracking: after_model failed")
         return None

@@ -64,6 +64,42 @@ def _planning_messages(snapshot_type: str, tool_name: str):
 
 
 class PlanningWidgetHelperTests(unittest.TestCase):
+    def test_context_compaction_messages_are_eligible_outputs(self):
+        started = {
+            "type": "ai",
+            "id": "context-compaction-started-op-1",
+            "content": "Начинаю суммаризацию",
+            "additional_kwargs": {
+                "rendered": True,
+                "giga_agent": {
+                    "context_compaction": {
+                        "version": 1,
+                        "status": "started",
+                        "operation_id": "op-1",
+                        "reason": "manual",
+                    }
+                },
+            },
+        }
+        completed = {
+            "type": "system",
+            "id": "context-compaction-started-op-1",
+            "content": "## SUMMARY",
+            "additional_kwargs": {
+                "giga_agent": {
+                    "context_compaction": {
+                        "version": 1,
+                        "status": "completed",
+                        "operation_id": "op-1",
+                        "reason": "manual",
+                    }
+                }
+            },
+        }
+
+        self.assertTrue(experimental_graph._eligible_output(started))
+        self.assertTrue(experimental_graph._eligible_output(completed))
+
     def test_only_persisted_planning_snapshots_are_widgets(self):
         for snapshot_type in (
             "approved_plan",
@@ -226,6 +262,42 @@ class ExperimentalGraphAsyncTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("inner_configurable", update)
 
+    async def test_kickoff_compaction_only_skips_synthetic_human_input(self):
+        client = _client()
+        config = {
+            "configurable": {
+                "context_compaction_only": True,
+                "context_compaction_operation_id": "compact-op",
+                "thread_id": "outer-thread",
+            }
+        }
+
+        with (
+            patch.object(experimental_graph, "client_session", _client_session(client)),
+            patch.object(
+                experimental_graph,
+                "resolve_project_id",
+                AsyncMock(return_value=None),
+            ),
+            patch.object(experimental_graph, "push_ui_message"),
+            patch.object(experimental_graph, "_outer_thread_id", return_value=None),
+        ):
+            await experimental_graph.kickoff(
+                {"messages": [HumanMessage("Старый запрос")]}, config
+            )
+
+        kwargs = client.runs.create.await_args.kwargs
+        self.assertNotIn("input", kwargs)
+        self.assertEqual(
+            kwargs["config"]["configurable"],
+            {
+                "auto_approve": True,
+                "experimental_inner": True,
+                "context_compaction_only": True,
+                "context_compaction_operation_id": "compact-op",
+            },
+        )
+
     async def test_pump_forwards_todo_widget_and_planning_state(self):
         client = _client()
         messages = _planning_messages("todo_snapshot", "write_todo")
@@ -264,6 +336,117 @@ class ExperimentalGraphAsyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update["mode"], "normal")
         self.assertTrue(update["plan_approved"])
         self.assertEqual(update["todos"][0]["id"], "1")
+
+    async def test_pump_passthroughs_started_context_compaction_notice(self):
+        client = _client()
+        compaction_message = {
+            "type": "ai",
+            "id": "context-compaction-started-op-1",
+            "content": "Начинаю суммаризацию контекста",
+            "additional_kwargs": {
+                "rendered": True,
+                "kind": "system_notice",
+                "giga_agent": {
+                    "context_compaction": {
+                        "version": 1,
+                        "status": "started",
+                        "operation_id": "op-1",
+                        "reason": "manual",
+                    }
+                },
+            },
+        }
+        client.threads.get_state.return_value = {"values": {"messages": [compaction_message]}}
+
+        with (
+            patch.object(experimental_graph, "client_session", _client_session(client)),
+            patch.object(
+                experimental_graph, "_consume_live", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                experimental_graph,
+                "_sync_title_from_inner",
+                AsyncMock(return_value=True),
+            ),
+            patch.object(
+                experimental_graph, "_rewrite_ai", AsyncMock(side_effect=AssertionError)
+            ),
+        ):
+            update = await experimental_graph.pump(
+                {
+                    "inner_thread_id": "inner-thread",
+                    "inner_run_id": "inner-run",
+                    "processed_inner_ids": [],
+                },
+                {},
+            )
+
+        [message] = update["messages"]
+        self.assertEqual(message.type, "ai")
+        self.assertEqual(message.id, "context-compaction-started-op-1")
+        self.assertEqual(message.content, "Начинаю суммаризацию контекста")
+        self.assertEqual(
+            message.additional_kwargs["giga_agent"]["context_compaction"]["status"],
+            "started",
+        )
+
+    async def test_pump_passthroughs_completed_context_compaction_marker(self):
+        client = _client()
+        compaction_message = {
+            "type": "system",
+            "id": "context-compaction-started-op-1",
+            "content": "## SUMMARY\nDone",
+            "name": "context_compaction",
+            "additional_kwargs": {
+                "giga_agent": {
+                    "context_compaction": {
+                        "version": 1,
+                        "status": "completed",
+                        "operation_id": "op-1",
+                        "reason": "manual",
+                        "input_tokens_after": 120,
+                        "context_window": 1000,
+                    }
+                }
+            },
+        }
+        client.threads.get_state.return_value = {"values": {"messages": [compaction_message]}}
+
+        with (
+            patch.object(experimental_graph, "client_session", _client_session(client)),
+            patch.object(
+                experimental_graph, "_consume_live", AsyncMock(return_value=None)
+            ),
+            patch.object(
+                experimental_graph,
+                "_sync_title_from_inner",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            update = await experimental_graph.pump(
+                {
+                    "inner_thread_id": "inner-thread",
+                    "inner_run_id": "inner-run",
+                    "processed_inner_ids": [],
+                },
+                {},
+            )
+
+        [message] = update["messages"]
+        self.assertEqual(message.type, "system")
+        self.assertEqual(message.id, "context-compaction-started-op-1")
+        self.assertEqual(message.name, "context_compaction")
+        self.assertEqual(
+            message.additional_kwargs["giga_agent"]["context_compaction"],
+            {
+                "version": 1,
+                "status": "completed",
+                "operation_id": "op-1",
+                "reason": "manual",
+                "input_tokens_after": 120,
+                "context_window": 1000,
+            },
+        )
 
     async def test_pump_exposes_arbitrary_inner_interrupt_and_state(self):
         client = _client()

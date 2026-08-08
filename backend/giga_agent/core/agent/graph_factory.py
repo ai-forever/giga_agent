@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import mimetypes
 import uuid
 from datetime import datetime
@@ -21,6 +22,7 @@ from langchain.tools.tool_node import (
 from langchain_core.messages import (
     AIMessage,
     AnyMessage,
+    HumanMessage,
     SystemMessage,
     ToolMessage,
 )
@@ -44,6 +46,12 @@ from giga_agent.core.agent.connectors.sources import collect_sources
 from giga_agent.core.agent.connectors.tools import (
     connector_call_tool,
     connector_get_info,
+)
+from giga_agent.core.agent.context_compaction import (
+    context_compaction_message_id,
+    find_latest_valid_summary,
+    prepare_context_compaction,
+    strip_context_summaries,
 )
 from giga_agent.core.agent.few_shots_single import FEW_SHOT_EXAMPLES_SINGLE
 from giga_agent.core.agent.middleware import AgentMiddleware
@@ -71,6 +79,8 @@ from giga_agent.core.agent.tool_policy import (
 from giga_agent.core.agent.tools import multi_tool_use, think
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
+from giga_agent.middlewares.usage_tracking import schedule_usage_record
+from giga_agent.model_metadata import resolve_context_window
 from giga_agent.utils.mcp import transform_tool
 
 if TYPE_CHECKING:
@@ -100,6 +110,12 @@ ANTI_LOOP_STOP_MESSAGE = (
     "действовать, и я попробую снова."
 )
 
+CONTEXT_COMPACTION_STOP_MESSAGE = (
+    "Контекст почти достиг предела модели, а безопасно сократить его не удалось. "
+    "Основной вызов модели остановлен, чтобы не потерять историю. Попробуй команду "
+    "`/compact` ещё раз или начни новый диалог."
+)
+
 PLAN_MODE_HUMAN_REMINDER = (
     "<planning_mode>Сейчас активен режим планирования. Не выполняй задачу и не "
     "вызывай write/destructive-инструменты: исследуй контекст только доступными "
@@ -107,6 +123,39 @@ PLAN_MODE_HUMAN_REMINDER = (
     "у пользователя через ask_questions тул; веди черновик через update_plan и покажи "
     "готовый непустой план вызовом present_plan.</planning_mode>"
 )
+
+
+def _resolve_context_compaction_operation_id(config: RunnableConfig) -> str:
+    configurable = (config or {}).get("configurable") or {}
+    value = configurable.get("context_compaction_operation_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return str(uuid.uuid4())
+
+
+def _context_compaction_notice(
+    *,
+    operation_id: str,
+    status: Literal["started", "failed"],
+    content: str,
+    reason: Literal["auto", "manual"] = "manual",
+) -> AIMessage:
+    return AIMessage(
+        id=context_compaction_message_id(operation_id),
+        content=content,
+        additional_kwargs={
+            "rendered": True,
+            "kind": "system_notice",
+            "giga_agent": {
+                "context_compaction": {
+                    "version": 1,
+                    "status": status,
+                    "operation_id": operation_id,
+                    "reason": reason,
+                }
+            },
+        },
+    )
 
 
 def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
@@ -192,6 +241,21 @@ def _build_selected_prompt(last_message: AnyMessage) -> str:
         f"![{value}](attachment:{key})" for key, value in selected.items()
     ]
     return "Пользователь указал на следующие вложения: \n" + "\n".join(selected_items)
+
+
+def _build_current_work_state(state: AgentState) -> HumanMessage | None:
+    plan_content = state.get("plan_content")
+    todos = state.get("todos")
+    if not plan_content and not todos:
+        return None
+    payload = {"plan_content": plan_content, "todos": todos or []}
+    return HumanMessage(
+        content=(
+            "<current_work_state>\n"
+            f"{json.dumps(payload, ensure_ascii=False, default=str)}\n"
+            "</current_work_state>"
+        )
+    )
 
 
 def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
@@ -574,6 +638,8 @@ def create_graph(
         output = await model_.with_retry().ainvoke(messages)
         if name:
             output.name = name
+        if output.id is None:
+            output.id = str(uuid.uuid4())
         output.additional_kwargs.pop("function_call", None)
         output.additional_kwargs["rendered"] = True
         for call in output.tool_calls:
@@ -592,10 +658,13 @@ def create_graph(
         # terminal assistant message instead of invoking the model again. The
         # message has no tool calls, so _make_model_to_tools_edge routes it to
         # the end of the graph.
-        loop_reason = detect_loop(state["messages"])
+        loop_reason = detect_loop(strip_context_summaries(state["messages"]))
         if loop_reason:
             logger.warning("Anti-loop triggered, stopping run: %s", loop_reason)
-            stop_message = AIMessage(content=ANTI_LOOP_STOP_MESSAGE)
+            stop_message = AIMessage(
+                id=str(uuid.uuid4()),
+                content=ANTI_LOOP_STOP_MESSAGE,
+            )
             stop_message.additional_kwargs["rendered"] = True
             if name:
                 stop_message.name = name
@@ -608,6 +677,53 @@ def create_graph(
 
         llm_runtime = await resolver.get_llm_runtime()
         llm = await llm_runtime.get_llm()
+        context_window = resolve_context_window(
+            llm_runtime.model_id,
+            llm_runtime.context_window,
+        )
+        compaction = await prepare_context_compaction(
+            state["messages"],
+            model=llm,
+            context_window=context_window,
+            reason="auto",
+        )
+        for event in compaction.usage_events:
+            schedule_usage_record(
+                config,
+                event.get("model") or llm_runtime.model_id,
+                event["usage"],
+            )
+        if compaction.error is not None:
+            logger.warning(
+                "Context compaction failed; hard=%s: %s",
+                compaction.hard_failure,
+                compaction.error,
+            )
+        if compaction.hard_failure:
+            stop_message = AIMessage(
+                id=str(uuid.uuid4()),
+                content=CONTEXT_COMPACTION_STOP_MESSAGE,
+                # Preserve the last real provider measurement so the next
+                # regular turn cannot bypass the hard guard merely because
+                # this synthetic stop message did not call a model.
+                usage_metadata=(
+                    {
+                        "input_tokens": compaction.input_tokens,
+                        "output_tokens": 0,
+                        "total_tokens": compaction.input_tokens,
+                    }
+                    if compaction.input_tokens is not None
+                    else None
+                ),
+                additional_kwargs={
+                    "rendered": True,
+                    "kind": "system_notice",
+                    "context_compaction_error": True,
+                },
+            )
+            if name:
+                stop_message.name = name
+            return {"messages": [stop_message]}
 
         llm_type = llm_runtime.get_llm_type()
         think_enabled = _is_feature_enabled_for_provider(
@@ -632,13 +748,13 @@ def create_graph(
 
         if multi_tool_use_enabled:
             few_shots_collapse = collapse_tool_messages(FEW_SHOT_EXAMPLES_SINGLE)
-            collapsed_messages = collapse_tool_messages(state["messages"])
+            collapsed_messages = collapse_tool_messages(compaction.messages)
         elif think_enabled:
             few_shots_collapse = list(FEW_SHOT_EXAMPLES_SINGLE)
-            collapsed_messages = list(state["messages"])
+            collapsed_messages = list(compaction.messages)
         else:
             few_shots_collapse = []
-            collapsed_messages = list(state["messages"])
+            collapsed_messages = list(compaction.messages)
         state_messages_collapse = (
             collapse_think_hops(collapsed_messages)
             if think_enabled
@@ -647,7 +763,14 @@ def create_graph(
         configurable = (config or {}).get("configurable") or {}
         deep_research_forced = bool(configurable.get("deep_research_forced"))
 
-        messages_for_llm = few_shots_collapse + state_messages_collapse
+        projected_messages = list(state_messages_collapse)
+        if (
+            compaction.marker is not None
+            or find_latest_valid_summary(state["messages"]) is not None
+        ):
+            if work_state_message := _build_current_work_state(state):
+                projected_messages.insert(1, work_state_message)
+        messages_for_llm = few_shots_collapse + projected_messages
         if messages_for_llm and messages_for_llm[-1].type == "human":
             last_message = messages_for_llm[-1]
             user_input = last_message.content
@@ -826,6 +949,8 @@ def create_graph(
         state_messages_update: list[AnyMessage] = list(result_messages)
         if messages_for_llm and messages_for_llm[-1].type == "human":
             state_messages_update = [messages_for_llm[-1], *state_messages_update]
+        if compaction.marker is not None:
+            state_messages_update = [compaction.marker, *state_messages_update]
 
         state_updates = {"messages": state_messages_update}
         if response.structured_response is not None:
@@ -833,8 +958,83 @@ def create_graph(
 
         return state_updates
 
+    async def acompact_context_started_node(
+        state: AgentState, runtime: Runtime[ContextT], config
+    ) -> dict[str, Any]:
+        """Emit a persisted notice before explicit compaction begins."""
+        _ = state, runtime
+        operation_id = _resolve_context_compaction_operation_id(config)
+        return {
+            "messages": [
+                _context_compaction_notice(
+                    operation_id=operation_id,
+                    status="started",
+                    content="Начинаю суммаризацию контекста. Это служебный шаг, скоро покажу результат.",
+                    reason="manual",
+                )
+            ]
+        }
+
+    async def acompact_context_node(
+        state: AgentState, runtime: Runtime[ContextT], config
+    ) -> dict[str, Any]:
+        """Run an explicit compaction without invoking the normal agent loop."""
+        _ = runtime
+        operation_id = _resolve_context_compaction_operation_id(config)
+        resolver = await RuntimeResolver.create(config)
+        resolver.inject(config)
+        llm_runtime = await resolver.get_llm_runtime()
+        llm = await llm_runtime.get_llm()
+        try:
+            result = await prepare_context_compaction(
+                state["messages"],
+                model=llm,
+                context_window=resolve_context_window(
+                    llm_runtime.model_id,
+                    llm_runtime.context_window,
+                ),
+                reason="manual",
+                operation_id=operation_id,
+            )
+        except Exception as exc:
+            logger.warning("Explicit context compaction failed: %s", exc)
+            return {
+                "messages": [
+                    _context_compaction_notice(
+                        operation_id=operation_id,
+                        status="failed",
+                        content=(
+                            "Не удалось сократить контекст. Попробуй ещё раз."
+                            if not str(exc).strip()
+                            else f"Не удалось сократить контекст: {exc}"
+                        ),
+                        reason="manual",
+                    )
+                ]
+            }
+        for event in result.usage_events:
+            schedule_usage_record(
+                config,
+                event.get("model") or llm_runtime.model_id,
+                event["usage"],
+            )
+        if result.marker is not None:
+            return {"messages": [result.marker]}
+        return {
+            "messages": [
+                _context_compaction_notice(
+                    operation_id=operation_id,
+                    status="failed",
+                    content="Контекст уже достаточно короткий, сокращать нечего.",
+                    reason="manual",
+                )
+            ]
+        }
+
     # Use sync or async based on model capabilities
     graph.add_node("model", amodel_node)
+    graph.add_node("compact_context_started", acompact_context_started_node)
+    graph.add_node("compact_context", acompact_context_node)
 
     # Only add tools node if we have tools
     if tool_node is not None:
@@ -890,7 +1090,18 @@ def create_graph(
     graph.add_node("after_model", after_model_node)
     graph.add_node("after_agent", after_agent_node)
 
-    graph.add_edge(START, "before_agent")
+    def route_start(_state: AgentState, config: RunnableConfig) -> str:
+        configurable = (config or {}).get("configurable") or {}
+        if configurable.get("context_compaction_only") is True:
+            return "compact_context_started"
+        return "before_agent"
+
+    graph.add_conditional_edges(
+        START,
+        RunnableCallable(route_start, trace=False),
+    )
+    graph.add_edge("compact_context_started", "compact_context")
+    graph.add_edge("compact_context", END)
     graph.add_edge("before_agent", "before_model")
     graph.add_edge("before_model", "model")
     graph.add_edge("model", "after_model")

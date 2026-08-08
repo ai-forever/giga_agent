@@ -366,6 +366,33 @@ class Settings(BaseSettings):
         alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS",
     )
 
+    giga_agent_context_compaction_enabled: bool = Field(
+        True, alias="GIGA_AGENT_CONTEXT_COMPACTION_ENABLED"
+    )
+    giga_agent_context_compaction_trigger_ratio: float = Field(
+        0.7, alias="GIGA_AGENT_CONTEXT_COMPACTION_TRIGGER_RATIO", gt=0, lt=1
+    )
+    giga_agent_context_compaction_hard_ratio: float = Field(
+        0.95, alias="GIGA_AGENT_CONTEXT_COMPACTION_HARD_RATIO", gt=0, le=1
+    )
+    giga_agent_context_compaction_keep_tokens: int = Field(
+        4000, alias="GIGA_AGENT_CONTEXT_COMPACTION_KEEP_TOKENS", gt=0
+    )
+    giga_agent_context_compaction_summary_max_tokens: int = Field(
+        4096, alias="GIGA_AGENT_CONTEXT_COMPACTION_SUMMARY_MAX_TOKENS", gt=0
+    )
+
+    @field_validator("giga_agent_context_compaction_hard_ratio")
+    @classmethod
+    def _validate_compaction_ratios(cls, value: float, info) -> float:
+        trigger = info.data.get("giga_agent_context_compaction_trigger_ratio", 0.80)
+        if value <= trigger:
+            raise ValueError(
+                "GIGA_AGENT_CONTEXT_COMPACTION_HARD_RATIO must be greater than "
+                "GIGA_AGENT_CONTEXT_COMPACTION_TRIGGER_RATIO"
+            )
+        return value
+
     giga_agent_tool_max_size: int = Field(25000, alias="GIGA_AGENT_TOOL_MAX_SIZE")
 
     # CSP applied to MCP App (UI widget) iframes to restrict their network

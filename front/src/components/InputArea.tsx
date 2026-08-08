@@ -51,6 +51,7 @@ import {
   buildCommentResult,
   findCarrierToolCallId,
 } from "./questions/optimistic.ts";
+import { appendContextCompactionStarted } from "./context-compaction/optimistic.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
@@ -87,6 +88,11 @@ import {
 } from "@/types/prompt-suggestions";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
+
+const newContextCompactionOperationId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `compact-${Date.now()}`;
 
 const ModuleIcon: React.FC<{ name: string; className?: string }> = ({
   name,
@@ -833,6 +839,45 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   }, [thread?.isLoading]);
 
   const handleSend = () => {
+    if (message.trim() === "/compact") {
+      if (thread?.isLoading || thread?.interrupt) {
+        toast.warning("Дождитесь завершения текущего запуска");
+        return;
+      }
+      if (uploads.length > 0 || selectedCount > 0) {
+        toast.warning("Уберите вложения перед командой /compact");
+        return;
+      }
+      if (!thread || (thread.messages?.length ?? 0) === 0) {
+        toast.info("Недостаточно истории для сокращения");
+        return;
+      }
+      const forkCheckpoint = branches.isViewingNonHead
+        ? branches.activeCheckpoint
+        : undefined;
+      const baseMessages = branches.isViewingNonHead
+        ? branches.activeMessages
+        : (thread.messages ?? []);
+      const operationId = newContextCompactionOperationId();
+      thread.submit({} as any, {
+        optimisticValues: appendContextCompactionStarted(
+          operationId,
+          baseMessages,
+        ),
+        checkpoint: forkCheckpoint,
+        streamMode: ["messages"],
+        onDisconnect: "continue",
+        config: {
+          configurable: {
+            context_compaction_only: true,
+            context_compaction_operation_id: operationId,
+          },
+        },
+      });
+      setMessage("");
+      toast.info("Сокращаю контекст…");
+      return;
+    }
     // При активном interrupt поле ввода отвечает НА НЕГО, а не шлёт новый ран
     // (та же логика, что в handleKeyDown): вопросы → свободный comment, прочее →
     // comment/approve.

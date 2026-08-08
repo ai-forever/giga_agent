@@ -398,6 +398,7 @@ class CliRuntimeResolver(RuntimeResolver):
         return runtime_cls(
             connector=connector_runtime,
             model_id=conf_llm.model_id,
+            context_window=conf_llm.context_window,
             **validated_settings,
         )
 

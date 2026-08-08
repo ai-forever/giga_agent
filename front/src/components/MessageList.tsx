@@ -24,6 +24,9 @@ import ResponseWidget, {
 } from "./widgets/ResponseWidget";
 import LivePlanApprovalCard from "./planning/LivePlanApprovalCard";
 import TodoListWidget from "./planning/TodoListWidget";
+import ContextSummaryCard, {
+  type ContextCompactionData,
+} from "./ContextSummaryCard";
 
 const AnsweredQuestionsCard = React.lazy(
   () => import("./questions/AnsweredQuestionsCard.tsx"),
@@ -176,6 +179,11 @@ const collectAnsweredQuestions = (
 
 type RenderItem =
   | { kind: "single"; message: Message_; hideToolCalls?: boolean }
+  | {
+      kind: "context-summary";
+      message: Message_;
+      data: ContextCompactionData;
+    }
   | { kind: "run"; aiMessages: Message_[]; key: string }
   // Standalone block emitted when ask_questions / a response-widget tool is
   // called in parallel with a visible tool: the visible tool stays in the run,
@@ -314,7 +322,24 @@ const MessageList: React.FC<MessageListProps> = ({
         bufferTodoCalls = [];
       }
     };
+    const getContextCompaction = (
+      message: Message_,
+    ): ContextCompactionData | undefined => {
+      const namespace = (message.additional_kwargs as any)?.giga_agent;
+      const payload = namespace?.context_compaction;
+      return payload?.version === 1 ? payload : undefined;
+    };
     for (const m of renderable) {
+      const contextCompaction = getContextCompaction(m);
+      if (contextCompaction) {
+        flush();
+        out.push({
+          kind: "context-summary",
+          message: m,
+          data: contextCompaction,
+        });
+        continue;
+      }
       if (hasToolCalls(m)) {
         // ask_questions и response-widget-результаты прерывают ран.
         const questionCards = collectAnsweredQuestions([m], resultsById);
@@ -595,6 +620,19 @@ const MessageList: React.FC<MessageListProps> = ({
                   isStreaming={!!thread?.isLoading}
                 />
               ))}
+            </div>
+          );
+        }
+        if (item.kind === "context-summary") {
+          return (
+            <div
+              key={item.message.id ?? `context-summary-${idx}`}
+              className="px-[20px] mb-[20px]"
+            >
+              <ContextSummaryCard
+                summary={getMessageText(item.message)}
+                data={item.data}
+              />
             </div>
           );
         }

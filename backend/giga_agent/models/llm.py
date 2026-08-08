@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from cashews import cache
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 from sqlalchemy import String, DateTime, Uuid, ForeignKey, select, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -48,6 +48,7 @@ class LLM(Base):
     )
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     model_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     parallel_calls: Mapped[int] = mapped_column(Integer, default=1)
     settings: Mapped[dict] = mapped_column(JSON_VARIANT(), default=dict)
@@ -73,6 +74,7 @@ class LLMBase(BaseModel):
     type: str
     connector_id: uuid.UUID
     model_id: str
+    context_window: PositiveInt | None = None
     name: Optional[str] = None
     parallel_calls: int = 1
     settings: LLMSettings = Field(default_factory=LLMSettings)
@@ -90,6 +92,7 @@ class LLMUpdate(BaseModel):
     type: Optional[str] = None
     connector_id: Optional[uuid.UUID] = None
     model_id: Optional[str] = None
+    context_window: PositiveInt | None = None
     name: Optional[str] = None
     parallel_calls: Optional[int] = None
     settings: Optional[LLMSettings] = None
@@ -114,6 +117,7 @@ class LLMContext(BaseModel):
     connector_id: uuid.UUID
     type: str
     model_id: str
+    context_window: int | None = None
     parallel_calls: int
     settings: dict[str, Any] = Field(default_factory=dict)
     is_active: bool
@@ -195,6 +199,7 @@ class LLMRepository(ACLResourceRepositoryMixin[LLM]):
             connector_id=llm.connector_id,
             type=llm.type,
             model_id=llm.model_id,
+            context_window=llm.context_window,
             parallel_calls=llm.parallel_calls,
             settings=llm.settings or {},
             is_active=llm.is_active,
@@ -318,6 +323,7 @@ class LLMRepository(ACLResourceRepositoryMixin[LLM]):
         llm_type: str,
         connector_id: uuid.UUID,
         model_id: str,
+        context_window: int | None = None,
         name: Optional[str] = None,
         parallel_calls: int = 1,
         settings: Optional[dict[str, Any]] = None,
@@ -328,6 +334,7 @@ class LLMRepository(ACLResourceRepositoryMixin[LLM]):
             type=llm_type,
             connector_id=connector_id,
             model_id=model_id,
+            context_window=context_window,
             name=name,
             parallel_calls=parallel_calls,
             settings=settings or {},
