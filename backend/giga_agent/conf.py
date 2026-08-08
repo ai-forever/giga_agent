@@ -4,7 +4,7 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     giga_agent_sandbox_port_redirect_base: str | None = Field(
         None,
         alias="GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE",
+    )
+    giga_agent_telegram_text_mode: Literal["rich", "legacy"] = Field(
+        "rich",
+        alias="GIGA_AGENT_TELEGRAM_TEXT_MODE",
     )
     # Domain for the app session cookie in cross-domain mode. Empty -> host-only
     # cookie bound to the app host (correct default when app and sandboxes live

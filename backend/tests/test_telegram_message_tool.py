@@ -25,7 +25,9 @@ def _bot_app() -> TelegramBotApp:
         bot_token="123456:telegram-test-token",
         bot_username="test_bot",
     )
-    return TelegramBotApp(bot_row=bot_row, user_email="owner@example.com")
+    app = TelegramBotApp(bot_row=bot_row, user_email="owner@example.com")
+    app.bot.send_rich_message = AsyncMock()
+    return app
 
 
 def _message(
@@ -864,7 +866,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("mcp_tools", run_input)
         self.assertEqual(run_input["mcp_tools"], [build_telegram_message_tool_schema()])
         self.assertEqual(run_input["messages"][0]["role"], "human")
-        message.answer.assert_awaited()
+        app.bot.send_rich_message.assert_awaited()
 
     async def test_handle_message_includes_reply_context_and_sender_metadata(self):
         app = _bot_app()
@@ -1179,8 +1181,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(client.runs.wait.await_count, 2)
-        first_message.answer.assert_awaited()
-        second_message.answer.assert_awaited()
+        self.assertEqual(app.bot.send_rich_message.await_count, 2)
 
     async def test_handle_message_ignores_group_message_without_mention(self):
         app = _bot_app()
@@ -1266,13 +1267,13 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         app.media_service.download_attachment = AsyncMock(return_value=b"image-bytes")
         events: list[tuple[str, str]] = []
 
-        async def _record_text(text: str, *args, **kwargs):
-            events.append(("text", text))
+        async def _record_text(_chat_id, rich_message, *args, **kwargs):
+            events.append(("text", rich_message.markdown))
 
         async def _record_photo(*args, **kwargs):
             events.append(("photo", "image"))
 
-        message.answer.side_effect = _record_text
+        app.bot.send_rich_message.side_effect = _record_text
         message.answer_photo.side_effect = _record_photo
         tool_call = {
             "id": "call-1",
@@ -1305,13 +1306,13 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         app.media_service.download_attachment = AsyncMock(return_value=b"image-bytes")
         events: list[str] = []
 
-        async def _record_text(text: str, *args, **kwargs):
-            events.append(f"text:{text}")
+        async def _record_text(_chat_id, rich_message, *args, **kwargs):
+            events.append(f"text:{rich_message.markdown}")
 
         async def _record_photo(*args, **kwargs):
             events.append("photo")
 
-        message.answer.side_effect = _record_text
+        app.bot.send_rich_message.side_effect = _record_text
         message.answer_photo.side_effect = _record_photo
         tool_call = {
             "id": "call-1",
@@ -1370,13 +1371,13 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
         app.media_service.download_attachment = AsyncMock(return_value=b"image-bytes")
         events: list[tuple[str, str]] = []
 
-        async def _record_text(text: str, *args, **kwargs):
-            events.append(("text", text))
+        async def _record_text(_chat_id, rich_message, *args, **kwargs):
+            events.append(("text", rich_message.markdown))
 
         async def _record_photo(*args, **kwargs):
             events.append(("photo", "image"))
 
-        message.answer.side_effect = _record_text
+        app.bot.send_rich_message.side_effect = _record_text
         message.answer_photo.side_effect = _record_photo
         result = {
             "messages": [
@@ -1424,5 +1425,7 @@ class TelegramMessageToolTests(unittest.IsolatedAsyncioTestCase):
             reply_to_message_id=321,
         )
 
-        reply_parameters = message.answer.await_args.kwargs["reply_parameters"]
+        reply_parameters = app.bot.send_rich_message.await_args.kwargs[
+            "reply_parameters"
+        ]
         self.assertEqual(reply_parameters.message_id, 321)
