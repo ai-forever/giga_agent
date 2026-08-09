@@ -108,8 +108,13 @@ export interface GraphInterrupt {
     | "tool_call"
     | "questions"
     | "confirm_destructive"
-    | "plan_approval";
+    | "plan_approval"
+    | "subagent_approval";
   tools?: ToolCall[];
+  agent_id?: string;
+  agent_name?: string;
+  child_thread_id?: string;
+  child_run_id?: string;
   plan_content?: string;
   todos?: PlanTodo[];
   questions?: Question[];

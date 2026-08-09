@@ -27,6 +27,7 @@ class SkillSourceType(str, Enum):
     BUILTIN = "builtin"
     UPLOAD = "upload"
     LOCAL_DIR = "local_dir"
+    GITHUB = "github"
 
 
 # ============ SQLAlchemy Model ============

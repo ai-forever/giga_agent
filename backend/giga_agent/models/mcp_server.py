@@ -57,6 +57,9 @@ class McpServer(Base):
         index=True,
     )
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    catalog_id: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, index=True
+    )
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     auth_type: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
     settings: Mapped[dict] = mapped_column(JSON_VARIANT(), default=dict)
@@ -105,6 +108,7 @@ class McpServerResponse(BaseModel):
     id: uuid.UUID
     owner_id: uuid.UUID
     name: Optional[str] = None
+    catalog_id: Optional[str] = None
     url: str
     auth_type: str
     is_active: bool
@@ -249,6 +253,7 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
         url: str,
         auth_type: str = "none",
         name: str | None = None,
+        catalog_id: str | None = None,
         settings: dict[str, Any] | None = None,
         is_active: bool = True,
     ) -> McpServer:
@@ -257,6 +262,7 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
             url=url,
             auth_type=auth_type,
             name=name,
+            catalog_id=catalog_id,
             settings=normalize_settings(auth_type, settings or {}),
             is_active=is_active,
             is_local=is_local_url(url),
@@ -314,6 +320,7 @@ class McpServerRepository(ACLResourceRepositoryMixin[McpServer]):
             id=server.id,
             owner_id=server.owner_id,
             name=server.name,
+            catalog_id=server.catalog_id,
             url=server.url,
             auth_type=server.auth_type,
             is_active=server.is_active,

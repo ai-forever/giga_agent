@@ -269,6 +269,7 @@ async def connect_catalog(
         url=entry.url,
         auth_type=auth_type,
         name=entry.name,
+        catalog_id=entry.id,
         settings=normalize_settings(auth_type, settings),
         is_active=True,
     )

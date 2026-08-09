@@ -22,6 +22,7 @@ from giga_agent.modules.scraper import ScraperModule
 from giga_agent.modules.search import SearchModule
 from giga_agent.modules.skills.module import SkillsModule
 from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
+from giga_agent.modules.subagents import SubagentsModule
 from giga_agent.modules.weather import WeatherModule
 
 
@@ -49,6 +50,7 @@ class GigaAgent(BaseAgent):
             WeatherModule(),
             DeepResearchModule(),
             SchedulerModule(),
+            SubagentsModule(),
             SubAgentLegacyModule(),
             ExperimentalModule(),
         ]

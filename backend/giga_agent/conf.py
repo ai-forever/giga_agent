@@ -26,6 +26,12 @@ class Settings(BaseSettings):
 
     giga_agent_runtime: str = Field("local", alias="GIGA_AGENT_RUNTIME")
     giga_agent_runtime_local: bool = Field(False, alias="GIGA_AGENT_RUNTIME_LOCAL")
+    giga_agent_max_active_subagents_per_user: int = Field(
+        3, alias="GIGA_AGENT_MAX_ACTIVE_SUBAGENTS_PER_USER", ge=1
+    )
+    giga_agent_subagent_approval_ttl_seconds: int = Field(
+        86400, alias="GIGA_AGENT_SUBAGENT_APPROVAL_TTL_SECONDS", ge=60
+    )
     giga_agent_cli_cwd: str | None = Field(None, alias="GIGA_AGENT_CLI_CWD")
     giga_agent_cli_config: str | None = Field(None, alias="GIGA_AGENT_CLI_CONFIG")
     giga_agent_cli_no_sandbox: bool = Field(False, alias="GIGA_AGENT_CLI_NO_SANDBOX")

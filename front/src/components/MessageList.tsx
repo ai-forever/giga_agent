@@ -27,6 +27,7 @@ import TodoListWidget from "./planning/TodoListWidget";
 import ContextSummaryCard, {
   type ContextCompactionData,
 } from "./ContextSummaryCard";
+import type { SubagentActivity } from "./agents/SubagentActivityCard";
 
 const AnsweredQuestionsCard = React.lazy(
   () => import("./questions/AnsweredQuestionsCard.tsx"),
@@ -38,6 +39,8 @@ interface MessageListProps {
   threadId?: string;
   children?: React.ReactNode;
   notShowWelcomeMessage?: boolean;
+  compact?: boolean;
+  readOnly?: boolean;
   maybeAutoScroll: () => void;
   onSelectSuggestion?: (suggestion: PromptSuggestionScenario) => void;
 }
@@ -46,6 +49,7 @@ const THINK_TOOL_NAME = "think";
 const ASK_QUESTIONS_TOOL_NAME = "ask_questions";
 const PRESENT_PLAN_TOOL_NAME = "present_plan";
 const WRITE_TODO_TOOL_NAME = "write_todo";
+const SUBTASK_TOOL_NAME = "subtask";
 
 const hasVisibleToolCalls = (
   m: Message_,
@@ -66,6 +70,7 @@ const hasVisibleToolCalls = (
       c.name !== ASK_QUESTIONS_TOOL_NAME &&
       c.name !== PRESENT_PLAN_TOOL_NAME &&
       c.name !== WRITE_TODO_TOOL_NAME &&
+      c.name !== SUBTASK_TOOL_NAME &&
       !isResponseWidget(c.id ? resultsById[c.id] : undefined),
   );
 };
@@ -102,13 +107,55 @@ const hasContentOutsideThinking = (m: Message_): boolean =>
 const collectResponseWidgets = (
   aiMessages: Message_[],
   resultsById: Record<string, Message_>,
+  liveSubagentActivities?: Map<string, SubagentActivity>,
 ): ResponseWidgetItem[] => {
   const out: ResponseWidgetItem[] = [];
   for (const m of aiMessages) {
     for (const c of ((m as any).tool_calls ?? []) as Array<any>) {
-      const result = c.id ? resultsById[c.id] : undefined;
+      const liveActivity = c.id ? liveSubagentActivities?.get(c.id) : undefined;
+      const result = liveActivity
+        ? ({
+            type: "tool",
+            id: `subtask-live-${c.id}`,
+            tool_call_id: c.id,
+            content: "",
+            additional_kwargs: {
+              subagent_activity: {
+                ...liveActivity,
+                task: liveActivity.task ?? c.args?.task,
+              },
+            },
+          } as unknown as Message_)
+        : c.id
+          ? resultsById[c.id]
+          : undefined;
       if (isResponseWidget(result)) out.push({ toolCall: c, result });
     }
+  }
+  return out;
+};
+
+const collectUnlinkedSubtaskWidgets = (
+  messages: Message_[],
+  linkedToolCallIds: Set<string>,
+): ResponseWidgetItem[] => {
+  const out: ResponseWidgetItem[] = [];
+  for (const message of messages) {
+    if (message.type !== "tool") continue;
+    const activity = (message.additional_kwargs as any)?.subagent_activity as
+      | SubagentActivity
+      | undefined;
+    if (!activity) continue;
+    const toolCallId = (message as any).tool_call_id as string | undefined;
+    if (toolCallId && linkedToolCallIds.has(toolCallId)) continue;
+    out.push({
+      toolCall: {
+        id: toolCallId ?? message.id ?? `subtask-${out.length}`,
+        name: SUBTASK_TOOL_NAME,
+        args: { task: activity.task, agent_id: activity.agent_id },
+      } as any,
+      result: message,
+    });
   }
   return out;
 };
@@ -203,6 +250,8 @@ const MessageList: React.FC<MessageListProps> = ({
   threadId: routeThreadId,
   children,
   notShowWelcomeMessage,
+  compact = false,
+  readOnly = false,
   maybeAutoScroll,
   onSelectSuggestion,
 }) => {
@@ -212,6 +261,15 @@ const MessageList: React.FC<MessageListProps> = ({
   const messages = branches.isViewingNonHead
     ? branches.activeMessages
     : messagesProp;
+  const liveSubagentActivities = useMemo(() => {
+    const map = new Map<string, SubagentActivity>();
+    for (const item of (thread?.values?.ui ?? []) as any[]) {
+      if (item?.name === "subagent_activity" && item?.props?.tool_call_id) {
+        map.set(item.props.tool_call_id, item.props as SubagentActivity);
+      }
+    }
+    return map;
+  }, [thread?.values?.ui]);
   const resultsById = useMemo(() => {
     const map: Record<string, Message_> = {};
     for (const m of messages) {
@@ -277,7 +335,10 @@ const MessageList: React.FC<MessageListProps> = ({
         }
       }
     }
-    return collectUnlinkedPlanWidgets(messages, linkedToolCallIds);
+    return [
+      ...collectUnlinkedPlanWidgets(messages, linkedToolCallIds),
+      ...collectUnlinkedSubtaskWidgets(messages, linkedToolCallIds),
+    ];
   }, [messages, renderable, resultsById]);
 
   const items: RenderItem[] = useMemo(() => {
@@ -343,7 +404,11 @@ const MessageList: React.FC<MessageListProps> = ({
       if (hasToolCalls(m)) {
         // ask_questions и response-widget-результаты прерывают ран.
         const questionCards = collectAnsweredQuestions([m], resultsById);
-        const responseWidgets = collectResponseWidgets([m], resultsById);
+        const responseWidgets = collectResponseWidgets(
+          [m],
+          resultsById,
+          liveSubagentActivities,
+        );
         const hasCard = questionCards.length > 0 || responseWidgets.length > 0;
         const hasVisible = hasVisibleToolCalls(m, resultsById);
         const todoCalls = m.id ? (todoCallsByMessageId.get(m.id) ?? []) : [];
@@ -411,7 +476,13 @@ const MessageList: React.FC<MessageListProps> = ({
       });
     }
     return out;
-  }, [renderable, resultsById, unlinkedPlanWidgets, writeTodoCalls]);
+  }, [
+    renderable,
+    resultsById,
+    unlinkedPlanWidgets,
+    writeTodoCalls,
+    liveSubagentActivities,
+  ]);
 
   // Response-widget-результаты рендерятся под контентом того AI-сообщения,
   // которое их породило (pure-card "single" — оно прерывает ран, см. группировку
@@ -423,11 +494,15 @@ const MessageList: React.FC<MessageListProps> = ({
       if (it.kind !== "single" || it.message.type !== "ai" || !it.message.id) {
         continue;
       }
-      const widgets = collectResponseWidgets([it.message], resultsById);
+      const widgets = collectResponseWidgets(
+        [it.message],
+        resultsById,
+        liveSubagentActivities,
+      );
       if (widgets.length) map.set(it.message.id, widgets);
     }
     return map;
-  }, [items, resultsById]);
+  }, [items, resultsById, liveSubagentActivities]);
 
   // Answered-questions cards render on the AI message that issued ask_questions —
   // that message is always a split-point "single" (it interrupts the run, see
@@ -474,6 +549,7 @@ const MessageList: React.FC<MessageListProps> = ({
     ((thread as any)?.threadId as string | undefined) ??
     undefined;
   const canShowFollowUps =
+    !compact &&
     FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED &&
     Boolean(activeThreadId) &&
     Boolean(lastAiId) &&
@@ -543,7 +619,7 @@ const MessageList: React.FC<MessageListProps> = ({
 
   return (
     <div
-      className="flex-1 p-5 max-[900px]:p-0"
+      className={`flex-1 ${compact ? "p-2" : "p-5 max-[900px]:p-0"}`}
       style={{ overflowAnchor: "none" }}
     >
       {children}
@@ -684,17 +760,22 @@ const MessageList: React.FC<MessageListProps> = ({
                 ? answeredQuestionsByAiId.get(item.message.id)
                 : undefined
             }
+            readOnly={readOnly}
           />
         );
       })}
-      <LiveQuestionsForm
-        key={`questions-${lastAiId ?? "none"}`}
-        thread={thread}
-      />
-      <LivePlanApprovalCard
-        key={`plan-approval-${lastAiId ?? "none"}`}
-        thread={thread}
-      />
+      {!readOnly && (
+        <>
+          <LiveQuestionsForm
+            key={`questions-${lastAiId ?? "none"}`}
+            thread={thread}
+          />
+          <LivePlanApprovalCard
+            key={`plan-approval-${lastAiId ?? "none"}`}
+            thread={thread}
+          />
+        </>
+      )}
       {canShowFollowUps && followUpSuggestions.length > 0 && (
         <div className="px-[20px]">
           <motion.div

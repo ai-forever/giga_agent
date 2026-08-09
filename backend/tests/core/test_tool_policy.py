@@ -320,5 +320,5 @@ def test_all_production_tool_declarations_have_policy() -> None:
                 if not has_policy:
                     missing.append((path, node.lineno))
 
-    assert len(declarations) == 78
+    assert len(declarations) == 79
     assert missing == []

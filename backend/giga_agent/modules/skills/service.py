@@ -549,16 +549,44 @@ class SkillsService:
 
     @staticmethod
     def _extract_archive(archive_bytes: bytes, filename: str, dest: Path) -> None:
+        max_files = 2_000
+        max_uncompressed = 20 * 1024 * 1024
+
+        def safe_target(name: str) -> Path:
+            normalized = name.replace("\\", "/")
+            if normalized.startswith("/") or ".." in Path(normalized).parts:
+                raise SkillInstallError(f"Unsafe archive path: {name}")
+            target = (dest / normalized).resolve()
+            if not target.is_relative_to(dest.resolve()):
+                raise SkillInstallError(f"Unsafe archive path: {name}")
+            return target
+
         lower = filename.lower()
         if lower.endswith(".zip"):
             import io
 
             with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
+                members = zf.infolist()
+                if len(members) > max_files:
+                    raise SkillInstallError("Archive contains too many files")
+                if sum(item.file_size for item in members) > max_uncompressed:
+                    raise SkillInstallError("Archive expands beyond the allowed size")
+                for item in members:
+                    safe_target(item.filename)
                 zf.extractall(dest)
         elif lower.endswith((".tar.gz", ".tgz", ".tar.bz2", ".tar")):
             import io
 
             with tarfile.open(fileobj=io.BytesIO(archive_bytes)) as tf:
+                members = tf.getmembers()
+                if len(members) > max_files:
+                    raise SkillInstallError("Archive contains too many files")
+                if sum(item.size for item in members) > max_uncompressed:
+                    raise SkillInstallError("Archive expands beyond the allowed size")
+                for item in members:
+                    safe_target(item.name)
+                    if item.issym() or item.islnk():
+                        raise SkillInstallError("Archive links are not allowed")
                 tf.extractall(dest, filter="data")
         else:
             raise SkillInstallError(

@@ -110,6 +110,7 @@ export function compositionFromResult(
  */
 export function isResponseWidget(result?: Message): boolean {
   const ak = (result?.additional_kwargs as any) ?? {};
+  if (ak.subagent_activity) return true;
   if (ak.response_widget === true) return true;
   if (
     ak.planning?.type === "approved_plan" ||

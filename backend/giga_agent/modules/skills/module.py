@@ -72,6 +72,13 @@ class SkillsModule(BaseModule):
             return None
 
         enabled = [s for s in skills if s.is_enabled]
+        configurable = (config or {}).get("configurable") or {}
+        if configurable.get("subagent_id"):
+            from giga_agent.subagents.execution import resolve_execution_profile
+
+            execution = await resolve_execution_profile(agent, user, config)
+            allowed = execution.skill_names if execution is not None else frozenset()
+            enabled = [s for s in enabled if s.name in allowed]
         if not enabled:
             return None
 

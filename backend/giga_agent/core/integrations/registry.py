@@ -46,6 +46,10 @@ def set_current_agent(agent: "BaseAgent") -> None:
     _current_agent = agent
 
 
+def get_current_agent() -> "BaseAgent | None":
+    return _current_agent
+
+
 def _current_modules() -> "tuple[BaseModule, ...]":
     if _current_agent is None:
         return ()

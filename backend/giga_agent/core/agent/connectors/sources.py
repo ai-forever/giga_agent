@@ -236,6 +236,70 @@ class ModuleToolSource:
         )
 
 
+class RestrictedToolSource:
+    """Fail-closed view of a source for one resolved subagent profile."""
+
+    def __init__(
+        self, source: ToolSource, profile: Any, ref_prefix: str, plan_mode: bool
+    ):
+        self._source = source
+        self._profile = profile
+        self._ref_prefix = ref_prefix
+        self._plan_mode = plan_mode
+        self.name = source.name
+        self.label = source.label
+        self.icon = source.icon
+
+    def _allowed(self, spec: ToolSpec, params: dict[str, Any] | None = None) -> bool:
+        from giga_agent.core.agent.tool_policy import ToolEffect, effective_tool_effect
+
+        if spec.policy is None:
+            return False
+        effect = effective_tool_effect(spec.policy, params)
+        if effect is None:
+            return False
+        if self._plan_mode:
+            return effect is ToolEffect.READ
+        if getattr(self._profile.definition, "source", "builtin") == "custom":
+            return effect.value in self._profile.allowed_tool_effects
+
+        ref = f"{self._ref_prefix}/{spec.name}"
+        rules = self._profile.definition.tools
+        if ref in rules.deny:
+            return False
+        return effect is ToolEffect.READ or ref in rules.allow
+
+    async def list_tools(self, *, user_id: uuid.UUID) -> list[ToolSpec]:
+        return [
+            spec
+            for spec in await self._source.list_tools(user_id=user_id)
+            if self._allowed(spec)
+        ]
+
+    async def call_tool(
+        self,
+        tool: str,
+        params: dict[str, Any],
+        runtime: ToolRuntime,
+        *,
+        user_id: uuid.UUID,
+    ) -> ToolCallOutcome:
+        spec = next(
+            (
+                item
+                for item in await self._source.list_tools(user_id=user_id)
+                if item.name == tool
+            ),
+            None,
+        )
+        if spec is None or not self._allowed(spec, params):
+            return ToolCallOutcome(
+                content=f"tool '{self.name}/{tool}' is not allowed for this subagent",
+                is_error=True,
+            )
+        return await self._source.call_tool(tool, params, runtime, user_id=user_id)
+
+
 # --------------------------------------------------------------------------- #
 # Aggregation + lookup.
 # --------------------------------------------------------------------------- #
@@ -258,12 +322,37 @@ async def collect_sources(
     # Lazy import: base.py imports graph_factory which imports this module.
     from giga_agent.core.agent.base import _disabled_module_ids
 
+    from giga_agent.subagents.execution import (
+        execution_module_ids,
+        resolve_execution_profile,
+    )
+
+    execution = await resolve_execution_profile(agent, user, config)
     disabled = _disabled_module_ids(config, user)
     sources: list[ToolSource] = []
     for module in agent.all_modules:
         if module.id in disabled:
             continue
-        sources.extend(await module.get_tool_sources(user, agent, config=config))
+        if execution is not None:
+            if module.id not in execution_module_ids(execution):
+                continue
+        module_sources = await module.get_tool_sources(user, agent, config=config)
+        if execution is None:
+            sources.extend(module_sources)
+            continue
+        plan_mode = bool(
+            ((config or {}).get("configurable") or {}).get("subagent_parent_plan_mode")
+        )
+        for source in module_sources:
+            if module.id == "mcp":
+                server = getattr(source, "_server", None)
+                db_server = getattr(server, "db_server", None)
+                if db_server is None or db_server.id not in execution.mcp_server_ids:
+                    continue
+                prefix = f"connector:{db_server.catalog_id or db_server.id}"
+            else:
+                prefix = module.id
+            sources.append(RestrictedToolSource(source, execution, prefix, plan_mode))
     return sources
 
 
