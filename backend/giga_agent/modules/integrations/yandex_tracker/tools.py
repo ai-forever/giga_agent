@@ -153,7 +153,7 @@ async def tracker_search_issues(
     if isinstance(items, dict):
         return items  # ошибка-валидация
     return build_widget_tool_message(
-        with_widget_note(
+        await with_widget_note(
             board_payload(PROVIDER, [_to_issue(i) for i in items]), runtime
         ),
         runtime=runtime,
@@ -294,7 +294,7 @@ async def tracker_board(
     groups = _build_groups(items, group_by)
     title = f"Задачи по {_GROUP_TITLES.get(group_by, group_by)}"
     return build_widget_tool_message(
-        with_widget_note(
+        await with_widget_note(
             emit_composed_board(runtime, PROVIDER, groups, title=title), runtime
         ),
         runtime=runtime,
@@ -317,7 +317,7 @@ async def tracker_get_issue(runtime: ToolRuntime, issue_key: str) -> dict[str, A
         resp.raise_for_status()
         item = resp.json()
     return build_widget_tool_message(
-        with_widget_note(
+        await with_widget_note(
             single_payload(PROVIDER, _to_issue(item, with_description=True)), runtime
         ),
         runtime=runtime,

@@ -5,8 +5,15 @@ import asyncio
 from giga_agent.modules.clarify.module import ClarifyModule
 
 
-def test_clarify_module_disables_tools_in_cli_prompt_mode() -> None:
+def test_clarify_module_disables_tools_in_cli_prompt_mode(monkeypatch) -> None:
     module = ClarifyModule()
+
+    async def read_metadata(config, _thread_id):
+        return (config or {}).get("metadata") or {}
+
+    monkeypatch.setattr(
+        "giga_agent.modules.clarify.module.get_thread_metadata", read_metadata
+    )
 
     tools = asyncio.run(
         module._get_tools(

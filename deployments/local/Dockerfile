@@ -9,8 +9,10 @@ USER root
 # ffmpeg is required by pydub to export podcast audio to mp3.
 # kaleido requires a system Chrome/Chromium binary for image export.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     chromium \
     ffmpeg \
+    git \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 

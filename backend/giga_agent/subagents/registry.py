@@ -181,7 +181,12 @@ class AgentRegistry:
         )
 
     async def list_for_user(
-        self, db: AsyncSession, user: "UserShort", *, cli: bool = False
+        self,
+        db: AsyncSession,
+        user: "UserShort",
+        *,
+        cli: bool = False,
+        config=None,
     ) -> list[AgentDefinition]:
         repository = AgentProfileRepository(db)
         profiles = [] if cli else await repository.list_for_owner(user.id)
@@ -194,13 +199,19 @@ class AgentRegistry:
                 enabled=override.is_enabled if override else True,
                 profile_id=override.id if override else None,
             )
-            result.append(await self._with_readiness(db, user, effective, override))
+            result.append(
+                await self._with_readiness(
+                    db, user, effective, override, config=config
+                )
+            )
         if not cli:
             for profile in profiles:
                 if profile.source == "custom" and profile.builtin_ref is None:
                     definition = await self._custom_from_profile(repository, profile)
                     result.append(
-                        await self._with_readiness(db, user, definition, profile)
+                        await self._with_readiness(
+                            db, user, definition, profile, config=config
+                        )
                     )
         return result
 
@@ -212,8 +223,11 @@ class AgentRegistry:
         *,
         require_runnable: bool = False,
         cli: bool = False,
+        config=None,
     ) -> AgentDefinition | None:
-        for definition in await self.list_for_user(db, user, cli=cli):
+        for definition in await self.list_for_user(
+            db, user, cli=cli, config=config
+        ):
             if definition.ref == ref or (
                 definition.source == "builtin" and definition.id == ref
             ):
@@ -230,17 +244,18 @@ class AgentRegistry:
         user: "UserShort",
         definition: AgentDefinition,
         profile: AgentProfile | None,
+        config=None,
     ) -> AgentDefinition:
         missing: list[dict[str, str]] = []
         from giga_agent.core.agent.base import _disabled_module_ids
 
-        disabled = _disabled_module_ids(None, user)
+        disabled = _disabled_module_ids(config, user)
         module_ids = {
             module.id
             for module in self.agent.all_modules
             if module.label
             and module.id not in disabled
-            and await module.is_enabled(user)
+            and await module.is_enabled(user, config=config)
         }
         for module_id in definition.modules:
             if module_id not in module_ids:

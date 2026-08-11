@@ -15,6 +15,10 @@ import typer
 from giga_agent.conf import reset_settings_cache
 from giga_agent.core.logging import setup_cli_logging
 from giga_agent.core.process_supervisor import get_process_supervisor
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 from ..types import LogLevel
 from ..utils.dotenv import load_dev_env
@@ -141,8 +145,8 @@ def _is_cli_context_compaction_turn(config: dict[str, Any] | None) -> bool:
     return configurable.get("context_compaction_only") is True
 
 
-def _is_cli_prompt_mode(config: dict[str, Any] | None) -> bool:
-    metadata = (config or {}).get("metadata") or {}
+async def _is_cli_prompt_mode(config: dict[str, Any] | None) -> bool:
+    metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
     return metadata.get("cli_prompt_mode") is True
 
 
@@ -161,12 +165,18 @@ def _make_console():
 
 
 class _ChatState:
-    __slots__ = ("approve", "debug", "plan_mode_pending")
+    __slots__ = ("approve", "debug", "plan_mode_pending", "subagent_statuses")
 
-    def __init__(self, approve: bool, debug: bool) -> None:
+    def __init__(
+        self,
+        approve: bool,
+        debug: bool,
+        plan_mode_pending: bool = False,
+    ) -> None:
         self.approve = approve
         self.debug = debug
-        self.plan_mode_pending = False
+        self.plan_mode_pending = plan_mode_pending
+        self.subagent_statuses = {}
 
 
 def _make_toggle_keybindings(state: _ChatState):
@@ -501,6 +511,101 @@ def _merge_stream_content(collected_text: str, content: str) -> tuple[str, str]:
     return collected_text + content, content
 
 
+def _extract_subagent_activity_event(event) -> dict[str, Any] | None:
+    if not isinstance(event, tuple) or len(event) != 2 or event[0] != "custom":
+        return None
+    payload = event[1]
+    if not isinstance(payload, dict) or payload.get("name") != "subagent_activity":
+        return None
+    props = payload.get("props")
+    return dict(props) if isinstance(props, dict) else None
+
+
+def _extract_cli_message_event(event) -> tuple[Any, Any] | None:
+    if not isinstance(event, tuple) or len(event) != 2:
+        return None
+    if event[0] == "messages":
+        message_event = event[1]
+        return message_event if isinstance(message_event, tuple) else None
+    if isinstance(event[0], str):
+        return None
+    return event
+
+
+def _subagent_activity_key(activity: dict[str, Any]) -> str:
+    for field in ("tool_call_id", "child_thread_id"):
+        value = activity.get(field)
+        if value:
+            return str(value)
+    return f"{activity.get('agent_id', 'subagent')}:{activity.get('task', '')}"
+
+
+def _subagent_activity_label(activity: dict[str, Any]) -> tuple[str, str]:
+    name = _single_line_preview(
+        str(activity.get("agent_name") or activity.get("agent_id") or "unknown"),
+        max_len=60,
+    )
+    task = _single_line_preview(str(activity.get("task") or ""), max_len=120)
+    return name, task
+
+
+def _safe_stop_status(status) -> None:
+    try:
+        status.stop()
+    except Exception:
+        pass
+
+
+def _handle_subagent_activity(
+    console,
+    active_statuses: dict[str, Any],
+    activity: dict[str, Any],
+) -> None:
+    from rich.status import Status
+    from rich.text import Text
+
+    status = str(activity.get("status") or "")
+    key = _subagent_activity_key(activity)
+    name, task = _subagent_activity_label(activity)
+    label = f"Subagent {name}: {task}"
+
+    if status == "running":
+        active_status = active_statuses.get(key)
+        if active_status is None:
+            active_status = Status(
+                Text(label, style="cyan"),
+                console=console,
+                spinner="dots",
+            )
+            active_statuses[key] = active_status
+            active_status.start()
+        else:
+            active_status.update(Text(label, style="cyan"))
+        return
+
+    if status not in {"completed", "error", "failed", "timeout", "cancelled"}:
+        return
+
+    active_status = active_statuses.pop(key, None)
+    if active_status is not None:
+        _safe_stop_status(active_status)
+
+    if status == "completed":
+        console.print(Text(f"✓ {label} completed", style="green"))
+        return
+
+    error = _single_line_preview(
+        str(activity.get("error") or "unknown error"), max_len=160
+    )
+    console.print(Text(f"✗ {label} failed: {error}", style="red"))
+
+
+def _stop_subagent_statuses(active_statuses: dict[str, Any]) -> None:
+    for status in active_statuses.values():
+        _safe_stop_status(status)
+    active_statuses.clear()
+
+
 def _load_and_validate_config_file(path: Path) -> str:
     """Read a CLI runtime config JSON file, validate it, and return its raw text."""
     from pydantic import ValidationError
@@ -606,6 +711,7 @@ async def _chat_loop(
     render_markdown: bool,
     cwd: Path,
     prompt: str | None = None,
+    plan_mode: bool = False,
 ) -> None:
     from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
@@ -641,7 +747,7 @@ async def _chat_loop(
             prompt,
             cwd=cwd,
             base_config=config,
-            plan_mode_pending=state.plan_mode_pending,
+            plan_mode_pending=plan_mode,
         )
         if prepared_turn.get("command") == "plan_pending":
             console.print(
@@ -773,29 +879,40 @@ async def _stream_raw_tokens(
     from langchain_core.messages import AIMessageChunk, ToolMessage
 
     collected_text = ""
-    async for event in graph.astream(input_msg, config, stream_mode="messages"):
-        if isinstance(event, tuple) and len(event) == 2:
-            msg, metadata = event
-        else:
-            continue
+    try:
+        async for event in graph.astream(
+            input_msg, config, stream_mode=["messages", "custom"]
+        ):
+            activity = _extract_subagent_activity_event(event)
+            if activity is not None:
+                _handle_subagent_activity(console, state.subagent_statuses, activity)
+                continue
+            message_event = _extract_cli_message_event(event)
+            if message_event is None:
+                continue
+            msg, metadata = message_event
 
-        if isinstance(msg, ToolMessage):
-            if _is_think_tool_message(msg):
-                await _print_think_thoughts_for_tool_message(
-                    graph, config, msg, console, render_markdown=False
+            if isinstance(msg, ToolMessage):
+                if _is_think_tool_message(msg):
+                    await _print_think_thoughts_for_tool_message(
+                        graph, config, msg, console, render_markdown=False
+                    )
+                    continue
+                if state.debug:
+                    _print_tool_response(console, msg)
+                continue
+
+            if isinstance(msg, AIMessageChunk) and msg.content:
+                collected_text, delta = _merge_stream_content(
+                    collected_text, msg.content
                 )
-                continue
-            if state.debug:
-                _print_tool_response(console, msg)
-            continue
-
-        if isinstance(msg, AIMessageChunk) and msg.content:
-            collected_text, delta = _merge_stream_content(collected_text, msg.content)
-            if not delta:
-                continue
-            if collected_text == delta:
-                console.print("[bold green]Agent:[/bold green] ", end="")
-            print(delta, end="", flush=True)
+                if not delta:
+                    continue
+                if collected_text == delta:
+                    console.print("[bold green]Agent:[/bold green] ", end="")
+                print(delta, end="", flush=True)
+    finally:
+        _stop_subagent_statuses(state.subagent_statuses)
 
     if collected_text:
         print()
@@ -839,11 +956,17 @@ async def _stream_with_live_markdown(
             console.print()
 
     try:
-        async for event in graph.astream(input_msg, config, stream_mode="messages"):
-            if isinstance(event, tuple) and len(event) == 2:
-                msg, metadata = event
-            else:
+        async for event in graph.astream(
+            input_msg, config, stream_mode=["messages", "custom"]
+        ):
+            activity = _extract_subagent_activity_event(event)
+            if activity is not None:
+                _handle_subagent_activity(console, state.subagent_statuses, activity)
                 continue
+            message_event = _extract_cli_message_event(event)
+            if message_event is None:
+                continue
+            msg, metadata = message_event
 
             if isinstance(msg, ToolMessage):
                 if _is_think_tool_message(msg):
@@ -890,6 +1013,7 @@ async def _stream_with_live_markdown(
     finally:
         if live is not None:
             _safe_stop_live(live)
+        _stop_subagent_statuses(state.subagent_statuses)
 
     if pending_text.strip():
         console.print(_markdown(_format_text_with_attachments(pending_text)))
@@ -953,7 +1077,7 @@ async def _stream_and_handle_interrupts(
                 console,
                 state,
                 render_markdown=render_markdown,
-                auto_approve=_is_cli_prompt_mode(config),
+                auto_approve=await _is_cli_prompt_mode(config),
             )
             input_msg = Command(resume=resume_value)
             continue
@@ -1806,6 +1930,13 @@ def cli_chat(
     approve: Annotated[
         bool, typer.Option("--approve", help="Auto-approve all tool calls")
     ] = False,
+    plan: Annotated[
+        bool,
+        typer.Option(
+            "--plan",
+            help="Use plan mode for the first message before executing it.",
+        ),
+    ] = False,
     prompt: Annotated[
         str | None,
         typer.Option(
@@ -1917,6 +2048,7 @@ def cli_chat(
     chat_state = _ChatState(
         approve=approve or prompt is not None,
         debug=debug,
+        plan_mode_pending=plan,
     )
 
     async def _run() -> None:
@@ -1936,6 +2068,7 @@ def cli_chat(
                 not no_markdown,
                 cli_cwd,
                 prompt,
+                plan_mode=plan,
             )
 
     try:

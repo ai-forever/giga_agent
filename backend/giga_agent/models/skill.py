@@ -71,6 +71,7 @@ class SkillSummary(BaseModel):
     description: str
     is_enabled: bool
     source_type: str
+    source_url: str | None = None
     created_at: datetime
     is_readonly: bool = False
     can_toggle: bool = True

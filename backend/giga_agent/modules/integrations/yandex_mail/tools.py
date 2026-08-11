@@ -293,7 +293,7 @@ async def mail_search(
         _search_sync, email_addr, token, folder, limit, sender, subject
     )
     return build_widget_tool_message(
-        with_widget_note(inbox_payload(folder, items), runtime), runtime=runtime
+        await with_widget_note(inbox_payload(folder, items), runtime), runtime=runtime
     )
 
 

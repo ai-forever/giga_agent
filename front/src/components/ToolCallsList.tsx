@@ -230,6 +230,22 @@ const basename = (path: string): string => {
   return normalized.split("/").at(-1) || normalized;
 };
 
+const getImagePaths = (args: Record<string, any>): string[] => {
+  if (Array.isArray(args.image_paths)) {
+    return args.image_paths.filter(
+      (path: unknown): path is string =>
+        typeof path === "string" && path.trim().length > 0,
+    );
+  }
+  const legacyPath = getStringArg(args, ["image_path"]);
+  return legacyPath ? [legacyPath] : [];
+};
+
+const getImageSummary = (args: Record<string, any>): string => {
+  const names = getImagePaths(args).map(basename);
+  return names.length > 0 ? names.join(", ") : "";
+};
+
 const getFileToolName = (toolCall: ToolCall): string => {
   const args = (toolCall.args ?? {}) as Record<string, any>;
   const path =
@@ -416,7 +432,7 @@ const getToolDisplay = (toolCall: ToolCall): ToolDisplay => {
     get_documents: getStringArg(args, ["query"]),
     search_memories: getStringArg(args, ["query"]),
     read_skill_manifest: getStringArg(args, ["name"]),
-    analyze_image: basename(getStringArg(args, ["image_path"])),
+    analyze_image: getImageSummary(args),
     gen_image: getStringArg(args, ["prompt"]),
     weather: getStringArg(args, ["city"]),
     vk_get_posts: getStringArg(args, ["domain", "owner_id"]),

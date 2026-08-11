@@ -53,6 +53,7 @@ from giga_agent.utils.thread_metadata import update_thread_metadata
 INNER_ASSISTANT_ID = "giga_agent"
 STATUS_UI_NAME = "experimental_status"
 STATUS_UI_ID = "experimental-status"
+INNER_STREAM_MODES = ["values", "messages", "updates", "custom"]
 
 POLL_INTERVAL_SEC = 2.5
 STATUS_INTERVAL_SEC = 10.0
@@ -426,6 +427,8 @@ def _forward_context_compaction_message(message: dict) -> AnyMessage:
 
 def _is_widget_tool(message: dict) -> bool:
     ak = message.get("additional_kwargs") or {}
+    if isinstance(ak.get("subagent_activity"), dict):
+        return True
     if ak.get("response_widget") is True:
         return True
     planning = ak.get("planning")
@@ -649,7 +652,20 @@ def _forward_widget(
     и frontend не распознал бы `write_todo`/`present_plan`. Заглушке и результату
     даём детерминированные id, чтобы повторный poll не создавал дубли.
     """
-    ak = message.get("additional_kwargs") or {}
+    ak = dict(message.get("additional_kwargs") or {})
+    subagent_activity = ak.get("subagent_activity")
+    if isinstance(subagent_activity, dict):
+        # В experimental-чате суб-агент — самостоятельный summary-виджет без
+        # доступа к внутренней переписке. Обычный `giga_agent` продолжает
+        # управлять раскрытием сам и не получает этот presentation-флаг.
+        ak["subagent_activity"] = {
+            **{
+                key: value
+                for key, value in subagent_activity.items()
+                if key != "inline_chat"
+            },
+            "summary_only": True,
+        }
     tcid = message.get("tool_call_id") or ""
     name = _tool_name_for_message(message, inner_messages or [])
     stub = AIMessage(
@@ -786,14 +802,32 @@ def _live_text_from_msg(m: dict) -> str:
     return "\n".join(parts)
 
 
-async def _consume_live(config: Any, thread_id: str, run_id: str, live: dict) -> None:
-    """Фоновая подписка на messages-стрим inner-рана.
+def _subagent_activity_from_custom(data: Any) -> dict[str, Any] | None:
+    """Извлечь subagent_activity из custom UI-события inner-графа."""
+    if not isinstance(data, dict) or data.get("name") != "subagent_activity":
+        return None
+    props = data.get("props")
+    return dict(props) if isinstance(props, dict) else None
+
+
+def _subagent_activity_ui_id(activity: dict[str, Any]) -> str:
+    tool_call_id = activity.get("tool_call_id")
+    if isinstance(tool_call_id, str) and tool_call_id:
+        return f"subagent-activity-{tool_call_id}"
+    return "subagent-activity"
+
+
+async def _consume_live(
+    config: Any, thread_id: str, run_id: str, live: dict[str, Any]
+) -> None:
+    """Фоновая подписка на messages/custom-стрим inner-рана.
 
     `join_stream` НЕ буферизован (отдаёт токены «с этого момента»), поэтому даёт
     живой прогресс во время долгого ризонинга/генерации, которого ещё нет в
     закоммиченном стейте (`get_state`). Пишем последний накопленный partial в
-    `live["text"]`, откуда его читает `_push_status`. Отмена задачи (при возврате
-    из pump) просто закрывает стрим; inner-ран НЕ отменяется
+    `live["text"]`, откуда его читает `_push_status`, и live-снапшот
+    `subagent_activity` для ретрансляции во внешний UI. Отмена задачи (при
+    возврате из pump) просто закрывает стрим; inner-ран НЕ отменяется
     (`cancel_on_disconnect=False`).
     """
     with contextlib.suppress(Exception):
@@ -801,10 +835,15 @@ async def _consume_live(config: Any, thread_id: str, run_id: str, live: dict) ->
             async for part in client.runs.join_stream(
                 thread_id,
                 run_id,
-                stream_mode="messages",
+                stream_mode=["messages", "custom"],
                 cancel_on_disconnect=False,
             ):
                 event = part.event or ""
+                if event == "custom":
+                    activity = _subagent_activity_from_custom(part.data)
+                    if activity is not None:
+                        live["subagent_activity"] = activity
+                    continue
                 if not event.startswith("messages") or not isinstance(part.data, list):
                     continue
                 # messages/partial|complete: data — список message-dict'ов
@@ -1019,7 +1058,7 @@ async def kickoff(state: ExperimentalState, config) -> dict:
                 assistant_id=INNER_ASSISTANT_ID,
                 checkpoint={"checkpoint_ns": ""},
                 config={"configurable": inner_configurable},
-                stream_mode=["values", "messages", "updates"],
+                stream_mode=INNER_STREAM_MODES,
             )
         else:
             run_kwargs: dict[str, Any] = {
@@ -1027,7 +1066,7 @@ async def kickoff(state: ExperimentalState, config) -> dict:
                 "config": {"configurable": inner_configurable},
                 # Объявляем режимы, чтобы pump мог join_stream'ить messages (живой
                 # прогресс) и values (закоммиченный стейт).
-                "stream_mode": ["values", "messages", "updates"],
+                "stream_mode": INNER_STREAM_MODES,
             }
             if not compaction_only:
                 run_kwargs["input"] = inner_input
@@ -1078,9 +1117,10 @@ async def pump(state: ExperimentalState, config) -> dict:
     outer_thread_id = _outer_thread_id(config)
     activity_id = state.get("activity_id")
     last_status = 0.0
+    last_activity_signature: str | None = None
     # Живой буфер текущего partial'а из messages-стрима (обновляется фоновой
     # задачей). Нужен, чтобы статусы обновлялись во время долгого ризонinга.
-    live: dict[str, str] = {"text": ""}
+    live: dict[str, Any] = {"text": ""}
     live_task: asyncio.Task | None = None
 
     try:
@@ -1097,6 +1137,26 @@ async def pump(state: ExperimentalState, config) -> dict:
                 # Копим вызовы инструментов текущего хода в лог активности.
                 if outer_thread_id:
                     await _record_tools_from_snapshot(outer_thread_id, inner_messages)
+
+                live_activity = live.get("subagent_activity")
+                if outer_thread_id and isinstance(live_activity, dict):
+                    activity_payload = {
+                        **live_activity,
+                        "summary_only": True,
+                    }
+                    activity_signature = json.dumps(
+                        activity_payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    )
+                    if activity_signature != last_activity_signature:
+                        push_ui_message(
+                            "subagent_activity",
+                            activity_payload,
+                            id=_subagent_activity_ui_id(activity_payload),
+                        )
+                        last_activity_signature = activity_signature
 
                 # Пробрасываем название треда из inner в внешний (giga_agent
                 # генерит его после первого хода; у обёртки title-middleware нет).
@@ -1268,7 +1328,7 @@ async def interrupt_node(state: ExperimentalState, config) -> dict:
             # experimental_inner — тот же exempt от лимита, что в kickoff (иначе
             # резюм inner-рана после ask_questions мог бы упереться в лимит).
             config={"configurable": inner_configurable},
-            stream_mode=["values", "messages", "updates"],
+            stream_mode=INNER_STREAM_MODES,
         )
     # Кэш статусов ключуется по run_id — старый run завершён, чистим.
     if old_run_id:

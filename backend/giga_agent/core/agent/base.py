@@ -52,6 +52,10 @@ from giga_agent.runtime_config import mount_runtime_config_route
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
 from giga_agent.scheduled.scheduler import ScheduledTaskScheduler
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 NOTES_PROMPT = """
 ====
@@ -409,7 +413,9 @@ class BaseAgent(BaseModel):
 
         is_channel = False
         if isinstance(config, dict):
-            metadata = config.get("metadata") or {}
+            metadata = await get_thread_metadata(
+                config, get_thread_id_from_config(config)
+            )
             is_channel = bool(metadata.get("is_channel"))
         cache_key = (user_id, user_fingerprint, is_channel)
         cached = None if execution is not None else self._tools_cache.get(cache_key)

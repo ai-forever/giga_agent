@@ -180,11 +180,27 @@ async def invoke_subgraph_cli(
 
     if thread_id is None:
         thread_id = str(uuid.uuid4())
-    parent_configurable = runtime.config.get("configurable", {})
+    raw_parent_configurable = runtime.config.get("configurable", {}) or {}
+    parent_configurable = {
+        key: value
+        for key, value in raw_parent_configurable.items()
+        if key
+        not in {
+            "checkpoint_ns",
+            "checkpoint_id",
+            "checkpoint_map",
+        }
+    }
     configurable = {
         **parent_configurable,
         "thread_id": thread_id,
-        CONFIG_KEY_CHECKPOINTER: parent_configurable.get(CONFIG_KEY_CHECKPOINTER),
+        # A tool invocation inherits the parent's ``tools:<call_id>``
+        # checkpoint namespace.  Reusing it would create a new child
+        # checkpoint branch for every ``subtask`` call, even with the same
+        # thread_id.  The child graph is invoked as an independent root;
+        # keep its namespace stable so continuation can load its history.
+        "checkpoint_ns": "",
+        CONFIG_KEY_CHECKPOINTER: raw_parent_configurable.get(CONFIG_KEY_CHECKPOINTER),
     }
     if extra_configurable:
         configurable.update(extra_configurable)

@@ -144,6 +144,51 @@ class PlanningWidgetHelperTests(unittest.TestCase):
                     result.additional_kwargs["planning"]["type"], snapshot_type
                 )
 
+    def test_subagent_activity_is_forwarded_as_summary_widget_without_mutation(self):
+        activity = {
+            "agent_id": "researcher",
+            "child_thread_id": "child-thread",
+            "status": "completed",
+            "inline_chat": True,
+        }
+        message = {
+            "type": "tool",
+            "id": "subtask-result",
+            "content": "result",
+            "tool_call_id": "subtask-call",
+            "name": "subtask",
+            "status": "success",
+            "additional_kwargs": {"subagent_activity": activity},
+        }
+
+        self.assertTrue(experimental_graph._eligible_output(message))
+        stub, result = experimental_graph._forward_widget(message)
+
+        self.assertEqual(stub.tool_calls[0]["name"], "subtask")
+        self.assertIs(activity, message["additional_kwargs"]["subagent_activity"])
+        self.assertNotIn("summary_only", activity)
+        self.assertNotIn("inline_chat", result.additional_kwargs["subagent_activity"])
+        self.assertTrue(result.additional_kwargs["subagent_activity"]["summary_only"])
+
+    def test_custom_subagent_activity_event_is_selected_only_by_name(self):
+        activity = {"tool_call_id": "subtask-call", "status": "running"}
+        self.assertEqual(
+            experimental_graph._subagent_activity_from_custom(
+                {"type": "ui", "name": "subagent_activity", "props": activity}
+            ),
+            activity,
+        )
+        self.assertIsNone(
+            experimental_graph._subagent_activity_from_custom(
+                {"type": "ui", "name": "experimental_status", "props": activity}
+            )
+        )
+        self.assertIsNone(
+            experimental_graph._subagent_activity_from_custom(
+                {"type": "ui", "name": "subagent_activity", "props": []}
+            )
+        )
+
     def test_planning_state_update_selects_only_ui_fields(self):
         self.assertEqual(
             experimental_graph._planning_state_update(
@@ -261,6 +306,52 @@ class ExperimentalGraphAsyncTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertNotIn("inner_configurable", update)
+        self.assertEqual(
+            client.runs.create.await_args.kwargs["stream_mode"],
+            experimental_graph.INNER_STREAM_MODES,
+        )
+
+    async def test_consume_live_collects_custom_subagent_activity(self):
+        client = _client()
+        calls = []
+
+        async def events():
+            yield SimpleNamespace(
+                event="custom",
+                data={
+                    "type": "ui",
+                    "name": "subagent_activity",
+                    "props": {
+                        "tool_call_id": "subtask-call",
+                        "status": "running",
+                    },
+                },
+            )
+            yield SimpleNamespace(
+                event="custom",
+                data={
+                    "type": "ui",
+                    "name": "experimental_status",
+                    "props": {"text": "Думаю"},
+                },
+            )
+
+        def join_stream(*args, **kwargs):
+            calls.append((args, kwargs))
+            return events()
+
+        client.runs.join_stream = join_stream
+        live = {}
+
+        with patch.object(
+            experimental_graph, "client_session", _client_session(client)
+        ):
+            await experimental_graph._consume_live(
+                {}, "inner-thread", "inner-run", live
+            )
+
+        self.assertEqual(live["subagent_activity"]["status"], "running")
+        self.assertEqual(calls[0][1]["stream_mode"], ["messages", "custom"])
 
     async def test_kickoff_compaction_only_skips_synthetic_human_input(self):
         client = _client()
@@ -356,7 +447,9 @@ class ExperimentalGraphAsyncTests(unittest.IsolatedAsyncioTestCase):
                 },
             },
         }
-        client.threads.get_state.return_value = {"values": {"messages": [compaction_message]}}
+        client.threads.get_state.return_value = {
+            "values": {"messages": [compaction_message]}
+        }
 
         with (
             patch.object(experimental_graph, "client_session", _client_session(client)),
@@ -410,7 +503,9 @@ class ExperimentalGraphAsyncTests(unittest.IsolatedAsyncioTestCase):
                 }
             },
         }
-        client.threads.get_state.return_value = {"values": {"messages": [compaction_message]}}
+        client.threads.get_state.return_value = {
+            "values": {"messages": [compaction_message]}
+        }
 
         with (
             patch.object(experimental_graph, "client_session", _client_session(client)),
@@ -640,6 +735,7 @@ class ExperimentalGraphAsyncTests(unittest.IsolatedAsyncioTestCase):
                 "experimental_inner": True,
             },
         )
+        self.assertEqual(kwargs["stream_mode"], experimental_graph.INNER_STREAM_MODES)
         self.assertEqual(update["messages"], [])
         self.assertEqual(update["interrupt_value"], None)
 

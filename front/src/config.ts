@@ -293,6 +293,7 @@ export const TOOL_MAP = {
   search: "Поиск",
   shell: "Командная строка",
   vk_get_posts: "Получение постов (ВК)",
+  analyze_image: "Анализ изображения",
   ask_about_image: "Анализ изображения",
   vk_get_comments: "Получение комментариев к посту (ВК)",
   vk_get_last_comments: "Получение последних комментариев (ВК)",

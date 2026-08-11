@@ -40,8 +40,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         owner_id = uuid.uuid4()
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
-            can_analyze_image=lambda: True,
-            analyze_image=AsyncMock(return_value="image analysis"),
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="image analysis"),
             model_id="gpt-4o",
         )
         runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
@@ -67,22 +67,75 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ):
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
-                image_path="/runs/test/image.png",
+                image_paths=["/runs/test/image.png"],
                 prompt="describe",
                 runtime=runtime,
             )
 
         payload = json.loads(message.content)
         self.assertEqual(payload["analysis"], "image analysis")
-        self.assertEqual(payload["image_path"], "/runs/test/image.png")
+        self.assertEqual(payload["image_paths"], ["/runs/test/image.png"])
         self.assertEqual(payload["model"], "gpt-4o")
-        llm_runtime.analyze_image.assert_awaited_once_with(
+        llm_runtime.analyze_images.assert_awaited_once_with(
             prompt="describe",
-            image_bytes=ANY,
-            mime_type="image/jpg",
+            images=ANY,
         )
-        sent_bytes = llm_runtime.analyze_image.await_args.kwargs["image_bytes"]
+        sent_bytes = llm_runtime.analyze_images.await_args.kwargs["images"][0][
+            "image_bytes"
+        ]
         self.assertTrue(sent_bytes.startswith(b"\xff\xd8"))
+
+    async def test_analyze_image_accepts_four_images_in_input_order(self):
+        owner_id = uuid.uuid4()
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
+        llm_runtime = types.SimpleNamespace(
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="comparison"),
+            model_id="gpt-4o",
+        )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
+        image_paths = [f"/runs/test/image-{index}.png" for index in range(4)]
+        prepared_images = [
+            {"image_bytes": f"image-{index}".encode(), "mime_type": "image/jpg"}
+            for index in range(4)
+        ]
+
+        with patch(
+            "giga_agent.modules.analyze_images.tool._prepare_image",
+            new=AsyncMock(side_effect=prepared_images),
+        ):
+            assert analyze_image.coroutine is not None
+            message = await analyze_image.coroutine(
+                image_paths=image_paths,
+                prompt="compare",
+                runtime=runtime,
+            )
+
+        payload = json.loads(message.content)
+        self.assertEqual(payload["image_paths"], image_paths)
+        self.assertEqual(
+            llm_runtime.analyze_images.await_args.kwargs["images"],
+            prepared_images,
+        )
+
+    async def test_analyze_image_rejects_invalid_batch_size_before_loading(self):
+        runtime = types.SimpleNamespace(config={}, tool_call_id="tool-call-1")
+
+        with patch(
+            "giga_agent.modules.analyze_images.tool._prepare_images",
+            new=AsyncMock(),
+        ) as prepare_images:
+            assert analyze_image.coroutine is not None
+            for image_paths in ([], [f"/runs/test/{index}.png" for index in range(5)]):
+                with self.subTest(image_count=len(image_paths)):
+                    with self.assertRaisesRegex(ValueError, "от 1 до 4"):
+                        await analyze_image.coroutine(
+                            image_paths=image_paths,
+                            prompt="describe",
+                            runtime=runtime,
+                        )
+
+        prepare_images.assert_not_awaited()
 
     async def test_analyze_image_raises_when_file_not_found(self):
         owner_id = uuid.uuid4()
@@ -104,9 +157,9 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             assert analyze_image.coroutine is not None
-            with self.assertRaisesRegex(ValueError, "not found"):
+            with self.assertRaisesRegex(ValueError, r"missing\.png.*not found"):
                 await analyze_image.coroutine(
-                    image_path="/runs/missing.png",
+                    image_paths=["/runs/missing.png"],
                     prompt="describe",
                     runtime=runtime,
                 )
@@ -138,7 +191,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
             assert analyze_image.coroutine is not None
             with self.assertRaisesRegex(ValueError, "не поддерживает"):
                 await analyze_image.coroutine(
-                    image_path="/runs/test/image.png",
+                    image_paths=["/runs/test/image.png"],
                     prompt="describe",
                     runtime=runtime,
                 )
@@ -147,12 +200,12 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         owner_id = uuid.uuid4()
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
-            can_analyze_image=lambda: False,
+            can_analyze_images=lambda: False,
             model_id="model",
         )
         # The tool falls back to fast_llm; seed it too so no capable LLM exists.
         fast_llm_runtime = types.SimpleNamespace(
-            can_analyze_image=lambda: False,
+            can_analyze_images=lambda: False,
             model_id="fast-model",
         )
         runtime = self._runtime(
@@ -184,7 +237,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
             assert analyze_image.coroutine is not None
             with self.assertRaisesRegex(ValueError, "не поддерживает"):
                 await analyze_image.coroutine(
-                    image_path="/runs/test/image.png",
+                    image_paths=["/runs/test/image.png"],
                     prompt="describe",
                     runtime=runtime,
                 )
@@ -193,8 +246,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         owner_id = uuid.uuid4()
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
-            can_analyze_image=lambda: True,
-            analyze_image=AsyncMock(return_value="analysis"),
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="analysis"),
             model_id="model",
         )
         runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
@@ -224,21 +277,116 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ):
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
-                image_path="/runs/test/image.png",
+                image_paths=["/runs/test/image.png"],
                 prompt="describe",
                 runtime=runtime,
             )
 
         payload = json.loads(message.content)
         self.assertEqual(payload["analysis"], "analysis")
-        llm_runtime.analyze_image.assert_awaited_once()
+        llm_runtime.analyze_images.assert_awaited_once()
+
+    async def test_analyze_image_prepares_url_sandbox_and_plotly_in_one_batch(self):
+        owner_id = uuid.uuid4()
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
+        llm_runtime = types.SimpleNamespace(
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="mixed analysis"),
+            model_id="gpt-4o",
+        )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
+        image_paths = [
+            "https://example.com/image.png",
+            "/runs/test/image.png",
+            "/runs/test/chart.plotly.json",
+        ]
+
+        @asynccontextmanager
+        async def _session_context():
+            yield object()
+
+        with (
+            patch(
+                "giga_agent.modules.analyze_images.tool.get_session_factory",
+                AsyncMock(return_value=lambda: _session_context()),
+            ),
+            patch(
+                "giga_agent.modules.analyze_images.tool._download_image_bytes",
+                AsyncMock(return_value=(self._png_bytes(), "image/png")),
+            ) as download_image,
+            patch(
+                "giga_agent.modules.analyze_images.tool.SandboxManager.read_file_by_path_for_user",
+                AsyncMock(
+                    side_effect=[
+                        (
+                            object(),
+                            ContentResult(
+                                data=self._png_bytes(), media_type="image/png"
+                            ),
+                        ),
+                        (
+                            object(),
+                            ContentResult(
+                                data=b'{"data": [], "layout": {}}',
+                                media_type="application/json",
+                            ),
+                        ),
+                    ]
+                ),
+            ) as read_file,
+            patch(
+                "giga_agent.modules.analyze_images.tool._plotly_json_to_png_bytes",
+                return_value=self._png_bytes(),
+            ),
+        ):
+            assert analyze_image.coroutine is not None
+            await analyze_image.coroutine(
+                image_paths=image_paths,
+                prompt="compare",
+                runtime=runtime,
+            )
+
+        download_image.assert_awaited_once_with(url=image_paths[0])
+        self.assertEqual(read_file.await_count, 2)
+        images = llm_runtime.analyze_images.await_args.kwargs["images"]
+        self.assertEqual(len(images), 3)
+        self.assertTrue(all(image["mime_type"] == "image/jpg" for image in images))
+
+    async def test_analyze_image_does_not_call_llm_when_one_image_fails(self):
+        owner_id = uuid.uuid4()
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
+        llm_runtime = types.SimpleNamespace(
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="analysis"),
+            model_id="gpt-4o",
+        )
+        runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
+
+        with patch(
+            "giga_agent.modules.analyze_images.tool._prepare_image",
+            new=AsyncMock(
+                side_effect=[
+                    {"image_bytes": b"first", "mime_type": "image/jpg"},
+                    ValueError("Не удалось подготовить изображение '/runs/bad.png'"),
+                ]
+            ),
+        ):
+            assert analyze_image.coroutine is not None
+            with self.assertRaisesRegex(ValueError, r"bad\.png"):
+                await analyze_image.coroutine(
+                    image_paths=["/runs/good.png", "/runs/bad.png"],
+                    prompt="compare",
+                    runtime=runtime,
+                )
+
+        llm_runtime.analyze_images.assert_not_awaited()
 
     async def test_analyze_image_converts_plotly_json_before_analysis(self):
         owner_id = uuid.uuid4()
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
-            can_analyze_image=lambda: True,
-            analyze_image=AsyncMock(return_value="chart analysis"),
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="chart analysis"),
             model_id="gpt-4o",
         )
         runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
@@ -276,7 +424,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ):
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
-                image_path="/runs/test/chart.plotly.json",
+                image_paths=["/runs/test/chart.plotly.json"],
                 prompt="describe",
                 runtime=runtime,
             )
@@ -284,10 +432,9 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(message.content)
         self.assertEqual(payload["analysis"], "chart analysis")
         plotly_to_png.assert_called_once()
-        llm_runtime.analyze_image.assert_awaited_once_with(
+        llm_runtime.analyze_images.assert_awaited_once_with(
             prompt="describe",
-            image_bytes=ANY,
-            mime_type="image/jpg",
+            images=ANY,
         )
 
     async def test_analyze_image_raises_for_non_plotly_json(self):
@@ -320,7 +467,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
             assert analyze_image.coroutine is not None
             with self.assertRaisesRegex(ValueError, "Plotly JSON"):
                 await analyze_image.coroutine(
-                    image_path="/runs/test/data.json",
+                    image_paths=["/runs/test/data.json"],
                     prompt="describe",
                     runtime=runtime,
                 )
@@ -331,8 +478,8 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         owner_id = uuid.uuid4()
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
         llm_runtime = types.SimpleNamespace(
-            can_analyze_image=lambda: True,
-            analyze_image=AsyncMock(return_value="chart analysis"),
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="chart analysis"),
             model_id="gpt-4o",
         )
         runtime = self._runtime(owner_id, user=user, llm_runtime=llm_runtime)
@@ -370,7 +517,7 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ):
             assert analyze_image.coroutine is not None
             message = await analyze_image.coroutine(
-                image_path="/runs/test/chart.plotly.json",
+                image_paths=["/runs/test/chart.plotly.json"],
                 prompt="describe",
                 runtime=runtime,
             )

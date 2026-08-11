@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Copy, Loader2, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  Bot,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -7,7 +16,6 @@ import { API_AGENT_PREFIX } from "@/config";
 import { apiClient } from "@/lib/api-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -16,11 +24,14 @@ import {
 } from "@/components/ui/searchable-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import ConnectorIcon from "@/components/mcp/connectors/connector-icon";
+import { iconForConnector } from "@/components/mcp/connectors/types";
+import { useConfirm } from "@/components/providers/confirm";
+import { useUserInfo } from "@/components/providers/user-info-context";
 import {
   AgentDefinition,
   AgentDraft,
   AgentEditorOptions,
-  ToolEffect,
   cloneAgent,
   createAgent,
   deleteAgent,
@@ -28,6 +39,7 @@ import {
   installAgentSkills,
   listAgents,
   setAgentEnabled,
+  ToolEffect,
   updateAgent,
   updateAgentBindings,
 } from "./api";
@@ -40,6 +52,7 @@ type McpServer = {
 };
 type Skill = { id: string; name: string; is_enabled: boolean };
 type Llm = { id: string; name?: string; model_id: string; is_active: boolean };
+type AgentFilter = "all" | "builtin" | "custom";
 
 const emptyDraft: AgentDraft = {
   name: "",
@@ -77,6 +90,7 @@ const AgentEditorPanel: React.FC<{
   onClose: () => void;
   onSaved: (agent: AgentDefinition) => void;
 }> = ({ agent, onClose, onSaved }) => {
+  const { connectors: connectorApi } = useUserInfo();
   const [draft, setDraft] = useState<AgentDraft>(() =>
     agent ? draftFromAgent(agent) : emptyDraft,
   );
@@ -160,6 +174,17 @@ const AgentEditorPanel: React.FC<{
   const mcpOptions = (options?.mcp_servers ?? []).map((item) => ({
     value: item.id,
     label: item.name,
+    icon: (
+      <ConnectorIcon
+        src={(() => {
+          const server = connectorApi.connectors.find(
+            (value) => value.id === item.id,
+          );
+          return server ? iconForConnector(server, connectorApi.catalog) : null;
+        })()}
+        className="size-4"
+      />
+    ),
   }));
   const skillOptions = (options?.skills ?? []).map((item) => ({
     value: item.name,
@@ -181,8 +206,7 @@ const AgentEditorPanel: React.FC<{
             {agent ? "Редактирование суб-агента" : "Новый суб-агент"}
           </h2>
           <p className="text-xs text-muted-foreground">
-            Настройте возможности, которые будут доступны изолированному
-            исполнителю.
+            Настройте возможности, которые будут доступны агенту.
           </p>
         </div>
         <Button
@@ -201,117 +225,193 @@ const AgentEditorPanel: React.FC<{
         </div>
       ) : (
         <div className="grid gap-5 p-6">
-          <div className="grid gap-2">
-            <Label htmlFor="agent-name">Название</Label>
-            <Input
-              id="agent-name"
-              value={draft.name}
-              onChange={(e) => setField("name", e.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="agent-description">Описание</Label>
-            <Input
-              id="agent-description"
-              value={draft.description}
-              onChange={(e) => setField("description", e.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="agent-prompt">Основной prompt</Label>
-            <Textarea
-              id="agent-prompt"
-              className="min-h-48 font-mono"
-              value={draft.prompt}
-              onChange={(e) => setField("prompt", e.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Модули основного агента</Label>
-            <SearchableMultiSelect
-              options={moduleOptions}
-              values={draft.modules}
-              onValuesChange={(value) => setField("modules", value)}
-              placeholder="Выберите модули"
-              searchPlaceholder="Найти модуль..."
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>MCP-серверы</Label>
-            <SearchableMultiSelect
-              options={mcpOptions}
-              values={draft.mcp_server_ids}
-              onValuesChange={(value) => setField("mcp_server_ids", value)}
-              placeholder="Выберите MCP-серверы"
-              searchPlaceholder="Найти сервер..."
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Skills пользователя</Label>
-            <SearchableMultiSelect
-              options={skillOptions}
-              values={draft.skill_names}
-              onValuesChange={(value) => setField("skill_names", value)}
-              placeholder="Выберите skills"
-              searchPlaceholder="Найти skill..."
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>LLM</Label>
-            <SearchableSelect
-              options={llmOptions}
-              value={draft.llm_id ?? "__inherit__"}
-              onValueChange={(value) =>
-                setField("llm_id", value === "__inherit__" ? null : value)
-              }
-              placeholder="Выберите LLM"
-              searchPlaceholder="Найти LLM..."
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Доступные инструменты</Label>
-            <div
-              className="flex flex-wrap gap-2"
-              role="group"
-              aria-label="Доступные инструменты"
-            >
-              {(["read", "write", "destructive"] as ToolEffect[]).map(
-                (effect) => {
-                  const selected = draft.allowed_tool_effects.includes(effect);
-                  return (
-                    <button
-                      key={effect}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => toggleEffect(effect)}
-                      className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <Badge variant={selected ? "default" : "outline"}>
-                        {effectLabels[effect]}
-                      </Badge>
-                    </button>
-                  );
-                },
-              )}
+          <>
+            <div className="grid gap-2">
+              <Label htmlFor="agent-name">Название</Label>
+              <Input
+                id="agent-name"
+                value={draft.name}
+                onChange={(e) => setField("name", e.target.value)}
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Реальные инструменты дополнительно проверяются backend по их
-              safety-классу.
-            </p>
-          </div>
-          <div className="flex items-center justify-between rounded-md border border-border p-3">
-            <div>
-              <Label htmlFor="agent-enabled">Активен</Label>
+            <div className="grid gap-2">
+              <Label htmlFor="agent-description">Описание</Label>
+              <Input
+                id="agent-description"
+                value={draft.description}
+                onChange={(e) => setField("description", e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="agent-prompt">Промпт</Label>
+              <Textarea
+                id="agent-prompt"
+                className="min-h-48 font-mono"
+                value={draft.prompt}
+                onChange={(e) => setField("prompt", e.target.value)}
+              />
+            </div>
+          </>
+
+          <>
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>Модули основного агента</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={moduleOptions.length === 0}
+                  onClick={() =>
+                    setField(
+                      "modules",
+                      draft.modules.length === moduleOptions.length
+                        ? []
+                        : moduleOptions.map((option) => option.value),
+                    )
+                  }
+                >
+                  {draft.modules.length === moduleOptions.length
+                    ? "Очистить выбор"
+                    : "Выбрать все"}
+                </Button>
+              </div>
+              <SearchableMultiSelect
+                options={moduleOptions}
+                values={draft.modules}
+                onValuesChange={(value) => setField("modules", value)}
+                placeholder="Выберите модули"
+                searchPlaceholder="Найти модуль..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>MCP-серверы</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={mcpOptions.length === 0}
+                  onClick={() =>
+                    setField(
+                      "mcp_server_ids",
+                      draft.mcp_server_ids.length === mcpOptions.length
+                        ? []
+                        : mcpOptions.map((option) => option.value),
+                    )
+                  }
+                >
+                  {draft.mcp_server_ids.length === mcpOptions.length
+                    ? "Очистить выбор"
+                    : "Выбрать все"}
+                </Button>
+              </div>
+              <SearchableMultiSelect
+                options={mcpOptions}
+                values={draft.mcp_server_ids}
+                onValuesChange={(value) => setField("mcp_server_ids", value)}
+                placeholder="Выберите MCP-серверы"
+                searchPlaceholder="Найти сервер..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>Навыки</Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={skillOptions.length === 0}
+                  onClick={() =>
+                    setField(
+                      "skill_names",
+                      draft.skill_names.length === skillOptions.length
+                        ? []
+                        : skillOptions.map((option) => option.value),
+                    )
+                  }
+                >
+                  {draft.skill_names.length === skillOptions.length
+                    ? "Очистить выбор"
+                    : "Выбрать все"}
+                </Button>
+              </div>
+              <SearchableMultiSelect
+                options={skillOptions}
+                values={draft.skill_names}
+                onValuesChange={(value) => setField("skill_names", value)}
+                placeholder="Навыки"
+                searchPlaceholder="Найти skill..."
+              />
+            </div>
+          </>
+
+          <>
+            <div className="grid gap-2">
+              <Label>LLM</Label>
+              <SearchableSelect
+                options={llmOptions}
+                value={draft.llm_id ?? "__inherit__"}
+                onValueChange={(value) =>
+                  setField("llm_id", value === "__inherit__" ? null : value)
+                }
+                placeholder="Выберите LLM"
+                searchPlaceholder="Найти LLM..."
+              />
+            </div>
+          </>
+
+          <>
+            <div className="grid gap-2">
+              <Label>Доступные инструменты</Label>
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Доступные инструменты"
+              >
+                {(["read", "write", "destructive"] as ToolEffect[]).map(
+                  (effect) => {
+                    const selected =
+                      draft.allowed_tool_effects.includes(effect);
+                    return (
+                      <button
+                        key={effect}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => toggleEffect(effect)}
+                        className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <Badge variant={selected ? "default" : "outline"}>
+                          {effectLabels[effect]}
+                        </Badge>
+                      </button>
+                    );
+                  },
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">
-                Разрешить основному агенту делегировать задачи.
+                Реальные инструменты дополнительно проверяются backend по их
+                safety-классу.
               </p>
             </div>
-            <Switch
-              id="agent-enabled"
-              checked={draft.is_enabled}
-              onCheckedChange={(value) => setField("is_enabled", value)}
-            />
-          </div>
+            <div className="flex items-center justify-between rounded-md border border-border p-3">
+              <div>
+                <Label htmlFor="agent-enabled">Активен</Label>
+                <p className="text-xs text-muted-foreground">
+                  Разрешить основному агенту делегировать задачи.
+                </p>
+              </div>
+              <Switch
+                id="agent-enabled"
+                checked={draft.is_enabled}
+                onCheckedChange={(value) => setField("is_enabled", value)}
+              />
+            </div>
+          </>
+
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="outline" onClick={onClose}>
               Отмена
@@ -330,9 +430,11 @@ const AgentEditorPanel: React.FC<{
 const AgentsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const confirm = useConfirm();
   const [agents, setAgents] = useState<AgentDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [agentFilter, setAgentFilter] = useState<AgentFilter>("all");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -372,6 +474,18 @@ const AgentsPage: React.FC = () => {
     } finally {
       setBusy(null);
     }
+  };
+
+  const removeAgent = async (item: AgentDefinition) => {
+    const confirmed = await confirm({
+      title: "Удалить суб-агента?",
+      description: `Суб-агент «${item.name}» будет удалён без возможности восстановления.`,
+      confirmText: "Удалить",
+      cancelText: "Отмена",
+      variant: "destructive",
+    });
+    if (!confirmed) return;
+    await run(item.ref, () => deleteAgent(item.ref), "Агент удалён");
   };
 
   const setup = async (item: AgentDefinition) => {
@@ -414,164 +528,12 @@ const AgentsPage: React.FC = () => {
     }
   };
 
-  const groups = useMemo(
-    () => ({
-      builtin: agents.filter((item) => item.source === "builtin"),
-      custom: agents.filter((item) => item.source === "custom"),
-    }),
-    [agents],
-  );
-
-  const renderGroup = (title: string, items: AgentDefinition[]) => (
-    <section className="grid gap-3">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {items.length === 0 && (
-        <div className="text-sm text-muted-foreground">Пока пусто</div>
-      )}
-      {items.map((item) => (
-        <Card key={item.ref}>
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Bot className="size-4" />
-                  {item.name}
-                </CardTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {item.description}
-                </p>
-              </div>
-              <Switch
-                checked={item.enabled}
-                disabled={busy === item.ref}
-                onCheckedChange={(enabled) =>
-                  void run(
-                    item.ref,
-                    () => setAgentEnabled(item.ref, enabled),
-                    enabled ? "Агент включён" : "Агент выключен",
-                  )
-                }
-              />
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            <div className="flex flex-wrap gap-2">
-              <Badge
-                variant={item.readiness === "ready" ? "default" : "secondary"}
-              >
-                {item.readiness === "ready" ? "Готов" : "Нужна настройка"}
-              </Badge>
-              <Badge variant="outline">
-                {item.source === "builtin" ? "Встроенный" : "Пользовательский"}
-              </Badge>
-              {item.modules.map((value) => (
-                <Badge key={value} variant="outline">
-                  module:{value}
-                </Badge>
-              ))}
-              {item.source === "builtin" &&
-                (item.connectors ?? []).map((value) => (
-                  <Badge key={value} variant="outline">
-                    MCP:{value}
-                  </Badge>
-                ))}
-              {item.source === "builtin" &&
-                (item.skills ?? []).map((value) => (
-                  <Badge key={value.name} variant="outline">
-                    skill:{value.name}
-                  </Badge>
-                ))}
-              {item.source === "custom" &&
-                (item.mcp_server_ids?.length ?? 0) > 0 && (
-                  <Badge variant="outline">
-                    MCP: {item.mcp_server_ids?.length}
-                  </Badge>
-                )}
-              {item.source === "custom" &&
-                (item.skill_names?.length ?? 0) > 0 && (
-                  <Badge variant="outline">
-                    Skills: {item.skill_names?.length}
-                  </Badge>
-                )}
-              {item.source === "custom" &&
-                (item.allowed_tool_effects ?? []).map((effect) => (
-                  <Badge key={effect} variant="outline">
-                    {effectLabels[effect]}
-                  </Badge>
-                ))}
-            </div>
-            {item.missing.length > 0 && (
-              <div className="text-xs text-amber-600">
-                Не хватает:{" "}
-                {item.missing
-                  .map((value) => `${value.kind}:${value.id}`)
-                  .join(", ")}
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {item.readiness !== "ready" && item.source === "builtin" && (
-                <Button
-                  size="sm"
-                  onClick={() => void setup(item)}
-                  disabled={busy === item.ref}
-                >
-                  {busy === item.ref && (
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                  )}
-                  Настроить
-                </Button>
-              )}
-              {item.source === "builtin" ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    void cloneAgent(item.ref)
-                      .then((created) => {
-                        toast.success("Создан custom-суб-агент");
-                        setAgents((current) => [...current, created]);
-                        navigate(
-                          `/agents/${encodeURIComponent(created.ref)}/edit`,
-                        );
-                      })
-                      .catch(() => toast.error("Не удалось клонировать агента"))
-                  }
-                >
-                  <Copy className="mr-2 size-4" />
-                  Клонировать
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      navigate(`/agents/${encodeURIComponent(item.ref)}/edit`)
-                    }
-                  >
-                    Редактировать
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      void run(
-                        item.ref,
-                        () => deleteAgent(item.ref),
-                        "Агент удалён",
-                      )
-                    }
-                  >
-                    <Trash2 className="mr-2 size-4 text-destructive" />
-                    Удалить
-                  </Button>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </section>
+  const visibleAgents = useMemo(
+    () =>
+      agents.filter(
+        (item) => agentFilter === "all" || item.source === agentFilter,
+      ),
+    [agentFilter, agents],
   );
 
   return (
@@ -609,9 +571,170 @@ const AgentsPage: React.FC = () => {
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
-            <div className="grid gap-8">
-              {renderGroup("Встроенные", groups.builtin)}
-              {renderGroup("Мои агенты", groups.custom)}
+            <div className="grid gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border p-1">
+                  {(
+                    [
+                      ["all", "Все", agents.length],
+                      [
+                        "builtin",
+                        "Встроенные",
+                        agents.filter((item) => item.source === "builtin")
+                          .length,
+                      ],
+                      [
+                        "custom",
+                        "Мои",
+                        agents.filter((item) => item.source === "custom")
+                          .length,
+                      ],
+                    ] as [AgentFilter, string, number][]
+                  ).map(([value, label, count]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      size="sm"
+                      variant={agentFilter === value ? "secondary" : "ghost"}
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setAgentFilter(value)}
+                    >
+                      {label} · {count}
+                    </Button>
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {visibleAgents.length} из {agents.length}
+                </span>
+              </div>
+
+              {visibleAgents.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">
+                  В этой категории пока нет суб-агентов
+                </div>
+              ) : (
+                <div className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+                  {visibleAgents.map((item) => (
+                    <div
+                      key={item.ref}
+                      className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center"
+                    >
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
+                        <Bot className="mt-0.5 size-4 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <h2 className="truncate text-sm font-medium">
+                              {item.name}
+                            </h2>
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {item.source === "builtin"
+                                ? "Встроенный"
+                                : "Мой агент"}
+                            </span>
+                          </div>
+                          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                            {item.description}
+                          </p>
+                          {item.missing.length > 0 && (
+                            <p className="mt-1 text-xs text-amber-600">
+                              Не хватает:{" "}
+                              {item.missing
+                                .map((value) => `${value.kind}:${value.id}`)
+                                .join(", ")}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                        {item.readiness === "ready" ? (
+                          <span
+                            className="inline-flex text-emerald-600"
+                            title="Готов"
+                            aria-label="Готов"
+                          >
+                            <CheckCircle2 className="size-4" />
+                          </span>
+                        ) : (
+                          <span className="text-xs text-amber-600">
+                            Нужна настройка
+                          </span>
+                        )}
+                        <Switch
+                          checked={item.enabled}
+                          disabled={busy === item.ref}
+                          aria-label={`${item.enabled ? "Выключить" : "Включить"} ${item.name}`}
+                          onCheckedChange={(enabled) =>
+                            void run(
+                              item.ref,
+                              () => setAgentEnabled(item.ref, enabled),
+                              enabled ? "Агент включён" : "Агент выключен",
+                            )
+                          }
+                        />
+                        {item.readiness !== "ready" &&
+                          item.source === "builtin" && (
+                            <Button
+                              size="sm"
+                              onClick={() => void setup(item)}
+                              disabled={busy === item.ref}
+                            >
+                              {busy === item.ref && (
+                                <Loader2 className="mr-2 size-4 animate-spin" />
+                              )}
+                              Настроить
+                            </Button>
+                          )}
+                        {item.source === "builtin" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void cloneAgent(item.ref)
+                                .then((created) => {
+                                  toast.success("Создан custom-суб-агент");
+                                  setAgents((current) => [...current, created]);
+                                  navigate(
+                                    `/agents/${encodeURIComponent(created.ref)}/edit`,
+                                  );
+                                })
+                                .catch(() =>
+                                  toast.error("Не удалось клонировать агента"),
+                                )
+                            }
+                          >
+                            <Copy className="mr-2 size-4" />
+                            Клонировать
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                navigate(
+                                  `/agents/${encodeURIComponent(item.ref)}/edit`,
+                                )
+                              }
+                            >
+                              Редактировать
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label="Удалить суб-агента"
+                              title="Удалить"
+                              onClick={() => void removeAgent(item)}
+                            >
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

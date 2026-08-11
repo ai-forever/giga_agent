@@ -19,8 +19,10 @@ ENV BROWSER_PATH=/usr/bin/chromium
 ENV GIGA_AGENT_PROJECT_ROOT=/data/.giga_agent
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     chromium \
     ffmpeg \
+    git \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 

@@ -6,14 +6,21 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from typer.testing import CliRunner
+
+from giga_agent.cli.app import app
 from giga_agent.cli.commands.cli_chat import (
     _CLI_CUSTOM_QUESTION_VALUE,
+    _ChatState,
     _build_cli_question_answer,
     _build_cli_question_choices,
     _build_cli_questions_payload,
     _config_with_cli_turn_flags,
+    _extract_cli_message_event,
     _extract_interrupt_value,
     _extract_plan_approval_payload,
+    _extract_subagent_activity_event,
+    _handle_subagent_activity,
     _is_cli_context_compaction_turn,
     _is_cli_prompt_mode,
     _latest_context_compaction_result,
@@ -23,6 +30,8 @@ from giga_agent.cli.commands.cli_chat import (
     _prompt_for_plan_approval_interrupt,
     _prepare_cli_turn,
     _render_cli_question_prompt,
+    _stop_subagent_statuses,
+    _chat_loop,
 )
 
 
@@ -34,6 +43,143 @@ def _base_config() -> dict:
             "context_compaction_only": False,
         }
     }
+
+
+class _FakeStatus:
+    instances = []
+
+    def __init__(self, text, *, console, spinner):
+        self.text = text
+        self.console = console
+        self.spinner = spinner
+        self.started = False
+        self.stopped = False
+        self.__class__.instances.append(self)
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.stopped = True
+
+    def update(self, text):
+        self.text = text
+
+
+def test_extract_subagent_activity_from_custom_event() -> None:
+    activity = {"tool_call_id": "call-1", "status": "running", "task": "Research"}
+
+    assert _extract_subagent_activity_event(
+        (
+            "custom",
+            {
+                "type": "ui",
+                "name": "subagent_activity",
+                "props": activity,
+            },
+        )
+    ) == activity
+    assert _extract_subagent_activity_event(("messages", (object(), {}))) is None
+
+
+def test_extract_cli_message_event_supports_multi_and_legacy_shapes() -> None:
+    message_event = (object(), {"node": "model"})
+
+    assert _extract_cli_message_event(("messages", message_event)) == message_event
+    assert _extract_cli_message_event(message_event) == message_event
+    assert _extract_cli_message_event(("custom", {})) is None
+
+
+def test_handle_subagent_activity_starts_and_completes_status(
+    monkeypatch,
+) -> None:
+    from rich.console import Console
+
+    _FakeStatus.instances = []
+    monkeypatch.setattr("rich.status.Status", _FakeStatus)
+    console = Console(record=True)
+    active_statuses = {}
+    activity = {
+        "tool_call_id": "call-1",
+        "agent_name": "Researcher",
+        "task": "Find <loader>\nimplementation details",
+        "status": "running",
+    }
+
+    _handle_subagent_activity(console, active_statuses, activity)
+
+    assert len(active_statuses) == 1
+    assert _FakeStatus.instances[0].started
+    assert _FakeStatus.instances[0].spinner == "dots"
+
+    _handle_subagent_activity(
+        console,
+        active_statuses,
+        {**activity, "status": "completed"},
+    )
+
+    assert active_statuses == {}
+    assert _FakeStatus.instances[0].stopped
+    assert (
+        "✓ Subagent Researcher: Find <loader> implementation details completed"
+        in console.export_text()
+    )
+
+
+def test_handle_subagent_activity_error_uses_agent_id_fallback_and_raw_text(
+    monkeypatch,
+) -> None:
+    from rich.console import Console
+
+    _FakeStatus.instances = []
+    monkeypatch.setattr("rich.status.Status", _FakeStatus)
+    console = Console(record=True)
+    active_statuses = {}
+    activity = {
+        "tool_call_id": "call-2",
+        "agent_id": "builtin:researcher",
+        "task": "Inspect <tag>",
+        "status": "running",
+    }
+
+    _handle_subagent_activity(console, active_statuses, activity)
+    _handle_subagent_activity(
+        console,
+        active_statuses,
+        {**activity, "status": "error", "error": "<failure>"},
+    )
+
+    assert (
+        "✗ Subagent builtin:researcher: Inspect <tag> failed: <failure>"
+        in console.export_text()
+    )
+
+
+def test_stop_subagent_statuses_cleans_up_multiple_active_loaders(
+    monkeypatch,
+) -> None:
+    from rich.console import Console
+
+    _FakeStatus.instances = []
+    monkeypatch.setattr("rich.status.Status", _FakeStatus)
+    active_statuses = {}
+
+    for call_id in ("call-1", "call-2"):
+        _handle_subagent_activity(
+            Console(),
+            active_statuses,
+            {
+                "tool_call_id": call_id,
+                "agent_name": call_id,
+                "task": "Task",
+                "status": "running",
+            },
+        )
+
+    _stop_subagent_statuses(active_statuses)
+
+    assert active_statuses == {}
+    assert all(status.stopped for status in _FakeStatus.instances)
 
 
 def test_prepare_cli_turn_regular_message_keeps_base_config() -> None:
@@ -68,10 +214,18 @@ def test_is_cli_context_compaction_turn_reads_flag() -> None:
     assert not _is_cli_context_compaction_turn(None)
 
 
-def test_is_cli_prompt_mode_reads_metadata_flag() -> None:
-    assert _is_cli_prompt_mode({"metadata": {"cli_prompt_mode": True}})
-    assert not _is_cli_prompt_mode({"metadata": {"cli_prompt_mode": False}})
-    assert not _is_cli_prompt_mode(None)
+def test_is_cli_prompt_mode_reads_metadata_flag(monkeypatch) -> None:
+    async def read_metadata(config, _thread_id):
+        return (config or {}).get("metadata") or {}
+
+    monkeypatch.setattr(
+        "giga_agent.cli.commands.cli_chat.get_thread_metadata", read_metadata
+    )
+    assert asyncio.run(_is_cli_prompt_mode({"metadata": {"cli_prompt_mode": True}}))
+    assert not asyncio.run(
+        _is_cli_prompt_mode({"metadata": {"cli_prompt_mode": False}})
+    )
+    assert not asyncio.run(_is_cli_prompt_mode(None))
 
 
 def test_prepare_cli_turn_new_returns_new_chat_command() -> None:
@@ -119,6 +273,66 @@ def test_prepare_cli_turn_uses_pending_plan_mode_for_next_message() -> None:
     assert prepared["config"]["configurable"]["plan_mode"] is True
     assert prepared["consumes_plan_mode_pending"] is True
     assert prepared["input_msg"]["messages"][0].content == "следующее сообщение"
+
+
+def test_chat_state_can_start_with_pending_plan_mode() -> None:
+    state = _ChatState(approve=False, debug=False, plan_mode_pending=True)
+
+    assert state.plan_mode_pending is True
+    state.plan_mode_pending = False
+    assert state.plan_mode_pending is False
+
+
+def test_chat_loop_passes_plan_mode_to_prompt_turn(monkeypatch) -> None:
+    prepared_turn = _prepare_cli_turn(
+        "task",
+        cwd=Path.cwd(),
+        base_config=_base_config(),
+        plan_mode_pending=True,
+    )
+    prepare_turn = patch(
+        "giga_agent.cli.commands.cli_chat._prepare_cli_turn",
+        return_value=prepared_turn,
+    )
+    stream = AsyncMock()
+    console = SimpleNamespace(print=lambda *args, **kwargs: None)
+
+    async def create_resolver(_config):
+        return SimpleNamespace(user=SimpleNamespace(id="user-1"))
+
+    monkeypatch.setattr(
+        "giga_agent.cli.commands.cli_chat._make_console", lambda: console
+    )
+    monkeypatch.setattr(
+        "giga_agent.core.agent.runtime_resolver.RuntimeResolver.create",
+        create_resolver,
+    )
+    monkeypatch.setattr(
+        "giga_agent.cli.commands.cli_chat._stream_and_handle_interrupts", stream
+    )
+
+    with prepare_turn as prepare_mock:
+        asyncio.run(
+            _chat_loop(
+                object(),
+                object(),
+                _ChatState(approve=True, debug=False),
+                False,
+                Path.cwd(),
+                prompt="task",
+                plan_mode=True,
+            )
+        )
+
+    assert prepare_mock.call_args.kwargs["plan_mode_pending"] is True
+    stream.assert_awaited_once()
+
+
+def test_cli_help_mentions_plan_option() -> None:
+    result = CliRunner().invoke(app, ["cli", "--help"])
+
+    assert result.exit_code == 0
+    assert "--plan" in result.stdout
 
 
 def test_make_cli_thread_config_sets_thread_and_user() -> None:

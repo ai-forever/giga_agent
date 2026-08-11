@@ -63,7 +63,11 @@ async def resolve_execution_profile(
     factory = await get_session_factory()
     async with factory() as session:
         definition = await agent.subagent_registry.resolve(
-            session, user, ref, require_runnable=True
+            session,
+            user,
+            ref,
+            require_runnable=True,
+            config=config,
         )
         if definition is None:
             raise ValueError(f"Subagent {ref!r} is unavailable or needs setup")

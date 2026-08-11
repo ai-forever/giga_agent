@@ -63,6 +63,51 @@ def _telegram_bot():
 
 
 class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_media_service_collects_video_note_as_mp4_video(self):
+        bot_row = _bot_row()
+        service = TelegramMediaService(bot=types.SimpleNamespace(), bot_row=bot_row)
+        service.upload_tg_file = AsyncMock(
+            return_value={
+                "sandbox_path": "/bucket/video_note.mp4",
+                "original_name": "video_note.mp4",
+                "file_type": "video",
+                "size": 123,
+            }
+        )
+        message = types.SimpleNamespace(
+            photo=None,
+            sticker=None,
+            document=None,
+            voice=None,
+            audio=None,
+            video=None,
+            video_note=types.SimpleNamespace(file_id="video-note-file-id"),
+        )
+
+        files = await service.collect_incoming_files(
+            message,
+            token="token",
+            thread_id="thread-1",
+        )
+
+        service.upload_tg_file.assert_awaited_once_with(
+            "token",
+            "video-note-file-id",
+            "video_note.mp4",
+            "thread-1",
+        )
+        self.assertEqual(
+            files,
+            [
+                {
+                    "path": "/bucket/video_note.mp4",
+                    "original_name": "video_note.mp4",
+                    "file_type": "video",
+                    "size": 123,
+                }
+            ],
+        )
+
     async def test_thread_service_recreates_expired_thread(self):
         bot_row = _bot_row()
         service = TelegramThreadService(bot_row=bot_row, user_email="owner@example.com")

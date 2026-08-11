@@ -337,6 +337,13 @@ const Message: React.FC<MessageProps> = ({
   const { normalizedContent, inlineReasoning } = useMemo(() => {
     let md = displayed ?? "";
 
+    if (message.type === "human") {
+      return {
+        normalizedContent: md,
+        inlineReasoning: "",
+      };
+    }
+
     // 1) перед каждым ``` вставляем гарантированно пустую строку
     md = md.replace(/(^|\n)(```[^\n]*)/g, "$1\n$2");
 
@@ -366,7 +373,7 @@ const Message: React.FC<MessageProps> = ({
       normalizedContent: md.trim(),
       inlineReasoning: reasoningParts.join("\n\n").trim(),
     };
-  }, [displayed]);
+  }, [displayed, message.type]);
 
   useEffect(() => {
     onWrite();
@@ -605,7 +612,7 @@ const Message: React.FC<MessageProps> = ({
                 message.type === "human"
                   ? "max-w-[80%] w-auto p-4 pt-4 pb-4 rounded-[25px] bg-secondary text-foreground overflow-x-auto"
                   : "max-w-full w-full p-0 bg-transparent",
-                "markdown",
+                message.type === "human" ? "" : "markdown",
               ].join(" ")}
             >
               {hasToolContainer ? (
@@ -636,9 +643,15 @@ const Message: React.FC<MessageProps> = ({
                   {message.type === "ai" && combinedReasoning && (
                     <ReasoningBlock text={combinedReasoning} />
                   )}
-                  <TextMarkdown isStreaming={streamingThisMessage}>
-                    {normalizedContent}
-                  </TextMarkdown>
+                  {message.type === "human" ? (
+                    <div className="whitespace-pre-wrap break-words">
+                      {normalizedContent}
+                    </div>
+                  ) : (
+                    <TextMarkdown isStreaming={streamingThisMessage}>
+                      {normalizedContent}
+                    </TextMarkdown>
+                  )}
                 </>
               )}
               {message.type === "ai" &&

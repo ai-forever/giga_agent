@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { useStream, type UseStream } from "@langchain/langgraph-sdk/react";
 
@@ -7,9 +7,10 @@ import { useAuth } from "@/components/providers/auth";
 import MessageList from "@/components/MessageList";
 import type { GraphState } from "@/interfaces";
 
+const disableAutoScroll = () => {};
+
 const SubagentChat: React.FC<{ threadId: string }> = ({ threadId }) => {
   const { token } = useAuth();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
     assistantId: "giga_agent",
@@ -64,18 +65,13 @@ const SubagentChat: React.FC<{ threadId: string }> = ({ threadId }) => {
     };
   }, [threadId]);
 
-  const maybeAutoScroll = useCallback(() => {
-    const element = scrollRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, []);
-
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto" style={{ zoom: 0.8 }}>
       <MessageList
         messages={thread.messages ?? []}
         thread={thread}
         threadId={threadId}
-        maybeAutoScroll={maybeAutoScroll}
+        maybeAutoScroll={disableAutoScroll}
         notShowWelcomeMessage
         compact
         readOnly

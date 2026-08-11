@@ -377,6 +377,15 @@ class TelegramMediaService:
             )
             if uploaded:
                 uploaded_files.append(uploaded)
+        if message.video_note:
+            uploaded = await self.upload_tg_file(
+                token,
+                message.video_note.file_id,
+                "video_note.mp4",
+                thread_id,
+            )
+            if uploaded:
+                uploaded_files.append(uploaded)
         return [
             {
                 "path": uploaded["sandbox_path"],

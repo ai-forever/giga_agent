@@ -111,5 +111,5 @@ class DeepSeekRuntime(BaseLLMRuntime):
             **clean_model_kwargs,
         )
 
-    def can_analyze_image(self) -> bool:
+    def can_analyze_images(self) -> bool:
         return False

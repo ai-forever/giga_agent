@@ -87,7 +87,8 @@ async def disk_list_files(
     token = await get_disk_token(runtime)
     items = await _list_resources(token, path, limit)
     return build_widget_tool_message(
-        with_widget_note(file_browser_payload(path, items), runtime), runtime=runtime
+        await with_widget_note(file_browser_payload(path, items), runtime),
+        runtime=runtime,
     )
 
 

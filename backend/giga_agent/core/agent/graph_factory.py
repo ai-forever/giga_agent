@@ -82,6 +82,10 @@ from giga_agent.core.logging import get_logger
 from giga_agent.middlewares.usage_tracking import schedule_usage_record
 from giga_agent.model_metadata import resolve_context_window
 from giga_agent.utils.mcp import transform_tool
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -258,11 +262,11 @@ def _build_current_work_state(state: AgentState) -> HumanMessage | None:
     )
 
 
-def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
+async def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
     if not isinstance(config, dict):
         return ""
 
-    metadata = config.get("metadata", {}) or {}
+    metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
     channel_type = metadata.get("channel")
     if not isinstance(channel_type, str) or not channel_type.strip():
         return ""
@@ -277,7 +281,7 @@ def _resolve_channel_prompt(config: RunnableConfig | None) -> str:
     return ChannelRegistry.get(normalized_channel_type).get_prompt()
 
 
-def _resolve_scheduled_prompt(config: RunnableConfig | None) -> str:
+async def _resolve_scheduled_prompt(config: RunnableConfig | None) -> str:
     """Extra system instructions for autonomous scheduled-task runs.
 
     Gated on ``metadata.is_scheduled`` (set on the thread in
@@ -288,7 +292,7 @@ def _resolve_scheduled_prompt(config: RunnableConfig | None) -> str:
     """
     if not isinstance(config, dict):
         return ""
-    metadata = config.get("metadata", {}) or {}
+    metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
     if not metadata.get("is_scheduled"):
         return ""
     return SCHEDULED_RUN_PROMPT
@@ -879,8 +883,8 @@ def create_graph(
         )
         all_tools = _filter_plan_mode_tools(all_tools, state.get("mode"))
         llm = llm.bind_tools(tools=all_tools)
-        channel_prompt = _resolve_channel_prompt(config)
-        scheduled_prompt = _resolve_scheduled_prompt(config)
+        channel_prompt = await _resolve_channel_prompt(config)
+        scheduled_prompt = await _resolve_scheduled_prompt(config)
         system_message = SystemMessage(
             content=await agent.get_prompt(
                 user,

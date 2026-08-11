@@ -934,7 +934,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       )}
       <div
         className={[
-          "sticky max-[900px]:bg-card min-[900px]:fixed align-middle items-center p-4 top-0 w-full h-[60px] flex pointer-events-none transition-[margin] duration-300 ease-in-out",
+          "sticky max-[900px]:bg-card min-[900px]:fixed z-[12] align-middle items-center p-4 top-0 w-full h-[60px] flex pointer-events-none transition-[margin] duration-300 ease-in-out",
           settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "",
         ].join(" ")}
       >

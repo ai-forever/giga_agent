@@ -199,7 +199,7 @@ async def calendar_list_events(runtime: ToolRuntime, days: int = 7) -> dict[str,
     days = max(1, min(days, 90))
     events = await asyncio.to_thread(_list_sync, token, days)
     return build_widget_tool_message(
-        with_widget_note(agenda_payload(days, events), runtime), runtime=runtime
+        await with_widget_note(agenda_payload(days, events), runtime), runtime=runtime
     )
 
 
@@ -224,7 +224,7 @@ async def calendar_month(
         return {"error": "Месяц должен быть 1–12."}
     events = await asyncio.to_thread(_month_sync, token, y, m)
     return build_widget_tool_message(
-        with_widget_note(month_payload(y, m, events), runtime), runtime=runtime
+        await with_widget_note(month_payload(y, m, events), runtime), runtime=runtime
     )
 
 

@@ -18,6 +18,10 @@ from giga_agent.models.scheduled_task import (
 from giga_agent.memory.runtime import get_memory_tags
 from giga_agent.modules.scheduler.service import ScheduleParseError, parse_when
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 
 def _owner_id(runtime: ToolRuntime) -> uuid.UUID:
@@ -33,7 +37,12 @@ def _current_memory_tags(runtime: ToolRuntime) -> list[str]:
     return get_memory_tags(config)
 
 
-def _channel_memory_tags(runtime: ToolRuntime) -> list[str]:
+async def _thread_metadata(runtime: ToolRuntime) -> dict:
+    config = getattr(runtime, "config", None)
+    return await get_thread_metadata(config, get_thread_id_from_config(config))
+
+
+async def _channel_memory_tags(runtime: ToolRuntime) -> list[str]:
     """Inherited tags plus the initiator's personal tag in group chats.
 
     In a group the run is scoped to ``tg_chat_<id>``; adding ``tg_user_<id>`` of
@@ -42,8 +51,7 @@ def _channel_memory_tags(runtime: ToolRuntime) -> list[str]:
     absent, so nothing is added.
     """
     tags = list(_current_memory_tags(runtime))
-    config = getattr(runtime, "config", None) or {}
-    metadata = config.get("metadata") or {}
+    metadata = await _thread_metadata(runtime)
     # Format mirrors channels.telegram.runtime.build_memory_tags.
     if metadata.get("channel") == "telegram":
         tg_user_id = metadata.get("telegram_user_id")
@@ -100,15 +108,14 @@ def _task_belongs_to_chat(task, current: dict) -> bool:
     return any(_target_matches(t, current) for t in (task.targets or []))
 
 
-def _caller_personal_tag(runtime: ToolRuntime) -> str | None:
+async def _caller_personal_tag(runtime: ToolRuntime) -> str | None:
     """The ``tg_user_<id>`` tag identifying who is calling, or None.
 
     A task created by a user always carries this tag in its ``memory_tags`` (see
     ``_channel_memory_tags``), so it lets us tell a user's own tasks apart from
     those of other participants in the same group chat.
     """
-    config = getattr(runtime, "config", None) or {}
-    metadata = config.get("metadata") or {}
+    metadata = await _thread_metadata(runtime)
     if metadata.get("channel") == "telegram":
         tg_user_id = metadata.get("telegram_user_id")
         if tg_user_id:
@@ -119,13 +126,13 @@ def _caller_personal_tag(runtime: ToolRuntime) -> str | None:
     return None
 
 
-def _task_belongs_to_caller(task, runtime: ToolRuntime) -> bool:
+async def _task_belongs_to_caller(task, runtime: ToolRuntime) -> bool:
     """True if the current Telegram user created this task.
 
     When we can't resolve the caller's identity (e.g. a private chat with no
     per-user tag) we fall back to True: the chat scope already isolates the task.
     """
-    personal = _caller_personal_tag(runtime)
+    personal = await _caller_personal_tag(runtime)
     if personal is None:
         return True
     return personal in (task.memory_tags or [])
@@ -294,7 +301,7 @@ async def schedule_task_in_chat(
             timezone=schedule["timezone"],
             run_at=schedule["run_at"],
             targets=targets,
-            memory_tags=_channel_memory_tags(runtime),
+            memory_tags=await _channel_memory_tags(runtime),
         )
     return build_widget_tool_message(
         {
@@ -517,7 +524,7 @@ async def edit_scheduled_task_in_chat(
                 "next": "Вызови list_scheduled_tasks.",
             }
         # In a group chat a user may edit only the tasks they created themselves.
-        if not _task_belongs_to_caller(task, runtime):
+        if not await _task_belongs_to_caller(task, runtime):
             return {
                 "error": "Можно редактировать только свои задачи.",
                 "next": "Вызови list_scheduled_tasks.",

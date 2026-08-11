@@ -256,6 +256,7 @@ class SkillsService:
                 description=s.description,
                 is_enabled=s.is_enabled,
                 source_type=s.source_type,
+                source_url=s.source_url,
                 created_at=s.created_at,
             )
             for s in skills
@@ -281,6 +282,7 @@ class SkillsService:
                 description=s.description,
                 is_enabled=True,
                 source_type=SkillSourceType.LOCAL_DIR,
+                source_url=s.source_url,
                 created_at=_RUNTIME_SKILL_CREATED_AT,
                 is_readonly=False,
                 can_toggle=False,

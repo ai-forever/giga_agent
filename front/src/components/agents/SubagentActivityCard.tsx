@@ -24,6 +24,7 @@ export type SubagentActivity = {
   result?: string;
   error?: string;
   error_code?: string;
+  summary_only?: boolean;
   items?: { type: string; name?: string; status?: string; text?: string }[];
 };
 
@@ -41,6 +42,7 @@ const SubagentActivityCard: React.FC<{
   activity: SubagentActivity;
   live?: boolean;
 }> = ({ activity, live = false }) => {
+  const summaryOnly = activity.summary_only === true;
   const [expanded, setExpanded] = useState(false);
   const duration =
     activity.duration ??
@@ -54,6 +56,31 @@ const SubagentActivityCard: React.FC<{
       <CircleX className="size-4 text-destructive" />
     );
   const agentName = activity.agent_name || activity.agent_id;
+  const header = (
+    <>
+      <Bot className="size-4 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[11px] text-muted-foreground">
+          Вызов суб-агента
+        </div>
+        <div className="truncate text-sm font-medium">{agentName}</div>
+        <div
+          className="line-clamp-2 text-xs text-muted-foreground"
+          title={activity.task}
+        >
+          {activity.task || "Задача не указана"}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="hidden text-[11px] text-muted-foreground sm:inline">
+          {label[activity.status]}
+          {live && activity.status === "running" ? " · live" : ""}
+          {duration !== null ? ` · ${Math.max(0, duration).toFixed(1)} с` : ""}
+        </span>
+        {statusIcon}
+      </div>
+    </>
+  );
 
   return (
     <div className="mb-3 px-[20px]">
@@ -62,48 +89,32 @@ const SubagentActivityCard: React.FC<{
           expanded ? "h-[350px]" : "min-h-[76px]"
         }`}
       >
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={
-            activity.child_thread_id
-              ? `subagent-chat-${activity.tool_call_id ?? activity.child_thread_id}`
-              : undefined
-          }
-          className="flex shrink-0 items-center gap-2 px-3 py-2 text-left hover:bg-muted/30"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? (
-            <Minus className="size-4 shrink-0" />
-          ) : (
-            <Plus className="size-4 shrink-0" />
-          )}
-          <Bot className="size-4 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] text-muted-foreground">
-              Вызов суб-агента
-            </div>
-            <div className="truncate text-sm font-medium">{agentName}</div>
-            <div
-              className="line-clamp-2 text-xs text-muted-foreground"
-              title={activity.task}
-            >
-              {activity.task || "Задача не указана"}
-            </div>
+        {summaryOnly ? (
+          <div className="flex shrink-0 items-center gap-2 px-3 py-2 text-left">
+            {header}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="hidden text-[11px] text-muted-foreground sm:inline">
-              {label[activity.status]}
-              {live && activity.status === "running" ? " · live" : ""}
-              {duration !== null
-                ? ` · ${Math.max(0, duration).toFixed(1)} с`
-                : ""}
-            </span>
-            {statusIcon}
-          </div>
-        </button>
+        ) : (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={
+              activity.child_thread_id
+                ? `subagent-chat-${activity.tool_call_id ?? activity.child_thread_id}`
+                : undefined
+            }
+            className="flex shrink-0 items-center gap-2 px-3 py-2 text-left hover:bg-muted/30"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? (
+              <Minus className="size-4 shrink-0" />
+            ) : (
+              <Plus className="size-4 shrink-0" />
+            )}
+            {header}
+          </button>
+        )}
 
-        {expanded && (
+        {expanded && !summaryOnly && (
           <div
             id={
               activity.child_thread_id
