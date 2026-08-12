@@ -16,6 +16,7 @@ from PIL import Image, ImageOps
 from plotly import io as plotly_io
 from pydantic import Field
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
@@ -23,6 +24,7 @@ from giga_agent.llm.base import BaseLLMRuntime, ImageInput
 from giga_agent.sandbox.base import RedirectResult
 from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.sandbox.materialize import materialize_bounded
+from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 # Максимальный размер изображения, скачиваемого по ссылке.
 MAX_URL_IMAGE_BYTES = 9 * 1024 * 1024
@@ -170,13 +172,22 @@ async def _read_file_bytes(
     *,
     owner_id: uuid.UUID,
     image_path: str,
+    runtime: ToolRuntime | None = None,
 ) -> tuple[bytes, str]:
-    factory = await get_session_factory()
-    async with factory() as session:
-        _, result = await SandboxManager(session).read_file_by_path_for_user(
-            user_id=owner_id,
-            sandbox_path=image_path,
-        )
+    if get_settings().giga_agent_runtime == "cli":
+        if runtime is None:
+            raise ValueError("ToolRuntime is required in CLI mode")
+        resolver = RuntimeResolver.from_config(runtime.config)
+        resolved = await resolver.get_sandbox()
+        sandbox = SandboxRuntimeFactory.build(resolved.provider, resolved.sandbox)
+        result = await sandbox.read_file(image_path)
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            _, result = await SandboxManager(session).read_file_by_path_for_user(
+                user_id=owner_id,
+                sandbox_path=image_path,
+            )
 
     data, too_large = await materialize_bounded(result, MAX_URL_IMAGE_BYTES)
     if too_large:
@@ -194,6 +205,7 @@ async def _prepare_image(
     *,
     owner_id: uuid.UUID,
     image_path: str,
+    runtime: ToolRuntime | None = None,
 ) -> ImageInput:
     try:
         if _is_http_url(image_path):
@@ -202,6 +214,7 @@ async def _prepare_image(
             image_bytes, mime_type = await _read_file_bytes(
                 owner_id=owner_id,
                 image_path=image_path,
+                runtime=runtime,
             )
 
         if _is_plotly_json_input(mime_type=mime_type, image_path=image_path):
@@ -228,10 +241,15 @@ async def _prepare_images(
     *,
     owner_id: uuid.UUID,
     image_paths: list[str],
+    runtime: ToolRuntime | None = None,
 ) -> list[ImageInput]:
     tasks = [
         asyncio.create_task(
-            _prepare_image(owner_id=owner_id, image_path=image_path)
+            _prepare_image(
+                owner_id=owner_id,
+                image_path=image_path,
+                runtime=runtime,
+            )
         )
         for image_path in image_paths
     ]
@@ -265,7 +283,11 @@ async def analyze_image(
 
     resolver = RuntimeResolver.from_config(runtime.config)
     owner_id = resolver.user.id
-    images = await _prepare_images(owner_id=owner_id, image_paths=image_paths)
+    images = await _prepare_images(
+        owner_id=owner_id,
+        image_paths=image_paths,
+        runtime=runtime,
+    )
 
     llm_runtime = await resolve_image_analyzer_llm(resolver)
 

@@ -71,7 +71,9 @@ def _config_with_cli_turn_flags(
     return turn_config
 
 
-def _make_cli_thread_config(*, thread_id: str, checkpointer, user_id: str) -> dict[str, Any]:
+def _make_cli_thread_config(
+    *, thread_id: str, checkpointer, user_id: str, no_python_tool: bool = False
+) -> dict[str, Any]:
     from langgraph.constants import CONFIG_KEY_CHECKPOINTER
 
     return {
@@ -79,6 +81,7 @@ def _make_cli_thread_config(*, thread_id: str, checkpointer, user_id: str) -> di
             "thread_id": thread_id,
             CONFIG_KEY_CHECKPOINTER: checkpointer,
             "langgraph_auth_user": {"identity": user_id, "token": ""},
+            "no_python_tool": no_python_tool,
         }
     }
 
@@ -89,8 +92,15 @@ def _prepare_cli_turn(
     cwd: Path,
     base_config: dict[str, Any],
     plan_mode_pending: bool = False,
+    auto_approve: bool | None = None,
 ):
     from langchain_core.messages import HumanMessage
+
+    if auto_approve is not None:
+        base_config = _config_with_cli_turn_flags(
+            base_config,
+            auto_approve=auto_approve,
+        )
 
     text = raw_input.strip()
     if text == "/compact":
@@ -165,7 +175,14 @@ def _make_console():
 
 
 class _ChatState:
-    __slots__ = ("approve", "debug", "plan_mode_pending", "subagent_statuses")
+    __slots__ = (
+        "approve",
+        "debug",
+        "plan_mode_pending",
+        "subagent_statuses",
+        "displayed_tool_call_ids",
+        "pending_tool_call_chunks",
+    )
 
     def __init__(
         self,
@@ -177,6 +194,8 @@ class _ChatState:
         self.debug = debug
         self.plan_mode_pending = plan_mode_pending
         self.subagent_statuses = {}
+        self.displayed_tool_call_ids: set[str] = set()
+        self.pending_tool_call_chunks: dict[str, dict[str, Any]] = {}
 
 
 def _make_toggle_keybindings(state: _ChatState):
@@ -532,6 +551,13 @@ def _extract_cli_message_event(event) -> tuple[Any, Any] | None:
     return event
 
 
+def _is_subagent_message_event(metadata: Any) -> bool:
+    return (
+        isinstance(metadata, dict)
+        and metadata.get("giga_agent_scope") == "subagent"
+    )
+
+
 def _subagent_activity_key(activity: dict[str, Any]) -> str:
     for field in ("tool_call_id", "child_thread_id"):
         value = activity.get(field)
@@ -712,6 +738,8 @@ async def _chat_loop(
     cwd: Path,
     prompt: str | None = None,
     plan_mode: bool = False,
+    no_python_tool: bool = False,
+    python_executor: str = "worker",
 ) -> None:
     from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 
@@ -733,6 +761,7 @@ async def _chat_loop(
         thread_id=thread_id,
         checkpointer=checkpointer,
         user_id=str(user.id),
+        no_python_tool=no_python_tool,
     )
     if prompt is not None:
         config = dict(config)
@@ -748,6 +777,7 @@ async def _chat_loop(
             cwd=cwd,
             base_config=config,
             plan_mode_pending=plan_mode,
+            auto_approve=state.approve,
         )
         if prepared_turn.get("command") == "plan_pending":
             console.print(
@@ -818,14 +848,28 @@ async def _chat_loop(
                 cwd=cwd,
                 base_config=config,
                 plan_mode_pending=state.plan_mode_pending,
+                auto_approve=state.approve,
             )
             if prepared_turn.get("command") == "new_chat":
+                if python_executor == "worker":
+                    try:
+                        graph_state = await graph.aget_state(config)
+                        kernel_id = graph_state.values.get("kernel_id")
+                    except Exception:
+                        kernel_id = None
+                    if isinstance(kernel_id, str):
+                        from giga_agent.sandbox.local_jupyter.worker_manager import (
+                            get_local_python_worker_manager,
+                        )
+
+                        await get_local_python_worker_manager().stop_kernel(kernel_id)
                 state.plan_mode_pending = False
                 thread_id = str(uuid4())
                 config = _make_cli_thread_config(
                     thread_id=thread_id,
                     checkpointer=checkpointer,
                     user_id=str(user.id),
+                    no_python_tool=no_python_tool,
                 )
                 console.print(
                     f"[yellow]Начат новый чат.[/yellow] [dim]Thread: {thread_id}[/dim]"
@@ -892,6 +936,9 @@ async def _stream_raw_tokens(
                 continue
             msg, metadata = message_event
 
+            if _is_subagent_message_event(metadata):
+                continue
+
             if isinstance(msg, ToolMessage):
                 if _is_think_tool_message(msg):
                     await _print_think_thoughts_for_tool_message(
@@ -901,6 +948,9 @@ async def _stream_raw_tokens(
                 if state.debug:
                     _print_tool_response(console, msg)
                 continue
+
+            if isinstance(msg, AIMessageChunk):
+                _print_streamed_tool_calls(console, msg, state, render_markdown=False)
 
             if isinstance(msg, AIMessageChunk) and msg.content:
                 collected_text, delta = _merge_stream_content(
@@ -968,6 +1018,9 @@ async def _stream_with_live_markdown(
                 continue
             msg, metadata = message_event
 
+            if _is_subagent_message_event(metadata):
+                continue
+
             if isinstance(msg, ToolMessage):
                 if _is_think_tool_message(msg):
                     if live is not None:
@@ -985,6 +1038,9 @@ async def _stream_with_live_markdown(
                 if state.debug:
                     _print_tool_response(console, msg)
                 continue
+
+            if isinstance(msg, AIMessageChunk):
+                _print_streamed_tool_calls(console, msg, state, render_markdown=True)
 
             if isinstance(msg, AIMessageChunk) and msg.content:
                 collected_text, delta = _merge_stream_content(
@@ -1053,6 +1109,8 @@ async def _stream_and_handle_interrupts(
                 pass
 
         graph_state = await graph.aget_state(config)
+        tool_calls = _extract_tool_calls(graph_state)
+        _print_cli_tool_calls(console, tool_calls, state, render_markdown)
         if not graph_state.next:
             break
 
@@ -1082,26 +1140,14 @@ async def _stream_and_handle_interrupts(
             input_msg = Command(resume=resume_value)
             continue
 
-        tool_calls = _extract_tool_calls(graph_state)
         if not tool_calls:
             resume_value = {"type": "approve"}
             input_msg = Command(resume=resume_value)
             continue
 
         if state.approve:
-            for tc in tool_calls:
-                if _is_think_tool_call(tc):
-                    _print_think_thoughts(console, tc, render_markdown)
-                else:
-                    console.print(f"  [dim][Tool: {_format_tool_call(tc)}][/dim]")
             resume_value = {"type": "approve"}
         else:
-            for tc in tool_calls:
-                if _is_think_tool_call(tc):
-                    _print_think_thoughts(console, tc, render_markdown)
-                else:
-                    console.print(f"  [yellow][Tool: {_format_tool_call(tc)}][/yellow]")
-
             if approve_prompt_session is None:
                 approve_prompt_session = _make_approve_prompt_session(state)
 
@@ -1134,6 +1180,91 @@ def _extract_tool_calls(state) -> list[dict]:
         if hasattr(msg, "tool_calls") and msg.tool_calls:
             return msg.tool_calls
     return []
+
+
+def _tool_call_id(tool_call: dict) -> str:
+    call_id = tool_call.get("id")
+    if call_id:
+        return str(call_id)
+    return json.dumps(
+        {
+            "name": tool_call.get("name"),
+            "args": tool_call.get("args", {}),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _print_cli_tool_calls(
+    console,
+    tool_calls: list[dict],
+    state: _ChatState,
+    render_markdown: bool,
+) -> None:
+    for tool_call in tool_calls:
+        call_id = _tool_call_id(tool_call)
+        if call_id in state.displayed_tool_call_ids:
+            continue
+        state.displayed_tool_call_ids.add(call_id)
+        if _is_think_tool_call(tool_call):
+            _print_think_thoughts(console, tool_call, render_markdown)
+        elif state.approve:
+            console.print(f"  [dim][Tool: {_format_tool_call(tool_call)}][/dim]")
+        else:
+            console.print(f"  [yellow][Tool: {_format_tool_call(tool_call)}][/yellow]")
+
+
+def _print_streamed_tool_calls(
+    console, message, state: _ChatState, *, render_markdown: bool
+) -> None:
+    tool_calls: list[dict[str, Any]] = []
+    emitted_chunk_keys: set[str] = set()
+    for chunk in getattr(message, "tool_call_chunks", None) or []:
+        if not isinstance(chunk, dict):
+            continue
+        key = str(chunk.get("id") or f"index:{chunk.get('index', 0)}")
+        pending = state.pending_tool_call_chunks.setdefault(
+            key,
+            {"id": chunk.get("id"), "name": "", "args_text": ""},
+        )
+        if chunk.get("name"):
+            pending["name"] = chunk["name"]
+        args_part = chunk.get("args")
+        if isinstance(args_part, str):
+            pending["args_text"] += args_part
+        elif isinstance(args_part, dict):
+            pending["args"] = args_part
+        if "args" not in pending:
+            try:
+                pending["args"] = json.loads(pending["args_text"] or "")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        if not pending.get("name"):
+            continue
+        tool_calls.append(
+            {
+                "id": pending.get("id"),
+                "name": pending["name"],
+                "args": pending.get("args") or {},
+            }
+        )
+        emitted_chunk_keys.add(key)
+        state.pending_tool_call_chunks.pop(key, None)
+
+    for tool_call in getattr(message, "tool_calls", None) or []:
+        if not isinstance(tool_call, dict) or not tool_call.get("name"):
+            continue
+        key = str(tool_call.get("id") or "")
+        if key in emitted_chunk_keys:
+            continue
+        if key in state.pending_tool_call_chunks and not tool_call.get("args"):
+            continue
+        state.pending_tool_call_chunks.pop(key, None)
+        tool_calls.append(tool_call)
+    if tool_calls:
+        _print_cli_tool_calls(console, tool_calls, state, render_markdown)
 
 
 def _extract_interrupt_value(state) -> Any | None:
@@ -1985,6 +2116,21 @@ def cli_chat(
             help="Disable local_jupyter sandbox safe-execution and write-dir policy.",
         ),
     ] = False,
+    no_python_tool: Annotated[
+        bool,
+        typer.Option(
+            "--no-python-tool",
+            help="Disable the Python tool in the REPL.",
+        ),
+    ] = False,
+    python_executor: Annotated[
+        str,
+        typer.Option(
+            "--python-executor",
+            help="Python executor for local_jupyter: jupyter or worker.",
+            case_sensitive=False,
+        ),
+    ] = "worker",
 ) -> None:
     """
     Interactive CLI chat: invoke the agent graph directly (no HTTP server).
@@ -2006,6 +2152,13 @@ def cli_chat(
     os.environ["GIGA_AGENT_RUNTIME"] = "cli"
     os.environ.setdefault("GIGA_AGENT_RUNTIME_LOCAL", "true")
     os.environ["GIGA_AGENT_CLI_CWD"] = str(cli_cwd)
+    normalized_python_executor = python_executor.strip().lower()
+    if normalized_python_executor not in {"jupyter", "worker"}:
+        _make_console().print(
+            "[red]--python-executor must be either 'jupyter' or 'worker'.[/red]"
+        )
+        raise typer.Exit(code=1)
+    os.environ["GIGA_AGENT_CLI_PYTHON_EXECUTOR"] = normalized_python_executor
     if no_sandbox:
         os.environ["GIGA_AGENT_CLI_NO_SANDBOX"] = "true"
     if config is not None and config_file is not None:
@@ -2060,16 +2213,26 @@ def cli_chat(
         db_dir.mkdir(parents=True, exist_ok=True)
         db_path = db_dir / "checkpoints.db"
 
-        async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
-            await _chat_loop(
-                compiled_graph,
-                checkpointer,
-                chat_state,
-                not no_markdown,
-                cli_cwd,
-                prompt,
-                plan_mode=plan,
-            )
+        try:
+            async with AsyncSqliteSaver.from_conn_string(str(db_path)) as checkpointer:
+                await _chat_loop(
+                    compiled_graph,
+                    checkpointer,
+                    chat_state,
+                    not no_markdown,
+                    cli_cwd,
+                    prompt,
+                    plan_mode=plan,
+                    no_python_tool=no_python_tool,
+                    python_executor=normalized_python_executor,
+                )
+        finally:
+            if normalized_python_executor == "worker":
+                from giga_agent.sandbox.local_jupyter.worker_manager import (
+                    get_local_python_worker_manager,
+                )
+
+                await get_local_python_worker_manager().stop_all()
 
     try:
         asyncio.run(_run())

@@ -551,6 +551,9 @@ class CliRuntimeResolver(RuntimeResolver):
         provider_settings = {}
         cli_cwd_raw = (settings.giga_agent_cli_cwd or "").strip()
         if self._conf.sandbox in {"local_jupyter", "local_jupyter_sandbox"}:
+            provider_settings["python_executor"] = (
+                settings.giga_agent_cli_python_executor
+            )
             if not settings.giga_agent_cli_no_sandbox:
                 provider_settings["safe_execution"] = True
                 if cli_cwd_raw:

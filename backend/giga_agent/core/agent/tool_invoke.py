@@ -16,6 +16,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.tool_policy import blocked_tool_message, is_tool_allowed
 
 
@@ -53,7 +54,12 @@ async def invoke_inner_tool(
     """
     state = getattr(runtime, "state", None)
     mode = state.get("mode") if isinstance(state, dict) else None
-    if not is_tool_allowed(tool_, mode, args=kwargs):
+    if not is_tool_allowed(
+        tool_,
+        mode,
+        args=kwargs,
+        runtime_mode=get_settings().giga_agent_runtime,
+    ):
         return blocked_tool_message(
             tool_.name,
             getattr(runtime, "tool_call_id", tool_.name),

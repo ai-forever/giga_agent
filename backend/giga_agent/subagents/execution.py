@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.runnables import RunnableConfig
 
+from giga_agent.conf import get_settings
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.agent import AgentProfileRepository
 from giga_agent.models.mcp_server import McpServerRepository
@@ -60,6 +61,21 @@ async def resolve_execution_profile(
     ref = configured_subagent_ref(config)
     if ref is None:
         return None
+    if get_settings().giga_agent_runtime == "cli":
+        definition = await agent.subagent_registry.resolve_for_cli(
+            user,
+            ref,
+            require_runnable=True,
+            config=config,
+        )
+        if definition is None:
+            raise ValueError(f"Subagent {ref!r} is unavailable or needs setup")
+        return AgentExecutionProfile(
+            definition=definition,
+            skill_names=frozenset(skill.name for skill in definition.skills),
+            mcp_server_ids=frozenset(),
+            allowed_tool_effects=frozenset(definition.allowed_tool_effects),
+        )
     factory = await get_session_factory()
     async with factory() as session:
         definition = await agent.subagent_registry.resolve(

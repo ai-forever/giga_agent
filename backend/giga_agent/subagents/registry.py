@@ -137,6 +137,38 @@ class AgentRegistry:
     def get_builtin(self, ref: str) -> AgentDefinition | None:
         return self._builtins.get(ref)
 
+    async def list_for_cli(
+        self,
+        user: "UserShort",
+        *,
+        config=None,
+    ) -> list[AgentDefinition]:
+        """List built-in agents without consulting the application database."""
+        return [
+            await self._with_cli_readiness(user, definition, config=config)
+            for definition in self.builtins
+        ]
+
+    async def resolve_for_cli(
+        self,
+        user: "UserShort",
+        ref: str,
+        *,
+        require_runnable: bool = False,
+        config=None,
+    ) -> AgentDefinition | None:
+        """Resolve a built-in agent from manifests and CLI runtime config only."""
+        for definition in await self.list_for_cli(user, config=config):
+            if definition.ref == ref or (
+                definition.source == "builtin" and definition.id == ref
+            ):
+                if require_runnable and (
+                    not definition.enabled or definition.readiness != "ready"
+                ):
+                    return None
+                return definition
+        return None
+
     @staticmethod
     async def _custom_from_profile(
         repository: AgentProfileRepository, profile: AgentProfile
@@ -356,6 +388,39 @@ class AgentRegistry:
             user, "sandbox_provider_id", None
         ):
             missing.append({"kind": "sandbox", "id": "required"})
+        return replace(
+            definition,
+            readiness="needs_setup" if missing else "ready",
+            missing=tuple(missing),
+        )
+
+    async def _with_cli_readiness(
+        self,
+        user: "UserShort",
+        definition: AgentDefinition,
+        *,
+        config=None,
+    ) -> AgentDefinition:
+        """Check only manifest/module readiness for a CLI built-in agent."""
+        from giga_agent.core.agent.base import _disabled_module_ids
+
+        disabled = _disabled_module_ids(config, user)
+        modules_by_id = {module.id: module for module in self.agent.all_modules}
+        enabled_modules = set()
+        for module_id in definition.modules:
+            module = modules_by_id.get(module_id)
+            if (
+                module is not None
+                and module.label
+                and module.id not in disabled
+                and await module.is_enabled(user, config=config)
+            ):
+                enabled_modules.add(module_id)
+        missing = [
+            {"kind": "module", "id": module_id}
+            for module_id in definition.modules
+            if module_id not in enabled_modules
+        ]
         return replace(
             definition,
             readiness="needs_setup" if missing else "ready",

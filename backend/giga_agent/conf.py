@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     giga_agent_cli_cwd: str | None = Field(None, alias="GIGA_AGENT_CLI_CWD")
     giga_agent_cli_config: str | None = Field(None, alias="GIGA_AGENT_CLI_CONFIG")
     giga_agent_cli_no_sandbox: bool = Field(False, alias="GIGA_AGENT_CLI_NO_SANDBOX")
+    giga_agent_cli_python_executor: Literal["jupyter", "worker"] = Field(
+        "worker", alias="GIGA_AGENT_CLI_PYTHON_EXECUTOR"
+    )
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",

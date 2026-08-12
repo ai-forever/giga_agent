@@ -547,12 +547,13 @@ async def present_plan(runtime: ToolRuntime) -> Command:
             "mode": "normal",
             "plan_approved": True,
             "todos_editable": not bool(todos),
-            "messages": [
-                _tool_message(
-                    runtime,
-                    "План подтверждён.",
-                    planning=snapshot,
-                )
-            ],
+        "messages": [
+            _tool_message(
+                runtime,
+                "План подтверждён. Теперь тебе доступны все инструменты. "
+                "Переходи к выполнению утверждённого плана.",
+                planning=snapshot,
+            ),
+        ],
         }
     )

@@ -27,6 +27,7 @@ from giga_agent.core.agent.tool_node import AgentToolNode
 from giga_agent.core.agent.tool_policy import (
     ToolConfirmation,
     ToolEffect,
+    ToolPlanMode,
     tool_extras,
 )
 from giga_agent.core.db import get_session_factory
@@ -417,12 +418,13 @@ async def _handle_special_input_request(
 
 
 class PythonArgsSchema(BaseModel):
-    code: str = Field(description="Python код для выполнения в Jupyter kernel.")
+    code: str = Field(description="Python-код для выполнения в sandbox.")
 
 
 @tool(
     extras=tool_extras(
         ToolEffect.DESTRUCTIVE,
+        plan_mode=ToolPlanMode.ALLOW,
         confirmation=ToolConfirmation.CONDITIONAL,
         repl_save=False,
         args_hack=True,
@@ -434,7 +436,7 @@ async def python(
     runtime: ToolRuntime,
     tool_node: AgentToolNode,
 ) -> ToolMessage:
-    """Выполняет Python код в Jupyter sandbox пользователя и возвращает результат.
+    """Выполняет Python-код в sandbox пользователя и возвращает результат.
 
     Используй этот инструмент для:
     - Вычислений и математических операций
@@ -745,6 +747,7 @@ def _check_shell_command_safety(command: str) -> str | None:
     parse_docstring=True,
     extras=tool_extras(
         ToolEffect.DESTRUCTIVE,
+        plan_mode=ToolPlanMode.ALLOW,
         confirmation=ToolConfirmation.CONDITIONAL,
         repl_save=False,
     ),

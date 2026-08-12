@@ -39,7 +39,8 @@ class LocalShellMixin:
     """Mixin providing shell session lifecycle for local Jupyter sandboxes.
 
     Runs commands directly on the host via ``subprocess.Popen`` with
-    pip/python shims from ``LocalJupyterServerManager`` prepended to PATH.
+    pip/python shims from the selected local Python environment prepended to
+    PATH.
     """
 
     def _get_processes(self) -> dict[str, subprocess.Popen[bytes]]:
@@ -52,6 +53,15 @@ class LocalShellMixin:
     # ------------------------------------------------------------------
     # public API
     # ------------------------------------------------------------------
+
+    def _python_environment(self):
+        if getattr(self, "python_executor", "jupyter") == "worker":
+            from giga_agent.sandbox.local_jupyter.worker_manager import (
+                get_local_python_worker_manager,
+            )
+
+            return get_local_python_worker_manager().python_environment()
+        return get_local_jupyter_server_manager().python_environment()
 
     async def run_shell(
         self,
@@ -342,16 +352,17 @@ class LocalShellMixin:
         return process.pid
 
     def _build_shell_env(self, envs: dict[str, str] | None = None) -> dict[str, str]:
-        manager = get_local_jupyter_server_manager()
-        env = manager.get_shell_env()
+        if getattr(self, "python_executor", "jupyter") == "worker":
+            env = self._python_environment().shell_env(extra_envs=envs)
+        else:
+            manager = get_local_jupyter_server_manager()
+            env = manager.get_shell_env(extra_envs=envs)
         # Puppeteer's internal Chromium-sandbox conflicts with our outer
         # sandbox-exec (macOS rejects nested sandbox_init_with_parameters).
         # PUPPETEER_DANGEROUS_NO_SANDBOX=true auto-adds --no-sandbox to launch
         # args, mirroring Playwright's chromiumSandbox=false default. setdefault
         # lets user-supplied envs override if explicitly needed.
         env.setdefault("PUPPETEER_DANGEROUS_NO_SANDBOX", "true")
-        if envs:
-            env.update({str(k): str(v) for k, v in envs.items()})
         return env
 
     # ------------------------------------------------------------------

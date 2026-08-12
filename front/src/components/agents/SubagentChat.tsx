@@ -13,7 +13,7 @@ const SubagentChat: React.FC<{ threadId: string }> = ({ threadId }) => {
   const { token } = useAuth();
   const thread = useStream<GraphState>({
     apiUrl: `${API_BASE_URL}/`,
-    assistantId: "giga_agent",
+    assistantId: "giga_agent_subtask",
     messagesKey: "messages",
     reconnectOnMount: true,
     threadId,

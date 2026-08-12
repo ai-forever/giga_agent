@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import zipfile
 from pathlib import Path
@@ -70,6 +71,7 @@ def test_parse_agent_manifest_rejects_invalid_contract(
 class _ManifestModule(BaseModule):
     id: str
     manifests: list[str]
+    label: str = "Manifest module"
 
     def get_agents(self, **kwargs):
         return self.manifests
@@ -88,6 +90,31 @@ def test_registry_rejects_duplicate_plain_ids(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="duplicate built-in agent id"):
         AgentRegistry(agent)
+
+
+def test_cli_registry_checks_only_modules_declared_by_manifest(tmp_path: Path) -> None:
+    manifest = tmp_path / "AGENT.md"
+    manifest.write_text(
+        _manifest().replace("modules: [search]", "modules: [one]"),
+        encoding="utf-8",
+    )
+
+    class _DatabaseBackedModule(BaseModule):
+        id: str = "unrelated"
+        label: str = "Unrelated"
+
+        async def is_enabled(self, *args, **kwargs) -> bool:
+            raise AssertionError("CLI readiness checked an unrelated module")
+
+    required = _ManifestModule(id="one", manifests=[str(manifest)])
+    agent = SimpleNamespace(
+        all_modules=(required, _DatabaseBackedModule()),
+    )
+    user = SimpleNamespace(settings={})
+
+    definitions = asyncio.run(AgentRegistry(agent).list_for_cli(user, config={}))
+
+    assert definitions[0].readiness == "ready"
 
 
 def test_direct_tool_policy_is_fail_closed_and_deny_wins() -> None:

@@ -16,7 +16,7 @@ from giga_agent.search_engines.base import BaseSearchEngine
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 SecretKey = Literal[
-    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM", "RESEARCHER_LLM"
+    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM"
 ]
 
 
@@ -174,6 +174,7 @@ async def invoke_subgraph_cli(
     runtime: ToolRuntime,
     thread_id: str | None = None,
     extra_configurable: dict[str, Any] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> dict:
     """Invoke a subgraph directly in CLI mode with checkpointer from parent config."""
     from langgraph.constants import CONFIG_KEY_CHECKPOINTER
@@ -204,7 +205,10 @@ async def invoke_subgraph_cli(
     }
     if extra_configurable:
         configurable.update(extra_configurable)
-    return await graph.ainvoke(input_data, {"configurable": configurable})
+    run_config: RunnableConfig = {"configurable": configurable}
+    if extra_metadata:
+        run_config["metadata"] = dict(extra_metadata)
+    return await graph.ainvoke(input_data, run_config)
 
 
 def normalize_search_result(item: dict[str, Any]) -> str:

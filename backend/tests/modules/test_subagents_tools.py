@@ -2,6 +2,7 @@ import asyncio
 import json
 import types
 import unittest
+from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -9,10 +10,14 @@ from giga_agent.modules.subagents.module import SubagentsModule
 from giga_agent.modules.subagents_legacy.runtime import invoke_subgraph_cli
 from giga_agent.modules.subagents.tools import (
     _last_final_ai_message,
+    _build_subagent_thread_metadata,
+    _resolve_definition,
     _result_from_thread_state,
+    _run_server_child,
     _tool_result,
     _validate_thread_for_result,
     _validate_subagent_thread,
+    SUBAGENT_GRAPH_ID,
     subtask,
     thread_result,
 )
@@ -38,6 +43,7 @@ class SubagentCliContinuationTests(unittest.IsolatedAsyncioTestCase):
             {"messages": []},
             runtime,
             thread_id="child-thread",
+            extra_metadata={"giga_agent_scope": "subagent"},
         )
 
         config = graph.ainvoke.await_args.args[1]["configurable"]
@@ -46,6 +52,111 @@ class SubagentCliContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config["project_id"], "project-1")
         self.assertNotIn("checkpoint_id", config)
         self.assertNotIn("checkpoint_map", config)
+        self.assertEqual(
+            graph.ainvoke.await_args.args[1]["metadata"],
+            {"giga_agent_scope": "subagent"},
+        )
+
+
+class SubagentCliDatabaseIsolationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ready_definitions_do_not_open_database(self):
+        module = SubagentsModule()
+        definition = types.SimpleNamespace(enabled=True, readiness="ready")
+        registry = types.SimpleNamespace(
+            list_for_cli=AsyncMock(return_value=[definition])
+        )
+        agent = types.SimpleNamespace(subagent_registry=registry)
+        user = types.SimpleNamespace()
+
+        with (
+            patch(
+                "giga_agent.modules.subagents.module.get_settings",
+                return_value=types.SimpleNamespace(giga_agent_runtime="cli"),
+            ),
+            patch(
+                "giga_agent.modules.subagents.module.get_session_factory",
+                side_effect=AssertionError("CLI subagent discovery opened the database"),
+            ),
+        ):
+            result = await module._ready_definitions(user, agent, config={})
+
+        self.assertEqual(result, [definition])
+        registry.list_for_cli.assert_awaited_once()
+
+    async def test_definition_resolution_does_not_open_database(self):
+        definition = types.SimpleNamespace(enabled=True, readiness="ready")
+        registry = types.SimpleNamespace(
+            resolve_for_cli=AsyncMock(return_value=definition)
+        )
+        agent = types.SimpleNamespace(subagent_registry=registry)
+
+        with patch(
+            "giga_agent.modules.subagents.tools.get_session_factory",
+            side_effect=AssertionError("CLI subagent resolution opened the database"),
+        ):
+            result = await _resolve_definition(
+                agent,
+                types.SimpleNamespace(),
+                "builtin:subagents:researcher",
+                cli=True,
+                config={},
+            )
+
+        self.assertIs(result, definition)
+        registry.resolve_for_cli.assert_awaited_once()
+
+
+class SubagentServerRunTests(unittest.IsolatedAsyncioTestCase):
+    def test_new_thread_metadata_uses_subtask_graph_alias(self):
+        metadata = _build_subagent_thread_metadata(
+            definition=types.SimpleNamespace(ref="builtin:subagents:researcher"),
+            parent_thread_id="parent-thread",
+            parent_run_id="parent-run",
+            tool_call_id="tool-call",
+            auto_approve=True,
+            parent_plan_mode=False,
+        )
+
+        self.assertEqual(metadata["graph_id"], SUBAGENT_GRAPH_ID)
+
+    async def test_server_child_uses_subtask_graph_alias(self):
+        client = types.SimpleNamespace(
+            runs=types.SimpleNamespace(
+                create=AsyncMock(return_value={"run_id": "run-1"}),
+                get=AsyncMock(return_value={"status": "completed"}),
+                join=AsyncMock(return_value={"messages": []}),
+                cancel=AsyncMock(),
+            ),
+            threads=types.SimpleNamespace(
+                get_state=AsyncMock(return_value={"values": {"messages": []}})
+            ),
+        )
+
+        @asynccontextmanager
+        async def fake_client_session(_config):
+            yield client
+
+        with (
+            patch(
+                "giga_agent.modules.subagents.tools.client_session",
+                fake_client_session,
+            ),
+            patch(
+                "giga_agent.modules.subagents.tools.update_lease",
+                new=AsyncMock(),
+            ),
+        ):
+            await _run_server_child(
+                types.SimpleNamespace(config={}),
+                child_thread_id="child-thread",
+                child_configurable={"subagent_id": "builtin:subagents:researcher"},
+                lease_user_id="user-1",
+                lease_id="lease-1",
+                run_input={"messages": []},
+            )
+
+        kwargs = client.runs.create.await_args.kwargs
+        self.assertEqual(kwargs["assistant_id"], SUBAGENT_GRAPH_ID)
 
 
 class SubagentToolWidgetPayloadTests(unittest.TestCase):

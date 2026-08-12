@@ -91,6 +91,21 @@ def test_plan_mode_overrides_and_normal_mode_compatibility() -> None:
     assert is_tool_allowed({}, "normal")
 
 
+def test_cli_only_plan_tools_require_cli_runtime() -> None:
+    @tool(
+        extras=tool_extras(
+            ToolEffect.DESTRUCTIVE,
+            plan_mode=ToolPlanMode.ALLOW,
+        )
+    )
+    def python() -> str:
+        """Run Python code."""
+        return "ok"
+
+    assert not is_tool_allowed(python, "plan", runtime_mode="local")
+    assert is_tool_allowed(python, "plan", runtime_mode="cli")
+
+
 def test_effect_resolver_uses_arguments_and_fails_closed() -> None:
     seen: list[dict[str, object]] = []
 
@@ -320,5 +335,5 @@ def test_all_production_tool_declarations_have_policy() -> None:
                 if not has_policy:
                     missing.append((path, node.lineno))
 
-    assert len(declarations) == 79
+    assert len(declarations) == 80
     assert missing == []

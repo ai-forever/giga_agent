@@ -154,6 +154,16 @@ class SubagentsModule(BaseModule):
     ):
         if user is None:
             return []
+        if get_settings().giga_agent_runtime == "cli":
+            definitions = await agent.subagent_registry.list_for_cli(
+                user,
+                config=config,
+            )
+            return [
+                item
+                for item in definitions
+                if item.enabled and item.readiness == "ready"
+            ]
         factory = await get_session_factory()
         async with factory() as session:
             definitions = await agent.subagent_registry.list_for_user(

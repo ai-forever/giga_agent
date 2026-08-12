@@ -20,6 +20,7 @@ from giga_agent.cli.commands.cli_chat import (
     _extract_interrupt_value,
     _extract_plan_approval_payload,
     _extract_subagent_activity_event,
+    _is_subagent_message_event,
     _handle_subagent_activity,
     _is_cli_context_compaction_turn,
     _is_cli_prompt_mode,
@@ -30,6 +31,7 @@ from giga_agent.cli.commands.cli_chat import (
     _prompt_for_plan_approval_interrupt,
     _prepare_cli_turn,
     _render_cli_question_prompt,
+    _stream_raw_tokens,
     _stop_subagent_statuses,
     _chat_loop,
 )
@@ -88,6 +90,164 @@ def test_extract_cli_message_event_supports_multi_and_legacy_shapes() -> None:
     assert _extract_cli_message_event(("messages", message_event)) == message_event
     assert _extract_cli_message_event(message_event) == message_event
     assert _extract_cli_message_event(("custom", {})) is None
+
+
+def test_subagent_message_metadata_is_filtered() -> None:
+    assert _is_subagent_message_event({"giga_agent_scope": "subagent"})
+    assert not _is_subagent_message_event({"giga_agent_scope": "parent"})
+    assert not _is_subagent_message_event({})
+    assert not _is_subagent_message_event(None)
+
+
+def test_raw_cli_stream_does_not_render_subagent_messages(capsys) -> None:
+    from langchain_core.messages import AIMessageChunk
+    from rich.console import Console
+
+    async def events():
+        yield (
+            "messages",
+            (AIMessageChunk(content="hidden"), {"giga_agent_scope": "subagent"}),
+        )
+        yield ("messages", (AIMessageChunk(content="visible"), {}))
+
+    graph = SimpleNamespace(astream=lambda *_args, **_kwargs: events())
+    console = Console()
+
+    result = asyncio.run(
+        _stream_raw_tokens(
+            graph,
+            {"messages": []},
+            {},
+            console,
+            _ChatState(approve=True, debug=False),
+        )
+    )
+
+    assert result == "visible"
+    output = capsys.readouterr().out
+    assert "hidden" not in output
+    assert "visible" in output
+
+
+def test_raw_cli_stream_renders_tool_calls_and_arguments() -> None:
+    from langchain_core.messages import AIMessageChunk
+    from rich.console import Console
+
+    async def events():
+        yield (
+            "messages",
+            (
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "read_file",
+                            "args": '{"path": "/tmp/example.md"}',
+                            "id": "call-1",
+                            "index": 0,
+                        }
+                    ],
+                ),
+                {},
+            ),
+        )
+
+    graph = SimpleNamespace(astream=lambda *_args, **_kwargs: events())
+    console = Console(record=True)
+
+    result = asyncio.run(
+        _stream_raw_tokens(
+            graph,
+            {"messages": []},
+            {},
+            console,
+            _ChatState(approve=True, debug=False),
+        )
+    )
+
+    assert result == ""
+    assert "read_file(path='/tmp/example.md')" in console.export_text()
+
+
+def test_raw_cli_stream_waits_for_complete_tool_call_arguments() -> None:
+    from langchain_core.messages import AIMessageChunk
+    from rich.console import Console
+
+    async def events():
+        for args in ['{"command": ', '"pip list"}']:
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(
+                        content="",
+                        tool_call_chunks=[
+                            {
+                                "name": "shell",
+                                "args": args,
+                                "id": "call-1",
+                                "index": 0,
+                            }
+                        ],
+                    ),
+                    {},
+                ),
+            )
+
+    graph = SimpleNamespace(astream=lambda *_args, **_kwargs: events())
+    console = Console(record=True)
+
+    asyncio.run(
+        _stream_raw_tokens(
+            graph,
+            {"messages": []},
+            {},
+            console,
+            _ChatState(approve=True, debug=False),
+        )
+    )
+
+    output = console.export_text()
+    assert "shell(command='pip list')" in output
+    assert "[Tool: shell]" not in output
+
+
+def test_raw_cli_stream_does_not_fallback_to_tool_without_name() -> None:
+    from langchain_core.messages import AIMessageChunk
+    from rich.console import Console
+
+    async def events():
+        yield (
+            "messages",
+            (
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "",
+                            "args": '{"command": "pip list"}',
+                            "id": "call-1",
+                            "index": 0,
+                        }
+                    ],
+                ),
+                {},
+            ),
+        )
+
+    graph = SimpleNamespace(astream=lambda *_args, **_kwargs: events())
+    console = Console(record=True)
+
+    asyncio.run(
+        _stream_raw_tokens(
+            graph,
+            {"messages": []},
+            {},
+            console,
+            _ChatState(approve=True, debug=False),
+        )
+    )
+
+    assert "[Tool: tool(" not in console.export_text()
 
 
 def test_handle_subagent_activity_starts_and_completes_status(
@@ -190,6 +350,20 @@ def test_prepare_cli_turn_regular_message_keeps_base_config() -> None:
     assert prepared is not None
     assert prepared["config"] is base
     assert prepared["input_msg"]["messages"][0].content == "hello"
+
+
+def test_prepare_cli_turn_propagates_auto_approve_without_mutating_base() -> None:
+    base = _base_config()
+
+    prepared = _prepare_cli_turn(
+        "hello",
+        cwd=Path.cwd(),
+        base_config=base,
+        auto_approve=True,
+    )
+
+    assert prepared["config"]["configurable"]["auto_approve"] is True
+    assert "auto_approve" not in base["configurable"]
 
 
 def test_prepare_cli_turn_compact_sets_compaction_flag() -> None:
@@ -325,7 +499,53 @@ def test_chat_loop_passes_plan_mode_to_prompt_turn(monkeypatch) -> None:
         )
 
     assert prepare_mock.call_args.kwargs["plan_mode_pending"] is True
+    assert prepare_mock.call_args.kwargs["auto_approve"] is True
     stream.assert_awaited_once()
+
+
+def test_chat_loop_stops_worker_for_previous_kernel_on_new_chat(monkeypatch) -> None:
+    console = SimpleNamespace(print=lambda *args, **kwargs: None)
+    message_prompt = SimpleNamespace(
+        prompt_async=AsyncMock(side_effect=["/new", EOFError()])
+    )
+    worker_manager = SimpleNamespace(stop_kernel=AsyncMock())
+    graph = SimpleNamespace(
+        aget_state=AsyncMock(
+            return_value=SimpleNamespace(values={"kernel_id": "kernel-1"})
+        )
+    )
+
+    async def create_resolver(_config):
+        return SimpleNamespace(user=SimpleNamespace(id="user-1"))
+
+    monkeypatch.setattr(
+        "giga_agent.cli.commands.cli_chat._make_console", lambda: console
+    )
+    monkeypatch.setattr(
+        "giga_agent.cli.commands.cli_chat._make_message_prompt_session",
+        lambda _cwd, _state: message_prompt,
+    )
+    monkeypatch.setattr(
+        "giga_agent.core.agent.runtime_resolver.RuntimeResolver.create",
+        create_resolver,
+    )
+    monkeypatch.setattr(
+        "giga_agent.sandbox.local_jupyter.worker_manager.get_local_python_worker_manager",
+        lambda: worker_manager,
+    )
+
+    asyncio.run(
+        _chat_loop(
+            graph,
+            object(),
+            _ChatState(approve=True, debug=False),
+            False,
+            Path.cwd(),
+            python_executor="worker",
+        )
+    )
+
+    worker_manager.stop_kernel.assert_awaited_once_with("kernel-1")
 
 
 def test_cli_help_mentions_plan_option() -> None:
@@ -333,6 +553,8 @@ def test_cli_help_mentions_plan_option() -> None:
 
     assert result.exit_code == 0
     assert "--plan" in result.stdout
+    assert "--no-python-tool" in result.stdout
+    assert "--python-executor" in result.stdout
 
 
 def test_make_cli_thread_config_sets_thread_and_user() -> None:
@@ -344,6 +566,18 @@ def test_make_cli_thread_config_sets_thread_and_user() -> None:
 
     assert config["configurable"]["thread_id"] == "thread-2"
     assert config["configurable"]["langgraph_auth_user"]["identity"] == "user-1"
+    assert config["configurable"]["no_python_tool"] is False
+
+
+def test_make_cli_thread_config_can_disable_python_tool() -> None:
+    config = _make_cli_thread_config(
+        thread_id="thread-3",
+        checkpointer=object(),
+        user_id="user-1",
+        no_python_tool=True,
+    )
+
+    assert config["configurable"]["no_python_tool"] is True
 
 
 def test_extract_interrupt_value_reads_payload_from_state() -> None:

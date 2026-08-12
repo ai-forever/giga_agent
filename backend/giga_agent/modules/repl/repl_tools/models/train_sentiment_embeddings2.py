@@ -2,7 +2,7 @@
 
 Читает конфиг эмбедингов из giga_agent.conf.gigachat.json, считает эмбединги
 для постов из rusentiment_random_posts.csv и обучает LogisticRegression.
-Результат сохраняется как models/sentiment_Embeddings-2.joblib — имя файла
+Результат сохраняется как models/sentiment_Embeddings-2.npz — имя файла
 должно совпадать с embedding model_id (см. sentiment.py: _build_model_key).
 """
 
@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 from langchain_gigachat import GigaChatEmbeddings
@@ -139,9 +138,20 @@ def main() -> None:
     y_pred = cross_val_predict(search.best_estimator_, X, y, cv=cv, n_jobs=-1)
     print(classification_report(y, y_pred, digits=3))
 
-    # best_estimator_ уже переобучен на всех данных (refit=True) — его и сохраняем.
-    out_path = _HERE / f"sentiment_{model_id}.joblib"
-    joblib.dump(search.best_estimator_, out_path, compress=3)
+    # best_estimator_ уже переобучен на всех данных (refit=True). Сохраняем
+    # только линейные параметры, чтобы runtime не зависел от sklearn/scipy.
+    scaler = search.best_estimator_.named_steps["scaler"]
+    classifier = search.best_estimator_.named_steps["clf"]
+    weights = classifier.coef_ / scaler.scale_
+    bias = classifier.intercept_ - weights @ scaler.mean_
+
+    out_path = _HERE / f"sentiment_{model_id}.npz"
+    np.savez_compressed(
+        out_path,
+        weights=weights,
+        bias=bias,
+        classes=np.asarray(classifier.classes_, dtype=str),
+    )
     print(f"Saved: {out_path}")
 
 

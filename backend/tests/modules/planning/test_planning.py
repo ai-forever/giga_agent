@@ -364,6 +364,11 @@ class PresentPlanTests(unittest.TestCase):
         planning = cmd.update["messages"][0].additional_kwargs["planning"]
         self.assertEqual(planning["type"], "approved_plan")
         self.assertEqual(planning["plan_content"], "# План\n\nПодробности")
+        self.assertEqual(
+            cmd.update["messages"][0].content,
+            "План подтверждён. Теперь тебе доступны все инструменты. "
+            "Переходи к выполнению утверждённого плана.",
+        )
 
     def test_approve_allows_plan_without_todos(self):
         state = {"mode": "plan", "plan_content": "# План", "todos": []}
@@ -453,7 +458,9 @@ class GatingTests(unittest.TestCase):
                 ToolEffect.WRITE,
                 plan_mode=ToolPlanMode.ALLOW,
             ),
-            self._Tool("python", ToolEffect.DESTRUCTIVE),
+            self._Tool("python", ToolEffect.DESTRUCTIVE, plan_mode=ToolPlanMode.ALLOW),
+            self._Tool("shell", ToolEffect.DESTRUCTIVE, plan_mode=ToolPlanMode.ALLOW),
+            self._Tool("await_shell", ToolEffect.READ),
             self._Tool("web_search_tool", ToolEffect.READ),
             self._Tool("connector_call_tool", ToolEffect.DELEGATED),
             self._Tool("unknown"),
@@ -464,18 +471,35 @@ class GatingTests(unittest.TestCase):
         return [t.name if hasattr(t, "name") else t.get("type") for t in tools]
 
     def test_plan_mode_tool_matrix(self):
-        kept = self._names(_filter_plan_mode_tools(self._tools(), "plan"))
+        with patch(
+            "giga_agent.core.agent.graph_factory.get_settings",
+            return_value=types.SimpleNamespace(giga_agent_runtime="local"),
+        ):
+            kept = self._names(_filter_plan_mode_tools(self._tools(), "plan"))
         self.assertNotIn("write_todo", kept)
         self.assertNotIn("python", kept)
+        self.assertNotIn("shell", kept)
         self.assertNotIn("unknown", kept)
         for name in (
             "update_plan",
             "present_plan",
+            "await_shell",
             "web_search_tool",
             "connector_call_tool",
             "web_search",
         ):
             self.assertIn(name, kept)
+
+    def test_cli_plan_mode_allows_python_and_shell(self):
+        with patch(
+            "giga_agent.core.agent.graph_factory.get_settings",
+            return_value=types.SimpleNamespace(giga_agent_runtime="cli"),
+        ):
+            kept = self._names(_filter_plan_mode_tools(self._tools(), "plan"))
+
+        self.assertIn("python", kept)
+        self.assertIn("shell", kept)
+        self.assertIn("await_shell", kept)
 
     def test_normal_mode_tool_matrix(self):
         for mode in ("normal", None):
@@ -484,6 +508,7 @@ class GatingTests(unittest.TestCase):
             self.assertNotIn("update_plan", kept)
             self.assertNotIn("present_plan", kept)
             self.assertIn("python", kept)
+            self.assertIn("shell", kept)
 
 
 class MiddlewareSeedTests(unittest.TestCase):

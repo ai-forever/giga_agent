@@ -29,6 +29,8 @@ from giga_agent.utils.langgraph_sdk import client_session
 
 TOOL_NAME = "subtask"
 THREAD_RESULT_TOOL_NAME = "thread_result"
+SUBAGENT_GRAPH_ID = "giga_agent_subtask"
+SUBAGENT_STREAM_SCOPE = "subagent"
 _SESSION_TTL = "24h"
 _CLI_THREAD_KEY = "subagents:cli-thread:{user_id}:{thread_id}"
 _ACTIVE_RUN_STATUSES = {"pending", "running", "interrupting", "interrupted"}
@@ -318,6 +320,13 @@ async def _resolve_definition(
 ):
     if not agent_id:
         return None
+    if cli:
+        return await agent.subagent_registry.resolve_for_cli(
+            user,
+            agent_id,
+            require_runnable=True,
+            config=config,
+        )
     factory = await get_session_factory()
     async with factory() as session:
         return await agent.subagent_registry.resolve(
@@ -601,6 +610,32 @@ def _approval_payload(
     }
 
 
+def _build_subagent_thread_metadata(
+    *,
+    definition,
+    parent_thread_id: str | None,
+    parent_run_id: str | None,
+    tool_call_id: str,
+    auto_approve: bool,
+    parent_plan_mode: bool,
+    project_id: Any | None = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "type": "subagent",
+        "subagent": True,
+        "agent_id": definition.ref,
+        "parent_thread_id": parent_thread_id,
+        "parent_run_id": parent_run_id,
+        "tool_call_id": tool_call_id,
+        "auto_approve": auto_approve,
+        "subagent_parent_plan_mode": parent_plan_mode,
+        "graph_id": SUBAGENT_GRAPH_ID,
+    }
+    if project_id:
+        metadata["project_id"] = str(project_id)
+    return metadata
+
+
 def _sync_activity(snapshot: dict[str, Any], state: dict[str, Any]) -> None:
     items = snapshot.setdefault("items", [])
     by_id = {item.get("id"): item for item in items if item.get("id")}
@@ -658,7 +693,7 @@ async def _run_server_child(
 ) -> tuple[dict[str, Any], str, Any | None]:
     async with client_session(runtime.config) as client:
         kwargs: dict[str, Any] = {
-            "assistant_id": "giga_agent",
+            "assistant_id": SUBAGENT_GRAPH_ID,
             "config": {"configurable": child_configurable},
             "stream_mode": ["values", "updates"],
         }
@@ -955,6 +990,7 @@ async def subtask(
                 runtime,
                 thread_id=child_thread_id,
                 extra_configurable=child_configurable,
+                extra_metadata={"giga_agent_scope": SUBAGENT_STREAM_SCOPE},
             )
         elif continuation:
             result, child_run_id, interrupt_value = await _run_server_child(
@@ -967,19 +1003,15 @@ async def subtask(
                 activity=snapshot,
             )
         elif not session_data.get("started"):
-            metadata = {
-                "type": "subagent",
-                "subagent": True,
-                "agent_id": definition.ref,
-                "parent_thread_id": parent_thread_id,
-                "parent_run_id": parent_run_id,
-                "tool_call_id": runtime.tool_call_id,
-                "auto_approve": auto_approve,
-                "subagent_parent_plan_mode": parent_plan_mode,
-                "graph_id": "giga_agent",
-            }
-            if project_id:
-                metadata["project_id"] = str(project_id)
+            metadata = _build_subagent_thread_metadata(
+                definition=definition,
+                parent_thread_id=parent_thread_id,
+                parent_run_id=parent_run_id,
+                tool_call_id=runtime.tool_call_id,
+                auto_approve=auto_approve,
+                parent_plan_mode=parent_plan_mode,
+                project_id=project_id,
+            )
             async with client_session(runtime.config) as client:
                 thread = await client.threads.create(
                     thread_id=child_thread_id, metadata=metadata

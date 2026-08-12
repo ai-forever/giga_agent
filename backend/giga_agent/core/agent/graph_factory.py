@@ -40,6 +40,7 @@ from giga_agent.conf import (
     GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS,
     GIGA_AGENT_ENABLE_THINK_TOOL,
     GIGA_AGENT_ENABLE_THINK_TOOL_PROVIDERS,
+    get_settings,
 )
 from giga_agent.core.agent.anti_loop import detect_loop
 from giga_agent.core.agent.connectors.sources import collect_sources
@@ -166,12 +167,17 @@ def _filter_plan_mode_tools(tools: list, mode: str | None) -> list:
     """Фильтрует список тулов под текущий режим.
 
     plan mode: policy разрешает read/delegated и явные plan_mode=allow.
-    Неизвестные, write и destructive тулы скрываются.
+    Неизвестные, write и destructive тулы скрываются; python/shell доступны
+    по явному разрешению только в CLI runtime.
 
     normal: убираем update_plan/present_plan; рабочий чеклист ведёт write_todo.
     """
     if mode == "plan":
-        return filter_tools_for_mode(tools, mode)
+        return filter_tools_for_mode(
+            tools,
+            mode,
+            runtime_mode=get_settings().giga_agent_runtime,
+        )
     plan_only = {"update_plan", "present_plan"}
     return [t for t in tools if getattr(t, "name", None) not in plan_only]
 

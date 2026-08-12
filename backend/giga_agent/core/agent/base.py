@@ -100,8 +100,8 @@ class BaseAgent(BaseModel):
     _app: FastAPI = PrivateAttr()
     _graph: CompiledStateGraph[AgentState, Context] = PrivateAttr()
     _module_ids: Set[str] = PrivateAttr(default_factory=set)
-    _tools_cache: Dict[tuple[UUID | None, int], List[BaseTool]] = PrivateAttr(
-        default_factory=dict
+    _tools_cache: Dict[tuple[UUID | None, int, bool, bool], List[BaseTool]] = (
+        PrivateAttr(default_factory=dict)
     )
     _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
     _idle_sandbox_sweeper: IdleSandboxSweeper | None = PrivateAttr(default=None)
@@ -417,7 +417,10 @@ class BaseAgent(BaseModel):
                 config, get_thread_id_from_config(config)
             )
             is_channel = bool(metadata.get("is_channel"))
-        cache_key = (user_id, user_fingerprint, is_channel)
+        no_python_tool = bool(
+            ((config or {}).get("configurable") or {}).get("no_python_tool")
+        )
+        cache_key = (user_id, user_fingerprint, is_channel, no_python_tool)
         cached = None if execution is not None else self._tools_cache.get(cache_key)
         if cached is not None:
             return cached

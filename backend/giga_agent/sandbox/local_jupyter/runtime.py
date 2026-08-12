@@ -10,7 +10,7 @@ import subprocess
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import aiofiles
 import aiofiles.os
@@ -251,12 +251,17 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         default_factory=_default_exclude_read_dirs,
         description="Additional host directories explicitly denied for reads",
     )
+    python_executor: Literal["jupyter", "worker"] = Field(
+        default="jupyter",
+        description="Runtime-only Python execution backend for CLI local_jupyter",
+    )
 
     _runtime_fields = JupyterSandbox._runtime_fields | {
         "owner_id",
         "jupyter_token",
         "runtime_dir",
         "default_cwd",
+        "python_executor",
     }
     _sandbox_root_dir: Path = PrivateAttr(default_factory=Path)
 
@@ -279,7 +284,11 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             exclude_none=True,
             exclude_defaults=True,
         )
-        ensure_jupyter_dependencies()
+        python_executor = settings.get("python_executor", "jupyter")
+        if python_executor not in {"jupyter", "worker"}:
+            raise ValueError("python_executor must be 'jupyter' or 'worker'")
+        if python_executor == "jupyter":
+            ensure_jupyter_dependencies()
 
         return validated
 
@@ -396,8 +405,45 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         code = _inject_cwd_prelude(
             code,
             self._default_workdir(),
-            patch_ipython_pty=self.safe_execution,
+            patch_ipython_pty=(
+                self.safe_execution and self.python_executor == "jupyter"
+            ),
         )
+        if self.python_executor == "worker":
+            from giga_agent.sandbox.local_jupyter.worker_manager import (
+                get_local_python_worker_manager,
+            )
+
+            if kernel_id is None:
+                self._kernel_id = str(uuid.uuid4())
+            else:
+                self._kernel_id = kernel_id
+            policy = None
+            if self.safe_execution:
+                policy = self._build_access_policy(
+                    cwd=self._default_workdir(),
+                    network_mode=get_settings().giga_agent_local_jupyter_network_mode,
+                )
+            code_iter = get_local_python_worker_manager().run_code(
+                kernel_id=self._kernel_id,
+                code=code,
+                envs=envs,
+                cwd=self._default_workdir(),
+                safe_execution=self.safe_execution,
+                policy=policy,
+            )
+            pending_input_reply: str | None = None
+            while True:
+                try:
+                    if pending_input_reply is None:
+                        chunk = await anext(code_iter)
+                    else:
+                        chunk = await code_iter.asend(pending_input_reply)
+                        pending_input_reply = None
+                except StopAsyncIteration:
+                    break
+                pending_input_reply = yield chunk
+            return
         code_iter = super().run_code(
             code,
             kernel_id=kernel_id,
@@ -418,6 +464,8 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
             pending_input_reply = yield chunk
 
     async def up(self) -> None:
+        if self.python_executor == "worker":
+            return
         ensure_jupyter_dependencies()
         policy = (
             self._build_access_policy(network_mode="host")
@@ -436,9 +484,17 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
         self.external_id = str(handle.pid)
 
     async def stop(self) -> None:
+        if self.python_executor == "worker":
+            from giga_agent.sandbox.local_jupyter.worker_manager import (
+                get_local_python_worker_manager,
+            )
+
+            await get_local_python_worker_manager().stop_kernel(self._kernel_id)
         return None
 
     async def is_up(self) -> bool:
+        if self.python_executor == "worker":
+            return True
         if not self.base_url or not self._token:
             handle = await get_local_jupyter_server_manager().get_active_handle()
             if handle is None:
@@ -674,18 +730,25 @@ class LocalJupyterSandbox(LocalShellMixin, JupyterSandbox):
     ) -> SandboxAccessPolicy:
         settings = get_settings()
         manager = get_local_jupyter_server_manager()
+        if self.python_executor == "worker":
+            python_environment = self._python_environment()
+            shims_dir = python_environment.shims_dir
+            python_executable = python_environment.python_executable
+        else:
+            shims_dir = manager._shims_dir()
+            python_executable = manager._python_executable()
         workspace_root = manager._working_dir()
         runtime_roots = [
             manager._runtime_dir(),
             manager._config_dir(),
             manager._data_dir(),
-            manager._shims_dir(),
+            shims_dir,
             manager._shell_sessions_root(),
             self._sandbox_root_dir,
         ]
         write_roots = [
             *default_package_cache_write_roots(),
-            *python_virtual_env_write_roots(manager._python_executable()),
+            *python_virtual_env_write_roots(python_executable),
             *settings.giga_agent_local_jupyter_allowed_write_roots,
             *[Path(path) for path in self.write_dirs],
         ]

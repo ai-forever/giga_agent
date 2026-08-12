@@ -15,6 +15,7 @@ GIGA_AGENT_EXTRAS_KEY = "giga_agent"
 PROVIDER_POLICY_KEY = "_giga_agent"
 PLAN_MODE = "plan"
 BLOCKED_ERROR_CODE = "tool_not_allowed_in_plan"
+CLI_PLAN_MODE_TOOL_NAMES = frozenset({"python", "shell"})
 
 
 class ToolEffect(StrEnum):
@@ -136,15 +137,30 @@ def effective_tool_effect(
     return effect
 
 
+def _tool_name(tool_or_mapping: Any) -> str | None:
+    if isinstance(tool_or_mapping, BaseTool):
+        return tool_or_mapping.name
+    if isinstance(tool_or_mapping, Mapping):
+        name = tool_or_mapping.get("name")
+        return name if isinstance(name, str) else None
+    return None
+
+
 def is_tool_allowed(
     tool_or_policy: Any,
     mode: str | None,
     *,
     args: Mapping[str, Any] | None = None,
+    runtime_mode: str | None = None,
 ) -> bool:
     """Return whether a tool may be exposed/executed in the current mode."""
     if mode != PLAN_MODE:
         return True
+    if (
+        runtime_mode != "cli"
+        and _tool_name(tool_or_policy) in CLI_PLAN_MODE_TOOL_NAMES
+    ):
+        return False
     policy = resolve_tool_policy(tool_or_policy)
     if policy is None:
         return False
@@ -156,10 +172,19 @@ def is_tool_allowed(
     return effect in (ToolEffect.READ, ToolEffect.DELEGATED)
 
 
-def filter_tools_for_mode(tools: list[Any], mode: str | None) -> list[Any]:
+def filter_tools_for_mode(
+    tools: list[Any],
+    mode: str | None,
+    *,
+    runtime_mode: str | None = None,
+) -> list[Any]:
     if mode != PLAN_MODE:
         return list(tools)
-    return [tool for tool in tools if is_tool_allowed(tool, mode)]
+    return [
+        tool
+        for tool in tools
+        if is_tool_allowed(tool, mode, runtime_mode=runtime_mode)
+    ]
 
 
 def blocked_tool_message(tool_name: str, tool_call_id: str) -> ToolMessage:

@@ -85,6 +85,65 @@ class AnalyzeImagesToolTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertTrue(sent_bytes.startswith(b"\xff\xd8"))
 
+    async def test_cli_reads_image_from_sandbox_without_database(self):
+        owner_id = uuid.uuid4()
+        user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)
+        llm_runtime = types.SimpleNamespace(
+            can_analyze_images=lambda: True,
+            analyze_images=AsyncMock(return_value="image analysis"),
+            model_id="gpt-4o",
+        )
+        resolver = types.SimpleNamespace(
+            user=user,
+            has_llm=True,
+            get_llm_runtime=AsyncMock(return_value=llm_runtime),
+            has_fast_llm=False,
+            get_fast_llm_runtime=AsyncMock(),
+            get_sandbox=AsyncMock(
+                return_value=types.SimpleNamespace(
+                    provider=types.SimpleNamespace(),
+                    sandbox=types.SimpleNamespace(),
+                )
+            ),
+        )
+        sandbox = types.SimpleNamespace(
+            read_file=AsyncMock(
+                return_value=ContentResult(
+                    data=self._png_bytes(), media_type="image/png"
+                )
+            )
+        )
+        runtime = self._runtime(owner_id)
+
+        with (
+            patch(
+                "giga_agent.modules.analyze_images.tool.get_settings",
+                return_value=types.SimpleNamespace(giga_agent_runtime="cli"),
+            ),
+            patch(
+                "giga_agent.modules.analyze_images.tool.RuntimeResolver.from_config",
+                return_value=resolver,
+            ),
+            patch(
+                "giga_agent.modules.analyze_images.tool.SandboxRuntimeFactory.build",
+                return_value=sandbox,
+            ),
+            patch(
+                "giga_agent.modules.analyze_images.tool.get_session_factory",
+                side_effect=AssertionError("CLI image analysis opened the database"),
+            ),
+        ):
+            assert analyze_image.coroutine is not None
+            message = await analyze_image.coroutine(
+                image_paths=["/app/code.png"],
+                prompt="transcribe",
+                runtime=runtime,
+            )
+
+        payload = json.loads(message.content)
+        self.assertEqual(payload["analysis"], "image analysis")
+        sandbox.read_file.assert_awaited_once_with("/app/code.png")
+
     async def test_analyze_image_accepts_four_images_in_input_order(self):
         owner_id = uuid.uuid4()
         user = types.SimpleNamespace(id=owner_id, llm_id=uuid.uuid4(), fast_llm_id=None)

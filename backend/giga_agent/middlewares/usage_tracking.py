@@ -13,6 +13,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.logging import get_logger
@@ -59,6 +60,8 @@ def schedule_usage_record(
     usage: dict[str, Any],
 ) -> None:
     """Record an out-of-band LLM call without delaying the graph."""
+    if get_settings().giga_agent_runtime == "cli":
+        return
     user_id = _resolve_user_id(config)
     if user_id is not None:
         asyncio.create_task(_record(user_id, model, usage))
