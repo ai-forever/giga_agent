@@ -12,7 +12,10 @@
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
 
 <p align="center">
-  <a href="https://ai-forever.github.io/giga_agent/">
+  <a href="https://agent.giga.chat">
+    <img src="https://img.shields.io/badge/%F0%9F%8C%90%20Сайт-agent.giga.chat-dc2626?style=for-the-badge&logoColor=white" alt="Лендинг GigaAgent">
+  </a>
+  <a href="https://agent.giga.chat/docs/">
     <img src="https://img.shields.io/badge/%F0%9F%93%96%20Документация-online-dc2626?style=for-the-badge&logo=docusaurus&logoColor=white" alt="Документация GigaAgent">
   </a>
 </p>
@@ -75,7 +78,7 @@ GigaAgent умеет:
 - `admin@example.com`
 - `giga_agent_admin`
 
-Для первого ответа агента откройте настройки и добавьте подключение к провайдеру моделей (вкладка «Подключения»), затем языковую модель. Для работы с документами и памятью понадобятся Embeddings, для выполнения кода — Sandbox. Пошагово: [Первый чат](https://ai-forever.github.io/giga_agent/docs/next/quickstart/first-chat).
+Для первого ответа агента откройте настройки и добавьте подключение к провайдеру моделей (вкладка «Подключения»), затем языковую модель. Для работы с документами и памятью понадобятся Embeddings, для выполнения кода — Sandbox. Пошагово: [Первый чат](https://agent.giga.chat/docs/next/quickstart/first-chat).
 
 ## Запуск через Docker
 
@@ -85,7 +88,7 @@ Standalone-образ запускает UI и API одним процессом
 docker run --rm -it \
   -p 9090:9090 \
   -v giga-agent-data:/data/.giga_agent \
-  ghcr.io/<owner>/<repo>:latest
+  ghcr.io/ai-forever/giga_agent:latest
 ```
 
 Docker Compose поднимает отдельные сервисы (nginx, PostgreSQL, Redis, Qdrant) для самостоятельного размещения:
@@ -96,24 +99,24 @@ make build
 make up                # UI на http://localhost:8123
 ```
 
-Подробности и переменные окружения: [Запуск через Docker](https://ai-forever.github.io/giga_agent/docs/next/quickstart/docker) и [env-референс](docs/configuration/env.md).
+Подробности и переменные окружения: [Запуск через Docker](https://agent.giga.chat/docs/next/quickstart/docker) и [env-референс](docs/configuration/env.md).
 
 ## Документация
 
-Полная документация живёт на отдельном сайте — <https://ai-forever.github.io/giga_agent/> — в двух версиях (стабильный пакет PyPI и текущая ветка `main`) и на двух языках:
+Полная документация живёт на отдельном сайте — <https://agent.giga.chat/docs/> — в двух версиях (стабильный пакет PyPI и текущая ветка `main`) и на двух языках:
 
-- [Быстрый старт](https://ai-forever.github.io/giga_agent/docs/next/quickstart/local) — установка, первый чат, Docker
-- [Руководство пользователя](https://ai-forever.github.io/giga_agent/docs/next/user-guide/chat) — чат, проекты, коннекторы, сервисы Яндекса, виджеты, задачи по расписанию, каналы
-- [Возможности и требования](https://ai-forever.github.io/giga_agent/docs/next/user-guide/capabilities) — что работает сразу и что нужно настроить
-- [Разработчикам](https://ai-forever.github.io/giga_agent/docs/next/developer/architecture) — архитектура, модули, интеграции, GenUI
-- [Эксплуатация](https://ai-forever.github.io/giga_agent/docs/next/operations/configuration) — конфигурация, изолированная среда, совместный сервер, устранение неполадок
+- [Быстрый старт](https://agent.giga.chat/docs/next/quickstart/local) — установка, первый чат, Docker
+- [Руководство пользователя](https://agent.giga.chat/docs/next/user-guide/chat) — чат, проекты, коннекторы, сервисы Яндекса, виджеты, задачи по расписанию, каналы
+- [Возможности и требования](https://agent.giga.chat/docs/next/user-guide/capabilities) — что работает сразу и что нужно настроить
+- [Разработчикам](https://agent.giga.chat/docs/next/developer/architecture) — архитектура, модули, интеграции, GenUI
+- [Эксплуатация](https://agent.giga.chat/docs/next/operations/configuration) — конфигурация, изолированная среда, совместный сервер, устранение неполадок
 
 ## Технологический стек
 
 ### Backend
 
 - **Python 3.11+** — современный Python с async/await
-- **[LangGraph 1.0.8](https://github.com/langchain-ai/langgraph)** — state machine для AI-агентов от LangChain
+- **[LangGraph 1.2](https://github.com/langchain-ai/langgraph)** — state machine для AI-агентов от LangChain
 - **[FastAPI](https://fastapi.tiangolo.com/)** — высокопроизводительный веб-фреймворк
 - **[SQLAlchemy 2.0](https://www.sqlalchemy.org/)** — async ORM с поддержкой SQLite и PostgreSQL
 - **[Alembic](https://alembic.sqlalchemy.org/)** — система миграций с multi-scope поддержкой
@@ -127,7 +130,7 @@ make up                # UI на http://localhost:8123
 
 - **[React 19](https://react.dev/)** — последняя версия React
 - **[TypeScript 5.8](https://www.typescriptlang.org/)** — статическая типизация
-- **[Vite 7](https://vitejs.dev/)** — быстрая сборка и dev-сервер
+- **[Vite 8](https://vitejs.dev/)** — быстрая сборка и dev-сервер
 - **[Tailwind CSS 4](https://tailwindcss.com/)** — utility-first CSS фреймворк
 - **[Radix UI](https://www.radix-ui.com/)** — headless UI компоненты
 - **[LangGraph SDK](https://github.com/langchain-ai/langgraph/tree/main/libs/sdk-js)** — интеграция с LangGraph для streaming
@@ -165,11 +168,11 @@ make up                # UI на http://localhost:8123
   giga_agent export-langgraph-json
   ```
 
-Об устройстве модулей, инструментов и точках расширения — в [разделе для разработчиков](https://ai-forever.github.io/giga_agent/docs/next/developer/architecture).
+Об устройстве модулей, инструментов и точках расширения — в [разделе для разработчиков](https://agent.giga.chat/docs/next/developer/architecture).
 
 ## Дополнительные материалы
 
-- 📖 Полная документация: <https://ai-forever.github.io/giga_agent/>
+- 📖 Полная документация: <https://agent.giga.chat/docs/>
 - Субагенты: [SUBAGENTS.md](SUBAGENTS.md)
 - Инструменты: [TOOLS.md](TOOLS.md)
 - Env-референс: [docs/configuration/env.md](docs/configuration/env.md)
