@@ -17,6 +17,7 @@ from giga_agent.cli.commands.cli_chat import (
     _build_cli_questions_payload,
     _config_with_cli_turn_flags,
     _extract_cli_message_event,
+    _extract_cli_update_tool_calls,
     _extract_interrupt_value,
     _extract_plan_approval_payload,
     _extract_subagent_activity_event,
@@ -90,6 +91,61 @@ def test_extract_cli_message_event_supports_multi_and_legacy_shapes() -> None:
     assert _extract_cli_message_event(("messages", message_event)) == message_event
     assert _extract_cli_message_event(message_event) == message_event
     assert _extract_cli_message_event(("custom", {})) is None
+
+
+def test_extract_cli_update_tool_calls() -> None:
+    message = SimpleNamespace(
+        tool_calls=[
+            {"id": "call-1", "name": "shell", "args": {"command": "pip list"}}
+        ]
+    )
+
+    assert _extract_cli_update_tool_calls(
+        ("updates", {"agent": {"messages": [message]}})
+    ) == message.tool_calls
+    assert _extract_cli_update_tool_calls(("messages", (message, {}))) == []
+
+
+def test_raw_cli_stream_prints_tool_before_final_agent_message(capsys) -> None:
+    from langchain_core.messages import AIMessageChunk
+    from rich.console import Console
+
+    async def events():
+        yield (
+            "updates",
+            {
+                "agent": {
+                    "messages": [
+                        SimpleNamespace(
+                            tool_calls=[
+                                {
+                                    "id": "call-1",
+                                    "name": "shell",
+                                    "args": {"command": "pip list"},
+                                }
+                            ]
+                        )
+                    ]
+                }
+            },
+        )
+        yield ("messages", (AIMessageChunk(content="Готово"), {}))
+
+    graph = SimpleNamespace(astream=lambda *_args, **_kwargs: events())
+    console = Console(record=True)
+
+    asyncio.run(
+        _stream_raw_tokens(
+            graph,
+            {"messages": []},
+            {},
+            console,
+            _ChatState(approve=True, debug=False),
+        )
+    )
+
+    output = capsys.readouterr().out
+    assert output.index("[Tool: shell(command='pip list')]") < output.index("Готово")
 
 
 def test_subagent_message_metadata_is_filtered() -> None:

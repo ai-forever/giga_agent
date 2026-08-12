@@ -551,6 +551,28 @@ def _extract_cli_message_event(event) -> tuple[Any, Any] | None:
     return event
 
 
+def _extract_cli_update_tool_calls(event) -> list[dict[str, Any]]:
+    if not isinstance(event, tuple) or len(event) != 2 or event[0] != "updates":
+        return []
+    updates = event[1]
+    if not isinstance(updates, dict):
+        return []
+
+    tool_calls: list[dict[str, Any]] = []
+    for node_update in updates.values():
+        if not isinstance(node_update, dict):
+            continue
+        messages = node_update.get("messages") or []
+        if not isinstance(messages, (list, tuple)):
+            continue
+        for message in messages:
+            calls = getattr(message, "tool_calls", None) or []
+            tool_calls.extend(
+                call for call in calls if isinstance(call, dict) and call.get("name")
+            )
+    return tool_calls
+
+
 def _is_subagent_message_event(metadata: Any) -> bool:
     return (
         isinstance(metadata, dict)
@@ -925,11 +947,17 @@ async def _stream_raw_tokens(
     collected_text = ""
     try:
         async for event in graph.astream(
-            input_msg, config, stream_mode=["messages", "custom"]
+            input_msg, config, stream_mode=["messages", "custom", "updates"]
         ):
             activity = _extract_subagent_activity_event(event)
             if activity is not None:
                 _handle_subagent_activity(console, state.subagent_statuses, activity)
+                continue
+            update_tool_calls = _extract_cli_update_tool_calls(event)
+            if update_tool_calls:
+                _print_cli_tool_calls(
+                    console, update_tool_calls, state, render_markdown=False
+                )
                 continue
             message_event = _extract_cli_message_event(event)
             if message_event is None:
@@ -1007,11 +1035,17 @@ async def _stream_with_live_markdown(
 
     try:
         async for event in graph.astream(
-            input_msg, config, stream_mode=["messages", "custom"]
+            input_msg, config, stream_mode=["messages", "custom", "updates"]
         ):
             activity = _extract_subagent_activity_event(event)
             if activity is not None:
                 _handle_subagent_activity(console, state.subagent_statuses, activity)
+                continue
+            update_tool_calls = _extract_cli_update_tool_calls(event)
+            if update_tool_calls:
+                _print_cli_tool_calls(
+                    console, update_tool_calls, state, render_markdown=True
+                )
                 continue
             message_event = _extract_cli_message_event(event)
             if message_event is None:
