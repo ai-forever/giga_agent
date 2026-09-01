@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
 from giga_agent.conf import get_settings
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.utils.langgraph_sdk import client_session
 
 warnings.filterwarnings(
@@ -218,7 +219,7 @@ workflow.add_edge("audio_gen", "__end__")
 graph = workflow.compile()
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def podcast_generate(
     runtime: ToolRuntime,
     url: str | None = None,

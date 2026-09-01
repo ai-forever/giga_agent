@@ -76,6 +76,19 @@ class ConfSettingsTests(unittest.TestCase):
             settings = get_settings()
             self.assertFalse(settings.giga_agent_runtime_local)
 
+    def test_telegram_text_mode_uses_rich_by_default(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertEqual(settings.giga_agent_telegram_text_mode, "rich")
+
+    def test_reads_telegram_text_mode(self):
+        with self._patched_env(
+            {"GIGA_AGENT_TELEGRAM_TEXT_MODE": "legacy"},
+            clear=True,
+        ):
+            settings = get_settings()
+            self.assertEqual(settings.giga_agent_telegram_text_mode, "legacy")
+
     def test_reads_runtime_local_flag(self):
         with self._patched_env({"GIGA_AGENT_RUNTIME_LOCAL": "1"}, clear=True):
             settings = get_settings()

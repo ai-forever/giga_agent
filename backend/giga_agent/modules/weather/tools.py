@@ -6,6 +6,7 @@ import aiohttp
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
@@ -103,7 +104,7 @@ async def _get_owm_api_key(runtime: ToolRuntime | None) -> str:
     return api_key
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def weather(
     city: str,
     runtime: ToolRuntime,

@@ -24,6 +24,12 @@ from giga_agent.core.agent.tool_invoke import (
     tool_accepts_parameter,
 )
 from giga_agent.core.agent.tool_node import AgentToolNode
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    ToolPlanMode,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.models import UserShort
@@ -412,16 +418,25 @@ async def _handle_special_input_request(
 
 
 class PythonArgsSchema(BaseModel):
-    code: str = Field(description="Python код для выполнения в Jupyter kernel.")
+    code: str = Field(description="Python-код для выполнения в sandbox.")
 
 
-@tool(extras={"repl_save": False, "args_hack": True}, args_schema=PythonArgsSchema)
+@tool(
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        plan_mode=ToolPlanMode.ALLOW,
+        confirmation=ToolConfirmation.CONDITIONAL,
+        repl_save=False,
+        args_hack=True,
+    ),
+    args_schema=PythonArgsSchema,
+)
 async def python(
     code: str,
     runtime: ToolRuntime,
     tool_node: AgentToolNode,
 ) -> ToolMessage:
-    """Выполняет Python код в Jupyter sandbox пользователя и возвращает результат.
+    """Выполняет Python-код в sandbox пользователя и возвращает результат.
 
     Используй этот инструмент для:
     - Вычислений и математических операций
@@ -728,7 +743,15 @@ def _check_shell_command_safety(command: str) -> str | None:
     return None
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        plan_mode=ToolPlanMode.ALLOW,
+        confirmation=ToolConfirmation.CONDITIONAL,
+        repl_save=False,
+    ),
+)
 async def shell(
     command: str,
     runtime: ToolRuntime,
@@ -772,7 +795,10 @@ async def shell(
     )
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(ToolEffect.READ, repl_save=False),
+)
 async def await_shell(
     shell_id: str,
     runtime: ToolRuntime,

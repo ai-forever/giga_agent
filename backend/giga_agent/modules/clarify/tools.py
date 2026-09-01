@@ -6,6 +6,12 @@ from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    ToolPlanMode,
+    tool_extras,
+)
+
 
 class QuestionInput(BaseModel):
     """Отдельный вопрос с вариантами ответа."""
@@ -36,7 +42,11 @@ class AskQuestionsInput(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId] = Field(default="")
 
 
-@tool("ask_questions", args_schema=AskQuestionsInput)
+@tool(
+    "ask_questions",
+    args_schema=AskQuestionsInput,
+    extras=tool_extras(ToolEffect.WRITE, plan_mode=ToolPlanMode.ALLOW, not_process=True),
+)
 async def ask_questions(
     questions: list,
     tool_call_id: Annotated[str, InjectedToolCallId],
@@ -138,6 +148,3 @@ def build_questions_result(formatted_questions: list[dict], value) -> dict:
         else "Пользователь не предоставил ответ.",
         "items": items,
     }
-
-
-ask_questions.extras = {"not_process": True}

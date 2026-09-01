@@ -15,7 +15,12 @@ from giga_agent.connectors.gigachat_token_cache import (
     get_gigachat_access_token_cached,
     should_skip_gigachat_token_cache,
 )
-from giga_agent.llm.base import AvailableModel, BaseLLMRuntime, ModelFetchError
+from giga_agent.llm.base import (
+    AvailableModel,
+    BaseLLMRuntime,
+    ImageInput,
+    ModelFetchError,
+)
 from giga_agent.llm.registry import LLMRegistry
 
 
@@ -100,29 +105,33 @@ class GigaChatRuntime(BaseLLMRuntime):
             **clean_model_kwargs,
         )
 
-    def can_analyze_image(self) -> bool:
+    def can_analyze_images(self) -> bool:
         return True
 
-    async def analyze_image(
+    async def analyze_images(
         self,
         *,
         prompt: str,
-        image_bytes: bytes,
-        mime_type: str = "image/jpg",
+        images: list[ImageInput],
     ) -> str:
-        extension = mimetypes.guess_extension(mime_type) or ".jpg"
+        if not images:
+            raise ValueError("At least one image is required for analysis.")
+
         llm = await self.get_llm()
-        uploaded = await llm.aupload_file(
-            (f"{uuid.uuid4().hex}{extension}", image_bytes),
-            purpose="general",
-        )
+        async def _upload(image: ImageInput):
+            extension = mimetypes.guess_extension(image["mime_type"]) or ".jpg"
+            return await llm.aupload_file(
+                (f"{uuid.uuid4().hex}{extension}", image["image_bytes"]),
+                purpose="general",
+            )
+
+        uploaded_files = await asyncio.gather(*(_upload(image) for image in images))
+        attachment_ids = [uploaded.id_ for uploaded in uploaded_files]
         response = await llm.with_config(tags=["nostream"]).ainvoke(
             [
                 HumanMessage(
-                    content=[
-                        {"type": "text", "text": prompt},
-                    ],
-                    additional_kwargs={"attachments": [uploaded.id_]},
+                    content=[{"type": "text", "text": prompt}],
+                    additional_kwargs={"attachments": attachment_ids},
                 )
             ]
         )

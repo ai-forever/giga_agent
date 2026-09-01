@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 from aiogram import Bot, types as tg_types
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InputRichMessage
 
 from giga_agent.channels.telegram.message_context import build_reply_kwargs
 from giga_agent.channels.telegram.utils import (
@@ -40,6 +40,8 @@ logger = get_logger(__name__)
 
 # Потолок на медиа, которое телеграм-бот держит в RAM целиком перед отправкой.
 MAX_TELEGRAM_MEDIA_BYTES = 50 * 1024 * 1024
+TELEGRAM_LEGACY_TEXT_LIMIT = 4096
+TELEGRAM_RICH_TEXT_LIMIT = 32768
 
 
 def _convert_plotly_attachment(
@@ -67,6 +69,111 @@ class TelegramMediaService:
     def __init__(self, *, bot: Bot, bot_row: ChannelBot):
         self.bot = bot
         self.bot_row = bot_row
+
+    def _text_mode(self) -> str:
+        return get_settings().giga_agent_telegram_text_mode
+
+    @staticmethod
+    def _text_chunk_limit(text_mode: str) -> int:
+        if text_mode == "rich":
+            return TELEGRAM_RICH_TEXT_LIMIT
+        return TELEGRAM_LEGACY_TEXT_LIMIT
+
+    async def _send_text_reply(
+        self,
+        *,
+        message: tg_types.Message,
+        value: str,
+        text_mode: str,
+        reply_markup: Any = None,
+        disable_web_page_preview: bool = False,
+        reply_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        reply_kwargs = reply_kwargs or {}
+        if text_mode == "rich":
+            try:
+                await self.bot.send_rich_message(
+                    message.chat.id,
+                    InputRichMessage(markdown=value),
+                    message_thread_id=(
+                        getattr(message, "message_thread_id", None)
+                        if getattr(message, "is_topic_message", False)
+                        else None
+                    ),
+                    business_connection_id=getattr(
+                        message,
+                        "business_connection_id",
+                        None,
+                    ),
+                    reply_markup=reply_markup,
+                    **reply_kwargs,
+                )
+            except Exception as exc:
+                logger.exception("Error sending rich message to Telegram: %s", exc)
+                await message.answer(
+                    value,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=disable_web_page_preview,
+                    **reply_kwargs,
+                )
+            return
+
+        tg_text = _md_to_tg_markdown_v2(value)
+        try:
+            await message.answer(
+                tg_text,
+                parse_mode="MarkdownV2",
+                reply_markup=reply_markup,
+                disable_web_page_preview=disable_web_page_preview,
+                **reply_kwargs,
+            )
+        except Exception as exc:
+            logger.exception("Error sending message to Telegram: %s", exc)
+            await message.answer(
+                value,
+                reply_markup=reply_markup,
+                disable_web_page_preview=disable_web_page_preview,
+                **reply_kwargs,
+            )
+
+    async def _send_text_to_chat(
+        self,
+        *,
+        target: int | str,
+        value: str,
+        text_mode: str,
+        disable_web_page_preview: bool = False,
+    ) -> None:
+        if text_mode == "rich":
+            try:
+                await self.bot.send_rich_message(
+                    target,
+                    InputRichMessage(markdown=value),
+                )
+            except Exception as exc:
+                logger.exception("Error delivering rich message to Telegram: %s", exc)
+                await self.bot.send_message(
+                    target,
+                    value,
+                    disable_web_page_preview=disable_web_page_preview,
+                )
+            return
+
+        tg_text = _md_to_tg_markdown_v2(value)
+        try:
+            await self.bot.send_message(
+                target,
+                tg_text,
+                parse_mode="MarkdownV2",
+                disable_web_page_preview=disable_web_page_preview,
+            )
+        except Exception as exc:
+            logger.exception("Error delivering message to Telegram: %s", exc)
+            await self.bot.send_message(
+                target,
+                value,
+                disable_web_page_preview=disable_web_page_preview,
+            )
 
     async def inject_sandbox_access_tokens(self, text: str) -> str:
         """Splice a fresh ``__sbx`` capability token into sandbox URLs in ``text``.
@@ -270,6 +377,15 @@ class TelegramMediaService:
             )
             if uploaded:
                 uploaded_files.append(uploaded)
+        if message.video_note:
+            uploaded = await self.upload_tg_file(
+                token,
+                message.video_note.file_id,
+                "video_note.mp4",
+                thread_id,
+            )
+            if uploaded:
+                uploaded_files.append(uploaded)
         return [
             {
                 "path": uploaded["sandbox_path"],
@@ -412,6 +528,8 @@ class TelegramMediaService:
         disable_web_page_preview: bool = False,
     ) -> bool:
         reply_kwargs = build_reply_kwargs(reply_to_message_id)
+        text_mode = self._text_mode()
+        text_limit = self._text_chunk_limit(text_mode)
         send_ops: list[TelegramTextMediaPart] = []
         attachment_count = 0
         image_count = 0
@@ -420,7 +538,7 @@ class TelegramMediaService:
             kind = part["kind"]
             value = part["value"]
             if kind == "text":
-                for chunk in _split_message(value):
+                for chunk in _split_message(value, max_len=text_limit):
                     if chunk:
                         send_ops.append({"kind": "text", "value": chunk})
                 continue
@@ -444,23 +562,14 @@ class TelegramMediaService:
             try:
                 if kind == "text":
                     value = await self.inject_sandbox_access_tokens(value)
-                    tg_text = _md_to_tg_markdown_v2(value)
-                    try:
-                        await message.answer(
-                            tg_text,
-                            parse_mode="MarkdownV2",
-                            reply_markup=markup,
-                            disable_web_page_preview=disable_web_page_preview,
-                            **reply_kwargs,
-                        )
-                    except Exception as exc:
-                        logger.exception("Error sending message to Telegram: %s", exc)
-                        await message.answer(
-                            value,
-                            reply_markup=markup,
-                            disable_web_page_preview=disable_web_page_preview,
-                            **reply_kwargs,
-                        )
+                    await self._send_text_reply(
+                        message=message,
+                        value=value,
+                        text_mode=text_mode,
+                        reply_markup=markup,
+                        disable_web_page_preview=disable_web_page_preview,
+                        reply_kwargs=reply_kwargs,
+                    )
                     sent_any = True
                     continue
 
@@ -528,6 +637,8 @@ class TelegramMediaService:
         if isinstance(chat_id, str) and chat_id.lstrip("-").isdigit():
             target = int(chat_id)
 
+        text_mode = self._text_mode()
+        text_limit = self._text_chunk_limit(text_mode)
         send_ops: list[TelegramTextMediaPart] = []
         attachment_count = 0
         image_count = 0
@@ -535,7 +646,7 @@ class TelegramMediaService:
             kind = part["kind"]
             value = part["value"]
             if kind == "text":
-                for chunk in _split_message(value):
+                for chunk in _split_message(value, max_len=text_limit):
                     if chunk:
                         send_ops.append({"kind": "text", "value": chunk})
                 continue
@@ -556,23 +667,12 @@ class TelegramMediaService:
             try:
                 if kind == "text":
                     value = await self.inject_sandbox_access_tokens(value)
-                    tg_text = _md_to_tg_markdown_v2(value)
-                    try:
-                        await self.bot.send_message(
-                            target,
-                            tg_text,
-                            parse_mode="MarkdownV2",
-                            disable_web_page_preview=disable_web_page_preview,
-                        )
-                    except Exception as exc:
-                        logger.exception(
-                            "Error delivering message to Telegram: %s", exc
-                        )
-                        await self.bot.send_message(
-                            target,
-                            value,
-                            disable_web_page_preview=disable_web_page_preview,
-                        )
+                    await self._send_text_to_chat(
+                        target=target,
+                        value=value,
+                        text_mode=text_mode,
+                        disable_web_page_preview=disable_web_page_preview,
+                    )
                     sent_any = True
                     continue
 

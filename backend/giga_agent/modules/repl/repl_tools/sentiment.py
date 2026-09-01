@@ -4,9 +4,7 @@ import asyncio
 import threading
 import time
 from pathlib import Path
-from typing import Any
 
-import joblib
 import numpy as np
 from langchain.tools import ToolRuntime
 
@@ -16,7 +14,7 @@ from giga_agent.embeddings.base import BaseEmbeddingRuntime
 
 _MODELS_DIR = Path(__file__).resolve().parent / "models"
 _MODEL_PREFIX = "sentiment_"
-_MODEL_SUFFIX = ".joblib"
+_MODEL_SUFFIX = ".npz"
 
 logger = get_logger(__name__)
 
@@ -26,12 +24,42 @@ def _validate_texts(texts: list[str]) -> None:
         raise ValueError("All texts must be strings.")
 
 
-def probs_to_labels(probas, classes):
-    """Получает матрицу вероятностей (n × k) и список классов,
-    возвращает массив меток длиной n.
-    """
-    idx = np.argmax(probas, axis=1)
-    return classes[idx]
+class NumpySentimentModel:
+    """Компактный линейный sentiment-классификатор без sklearn runtime."""
+
+    def __init__(
+        self,
+        weights: np.ndarray,
+        bias: np.ndarray,
+        classes: np.ndarray,
+    ) -> None:
+        if weights.ndim != 2:
+            raise ValueError("Sentiment model weights must be a 2D array.")
+        if bias.shape != (weights.shape[0],):
+            raise ValueError("Sentiment model bias shape does not match weights.")
+        if classes.shape != (weights.shape[0],):
+            raise ValueError("Sentiment model classes shape does not match weights.")
+        self.weights = weights
+        self.bias = bias
+        self.classes = classes
+
+    @classmethod
+    def load(cls, path: Path) -> "NumpySentimentModel":
+        with np.load(path, allow_pickle=False) as data:
+            return cls(
+                weights=np.asarray(data["weights"], dtype=np.float64),
+                bias=np.asarray(data["bias"], dtype=np.float64),
+                classes=np.asarray(data["classes"]),
+            )
+
+    def predict_labels(self, matrix: np.ndarray) -> np.ndarray:
+        if matrix.ndim != 2 or matrix.shape[1] != self.weights.shape[1]:
+            raise ValueError(
+                "Embedding dimensions do not match the sentiment model: "
+                f"got {matrix.shape}, expected (*, {self.weights.shape[1]})."
+            )
+        logits = matrix @ self.weights.T + self.bias
+        return self.classes[np.argmax(logits, axis=1)]
 
 
 def _build_model_key(file_path: Path) -> str | None:
@@ -42,8 +70,8 @@ def _build_model_key(file_path: Path) -> str | None:
     return key or None
 
 
-def _preload_models() -> dict[str, Any]:
-    preloaded: dict[str, Any] = {}
+def _preload_models() -> dict[str, NumpySentimentModel]:
+    preloaded: dict[str, NumpySentimentModel] = {}
     if not _MODELS_DIR.exists():
         return preloaded
     paths = sorted(_MODELS_DIR.glob(f"{_MODEL_PREFIX}*{_MODEL_SUFFIX}"))
@@ -67,7 +95,7 @@ def _preload_models() -> dict[str, Any]:
             progress=f"{idx}/{len(paths)}",
         )
         try:
-            preloaded[key] = joblib.load(model_path)
+            preloaded[key] = NumpySentimentModel.load(model_path)
         except Exception:
             logger.exception(
                 "Failed to load sentiment model",
@@ -86,7 +114,7 @@ def _preload_models() -> dict[str, Any]:
     return preloaded
 
 
-_PRELOADED_SENTIMENT_MODELS: dict[str, Any] = {}
+_PRELOADED_SENTIMENT_MODELS: dict[str, NumpySentimentModel] = {}
 _MODELS_READY = threading.Event()
 
 
@@ -99,7 +127,7 @@ def _preload_models_background() -> None:
         _MODELS_READY.set()
 
 
-# Грузим модели в фоне, чтобы joblib.load не блокировал импорт/старт приложения.
+# Грузим модели в фоне, чтобы чтение файлов не блокировало импорт/старт приложения.
 threading.Thread(
     target=_preload_models_background,
     name="sentiment-preload",
@@ -156,7 +184,7 @@ async def predict_sentiments(
     embeddings = await embedding_runtime.get_embeddings()
     embs = await embeddings.aembed_documents(texts)
     matrix = np.vstack(embs).astype("float32")
-    labels = probs_to_labels(clf.predict_proba(matrix), clf.classes_)
+    labels = clf.predict_labels(matrix)
     return [str(label) for label in labels]
 
 

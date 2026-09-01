@@ -14,6 +14,7 @@ from langchain_core.tools import tool
 
 from giga_agent.conf import get_settings
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.subagents_legacy.uploads import (
     LegacyUploadFileSpec,
@@ -204,7 +205,14 @@ async def _process_url(
         return _format_fetch_error(url, exc)
 
 
-@tool(extras={"repl_skip": True, "not_compress": True, "not_process": True})
+@tool(
+    extras=tool_extras(
+        ToolEffect.READ,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    )
+)
 async def get_urls(
     urls: list[str],
     runtime: ToolRuntime,

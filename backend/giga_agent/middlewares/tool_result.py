@@ -16,6 +16,11 @@ from langgraph.types import Command, interrupt
 
 from giga_agent.conf import get_settings
 from giga_agent.core.agent.middleware import AgentMiddleware
+from giga_agent.core.agent.tool_policy import (
+    blocked_tool_message,
+    is_tool_allowed,
+    policy_from_mcp_annotations,
+)
 from giga_agent.core.agent.types import AgentState, Context
 from giga_agent.core.db import get_session_factory
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
@@ -191,6 +196,12 @@ _MIME_EXTENSION_MAP = {
 }
 
 
+# Тулы, не требующие дженерик-одобрения запуска (см. after_model).
+_NO_APPROVE_TOOLS = frozenset(
+    {"think", "write_todo", "update_plan", "present_plan", "ask_questions"}
+)
+
+
 def _should_skip_process(extras: dict[str, Any]) -> bool:
     return bool(extras.get("not_process"))
 
@@ -262,6 +273,8 @@ async def process_tool_result(
     name_override: str | None = None,
     args_override: Any = None,
     response_widget: bool = False,
+    preserved_additional_kwargs: dict[str, Any] | None = None,
+    status: str = "success",
 ) -> ToolMessage:
     # When a tool is dispatched through connector_call_tool, the result carries
     # the wrapped tool's identity/extras (см. §8): apply those, not the
@@ -281,17 +294,21 @@ async def process_tool_result(
         normalized_result = ""
 
     if action.get("name") in ["message", "think"] or _should_skip_process(extras):
-        additional_kwargs: dict[str, Any] = {
-            "tool_attachments": tool_attachments,
-            "tool_name": tool_name,
-            "tool_args": effective_args,
-        }
+        additional_kwargs: dict[str, Any] = dict(preserved_additional_kwargs or {})
+        additional_kwargs.update(
+            {
+                "tool_attachments": tool_attachments,
+                "tool_name": tool_name,
+                "tool_args": effective_args,
+            }
+        )
         # Сохраняем сигнал размещения, выставленный тулом (build_widget_tool_message).
         if response_widget:
             additional_kwargs["response_widget"] = True
         return ToolMessage(
             tool_call_id=action.get("id"),
             content=_safe_json_dumps(normalized_result),
+            status=status,
             additional_kwargs=additional_kwargs,
         )
 
@@ -346,16 +363,20 @@ async def process_tool_result(
             part for part in [message, saved_result_message] if part
         )
 
-    final_kwargs: dict[str, Any] = {
-        "tool_attachments": tool_attachments,
-        "tool_name": tool_name,
-        "tool_args": effective_args,
-    }
+    final_kwargs: dict[str, Any] = dict(preserved_additional_kwargs or {})
+    final_kwargs.update(
+        {
+            "tool_attachments": tool_attachments,
+            "tool_name": tool_name,
+            "tool_args": effective_args,
+        }
+    )
     if response_widget:
         final_kwargs["response_widget"] = True
     return ToolMessage(
         tool_call_id=action.get("id"),
         content=_safe_json_dumps(payload),
+        status=status,
         additional_kwargs=final_kwargs,
     )
 
@@ -561,7 +582,55 @@ class ToolResultMiddleware(AgentMiddleware):
         action_map = {action.get("id"): action for action in actions}
         if not actions:
             return None
-        if all(action.get("name") in {"think", "ask_questions"} for action in actions):
+
+        if state.get("mode") == "plan":
+            mcp_by_name = {
+                tool.get("name"): tool
+                for tool in state.get("mcp_tools", [])
+                if tool.get("name")
+            }
+            blocked_actions = [
+                action
+                for action in actions
+                if action.get("name") in mcp_by_name
+                and not is_tool_allowed(
+                    policy_from_mcp_annotations(
+                        mcp_by_name[action.get("name")].get("annotations")
+                    ),
+                    "plan",
+                    args=action.get("args") or {},
+                )
+            ]
+            if blocked_actions:
+                blocked_ids = {action.get("id") for action in blocked_actions}
+                responses = []
+                for action in actions:
+                    name = action.get("name") or "unknown"
+                    call_id = action.get("id") or str(uuid.uuid4())
+                    if action.get("id") in blocked_ids:
+                        responses.append(blocked_tool_message(name, call_id))
+                    else:
+                        responses.append(
+                            ToolMessage(
+                                status="error",
+                                content=(
+                                    "Пакет вызовов отменён: один из инструментов "
+                                    "недоступен в режиме планирования."
+                                ),
+                                tool_call_id=call_id,
+                                name=name,
+                                additional_kwargs={
+                                    "error_code": "tool_batch_cancelled_by_policy",
+                                    "tool_name": name,
+                                    "mode": "plan",
+                                },
+                            )
+                        )
+                return {"messages": responses}
+
+        # Тулы без дженерик-одобрения: think (служебный), write_todo/update_plan
+        # (bookkeeping) и present_plan (у него своя карточка plan_approval).
+        if all(action.get("name") in _NO_APPROVE_TOOLS for action in actions):
             return None
 
         mcp_tool_names = [tool.get("name") for tool in state.get("mcp_tools", [])]
@@ -676,4 +745,8 @@ class ToolResultMiddleware(AgentMiddleware):
             # Флаг размещения, выставленный тулом (build_widget_tool_message) или
             # проброшенный коннектором из inner-ToolMessage (см. connectors).
             response_widget=bool(ak.get("response_widget")),
+            # Результаты тулов могут нести UI- и доменные метаданные в
+            # additional_kwargs. Нормализация Command не должна их терять.
+            preserved_additional_kwargs=dict(ak),
+            status=message.status,
         )

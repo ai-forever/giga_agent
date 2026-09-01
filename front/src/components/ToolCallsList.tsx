@@ -6,7 +6,7 @@ import type { Message } from "@langchain/langgraph-sdk";
 import type { ToolCall } from "@langchain/core/messages/tool";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 
-import { GraphState } from "../interfaces";
+import type { GraphState } from "../interfaces";
 import { PROGRESS_AGENTS, TOOL_MAP } from "../config";
 import OverlayPortal from "./OverlayPortal";
 import MessageAttachment from "./attachments/MessageAttachment";
@@ -230,6 +230,22 @@ const basename = (path: string): string => {
   return normalized.split("/").at(-1) || normalized;
 };
 
+const getImagePaths = (args: Record<string, any>): string[] => {
+  if (Array.isArray(args.image_paths)) {
+    return args.image_paths.filter(
+      (path: unknown): path is string =>
+        typeof path === "string" && path.trim().length > 0,
+    );
+  }
+  const legacyPath = getStringArg(args, ["image_path"]);
+  return legacyPath ? [legacyPath] : [];
+};
+
+const getImageSummary = (args: Record<string, any>): string => {
+  const names = getImagePaths(args).map(basename);
+  return names.length > 0 ? names.join(", ") : "";
+};
+
 const getFileToolName = (toolCall: ToolCall): string => {
   const args = (toolCall.args ?? {}) as Record<string, any>;
   const path =
@@ -416,7 +432,7 @@ const getToolDisplay = (toolCall: ToolCall): ToolDisplay => {
     get_documents: getStringArg(args, ["query"]),
     search_memories: getStringArg(args, ["query"]),
     read_skill_manifest: getStringArg(args, ["name"]),
-    analyze_image: basename(getStringArg(args, ["image_path"])),
+    analyze_image: getImageSummary(args),
     gen_image: getStringArg(args, ["prompt"]),
     weather: getStringArg(args, ["city"]),
     vk_get_posts: getStringArg(args, ["domain", "owner_id"]),
@@ -909,6 +925,8 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
   const visible = toolCalls.filter(
     (tc) =>
       tc.name !== "ask_questions" &&
+      tc.name !== "write_todo" &&
+      tc.name !== "subtask" &&
       !isResponseWidget(tc.id ? resultsById[tc.id] : undefined),
   );
 
@@ -939,6 +957,7 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
     <>
       <div className="flex flex-col gap-0.5">
         {visible.map((tc) => {
+          const result = tc.id ? resultsById[tc.id] : undefined;
           // run_deep_research — особый кейс (глубоко завязан на стриминг).
           if (tc.name === "run_deep_research") {
             return (
@@ -954,7 +973,6 @@ const ToolCallsList: React.FC<ToolCallsListProps> = ({
           }
           // Генеративная доска: композиция из результата (персистентно) или из
           // thread.values.ui (лайв во время стрима). Provider-agnostic.
-          const result = tc.id ? resultsById[tc.id] : undefined;
           const composition =
             compositionFromResult(result) ?? compositionFor(thread, tc.id);
           if (composition) {

@@ -23,6 +23,17 @@ def _request():
     )
 
 
+def _planning_request():
+    runtime = types.SimpleNamespace(
+        config={"configurable": {"langgraph_auth_user": {}}}
+    )
+    return types.SimpleNamespace(
+        tool_call={"name": "present_plan", "id": "plan-call", "args": {}},
+        runtime=runtime,
+        tool=None,
+    )
+
+
 def _py_command(content: str) -> Command:
     return Command(
         update={
@@ -60,3 +71,36 @@ class InlineTruncationTests(unittest.IsolatedAsyncioTestCase):
         msg = out.update["messages"][0]
         self.assertIn("42", msg.content)
         self.assertNotIn("обрезан", msg.content)
+
+    async def test_command_preserves_planning_snapshot_and_error_status(self):
+        command = Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content="План подтверждён.",
+                        tool_call_id="plan-call",
+                        status="error",
+                        additional_kwargs={
+                            "custom_metadata": {"source": "planning"},
+                            "planning": {
+                                "type": "approved_plan",
+                                "plan_content": "# План",
+                                "todos": [],
+                            },
+                        },
+                    )
+                ]
+            }
+        )
+        middleware = ToolResultMiddleware()
+
+        async def handler(_request):
+            return command
+
+        out = await middleware.wrap_tool_call(_planning_request(), handler)
+        message = out.update["messages"][0]
+        self.assertEqual(message.status, "error")
+        self.assertEqual(message.additional_kwargs["planning"]["type"], "approved_plan")
+        self.assertEqual(
+            message.additional_kwargs["custom_metadata"], {"source": "planning"}
+        )

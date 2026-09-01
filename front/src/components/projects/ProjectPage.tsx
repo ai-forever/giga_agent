@@ -102,7 +102,13 @@ const ProjectPage: React.FC = () => {
           sortOrder: "desc",
           signal,
         });
-        setThreads(result);
+        setThreads(
+          result.filter(
+            (thread) =>
+              (thread.metadata as Record<string, unknown> | undefined)
+                ?.subagent !== true,
+          ),
+        );
       } catch (e) {
         if (signal?.aborted) return;
         console.error("Failed to load project threads", e);

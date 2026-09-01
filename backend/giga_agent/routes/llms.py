@@ -273,6 +273,7 @@ async def create_llm(
         llm_type=data.type,
         connector_id=data.connector_id,
         model_id=data.model_id,
+        context_window=data.context_window,
         name=data.name,
         parallel_calls=data.parallel_calls,
         settings=validated_settings,
@@ -491,6 +492,9 @@ async def patch_llm(
 
     if "name" in data.model_fields_set:
         update_data["name"] = data.name
+
+    if "context_window" in data.model_fields_set:
+        update_data["context_window"] = data.context_window
 
     if "parallel_calls" in data.model_fields_set:
         if data.parallel_calls is None:

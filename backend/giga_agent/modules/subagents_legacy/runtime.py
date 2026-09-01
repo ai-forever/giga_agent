@@ -16,7 +16,7 @@ from giga_agent.search_engines.base import BaseSearchEngine
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
 
 SecretKey = Literal[
-    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM", "RESEARCHER_LLM"
+    "TWOGIS_TOKEN", "SALUTE_SPEECH", "SALUTE_SCOPE", "SUBAGENTS_LLM"
 ]
 
 
@@ -174,21 +174,41 @@ async def invoke_subgraph_cli(
     runtime: ToolRuntime,
     thread_id: str | None = None,
     extra_configurable: dict[str, Any] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> dict:
     """Invoke a subgraph directly in CLI mode with checkpointer from parent config."""
     from langgraph.constants import CONFIG_KEY_CHECKPOINTER
 
     if thread_id is None:
         thread_id = str(uuid.uuid4())
-    parent_configurable = runtime.config.get("configurable", {})
+    raw_parent_configurable = runtime.config.get("configurable", {}) or {}
+    parent_configurable = {
+        key: value
+        for key, value in raw_parent_configurable.items()
+        if key
+        not in {
+            "checkpoint_ns",
+            "checkpoint_id",
+            "checkpoint_map",
+        }
+    }
     configurable = {
         **parent_configurable,
         "thread_id": thread_id,
-        CONFIG_KEY_CHECKPOINTER: parent_configurable.get(CONFIG_KEY_CHECKPOINTER),
+        # A tool invocation inherits the parent's ``tools:<call_id>``
+        # checkpoint namespace.  Reusing it would create a new child
+        # checkpoint branch for every ``subtask`` call, even with the same
+        # thread_id.  The child graph is invoked as an independent root;
+        # keep its namespace stable so continuation can load its history.
+        "checkpoint_ns": "",
+        CONFIG_KEY_CHECKPOINTER: raw_parent_configurable.get(CONFIG_KEY_CHECKPOINTER),
     }
     if extra_configurable:
         configurable.update(extra_configurable)
-    return await graph.ainvoke(input_data, {"configurable": configurable})
+    run_config: RunnableConfig = {"configurable": configurable}
+    if extra_metadata:
+        run_config["metadata"] = dict(extra_metadata)
+    return await graph.ainvoke(input_data, run_config)
 
 
 def normalize_search_result(item: dict[str, Any]) -> str:

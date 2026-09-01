@@ -20,6 +20,11 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool as make_tool
 from pydantic import BaseModel, Field
 
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    ToolPlanMode,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.deep_research.config import (
@@ -49,7 +54,11 @@ class _CritiqueSchema(BaseModel):
     )
 
 
-@make_tool("submit_critique", args_schema=_CritiqueSchema)
+@make_tool(
+    "submit_critique",
+    args_schema=_CritiqueSchema,
+    extras=tool_extras(ToolEffect.WRITE, plan_mode=ToolPlanMode.ALLOW),
+)
 def _submit_critique(verdict, critique_text):  # type: ignore[override]
     """Submit critique verdict on the report draft."""
     _ = verdict, critique_text

@@ -3,9 +3,13 @@ import type { Message } from "@langchain/langgraph-sdk";
 import type { ToolCall } from "@langchain/core/messages/tool";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
 
-import type { GraphState } from "../../interfaces";
+import type { GraphState, PlanningSnapshot } from "../../interfaces";
 import { getScheduledTaskId } from "../scheduler/detect";
+import { ApprovedPlanCard, RejectedPlanCard } from "../PlanApprovalCard";
 import { ComposedBoard } from "./kit";
+import SubagentActivityCard, {
+  type SubagentActivity,
+} from "../agents/SubagentActivityCard";
 import {
   compositionFor,
   compositionFromResult,
@@ -46,6 +50,16 @@ const ResponseWidget: React.FC<ResponseWidgetProps> = ({
   const { toolCall, result } = item;
   const ak = (result?.additional_kwargs as any) ?? {};
 
+  const subagentActivity = ak.subagent_activity as SubagentActivity | undefined;
+  if (subagentActivity) {
+    return (
+      <SubagentActivityCard
+        activity={subagentActivity}
+        live={subagentActivity.status === "running"}
+      />
+    );
+  }
+
   // MCP-апп(ы): один результат может нести несколько mcp_ui-аттачментов.
   const mcpAtts = ((ak.tool_attachments as any[]) ?? []).filter(
     (a) => a?.file_type === "mcp_ui" && a?.resource_uri,
@@ -80,6 +94,25 @@ const ResponseWidget: React.FC<ResponseWidgetProps> = ({
       <React.Suspense fallback={null}>
         <SchedulerTaskChatCard taskId={taskId} />
       </React.Suspense>
+    );
+  }
+
+  // Подтверждённый план остаётся самостоятельной карточкой и в истории.
+  const planning = ak.planning as PlanningSnapshot | undefined;
+  if (planning?.type === "approved_plan") {
+    return (
+      <ApprovedPlanCard
+        planContent={planning.plan_content}
+        todos={planning.todos}
+      />
+    );
+  }
+  if (planning?.type === "rejected_plan") {
+    return (
+      <RejectedPlanCard
+        planContent={planning.plan_content}
+        todos={planning.todos}
+      />
     );
   }
 

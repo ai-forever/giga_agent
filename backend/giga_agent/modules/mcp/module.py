@@ -79,7 +79,7 @@ class McpModule(BaseModule):
         MCP «тулы» — не `BaseTool`, поэтому доставка не через дефолтный
         `lazy_tools`-путь, а через собственный источник.
         """
-        _ = agent, config, kwargs
+        _ = kwargs
         if user is None:
             return []
         # В CLI-режиме БД не трогаем — серверы берём только из mcp.json.
@@ -93,6 +93,17 @@ class McpModule(BaseModule):
                 )
             resolved = [resolve_db_server(s) for s in db_servers]
             resolved.extend(_enabled_local_servers(user))
+            configurable = (config or {}).get("configurable") or {}
+            if configurable.get("subagent_id"):
+                from giga_agent.subagents.execution import resolve_execution_profile
+
+                execution = await resolve_execution_profile(agent, user, config)
+                allowed_ids = execution.mcp_server_ids if execution else frozenset()
+                resolved = [
+                    item
+                    for item in resolved
+                    if item.cache_id in {str(value) for value in allowed_ids}
+                ]
         # Same-host servers (the URL-derived fallback name) would otherwise share
         # a connector name; make names unique so the model can address each one.
         disambiguate_names(resolved)

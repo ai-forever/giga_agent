@@ -1,5 +1,7 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from giga_agent.models.scheduled_task import STATUS_PENDING
 from giga_agent.modules.scheduler.tools import (
@@ -19,33 +21,45 @@ def _runtime(*, metadata=None, memory_tags=None):
 
 
 class CallerIdentityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        async def read_metadata(config, _thread_id):
+            return (config or {}).get("metadata") or {}
+
+        self._metadata_patcher = patch(
+            "giga_agent.modules.scheduler.tools.get_thread_metadata", read_metadata
+        )
+        self._metadata_patcher.start()
+
+    def tearDown(self) -> None:
+        self._metadata_patcher.stop()
+
     def test_personal_tag_from_group_metadata(self) -> None:
         rt = _runtime(metadata={"channel": "telegram", "telegram_user_id": "42"})
-        self.assertEqual(_caller_personal_tag(rt), "tg_user_42")
+        self.assertEqual(asyncio.run(_caller_personal_tag(rt)), "tg_user_42")
 
     def test_personal_tag_from_base_memory_tags(self) -> None:
         rt = _runtime(memory_tags=["tg_user_7"])
-        self.assertEqual(_caller_personal_tag(rt), "tg_user_7")
+        self.assertEqual(asyncio.run(_caller_personal_tag(rt)), "tg_user_7")
 
     def test_personal_tag_absent(self) -> None:
         rt = _runtime(memory_tags=["tg_chat_100"])
-        self.assertIsNone(_caller_personal_tag(rt))
+        self.assertIsNone(asyncio.run(_caller_personal_tag(rt)))
 
     def test_belongs_to_caller_matches(self) -> None:
         rt = _runtime(metadata={"channel": "telegram", "telegram_user_id": "42"})
         task = SimpleNamespace(memory_tags=["tg_chat_100", "tg_user_42"])
-        self.assertTrue(_task_belongs_to_caller(task, rt))
+        self.assertTrue(asyncio.run(_task_belongs_to_caller(task, rt)))
 
     def test_belongs_to_caller_foreign(self) -> None:
         rt = _runtime(metadata={"channel": "telegram", "telegram_user_id": "42"})
         task = SimpleNamespace(memory_tags=["tg_chat_100", "tg_user_99"])
-        self.assertFalse(_task_belongs_to_caller(task, rt))
+        self.assertFalse(asyncio.run(_task_belongs_to_caller(task, rt)))
 
     def test_belongs_to_caller_unknown_identity_allows(self) -> None:
         # No resolvable identity → chat scope already isolates, so allow.
         rt = _runtime(memory_tags=["tg_chat_100"])
         task = SimpleNamespace(memory_tags=["tg_chat_100", "tg_user_99"])
-        self.assertTrue(_task_belongs_to_caller(task, rt))
+        self.assertTrue(asyncio.run(_task_belongs_to_caller(task, rt)))
 
 
 class ScheduleEditTests(unittest.TestCase):

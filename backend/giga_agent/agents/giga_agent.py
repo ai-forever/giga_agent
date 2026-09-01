@@ -14,6 +14,7 @@ from giga_agent.modules.integrations.yandex_mail import YandexMailModule
 from giga_agent.modules.io import IOModule
 from giga_agent.modules.mcp import McpModule
 from giga_agent.modules.projects import ProjectsModule
+from giga_agent.modules.planning import PlanningModule
 from giga_agent.modules.rag import RagModule
 from giga_agent.modules.repl import ReplModule
 from giga_agent.modules.scheduler.module import SchedulerModule
@@ -21,6 +22,7 @@ from giga_agent.modules.scraper import ScraperModule
 from giga_agent.modules.search import SearchModule
 from giga_agent.modules.skills.module import SkillsModule
 from giga_agent.modules.subagents_legacy.module import SubAgentLegacyModule
+from giga_agent.modules.subagents import SubagentsModule
 from giga_agent.modules.weather import WeatherModule
 
 
@@ -29,6 +31,7 @@ class GigaAgent(BaseAgent):
         return [
             AuthModule(),
             ClarifyModule(),
+            PlanningModule(),
             ReplModule(),
             ImageModule(),
             AnalyzeImagesModule(),
@@ -47,6 +50,7 @@ class GigaAgent(BaseAgent):
             WeatherModule(),
             DeepResearchModule(),
             SchedulerModule(),
+            SubagentsModule(),
             SubAgentLegacyModule(),
             ExperimentalModule(),
         ]

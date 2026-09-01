@@ -15,6 +15,11 @@ from icalendar import Calendar, Event
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.core.time import default_tz
 from giga_agent.modules.integrations.widget_hint import with_widget_note
@@ -183,7 +188,7 @@ def _delete_sync(token: str, uid: str) -> dict[str, Any]:
     return {"error": f"Событие {uid} не найдено."}
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def calendar_list_events(runtime: ToolRuntime, days: int = 7) -> dict[str, Any]:
     """Возвращает ближайшие события Яндекс.Календаря по всем календарям.
 
@@ -194,11 +199,11 @@ async def calendar_list_events(runtime: ToolRuntime, days: int = 7) -> dict[str,
     days = max(1, min(days, 90))
     events = await asyncio.to_thread(_list_sync, token, days)
     return build_widget_tool_message(
-        with_widget_note(agenda_payload(days, events), runtime), runtime=runtime
+        await with_widget_note(agenda_payload(days, events), runtime), runtime=runtime
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def calendar_month(
     runtime: ToolRuntime, year: int = 0, month: int = 0
 ) -> dict[str, Any]:
@@ -219,11 +224,17 @@ async def calendar_month(
         return {"error": "Месяц должен быть 1–12."}
     events = await asyncio.to_thread(_month_sync, token, y, m)
     return build_widget_tool_message(
-        with_widget_note(month_payload(y, m, events), runtime), runtime=runtime
+        await with_widget_note(month_payload(y, m, events), runtime), runtime=runtime
     )
 
 
-@tool(parse_docstring=True)
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        confirmation=ToolConfirmation.ALWAYS,
+    ),
+)
 async def calendar_create_event(
     runtime: ToolRuntime,
     summary: str,
@@ -247,7 +258,13 @@ async def calendar_create_event(
     )
 
 
-@tool(parse_docstring=True)
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        confirmation=ToolConfirmation.ALWAYS,
+    ),
+)
 async def calendar_delete_event(runtime: ToolRuntime, uid: str) -> dict[str, Any]:
     """Удаляет событие Яндекс.Календаря по uid (требует подтверждения).
 

@@ -8,6 +8,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
@@ -76,7 +77,10 @@ async def _resolve_owner_and_runtime(runtime: ToolRuntime):
     return resolver.user.id, sandbox
 
 
-@tool(parse_docstring=False, extras={"repl_save": False})
+@tool(
+    parse_docstring=False,
+    extras=tool_extras(ToolEffect.READ, repl_save=False),
+)
 async def read_skill_manifest(
     name: str,
     runtime: ToolRuntime,
@@ -90,6 +94,29 @@ async def read_skill_manifest(
     """
     if runtime is None:
         return "Error: ToolRuntime is required"
+
+    configurable = (runtime.config or {}).get("configurable") or {}
+    if configurable.get("subagent_id"):
+        from giga_agent.core.integrations.registry import get_current_agent
+        from giga_agent.subagents.execution import resolve_execution_profile
+
+        agent = get_current_agent()
+        if agent is None:
+            return _build_tool_result(
+                runtime=runtime,
+                content="Subagent registry is unavailable",
+                is_error=True,
+            )
+        resolver = RuntimeResolver.from_config(runtime.config)
+        execution = await resolve_execution_profile(
+            agent, resolver.user, runtime.config
+        )
+        if execution is None or name not in execution.skill_names:
+            return _build_tool_result(
+                runtime=runtime,
+                content=f"Skill {name!r} is not allowed for this subagent",
+                is_error=True,
+            )
 
     try:
         owner_id, sandbox = await _resolve_owner_and_runtime(runtime)

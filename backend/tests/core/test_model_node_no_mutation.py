@@ -12,9 +12,12 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from giga_agent.core.agent.graph_factory import (
     _build_file_prompt,
+    _context_compaction_notice,
     _build_selected_prompt,
     _generate_user_info,
+    _plan_mode_human_reminder,
 )
+from giga_agent.core.agent.context_compaction import context_compaction_message_id
 
 
 class MessageCopyContractTests(unittest.TestCase):
@@ -135,3 +138,40 @@ class HelperFunctionTests(unittest.TestCase):
         original_instructions = state["instructions"]
         _generate_user_info(state)
         self.assertEqual(state["instructions"], original_instructions)
+
+    def test_plan_mode_human_reminder_is_emitted_only_in_plan_mode(self):
+        reminder = _plan_mode_human_reminder({"mode": "plan"})
+
+        self.assertIsNotNone(reminder)
+        self.assertIn("режим планирования", reminder)
+        self.assertIn("ask_questions", reminder)
+        self.assertIn("update_plan", reminder)
+        self.assertIn("present_plan", reminder)
+        self.assertIsNone(_plan_mode_human_reminder({"mode": "normal"}))
+
+    def test_context_compaction_started_message_id_is_deterministic(self):
+        self.assertEqual(
+            context_compaction_message_id("op-123"),
+            "context-compaction-started-op-123",
+        )
+
+    def test_context_compaction_notice_preserves_operation_payload(self):
+        notice = _context_compaction_notice(
+            operation_id="op-123",
+            status="started",
+            content="start",
+            reason="manual",
+        )
+
+        self.assertEqual(notice.id, "context-compaction-started-op-123")
+        self.assertTrue(notice.additional_kwargs["rendered"])
+        self.assertEqual(notice.additional_kwargs["kind"], "system_notice")
+        self.assertEqual(
+            notice.additional_kwargs["giga_agent"]["context_compaction"],
+            {
+                "version": 1,
+                "status": "started",
+                "operation_id": "op-123",
+                "reason": "manual",
+            },
+        )

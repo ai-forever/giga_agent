@@ -13,6 +13,11 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 
 from giga_agent.conf import get_settings
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.io.memory_bridge import (
@@ -609,7 +614,12 @@ def _write_success_message(file_path: str, new_size: int, old_size: int | None) 
 - Если файл существует, но пустой, инструмент вернёт 'File is empty.'
 - Табличные файлы (например CSV, TSV, Excel, ODS, Parquet, Arrow, Feather, ORC) нужно читать через python tool, а не через read_file.
 - PDF и DOCX-файлы автоматически конвертируются в текст (с теми же ограничениями на размер ответа, что и для остальных файлов).""",
-    extras={"repl_skip": True, "not_compress": True, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.READ,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    ),
 )
 async def read_file(
     sandbox_path: Annotated[
@@ -777,7 +787,12 @@ async def read_file(
 - По умолчанию write_file создаёт новый файл. Если файл по указанному пути уже существует, будет возвращена ошибка.
 - Чтобы перезаписать существующий файл целиком, передай overwrite=True. Это заменяет ВСЁ содержимое файла, а не подстроку — для точечных правок используй edit_file.
 - Предпочитай edit_file для точечных изменений; overwrite=True уместен, когда нужно переписать файл целиком.""",
-    extras={"repl_skip": True, "not_compress": True, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    ),
 )
 async def write_file(
     file_path: Annotated[
@@ -921,7 +936,12 @@ def _has_recent_read_file(messages: list, file_path: str, lookback: int = 2) -> 
 - Перед редактированием необходимо прочитать файл. Этот инструмент выдаст ошибку, если файл не существует.
 - При редактировании сохраняй точные отступы (табы/пробелы) из вывода read_file. Никогда не включай префиксы номеров строк в find_string или replace_string.
 - ВСЕГДА предпочитай редактирование существующих файлов созданию новых.""",
-    extras={"repl_skip": True, "not_compress": True, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    ),
 )
 async def edit_file(
     file_path: Annotated[
@@ -1100,7 +1120,13 @@ async def edit_file(
 Использование:
 - Поддерживается только для путей под /memories/. Для удаления обычных файлов используй shell.
 - Удаляет файл целиком, индекс семантического поиска тоже очищается.""",
-    extras={"repl_skip": True, "not_compress": True, "not_process": True},
+    extras=tool_extras(
+        ToolEffect.DESTRUCTIVE,
+        confirmation=ToolConfirmation.ALWAYS,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    ),
 )
 async def delete_file(
     file_path: Annotated[

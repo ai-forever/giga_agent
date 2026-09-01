@@ -6,6 +6,10 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
 from giga_agent.core.module import BaseModule
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 if TYPE_CHECKING:
     from giga_agent.core.agent.base import BaseAgent
@@ -22,7 +26,7 @@ class ClarifyModule(BaseModule):
     id: str = "clarify"
 
     @staticmethod
-    def _is_disabled_context(config: RunnableConfig | None) -> bool:
+    async def _is_disabled_context(config: RunnableConfig | None) -> bool:
         """Disable ask_questions where there's no interactive user to answer.
 
         Channel runs (no synchronous UI) and scheduled/background runs (nobody is
@@ -31,11 +35,12 @@ class ClarifyModule(BaseModule):
         """
         if not isinstance(config, dict):
             return False
-        metadata = config.get("metadata") or {}
+        metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
         return bool(
             metadata.get("is_channel")
             or metadata.get("is_scheduled")
             or metadata.get("type") == "scheduled_task"
+            or metadata.get("cli_prompt_mode")
         )
 
     async def _get_tools(
@@ -46,7 +51,7 @@ class ClarifyModule(BaseModule):
         config: RunnableConfig | None = None,
         **kwargs: Any,
     ) -> List[BaseTool]:
-        if self._is_disabled_context(config):
+        if await self._is_disabled_context(config):
             return []
 
         from giga_agent.modules.clarify.tools import ask_questions
@@ -62,7 +67,7 @@ class ClarifyModule(BaseModule):
         **kwargs: Any,
     ) -> str | None:
         _ = user, agent, state, kwargs
-        if self._is_disabled_context(config):
+        if await self._is_disabled_context(config):
             return None
 
         return (

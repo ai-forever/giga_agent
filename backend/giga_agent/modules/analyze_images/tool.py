@@ -6,6 +6,7 @@ import asyncio
 import io
 import json
 import uuid
+from typing import Annotated
 from urllib.parse import urlsplit
 
 import httpx
@@ -13,16 +14,21 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from PIL import Image, ImageOps
 from plotly import io as plotly_io
+from pydantic import Field
 
+from giga_agent.conf import get_settings
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
-from giga_agent.llm.base import BaseLLMRuntime
+from giga_agent.llm.base import BaseLLMRuntime, ImageInput
 from giga_agent.sandbox.base import RedirectResult
 from giga_agent.sandbox.manager import SandboxManager
 from giga_agent.sandbox.materialize import materialize_bounded
+from giga_agent.sandbox.manager.runtime_factory import SandboxRuntimeFactory
 
 # Максимальный размер изображения, скачиваемого по ссылке.
 MAX_URL_IMAGE_BYTES = 9 * 1024 * 1024
+MAX_ANALYZE_IMAGES = 4
 
 
 def _is_http_url(value: str) -> bool:
@@ -39,14 +45,14 @@ async def resolve_image_analyzer_llm(
     if resolver.has_llm:
         try:
             llm = await resolver.get_llm_runtime()
-            if llm.can_analyze_image():
+            if llm.can_analyze_images():
                 return llm
         except Exception:
             pass
     if resolver.has_fast_llm:
         try:
             fast_llm = await resolver.get_fast_llm_runtime()
-            if fast_llm.can_analyze_image():
+            if fast_llm.can_analyze_images():
                 return fast_llm
         except Exception:
             pass
@@ -166,13 +172,22 @@ async def _read_file_bytes(
     *,
     owner_id: uuid.UUID,
     image_path: str,
+    runtime: ToolRuntime | None = None,
 ) -> tuple[bytes, str]:
-    factory = await get_session_factory()
-    async with factory() as session:
-        _, result = await SandboxManager(session).read_file_by_path_for_user(
-            user_id=owner_id,
-            sandbox_path=image_path,
-        )
+    if get_settings().giga_agent_runtime == "cli":
+        if runtime is None:
+            raise ValueError("ToolRuntime is required in CLI mode")
+        resolver = RuntimeResolver.from_config(runtime.config)
+        resolved = await resolver.get_sandbox()
+        sandbox = SandboxRuntimeFactory.build(resolved.provider, resolved.sandbox)
+        result = await sandbox.read_file(image_path)
+    else:
+        factory = await get_session_factory()
+        async with factory() as session:
+            _, result = await SandboxManager(session).read_file_by_path_for_user(
+                user_id=owner_id,
+                sandbox_path=image_path,
+            )
 
     data, too_large = await materialize_bounded(result, MAX_URL_IMAGE_BYTES)
     if too_large:
@@ -186,60 +201,113 @@ async def _read_file_bytes(
     return data, getattr(result, "media_type", None) or "image/png"
 
 
-@tool(parse_docstring=True)
-async def analyze_image(
+async def _prepare_image(
+    *,
+    owner_id: uuid.UUID,
     image_path: str,
+    runtime: ToolRuntime | None = None,
+) -> ImageInput:
+    try:
+        if _is_http_url(image_path):
+            image_bytes, mime_type = await _download_image_bytes(url=image_path)
+        else:
+            image_bytes, mime_type = await _read_file_bytes(
+                owner_id=owner_id,
+                image_path=image_path,
+                runtime=runtime,
+            )
+
+        if _is_plotly_json_input(mime_type=mime_type, image_path=image_path):
+            plotly_png_bytes = await asyncio.to_thread(
+                _plotly_json_to_png_bytes, payload_bytes=image_bytes
+            )
+            if plotly_png_bytes is None:
+                raise ValueError(
+                    "analyze_image поддерживает только изображения и Plotly JSON-графики."
+                )
+            image_bytes = plotly_png_bytes
+
+        jpeg_bytes = await asyncio.to_thread(
+            _image_bytes_to_jpeg_bytes, image_bytes=image_bytes
+        )
+        return {"image_bytes": jpeg_bytes, "mime_type": "image/jpg"}
+    except Exception as exc:
+        raise ValueError(
+            f"Не удалось подготовить изображение '{image_path}': {exc}"
+        ) from exc
+
+
+async def _prepare_images(
+    *,
+    owner_id: uuid.UUID,
+    image_paths: list[str],
+    runtime: ToolRuntime | None = None,
+) -> list[ImageInput]:
+    tasks = [
+        asyncio.create_task(
+            _prepare_image(
+                owner_id=owner_id,
+                image_path=image_path,
+                runtime=runtime,
+            )
+        )
+        for image_path in image_paths
+    ]
+    try:
+        return list(await asyncio.gather(*tasks))
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
+async def analyze_image(
+    image_paths: Annotated[list[str], Field(min_length=1, max_length=MAX_ANALYZE_IMAGES)],
     prompt: str,
     runtime: ToolRuntime,
 ) -> ToolMessage:
-    """Analyze an image from sandbox path or URL with current user's LLM.
+    """Analyze one to four images from sandbox paths or URLs with current user's LLM.
 
     Args:
-        image_path: Путь вложения в sandbox (`attachment:<path>` без префикса) либо
-            прямая ссылка http(s) на изображение (максимум 9 МБ).
-        prompt: Что нужно определить по изображению.
+        image_paths: Пути вложений в sandbox (`attachment:<path>` без префикса) либо
+            прямые ссылки http(s) на изображения (максимум 9 МБ на изображение).
+        prompt: Что нужно определить по изображениям.
     """
+    if not 1 <= len(image_paths) <= MAX_ANALYZE_IMAGES:
+        raise ValueError(
+            f"analyze_image принимает от 1 до {MAX_ANALYZE_IMAGES} изображений."
+        )
+
     resolver = RuntimeResolver.from_config(runtime.config)
     owner_id = resolver.user.id
-    if _is_http_url(image_path):
-        image_bytes, mime_type = await _download_image_bytes(url=image_path)
-    else:
-        image_bytes, mime_type = await _read_file_bytes(
-            owner_id=owner_id,
-            image_path=image_path,
-        )
-    if _is_plotly_json_input(mime_type=mime_type, image_path=image_path):
-        plotly_png_bytes = await asyncio.to_thread(
-            _plotly_json_to_png_bytes, payload_bytes=image_bytes
-        )
-        if plotly_png_bytes is None:
-            raise ValueError(
-                "analyze_image поддерживает только изображения и Plotly JSON-графики."
-            )
-        image_bytes = plotly_png_bytes
+    images = await _prepare_images(
+        owner_id=owner_id,
+        image_paths=image_paths,
+        runtime=runtime,
+    )
 
     llm_runtime = await resolve_image_analyzer_llm(resolver)
 
     if llm_runtime is None:
-        raise ValueError("Текущий LLM не поддерживает analyze_image")
+        raise ValueError("Текущий LLM не поддерживает анализ нескольких изображений")
 
-    jpeg_bytes = await asyncio.to_thread(
-        _image_bytes_to_jpeg_bytes, image_bytes=image_bytes
-    )
-    analysis_text = await llm_runtime.analyze_image(
-        prompt=prompt,
-        image_bytes=jpeg_bytes,
-        mime_type="image/jpg",
-    )
+    analysis_text = await llm_runtime.analyze_images(prompt=prompt, images=images)
 
-    output = f"Изображение '{image_path}' проанализировано."
+    output = (
+        f"Изображение '{image_paths[0]}' проанализировано."
+        if len(image_paths) == 1
+        else f"Проанализировано изображений: {len(image_paths)}."
+    )
     return ToolMessage(
         tool_call_id=runtime.tool_call_id,
         content=json.dumps(
             {
                 "output": output,
                 "analysis": analysis_text,
-                "image_path": image_path,
+                "image_paths": image_paths,
                 "model": llm_runtime.model_id,
             },
             ensure_ascii=False,

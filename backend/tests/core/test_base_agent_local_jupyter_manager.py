@@ -47,6 +47,12 @@ class BaseAgentLocalJupyterManagerTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             agent = BaseAgent(modules=[], tools=[])
+            # This test only covers the local Jupyter manager lifecycle.  Starting
+            # the periodic sweepers also opens real SQLite sessions, which makes
+            # teardown wait for unrelated background work.
+            agent._idle_sandbox_sweeper = None
+            agent._orphan_sandbox_sweeper = None
+            agent._scheduled_task_scheduler = None
             async with agent.app.router.lifespan_context(agent.app):
                 pass
 

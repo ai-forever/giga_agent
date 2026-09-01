@@ -4,7 +4,7 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
@@ -26,9 +26,18 @@ class Settings(BaseSettings):
 
     giga_agent_runtime: str = Field("local", alias="GIGA_AGENT_RUNTIME")
     giga_agent_runtime_local: bool = Field(False, alias="GIGA_AGENT_RUNTIME_LOCAL")
+    giga_agent_max_active_subagents_per_user: int = Field(
+        3, alias="GIGA_AGENT_MAX_ACTIVE_SUBAGENTS_PER_USER", ge=1
+    )
+    giga_agent_subagent_approval_ttl_seconds: int = Field(
+        86400, alias="GIGA_AGENT_SUBAGENT_APPROVAL_TTL_SECONDS", ge=60
+    )
     giga_agent_cli_cwd: str | None = Field(None, alias="GIGA_AGENT_CLI_CWD")
     giga_agent_cli_config: str | None = Field(None, alias="GIGA_AGENT_CLI_CONFIG")
     giga_agent_cli_no_sandbox: bool = Field(False, alias="GIGA_AGENT_CLI_NO_SANDBOX")
+    giga_agent_cli_python_executor: Literal["jupyter", "worker"] = Field(
+        "worker", alias="GIGA_AGENT_CLI_PYTHON_EXECUTOR"
+    )
     giga_agent_database_url: str | None = Field(None, alias="GIGA_AGENT_DATABASE_URL")
     giga_agent_project_root: Path = Field(
         default_factory=lambda: Path.cwd() / ".giga_agent",
@@ -62,6 +71,10 @@ class Settings(BaseSettings):
     giga_agent_sandbox_port_redirect_base: str | None = Field(
         None,
         alias="GIGA_AGENT_SANDBOX_PORT_REDIRECT_BASE",
+    )
+    giga_agent_telegram_text_mode: Literal["rich", "legacy"] = Field(
+        "rich",
+        alias="GIGA_AGENT_TELEGRAM_TEXT_MODE",
     )
     # Domain for the app session cookie in cross-domain mode. Empty -> host-only
     # cookie bound to the app host (correct default when app and sandboxes live
@@ -365,6 +378,33 @@ class Settings(BaseSettings):
         default_factory=lambda: ["gigachat"],
         alias="GIGA_AGENT_ENABLE_MULTI_TOOL_USE_PROVIDERS",
     )
+
+    giga_agent_context_compaction_enabled: bool = Field(
+        True, alias="GIGA_AGENT_CONTEXT_COMPACTION_ENABLED"
+    )
+    giga_agent_context_compaction_trigger_ratio: float = Field(
+        0.7, alias="GIGA_AGENT_CONTEXT_COMPACTION_TRIGGER_RATIO", gt=0, lt=1
+    )
+    giga_agent_context_compaction_hard_ratio: float = Field(
+        0.95, alias="GIGA_AGENT_CONTEXT_COMPACTION_HARD_RATIO", gt=0, le=1
+    )
+    giga_agent_context_compaction_keep_tokens: int = Field(
+        4000, alias="GIGA_AGENT_CONTEXT_COMPACTION_KEEP_TOKENS", gt=0
+    )
+    giga_agent_context_compaction_summary_max_tokens: int = Field(
+        4096, alias="GIGA_AGENT_CONTEXT_COMPACTION_SUMMARY_MAX_TOKENS", gt=0
+    )
+
+    @field_validator("giga_agent_context_compaction_hard_ratio")
+    @classmethod
+    def _validate_compaction_ratios(cls, value: float, info) -> float:
+        trigger = info.data.get("giga_agent_context_compaction_trigger_ratio", 0.80)
+        if value <= trigger:
+            raise ValueError(
+                "GIGA_AGENT_CONTEXT_COMPACTION_HARD_RATIO must be greater than "
+                "GIGA_AGENT_CONTEXT_COMPACTION_TRIGGER_RATIO"
+            )
+        return value
 
     giga_agent_tool_max_size: int = Field(25000, alias="GIGA_AGENT_TOOL_MAX_SIZE")
 

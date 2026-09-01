@@ -14,6 +14,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
 from giga_agent.conf import get_settings
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.landing_agent.config import (
@@ -136,7 +137,7 @@ workflow.add_edge("done_node", "__end__")
 graph = workflow.compile()
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def create_landing(
     task: str, thread_id: str | None = None, runtime: ToolRuntime = None
 ):

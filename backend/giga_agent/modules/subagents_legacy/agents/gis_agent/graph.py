@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.agents.gis_agent.config import MapState
 from giga_agent.modules.subagents_legacy.agents.gis_agent.nodes.attractions import (
@@ -98,7 +99,7 @@ memory = MemorySaver()
 graph = workflow.compile(checkpointer=memory)
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def city_explore(city: str, runtime: ToolRuntime):
     """Получает интересные локации в городе.
     Может быть полезным,

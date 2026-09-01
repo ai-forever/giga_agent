@@ -51,6 +51,7 @@ import {
   buildCommentResult,
   findCarrierToolCallId,
 } from "./questions/optimistic.ts";
+import { appendContextCompactionStarted } from "./context-compaction/optimistic.ts";
 import { UseStream } from "@langchain/langgraph-sdk/react";
 import { useBranches } from "@/hooks/useBranches";
 import { useRagContext } from "@/components/rag/providers/RAG.tsx";
@@ -87,6 +88,11 @@ import {
 } from "@/types/prompt-suggestions";
 
 const MAX_TEXTAREA_HEIGHT = 200; // макс высота в px
+
+const newContextCompactionOperationId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `compact-${Date.now()}`;
 
 const ModuleIcon: React.FC<{ name: string; className?: string }> = ({
   name,
@@ -172,6 +178,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   const [isMCPLoading, setIsMCPLoading] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [deepResearchForced, setDeepResearchForced] = useState(false);
+  const [planMode, setPlanMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
@@ -184,6 +191,22 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   );
   const browserTranscriptRef = useRef("");
   const cancelRecordingRef = useRef(false);
+  const isPlanConfirmed =
+    thread?.values?.mode === "normal" && Boolean(thread.values.plan_approved);
+  const wasPlanConfirmedRef = useRef(isPlanConfirmed);
+
+  // `present_plan` switches the graph back to normal mode after approval.
+  // Keep the local composer toggle in sync so the next user message does not
+  // accidentally start another planning turn. React only to a new approval:
+  // an approved plan from the chat history must not prevent another plan turn.
+  useEffect(() => {
+    const wasPlanConfirmed = wasPlanConfirmedRef.current;
+    wasPlanConfirmedRef.current = isPlanConfirmed;
+
+    if (planMode && isPlanConfirmed && !wasPlanConfirmed) {
+      setPlanMode(false);
+    }
+  }, [isPlanConfirmed, planMode]);
 
   const {
     collections,
@@ -297,6 +320,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
           config: {
             configurable: {
               ...(deepResearchForced ? { deep_research_forced: true } : {}),
+              plan_mode: planMode,
               ...(selectedSkillNames.length > 0
                 ? { selected_skills: selectedSkillNames }
                 : {}),
@@ -318,6 +342,7 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       mcpToolsPayload,
       enabledCollections,
       deepResearchForced,
+      planMode,
       selectedSkillNames,
       clearSelectedSkills,
       autoApprove,
@@ -814,6 +839,45 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
   }, [thread?.isLoading]);
 
   const handleSend = () => {
+    if (message.trim() === "/compact") {
+      if (thread?.isLoading || thread?.interrupt) {
+        toast.warning("Дождитесь завершения текущего запуска");
+        return;
+      }
+      if (uploads.length > 0 || selectedCount > 0) {
+        toast.warning("Уберите вложения перед командой /compact");
+        return;
+      }
+      if (!thread || (thread.messages?.length ?? 0) === 0) {
+        toast.info("Недостаточно истории для сокращения");
+        return;
+      }
+      const forkCheckpoint = branches.isViewingNonHead
+        ? branches.activeCheckpoint
+        : undefined;
+      const baseMessages = branches.isViewingNonHead
+        ? branches.activeMessages
+        : (thread.messages ?? []);
+      const operationId = newContextCompactionOperationId();
+      thread.submit({} as any, {
+        optimisticValues: appendContextCompactionStarted(
+          operationId,
+          baseMessages,
+        ),
+        checkpoint: forkCheckpoint,
+        streamMode: ["messages"],
+        onDisconnect: "continue",
+        config: {
+          configurable: {
+            context_compaction_only: true,
+            context_compaction_operation_id: operationId,
+          },
+        },
+      });
+      setMessage("");
+      toast.info("Сокращаю контекст…");
+      return;
+    }
     // При активном interrupt поле ввода отвечает НА НЕГО, а не шлёт новый ран
     // (та же логика, что в handleKeyDown): вопросы → свободный comment, прочее →
     // comment/approve.
@@ -841,6 +905,11 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
     });
   }, []);
 
+  // Plan mode персистит между отправками — сбрасывается только повторным кликом.
+  const togglePlanMode = useCallback(() => {
+    setPlanMode((prev) => !prev);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isMobileDevice) return;
 
@@ -848,10 +917,13 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
       e.preventDefault();
       if (!thread?.isLoading && !isUploading) {
         if (thread?.interrupt) {
-          if (thread.interrupt.value?.type === "questions") {
-            if (message.trim()) handleQuestionsComment(message);
-          } else {
-            void handleContinue(message ? "comment" : "approve");
+          // План подтверждается кнопками карточки, не Enter в композере.
+          if (thread.interrupt.value?.type !== "plan_approval") {
+            if (thread.interrupt.value?.type === "questions") {
+              if (message.trim()) handleQuestionsComment(message);
+            } else {
+              void handleContinue(message ? "comment" : "approve");
+            }
           }
         } else {
           handleSend();
@@ -1207,6 +1279,19 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                         )}
                       </div>
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        togglePlanMode();
+                      }}
+                      className="gap-2"
+                    >
+                      <LucideIcons.ListChecks className="size-5" />
+                      <span className="flex-1">Режим планирования</span>
+                      <div className="size-4 shrink-0 flex items-center justify-center">
+                        {planMode && <Check className="size-4 text-primary" />}
+                      </div>
+                    </DropdownMenuItem>
                     <ConnectorsMenu />
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger className="gap-2">
@@ -1312,6 +1397,21 @@ const InputArea: React.FC<InputAreaProps> = ({ thread, prefillPayload }) => {
                     <X className="size-3 hidden group-hover:block" />
                     <span className="truncate max-w-40">
                       Глубокое исследование
+                    </span>
+                  </button>
+                )}
+                {planMode && (
+                  <button
+                    type="button"
+                    onClick={() => setPlanMode(false)}
+                    title="Выключить режим планирования"
+                    aria-label="Выключить режим планирования"
+                    className="group inline-flex items-center gap-1 rounded-full border border-primary/20 bg-muted/10 px-2 py-1 text-xs font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors duration-150 cursor-pointer hover:bg-muted/20 hover:border-primary/30 dark:bg-primary/20 dark:border-primary/30 dark:hover:bg-primary/30 dark:hover:border-primary/40"
+                  >
+                    <LucideIcons.ListChecks className="size-3 group-hover:hidden" />
+                    <X className="size-3 hidden group-hover:block" />
+                    <span className="truncate max-w-40">
+                      Режим планирования
                     </span>
                   </button>
                 )}

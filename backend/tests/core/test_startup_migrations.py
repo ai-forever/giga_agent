@@ -10,7 +10,13 @@ from giga_agent.core.agent.base import BaseAgent
 
 class StartupMigrationsTests(unittest.IsolatedAsyncioTestCase):
     def _build_agent(self) -> BaseAgent:
-        return BaseAgent(modules=[], tools=[])
+        agent = BaseAgent(modules=[], tools=[])
+        # These tests cover startup ordering, not periodic cleanup. Avoid opening
+        # real SQLite sessions in sweepers while entering and leaving the lifespan.
+        agent._idle_sandbox_sweeper = None
+        agent._orphan_sandbox_sweeper = None
+        agent._scheduled_task_scheduler = None
+        return agent
 
     @staticmethod
     def _build_channel_manager_stub():

@@ -52,6 +52,10 @@ from giga_agent.runtime_config import mount_runtime_config_route
 from giga_agent.sandbox.idle_sweeper import IdleSandboxSweeper
 from giga_agent.sandbox.orphan_sweeper import OrphanSandboxSweeper
 from giga_agent.scheduled.scheduler import ScheduledTaskScheduler
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 NOTES_PROMPT = """
 ====
@@ -96,13 +100,14 @@ class BaseAgent(BaseModel):
     _app: FastAPI = PrivateAttr()
     _graph: CompiledStateGraph[AgentState, Context] = PrivateAttr()
     _module_ids: Set[str] = PrivateAttr(default_factory=set)
-    _tools_cache: Dict[tuple[UUID | None, int], List[BaseTool]] = PrivateAttr(
-        default_factory=dict
+    _tools_cache: Dict[tuple[UUID | None, int, bool, bool], List[BaseTool]] = (
+        PrivateAttr(default_factory=dict)
     )
     _agent_modules: tuple[BaseModule, ...] = PrivateAttr(default_factory=tuple)
     _idle_sandbox_sweeper: IdleSandboxSweeper | None = PrivateAttr(default=None)
     _orphan_sandbox_sweeper: OrphanSandboxSweeper | None = PrivateAttr(default=None)
     _scheduled_task_scheduler: ScheduledTaskScheduler | None = PrivateAttr(default=None)
+    _subagent_registry: Any = PrivateAttr(default=None)
 
     def get_modules(self) -> list[BaseModule]:
         return []
@@ -222,6 +227,13 @@ class BaseAgent(BaseModel):
         default_modules = tuple(self.get_modules())
         self._agent_modules = (*default_modules, *self.modules)
 
+        # Parse and validate all built-in AGENT.md files before the graph starts.
+        # Keeping this fail-fast prevents a broken/duplicate agent from being
+        # advertised only after the first model call.
+        from giga_agent.subagents.registry import AgentRegistry
+
+        self._subagent_registry = AgentRegistry(self)
+
         # Register the loaded agent so the integrations registry can resolve
         # providers by walking modules from request-free contexts.
         from giga_agent.core.integrations.registry import set_current_agent
@@ -295,6 +307,10 @@ class BaseAgent(BaseModel):
         return self._graph
 
     @property
+    def subagent_registry(self):
+        return self._subagent_registry
+
+    @property
     def all_modules(self):
         return self._agent_modules
 
@@ -318,16 +334,29 @@ class BaseAgent(BaseModel):
         enable_multi_tool_use: bool = False,
         connector_sources: "list | None" = None,
     ) -> str:
+        from giga_agent.subagents.execution import (
+            execution_module_ids,
+            resolve_execution_profile,
+        )
+
+        execution = await resolve_execution_profile(self, user, config)
         disabled = _disabled_module_ids(config, user)
-        modules_prompts = []
+        project_prompts: list[str] = []
+        modules_prompts: list[str] = []
         for module in self._agent_modules:
             if module.label and module.id in disabled:
                 continue
+            if execution is not None:
+                if module.id not in execution_module_ids(execution):
+                    continue
             instructions = await module.get_instructions(
                 user=user, agent=self, state=state, config=config
             )
             if instructions:
-                modules_prompts.append(instructions)
+                if module.id == "projects":
+                    project_prompts.append(instructions)
+                else:
+                    modules_prompts.append(instructions)
         # Несъёмный connector-дисптач: единый листинг доступных коннекторов
         # (MCP-серверы + ленивые модули). Источники вычисляются один раз в
         # amodel_node и передаются сюда, чтобы не дублировать запросы.
@@ -353,14 +382,29 @@ class BaseAgent(BaseModel):
             enable_think=enable_think,
             enable_multi_tool_use=enable_multi_tool_use,
         )
-        return (
-            base_prompt.format(modules="\n===\n\n".join(modules_prompts))
-            + instructions_prompt
-        )
+        ordered_prompts = [*project_prompts]
+        if execution is not None and instructions_prompt:
+            ordered_prompts.append(instructions_prompt.strip())
+        ordered_prompts.extend(modules_prompts)
+        if execution is not None:
+            ordered_prompts.append(execution.definition.prompt)
+        prompt = base_prompt.format(modules="\n===\n\n".join(ordered_prompts))
+        if state is not None and state.get("mode") == "plan":
+            from giga_agent.modules.planning.prompts import PLAN_MODE_INSTRUCTIONS
+
+            prompt += "\n===\n\n" + PLAN_MODE_INSTRUCTIONS
+        return prompt if execution is not None else prompt + instructions_prompt
 
     async def get_tools(
         self, user: UserShort, *, config: RunnableConfig | None = None
     ) -> List[BaseTool]:
+        from giga_agent.subagents.execution import (
+            direct_tool_allowed,
+            execution_module_ids,
+            resolve_execution_profile,
+        )
+
+        execution = await resolve_execution_profile(self, user, config)
         user_id = getattr(user, "id", None)
         try:
             user_fingerprint = hash(user)
@@ -369,20 +413,42 @@ class BaseAgent(BaseModel):
 
         is_channel = False
         if isinstance(config, dict):
-            metadata = config.get("metadata") or {}
+            metadata = await get_thread_metadata(
+                config, get_thread_id_from_config(config)
+            )
             is_channel = bool(metadata.get("is_channel"))
-        cache_key = (user_id, user_fingerprint, is_channel)
-        cached = self._tools_cache.get(cache_key)
+        no_python_tool = bool(
+            ((config or {}).get("configurable") or {}).get("no_python_tool")
+        )
+        cache_key = (user_id, user_fingerprint, is_channel, no_python_tool)
+        cached = None if execution is not None else self._tools_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        all_tools: list[BaseTool] = list(self.tools)
+        all_tools: list[BaseTool] = [] if execution is not None else list(self.tools)
+        parent_plan_mode = bool(
+            ((config or {}).get("configurable") or {}).get("subagent_parent_plan_mode")
+        )
         for module in self._agent_modules:
-            all_tools.extend(
-                await module.get_tools(user=user, agent=self, config=config)
-            )
+            if execution is not None:
+                if module.id not in execution_module_ids(execution):
+                    continue
+            module_tools = await module.get_tools(user=user, agent=self, config=config)
+            if execution is not None:
+                module_tools = [
+                    item
+                    for item in module_tools
+                    if direct_tool_allowed(
+                        execution,
+                        module.id,
+                        item,
+                        parent_plan_mode=parent_plan_mode,
+                    )
+                ]
+            all_tools.extend(module_tools)
 
-        self._tools_cache[cache_key] = all_tools
+        if execution is None:
+            self._tools_cache[cache_key] = all_tools
         return all_tools
 
     async def run_startup_hooks(self):
@@ -432,11 +498,25 @@ class BaseAgent(BaseModel):
         state: AgentState,
         config: RunnableConfig | None = None,
     ) -> str:
+        from giga_agent.subagents.execution import resolve_execution_profile
+
+        execution = (
+            await resolve_execution_profile(self, user, config)
+            if user is not None
+            else None
+        )
         disabled = _disabled_module_ids(config, user)
         extended_parts = []
         for module in self._agent_modules:
             if module.label and module.id in disabled:
                 continue
+            if execution is not None:
+                implicit = {"projects", "rag", "skills", "mcp"}
+                if (
+                    module.id not in execution.definition.modules
+                    and module.id not in implicit
+                ):
+                    continue
             extended_task = await module.extend_task(
                 user=user,
                 task=task,

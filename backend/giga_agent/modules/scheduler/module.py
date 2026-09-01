@@ -12,6 +12,10 @@ from giga_agent.core.agent.connectors.tools import (
     GET_INFO_TOOL_NAME,
 )
 from giga_agent.core.module import BaseModule
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 from giga_agent.models.users import UserShort
 
 SCHEDULER_CONNECTOR = "scheduler"
@@ -89,7 +93,7 @@ class SchedulerModule(BaseModule):
         return True
 
     @staticmethod
-    def _is_scheduled_run(config: Any) -> bool:
+    async def _is_scheduled_run(config: Any) -> bool:
         """True if this run is itself a scheduled-task run.
 
         The scheduled thread carries ``is_scheduled``/``type`` in its metadata
@@ -99,28 +103,28 @@ class SchedulerModule(BaseModule):
         """
         if not isinstance(config, dict):
             return False
-        metadata = config.get("metadata") or {}
+        metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
         return (
             bool(metadata.get("is_scheduled"))
             or metadata.get("type") == "scheduled_task"
         )
 
     @staticmethod
-    def _is_channel_run(config: Any) -> bool:
+    async def _is_channel_run(config: Any) -> bool:
         """True if the conversation happens inside a channel chat.
 
         Such runs schedule only for the current chat — no recipient picking.
         """
         if not isinstance(config, dict):
             return False
-        metadata = config.get("metadata") or {}
+        metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
         return bool(metadata.get("is_channel"))
 
     async def _get_tools(
         self, user: UserShort | None, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
         _ = user, agent, kwargs
-        if self._is_scheduled_run(config):
+        if await self._is_scheduled_run(config):
             return []
         from giga_agent.modules.scheduler.tools import (
             cancel_scheduled_task,
@@ -134,7 +138,7 @@ class SchedulerModule(BaseModule):
             schedule_task_in_chat,
         )
 
-        if self._is_channel_run(config):
+        if await self._is_channel_run(config):
             # Result always goes to the current chat: no recipient picking, and
             # list/edit/cancel are scoped to tasks created in this chat.
             return [
@@ -158,8 +162,8 @@ class SchedulerModule(BaseModule):
         _ = user, agent, state, kwargs
         if get_settings().giga_agent_runtime == "cli":
             return None
-        if self._is_scheduled_run(config):
+        if await self._is_scheduled_run(config):
             return None
-        if self._is_channel_run(config):
+        if await self._is_channel_run(config):
             return SCHEDULER_INSTRUCTIONS_CHANNEL
         return SCHEDULER_INSTRUCTIONS
