@@ -4,6 +4,7 @@ import os
 import sys
 from typing import Final
 
+from giga_agent.cli.utils.secret_key import ensure_dev_secret_key_env
 
 DEFAULT_APP: Final[str] = "aegra_api.main:app"
 DEFAULT_HOST: Final[str] = "127.0.0.1"
@@ -20,7 +21,9 @@ os.environ["GIGA_AGENT_UI"] = "0"
 os.environ["REDIS_URL"] = "redis://localhost:6379"
 os.environ["AEGRA_CONFIG"] = "langgraph.json"
 os.environ["AUTH_TYPE"] = "custom"
-os.environ["GIGA_AGENT_SECRET_KEY"] = "secret"
+# Do not hardcode a forgeable JWT signing key: reuse the project's dev secret
+# helper, which persists a random key (or honors GIGA_AGENT_SECRET_KEY if set).
+ensure_dev_secret_key_env()
 os.environ["GIGA_AGENT_DATABASE_URL"] = (
     "postgresql+asyncpg://postgres:postgres@localhost:5434/postgres"
 )
