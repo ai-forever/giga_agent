@@ -320,14 +320,26 @@ class BaseAgent(BaseModel):
     ) -> str:
         disabled = _disabled_module_ids(config, user)
         modules_prompts = []
+        disabled_modules: list[BaseModule] = []
         for module in self._agent_modules:
             if module.label and module.id in disabled:
+                disabled_modules.append(module)
                 continue
             instructions = await module.get_instructions(
                 user=user, agent=self, state=state, config=config
             )
             if instructions:
                 modules_prompts.append(instructions)
+        # Выключенные пользователем модули: даём модели знать об их
+        # существовании и как их подключить, но без байндинга тулов.
+        if disabled_modules:
+            from giga_agent.core.agent.disabled_modules_prompt import (
+                build_disabled_modules_prompt,
+            )
+
+            disabled_prompt = build_disabled_modules_prompt(disabled_modules)
+            if disabled_prompt:
+                modules_prompts.append(disabled_prompt)
         # Несъёмный connector-дисптач: единый листинг доступных коннекторов
         # (MCP-серверы + ленивые модули). Источники вычисляются один раз в
         # amodel_node и передаются сюда, чтобы не дублировать запросы.
