@@ -45,6 +45,7 @@ import {
   toPermissionsApiPayload,
 } from "./forms/resource-permissions-utils";
 import { compactSchemaValues } from "./forms/schema-fields-utils";
+import SandboxOnboarding from "./sandbox-onboarding";
 
 interface SandboxProviderResponse {
   id: string;
@@ -682,6 +683,7 @@ export const SandboxSettings: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <SandboxOnboarding />
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-medium">Sandbox провайдеры</h3>
