@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     )
 
     giga_agent_auth_algorithm: str = Field("HS256", alias="GIGA_AGENT_AUTH_ALGORITHM")
+    # Срок жизни access-токена в минутах. Раньше exp не проставлялся и утёкший токен
+    # оставался валидным вечно; теперь дефолт — 12 часов. Задайте 0, чтобы вернуть
+    # прежнее поведение (без exp), если это осознанно нужно.
+    giga_agent_access_token_expire_minutes: int = Field(
+        60 * 12, alias="GIGA_AGENT_ACCESS_TOKEN_EXPIRE_MINUTES"
+    )
     # Имя доверенного однозначного заголовка с реальным IP клиента (в проде "X-Client-IP",
     # который оператор пробрасывает с edge). Не задан → берём request.client.host (TCP-пир,
     # подделать нельзя — безопасный дефолт). X-Forwarded-For здесь не поддерживаем: его левый

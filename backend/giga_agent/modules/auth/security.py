@@ -6,8 +6,6 @@ import bcrypt
 import jwt
 from giga_agent.conf import get_settings
 
-ACCESS_TOKEN_EXPIRE_MINUTES = None  # None = tokens never expire
-
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     # bcrypt.checkpw requires bytes
@@ -33,6 +31,12 @@ _DUMMY_PASSWORD_HASH = get_password_hash("giga-agent-dummy-password")
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     settings = get_settings()
     to_encode = data.copy()
+    if expires_delta is None:
+        # Токены доступа по умолчанию получают срок действия (exp), чтобы утёкший
+        # токен не оставался валидным вечно. Срок берём из настроек.
+        expires_delta = timedelta(
+            minutes=settings.giga_agent_access_token_expire_minutes
+        )
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
         to_encode.update({"exp": expire})
