@@ -156,8 +156,11 @@ class Settings(BaseSettings):
         "admin@example.com",
         alias="GIGA_AGENT_ADMIN_EMAIL",
     )
-    giga_agent_admin_password: str = Field(
-        "giga_agent_admin", alias="GIGA_AGENT_ADMIN_PASSWORD"
+    giga_agent_admin_password: Optional[str] = Field(
+        None,
+        alias="GIGA_AGENT_ADMIN_PASSWORD",
+        description="Пароль первого (админского) пользователя. Если не задан — "
+        "генерируется случайный и показывается один раз в логе при первом старте.",
     )
     giga_agent_secret_key: Optional[str] = Field(
         None,
