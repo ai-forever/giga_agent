@@ -152,12 +152,12 @@ class Settings(BaseSettings):
     giga_agent_login_throttle_slow_window_sec: int = Field(
         3600, alias="GIGA_AGENT_LOGIN_THROTTLE_SLOW_WINDOW_SEC"
     )
-    giga_agent_admin_email: str = Field(
-        "admin@example.com",
+    giga_agent_admin_email: str | None = Field(
+        None,
         alias="GIGA_AGENT_ADMIN_EMAIL",
     )
-    giga_agent_admin_password: str = Field(
-        "giga_agent_admin", alias="GIGA_AGENT_ADMIN_PASSWORD"
+    giga_agent_admin_password: str | None = Field(
+        None, alias="GIGA_AGENT_ADMIN_PASSWORD"
     )
     giga_agent_secret_key: Optional[str] = Field(
         None,
