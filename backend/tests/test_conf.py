@@ -28,6 +28,12 @@ class ConfSettingsTests(unittest.TestCase):
             settings = get_settings()
             self.assertNotEqual(settings.giga_agent_secret_key, "legacy-secret")
 
+    def test_admin_bootstrap_credentials_are_not_set_by_default(self):
+        with self._patched_env({}, clear=True):
+            settings = get_settings()
+            self.assertIsNone(settings.giga_agent_admin_email)
+            self.assertIsNone(settings.giga_agent_admin_password)
+
     def test_settings_cache_and_reset(self):
         with self._patched_env({"GIGA_AGENT_SECRET_KEY": "first"}, clear=True):
             first = get_settings()

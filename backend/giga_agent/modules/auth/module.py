@@ -40,6 +40,12 @@ class AuthModule(BaseModule):
             admin_email = settings.giga_agent_admin_email
             admin_password = settings.giga_agent_admin_password
 
+            if not admin_email or not admin_password:
+                raise RuntimeError(
+                    "GIGA_AGENT_ADMIN_EMAIL and GIGA_AGENT_ADMIN_PASSWORD must "
+                    "be set before the first admin user can be created"
+                )
+
             hashed_password = security.get_password_hash(admin_password)
 
             admin = await user_repo.create(
@@ -61,7 +67,7 @@ class AuthModule(BaseModule):
                 UserCreatedEvent(user_id=admin.id, email=admin.email)
             )
 
-            logger.info(f"Admin user created: {admin_email}:{admin_password}")
+            logger.info("Admin user created", email=admin.email)
         else:
             logger.info("Users exist. Skipping admin creation.")
 
