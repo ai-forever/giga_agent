@@ -48,6 +48,22 @@ class GigaChatConnector(BaseConnector):
     def _is_from_env_mode(self) -> bool:
         return get_settings().giga_agent_gigachat_from_env and not self.model_fields_set
 
+    def _ssl_verify_kwargs(self) -> dict[str, Any]:
+        """TLS-верификация для исходящих вызовов к GigaChat.
+
+        По умолчанию проверка сертификатов включена (M2). Для российского
+        корневого CA Минцифры можно указать CA-бандл через
+        ``GIGA_AGENT_SSL_CA_BUNDLE`` — проверка останется включённой.
+        """
+        settings = get_settings()
+        kwargs: dict[str, Any] = {
+            "verify_ssl_certs": settings.giga_agent_verify_ssl_certs,
+        }
+        ca_bundle = settings.giga_agent_ssl_ca_bundle
+        if ca_bundle:
+            kwargs["ca_bundle_file"] = ca_bundle
+        return kwargs
+
     @classmethod
     async def validate_settings(cls, settings: dict[str, Any]) -> dict[str, Any]:
         if get_settings().giga_agent_gigachat_from_env and not (settings or {}):
@@ -97,7 +113,7 @@ class GigaChatConnector(BaseConnector):
 
     def get_connection_kwargs(self) -> dict[str, Any] | None:
         if self._is_from_env_mode():
-            return {"verify_ssl_certs": False, "streaming": True}
+            return {**self._ssl_verify_kwargs(), "streaming": True}
 
         api_type = str(self.gigachat_api_type or "prod").strip().lower()
 
@@ -107,7 +123,7 @@ class GigaChatConnector(BaseConnector):
                 "auth_url": self.gigachat_auth_url or GIGACHAT_DEFAULT_AUTH_URL,
                 "credentials": self.gigachat_credentials or None,
                 "scope": self.gigachat_scope or "GIGACHAT_API_PERS",
-                "verify_ssl_certs": False,
+                **self._ssl_verify_kwargs(),
                 "streaming": True,
             }
 
@@ -119,7 +135,7 @@ class GigaChatConnector(BaseConnector):
                 "base_url": base_url,
                 "user": self.gigachat_username,
                 "password": self.gigachat_password,
-                "verify_ssl_certs": False,
+                **self._ssl_verify_kwargs(),
                 "streaming": True,
             }
 
@@ -135,7 +151,7 @@ class GigaChatConnector(BaseConnector):
 
     async def check_connection(self) -> bool:
         if self._is_from_env_mode():
-            llm = GigaChat(verify_ssl_certs=False)
+            llm = GigaChat(**self._ssl_verify_kwargs())
             await llm.aget_models()
             return True
 

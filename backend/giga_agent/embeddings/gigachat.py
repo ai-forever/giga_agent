@@ -94,6 +94,7 @@ class GigaChatEmbeddingRuntime(BaseEmbeddingRuntime):
             "user": connection_kwargs.get("user"),
             "password": connection_kwargs.get("password"),
             "verify_ssl_certs": connection_kwargs.get("verify_ssl_certs"),
+            "ca_bundle_file": connection_kwargs.get("ca_bundle_file"),
             "timeout": settings.get("timeout"),
         }
         if not should_skip_gigachat_token_cache():

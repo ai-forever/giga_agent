@@ -126,6 +126,14 @@ class Settings(BaseSettings):
     giga_agent_gigachat_skip_cache_token: bool = Field(
         False, alias="GIGA_AGENT_GIGACHAT_SKIP_CACHE_TOKEN"
     )
+    # Проверка TLS-сертификатов на исходящих вызовах к GigaChat.
+    # По умолчанию включена (M2 из security-audit). Российский корневой CA
+    # Минцифры не входит в системное хранилище, поэтому для корректной проверки
+    # укажите путь к CA-бандлу через GIGA_AGENT_SSL_CA_BUNDLE вместо отключения проверки.
+    giga_agent_verify_ssl_certs: bool = Field(True, alias="GIGA_AGENT_VERIFY_SSL_CERTS")
+    giga_agent_ssl_ca_bundle: Optional[str] = Field(
+        None, alias="GIGA_AGENT_SSL_CA_BUNDLE"
+    )
 
     giga_agent_auth_algorithm: str = Field("HS256", alias="GIGA_AGENT_AUTH_ALGORITHM")
     # Имя доверенного однозначного заголовка с реальным IP клиента (в проде "X-Client-IP",
@@ -156,8 +164,11 @@ class Settings(BaseSettings):
         "admin@example.com",
         alias="GIGA_AGENT_ADMIN_EMAIL",
     )
-    giga_agent_admin_password: str = Field(
-        "giga_agent_admin", alias="GIGA_AGENT_ADMIN_PASSWORD"
+    giga_agent_admin_password: Optional[str] = Field(
+        None,
+        alias="GIGA_AGENT_ADMIN_PASSWORD",
+        description="Пароль первого (админского) пользователя. Если не задан — "
+        "генерируется случайный и показывается один раз в логе при первом старте.",
     )
     giga_agent_secret_key: Optional[str] = Field(
         None,

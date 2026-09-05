@@ -8,6 +8,7 @@ import base64
 import httpx
 from pydantic import Field, PrivateAttr
 
+from giga_agent.conf import get_settings
 from giga_agent.connectors.gigachat_token_cache import (
     get_gigachat_access_token_cached,
     get_gigachat_access_token_uncached,
@@ -68,11 +69,23 @@ class GigaChatImageGen(BaseImageGenerator):
             )
 
         self._client = httpx.AsyncClient(
-            verify=False,
+            verify=self._verify_arg(),
             timeout=self.timeout,
             base_url=str(base_url),
         )
         await super().init()
+
+    def _verify_arg(self) -> bool | str:
+        """Аргумент ``verify`` для httpx: булево или путь к CA-бандлу.
+
+        Проверка по умолчанию включена (M2). Если задан ``GIGA_AGENT_SSL_CA_BUNDLE``,
+        используем его как доверенный CA-бандл вместо системного хранилища.
+        """
+        settings = get_settings()
+        ca_bundle = settings.giga_agent_ssl_ca_bundle
+        if ca_bundle:
+            return ca_bundle
+        return settings.giga_agent_verify_ssl_certs
 
     async def cleanup(self) -> None:
         if self._client is not None:

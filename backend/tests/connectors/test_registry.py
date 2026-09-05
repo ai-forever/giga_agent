@@ -101,7 +101,7 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
                 "credentials": "token",
                 "scope": "GIGACHAT_API_PERS",
                 "streaming": True,
-                "verify_ssl_certs": False,
+                "verify_ssl_certs": True,
             },
         )
 
@@ -115,7 +115,7 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
             settings = await ConnectorRegistry.validate_settings("gigachat", {})
             self.assertEqual(settings, {})
             kwargs = ConnectorRegistry.get_connection_kwargs("gigachat", settings)
-            self.assertEqual(kwargs, {"streaming": True, "verify_ssl_certs": False})
+            self.assertEqual(kwargs, {"streaming": True, "verify_ssl_certs": True})
 
     async def test_gigachat_get_api_object_uses_plain_client_in_env_mode(self):
         with patch.dict(
@@ -125,7 +125,7 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
         ):
             reset_settings_cache()
             connector = GigaChatConnector()
-            mock_llm = Mock(model="GigaChat", verify_ssl_certs=False, streaming=True)
+            mock_llm = Mock(model="GigaChat", verify_ssl_certs=True, streaming=True)
             with patch(
                 "giga_agent.connectors.gigachat.GigaChat",
                 return_value=mock_llm,
@@ -134,7 +134,7 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(result, mock_llm)
         mocked_llm.assert_called_once_with(
-            model="GigaChat", verify_ssl_certs=False, streaming=True
+            model="GigaChat", verify_ssl_certs=True, streaming=True
         )
 
     async def test_gigachat_check_connection_uses_plain_client_in_env_mode(self):
@@ -154,8 +154,44 @@ class ConnectorRegistryTests(unittest.IsolatedAsyncioTestCase):
                 result = await connector.check_connection()
 
         self.assertTrue(result)
-        mocked_llm.assert_called_once_with(verify_ssl_certs=False)
+        mocked_llm.assert_called_once_with(verify_ssl_certs=True)
         mock_llm.aget_models.assert_awaited_once()
+
+    async def test_gigachat_env_mode_includes_ca_bundle_file(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GIGA_AGENT_GIGACHAT_FROM_ENV": "1",
+                "GIGA_AGENT_SSL_CA_BUNDLE": "/etc/ssl/gigachat_ca.pem",
+            },
+            clear=True,
+        ):
+            reset_settings_cache()
+            connector = GigaChatConnector()
+            kwargs = connector.get_connection_kwargs()
+            self.assertEqual(
+                kwargs,
+                {
+                    "streaming": True,
+                    "verify_ssl_certs": True,
+                    "ca_bundle_file": "/etc/ssl/gigachat_ca.pem",
+                },
+            )
+
+    async def test_gigachat_verify_ssl_can_be_disabled_via_env(self):
+        with patch.dict(
+            os.environ,
+            {"GIGA_AGENT_VERIFY_SSL_CERTS": "0"},
+            clear=True,
+        ):
+            reset_settings_cache()
+            settings = await ConnectorRegistry.validate_settings(
+                "gigachat",
+                {"gigachat_api_type": "prod", "gigachat_credentials": "token"},
+            )
+            kwargs = ConnectorRegistry.get_connection_kwargs("gigachat", settings)
+            self.assertFalse(kwargs["verify_ssl_certs"])
+            self.assertNotIn("ca_bundle_file", kwargs)
 
     async def test_tavily_env_fallback(self):
         with patch.dict(os.environ, {"TAVILY_API_KEY": "tvly-env"}, clear=True):

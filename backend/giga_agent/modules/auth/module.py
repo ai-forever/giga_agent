@@ -40,6 +40,14 @@ class AuthModule(BaseModule):
             admin_email = settings.giga_agent_admin_email
             admin_password = settings.giga_agent_admin_password
 
+            # Безопасный дефолт: не используем известный/угадываемый пароль. Если
+            # оператор не задал GIGA_AGENT_ADMIN_PASSWORD, генерируем случайный и
+            # показываем его один раз — иначе инстанс, поднятый «из коробки»,
+            # доступен под общеизвестным паролем.
+            admin_password, generated_password = security.resolve_admin_password(
+                admin_password
+            )
+
             hashed_password = security.get_password_hash(admin_password)
 
             admin = await user_repo.create(
@@ -61,7 +69,15 @@ class AuthModule(BaseModule):
                 UserCreatedEvent(user_id=admin.id, email=admin.email)
             )
 
-            logger.info(f"Admin user created: {admin_email}:{admin_password}")
+            # Пароль в лог не пишем: раньше сюда попадал и дефолтный, и явный
+            # пароль — он уезжал туда же, куда шлются логи.
+            logger.info(f"Admin user created: {admin_email}")
+            if generated_password:
+                logger.warning(
+                    "GIGA_AGENT_ADMIN_PASSWORD не задан — сгенерирован случайный "
+                    "пароль администратора (показан один раз, сохраните его): "
+                    f"{admin_password}"
+                )
         else:
             logger.info("Users exist. Skipping admin creation.")
 
