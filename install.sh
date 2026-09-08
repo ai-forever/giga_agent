@@ -170,6 +170,14 @@ install_compose_method() {
     else
       printf 'GIGA_AGENT_SECRET_KEY="%s"\n' "$secret" >> .env
     fi
+    # Postgres: generate a random password so the full-stack DB is not left on
+    # the well-known `postgres` default (security audit finding M3).
+    local pg_pass; pg_pass="$(gen_secret)"
+    if grep -q '^GIGA_AGENT_POSTGRES_PASSWORD=' .env; then
+      sed "s|^GIGA_AGENT_POSTGRES_PASSWORD=.*|GIGA_AGENT_POSTGRES_PASSWORD=\"$pg_pass\"|" .env > .env.tmp && mv .env.tmp .env
+    else
+      printf 'GIGA_AGENT_POSTGRES_PASSWORD="%s"\n' "$pg_pass" >> .env
+    fi
     # local_docker sandbox needs the absolute project path.
     if grep -q '^GIGA_AGENT_HOST_PROJECT_PATH=' .env; then
       sed "s|^GIGA_AGENT_HOST_PROJECT_PATH=.*|GIGA_AGENT_HOST_PROJECT_PATH=\"$INSTALL_DIR\"|" .env > .env.tmp && mv .env.tmp .env

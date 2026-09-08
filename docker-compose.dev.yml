@@ -43,12 +43,12 @@ services:
       - giga-agent-net
     environment:
       POSTGRES_DB: aegra
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${GIGA_AGENT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}
     volumes:
       - langgraph-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${GIGA_AGENT_POSTGRES_USER:-postgres}"]
       start_period: 10s
       timeout: 1s
       retries: 5
@@ -60,12 +60,12 @@ services:
       - giga-agent-net
     environment:
       POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${GIGA_AGENT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}
     volumes:
       - giga-agent-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${GIGA_AGENT_POSTGRES_USER:-postgres}"]
       start_period: 10s
       timeout: 1s
       retries: 5
@@ -114,9 +114,9 @@ services:
       GIGA_AGENT_DOCKER_NETWORK: ${GIGA_AGENT_DOCKER_NETWORK:-giga-agent-net-dev}
       REDIS_URI: redis://langgraph-redis:6379
       REDIS_URL: redis://langgraph-redis:6379
-      POSTGRES_URI: postgres://postgres:postgres@langgraph-postgres:5432/aegra?sslmode=disable
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@langgraph-postgres:5432/aegra
-      GIGA_AGENT_DATABASE_URL: postgresql+asyncpg://postgres:postgres@giga-agent-postgres:5432/postgres
+      POSTGRES_URI: postgres://${GIGA_AGENT_POSTGRES_USER:-postgres}:${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}@langgraph-postgres:5432/aegra?sslmode=disable
+      DATABASE_URL: postgresql+asyncpg://${GIGA_AGENT_POSTGRES_USER:-postgres}:${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}@langgraph-postgres:5432/aegra
+      GIGA_AGENT_DATABASE_URL: postgresql+asyncpg://${GIGA_AGENT_POSTGRES_USER:-postgres}:${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}@giga-agent-postgres:5432/postgres
       QDRANT_URL: http://qdrant:6333
       GIGA_AGENT_LANGGRAPH_API_URL: http://giga-agent:8000
       DOCKER_HOST: unix:///var/run/docker.sock
