@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -5,6 +6,18 @@ from typing import Optional
 import bcrypt
 import jwt
 from giga_agent.conf import get_settings
+
+
+def resolve_admin_password(configured: Optional[str]) -> tuple[str, bool]:
+    """Возвращает (пароль, был_ли_сгенерирован) для первого админского пользователя.
+
+    Если оператор не задал пароль явно (None или пустая строка) — генерируем
+    криптостойкий случайный, чтобы не оставлять общеизвестный/угадываемый дефолт.
+    """
+    if configured:
+        return configured, False
+    return secrets.token_urlsafe(24), True
+
 
 ACCESS_TOKEN_EXPIRE_MINUTES = None  # None = tokens never expire
 
