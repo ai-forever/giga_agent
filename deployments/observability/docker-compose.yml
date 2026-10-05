@@ -102,12 +102,12 @@ services:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://postgres:postgres@langgraph-postgres:5432/aegra?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${GIGA_AGENT_POSTGRES_USER:-postgres}:${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}@langgraph-postgres:5432/aegra?sslmode=disable"
     networks: [giga-agent-net]
 
   postgres-exporter-app:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     restart: unless-stopped
     environment:
-      DATA_SOURCE_NAME: "postgresql://postgres:postgres@giga-agent-postgres:5432/postgres?sslmode=disable"
+      DATA_SOURCE_NAME: "postgresql://${GIGA_AGENT_POSTGRES_USER:-postgres}:${GIGA_AGENT_POSTGRES_PASSWORD:-postgres}@giga-agent-postgres:5432/postgres?sslmode=disable"
     networks: [giga-agent-net]
