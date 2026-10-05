@@ -11,15 +11,6 @@
 [English](https://www.zdoc.app/en/ai-forever/giga_agent) | 
 [Español](https://www.zdoc.app/es/ai-forever/giga_agent) ]
 
-<p align="center">
-  <a href="https://agent.giga.chat">
-    <img src="https://img.shields.io/badge/%F0%9F%8C%90%20Сайт-agent.giga.chat-dc2626?style=for-the-badge&logoColor=white" alt="Лендинг GigaAgent">
-  </a>
-  <a href="https://agent.giga.chat/docs/">
-    <img src="https://img.shields.io/badge/%F0%9F%93%96%20Документация-online-dc2626?style=for-the-badge&logo=docusaurus&logoColor=white" alt="Документация GigaAgent">
-  </a>
-</p>
-
 **GigaAgent может решать самые разные задачи, используя более 30 встроенных инструментов и субагентов.**
 
 [![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/ai-forever/giga_agent/tree/main)
