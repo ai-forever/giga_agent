@@ -1,6 +1,5 @@
 import uuid
 from collections import defaultdict
-from datetime import timedelta
 from typing import Annotated, Awaitable, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -43,7 +42,6 @@ from giga_agent.models.resource_permission import (
     ResourcePermissionRepository,
 )
 from giga_agent.modules.auth import security
-from giga_agent.modules.auth.security import ACCESS_TOKEN_EXPIRE_MINUTES
 from giga_agent.modules.auth.login_throttle import (
     check_login_throttle,
     get_client_ip,
@@ -604,16 +602,10 @@ async def login_for_access_token(
 
     # Успех — сбрасываем счётчики неудач.
     await reset_login(username, client_ip)
-    access_token_expires = (
-        timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        if ACCESS_TOKEN_EXPIRE_MINUTES
-        else None
-    )
 
     # Include user_id in token as requested
     access_token = security.create_access_token(
         data={"sub": user.email, "user_id": str(user.id)},
-        expires_delta=access_token_expires,
     )
     cookie_domain = _app_session_cookie_domain()
     response.set_cookie(

@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -38,7 +38,6 @@ from giga_agent.models.resource_permission import (
 from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.modules.auth import security
 from giga_agent.modules.auth.api import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
     AUTH_COOKIE_NAME,
     _collect_runtime_grant_targets_from_module_secrets,
     _collect_runtime_grant_targets_from_user_model,
@@ -244,14 +243,8 @@ async def join_team(
     await event_bus.publish(UserCreatedEvent(user_id=db_user.id, email=db_user.email))
 
     # Сразу логиним нового участника (как /token).
-    access_token_expires = (
-        timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        if ACCESS_TOKEN_EXPIRE_MINUTES
-        else None
-    )
     access_token = security.create_access_token(
         data={"sub": db_user.email, "user_id": str(db_user.id)},
-        expires_delta=access_token_expires,
     )
     cookie_domain = get_settings().giga_agent_public_base_domain
     response.set_cookie(
