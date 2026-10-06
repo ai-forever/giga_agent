@@ -79,3 +79,36 @@ class RagCollectionsRepositoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(deleted)
         self.assertEqual(acl, [])
+
+    async def test_exists_for_embedding_tracks_collection_dependency(self) -> None:
+        owner = await self._create_user("rag-owner-embedding-check@example.com")
+
+        async with self.session_factory() as session:
+            connector = await ConnectorRepository(session).create(
+                owner_id=owner.id,
+                connector_type="openai",
+                settings={"api_key": "sk-test"},
+                is_active=True,
+            )
+            embedding = await EmbeddingRepository(session).create(
+                owner_id=owner.id,
+                embedding_type="openai",
+                connector_id=connector.id,
+                model_id="text-embedding-3-small",
+                vector_size=1536,
+                settings={},
+                is_active=True,
+            )
+            repo = RagCollectionsRepository(session)
+
+            self.assertFalse(await repo.exists_for_embedding(embedding.id))
+
+            collection = await repo.create(
+                owner_id=owner.id,
+                name="docs",
+                embedding_id=embedding.id,
+            )
+            self.assertTrue(await repo.exists_for_embedding(embedding.id))
+
+            await repo.delete(owner_id=owner.id, collection_id=collection.id)
+            self.assertFalse(await repo.exists_for_embedding(embedding.id))

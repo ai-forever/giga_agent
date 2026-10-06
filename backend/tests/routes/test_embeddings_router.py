@@ -17,7 +17,9 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.user = types.SimpleNamespace(
             id=uuid.uuid4(), is_active=True, is_superuser=True
         )
-        self.db = types.SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+        self.db = types.SimpleNamespace(
+            commit=AsyncMock(), refresh=AsyncMock(), scalar=AsyncMock(return_value=None)
+        )
         self.app = FastAPI()
         self.app.include_router(router)
 
@@ -802,3 +804,46 @@ class EmbeddingsRouterTests(unittest.TestCase):
         self.assertEqual(event.user_id, self.user.id)
         self.assertEqual(event.old_embedding_id, embedding_id)
         self.assertIsNone(event.new_embedding_id)
+
+    def test_delete_embedding_used_by_rag_collection_returns_conflict(self):
+        embedding_id = uuid.uuid4()
+        existing = self._embedding_obj(embedding_id=embedding_id)
+        user_model = types.SimpleNamespace(embedding_id=embedding_id)
+        self.db.scalar.return_value = uuid.uuid4()
+
+        with (
+            patch(
+                "giga_agent.routes.embeddings.get_user_model",
+                AsyncMock(return_value=user_model),
+            ),
+            patch(
+                "giga_agent.routes.embeddings._get_embedding_with_write_check",
+                AsyncMock(return_value=existing),
+            ),
+            patch(
+                "giga_agent.routes.embeddings.EmbeddingRepository.delete",
+                AsyncMock(return_value=None),
+            ) as mocked_delete,
+            patch(
+                "giga_agent.routes.embeddings.clear_user_current_link_if_matches",
+                AsyncMock(return_value=True),
+            ) as mocked_clear_current,
+            patch(
+                "giga_agent.routes.embeddings.event_bus.publish",
+                AsyncMock(return_value=None),
+            ) as mocked_publish,
+        ):
+            response = self.client.delete(f"/embeddings/{embedding_id}")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["detail"],
+            (
+                "Embedding is used by one or more RAG collections. "
+                "Delete those collections before deleting the embedding."
+            ),
+        )
+        mocked_delete.assert_not_awaited()
+        mocked_clear_current.assert_not_awaited()
+        mocked_publish.assert_not_awaited()
+        self.db.commit.assert_not_awaited()

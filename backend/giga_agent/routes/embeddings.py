@@ -27,6 +27,7 @@ from giga_agent.models import (
     EmbeddingResponse,
 )
 from giga_agent.models.connector import Connector, ConnectorRepository
+from giga_agent.models.rag import RagCollectionsRepository
 from giga_agent.models.resource_permission import ResourcePermissionRepository
 from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.modules.auth.api import get_current_active_user, require_superuser
@@ -558,6 +559,14 @@ async def delete_embedding(
         user_id=current_user.id,
         embedding_repo=embedding_repo,
     )
+    if await RagCollectionsRepository(db).exists_for_embedding(embedding.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Embedding is used by one or more RAG collections. "
+                "Delete those collections before deleting the embedding."
+            ),
+        )
     old_embedding_id = user.embedding_id if user.embedding_id == embedding.id else None
     await embedding_repo.delete(embedding)
     was_cleared = await clear_user_current_link_if_matches(

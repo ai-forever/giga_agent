@@ -150,6 +150,14 @@ class RagCollectionsRepository(ACLResourceRepositoryMixin[RagCollection]):
         )
         return list(result.scalars().all())
 
+    async def exists_for_embedding(self, embedding_id: uuid.UUID) -> bool:
+        collection_id = await self.db.scalar(
+            select(RagCollection.id)
+            .where(RagCollection.embedding_id == embedding_id)
+            .limit(1)
+        )
+        return collection_id is not None
+
     async def list_readable_for_user(
         self,
         *,
