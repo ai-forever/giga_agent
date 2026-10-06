@@ -19,7 +19,6 @@ export type UserInfoContextType = {
   closeContextModal: () => void;
   enabledModules: Record<string, boolean>;
   toggleModule: (moduleId: string, enabled: boolean) => Promise<void>;
-  setModulesState: (updates: Record<string, boolean>) => Promise<void>;
   availableModules: ModuleInfo[];
   refreshModules: () => void;
 };

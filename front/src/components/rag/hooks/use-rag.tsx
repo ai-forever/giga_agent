@@ -61,7 +61,6 @@ interface UseRagReturn {
   activeCollections: Record<string, boolean>;
   activateCollection: (collectionId: string) => void;
   deactivateCollection: (collectionId: string) => void;
-  deactivateAllCollections: () => void;
   collectionsLoading: boolean;
   setCollectionsLoading: Dispatch<SetStateAction<boolean>>;
   getCollections: () => Promise<Collection[]>;
@@ -140,13 +139,6 @@ export function useRag(): UseRagReturn {
     },
     [setSettings],
   );
-
-  const deactivateAllCollections = useCallback(() => {
-    setSettings((prev) => ({
-      ...prev,
-      activeCollections: {},
-    }));
-  }, [setSettings]);
 
   const getCollections = useCallback(async (): Promise<Collection[]> => {
     const data = await apiClient.get<Collection[]>(
@@ -455,7 +447,6 @@ export function useRag(): UseRagReturn {
     activeCollections,
     activateCollection,
     deactivateCollection,
-    deactivateAllCollections,
     collectionsLoading,
     setCollectionsLoading,
     getCollections,

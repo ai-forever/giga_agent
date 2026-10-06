@@ -122,9 +122,10 @@ export const EXPERIMENTAL_MODE = runtimeConfig.experimentalMode === true;
 export const BACKEND_STT_ENABLED = runtimeConfig.stt?.enabled === true;
 export const PROMPT_SUGGESTIONS_ENABLED =
   runtimeConfig.promptSuggestions?.enabled ?? true;
-// TODO: Включить как поправим логику включения / выключения модулей
-export const STARTER_PROMPT_SUGGESTIONS_ENABLED = false;
-export const STARTER_RECOMMENDATIONS_ENABLED = false;
+export const STARTER_PROMPT_SUGGESTIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.starterEnabled ?? true;
+export const STARTER_RECOMMENDATIONS_ENABLED =
+  runtimeConfig.promptSuggestions?.recommendationsEnabled ?? true;
 export const FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED =
   runtimeConfig.promptSuggestions?.followUpEnabled ?? true;
 
