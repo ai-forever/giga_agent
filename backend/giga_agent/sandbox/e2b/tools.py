@@ -6,10 +6,22 @@ import json
 
 from langchain.tools import tool, ToolRuntime
 
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.modules.repl.tools import _resolve_repl_runtime_context
 
 
-@tool(parse_docstring=True, extras={"repl_save": False})
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        confirmation=ToolConfirmation.CONDITIONAL,
+        repl_save=False,
+    ),
+)
 async def open_port(port: int, runtime: ToolRuntime) -> str:
     """Opens a port in the E2B sandbox and returns a public URL for the user.
 

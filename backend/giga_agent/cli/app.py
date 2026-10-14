@@ -3,6 +3,7 @@ from __future__ import annotations
 import typer
 
 from .commands.alembic import alembic
+from .commands.agents import agents_app
 from .commands.check import check
 from .commands.cli_chat import cli_chat
 from .commands.dev import dev
@@ -14,6 +15,7 @@ app = typer.Typer()
 
 
 def _register_commands() -> None:
+    app.add_typer(agents_app, name="agents")
     app.command(
         context_settings={"allow_extra_args": True, "ignore_unknown_options": True}
     )(alembic)

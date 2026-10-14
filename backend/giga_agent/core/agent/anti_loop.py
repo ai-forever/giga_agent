@@ -10,7 +10,7 @@ Detectors (matching the agreed design):
 - A: same tool call (name + args) repeated >= DUPLICATE_CALL_THRESHOLD times
      consecutively (a contiguous streak; an intervening different call resets it).
 - B: an oscillating cycle of tool-call signatures (A->B->A->B...).
-- C: too many tool rounds since the last user message (step budget).
+- C: too many tool rounds since the last user/message-tool boundary (step budget).
 - D: a streak of consecutive errored tool results (failing retries).
 """
 
@@ -33,10 +33,15 @@ DUPLICATE_CALL_THRESHOLD = 10
 OSCILLATION_MIN_REPEATS = 2
 # ...and we look for cycles no longer than this many AI steps.
 OSCILLATION_MAX_PERIOD = 5
-# C: max tool rounds (AI messages with tool calls) since the last user message.
+# C: max tool rounds (AI messages with tool calls) since the last boundary.
 STEP_BUDGET_PER_TURN = 100
 # D: consecutive errored tool results before we give up retrying.
 ERROR_STREAK_THRESHOLD = 4
+MESSAGE_TOOL_NAME = "message"
+
+
+def _has_message_tool_call(message: AIMessage) -> bool:
+    return any(call.get("name") == MESSAGE_TOOL_NAME for call in message.tool_calls)
 
 
 def _tool_call_signature(message: AIMessage) -> str | None:
@@ -58,8 +63,22 @@ def _tool_call_signature(message: AIMessage) -> str | None:
     return "|".join(sorted(parts))
 
 
+def _messages_since_last_boundary(messages: list[AnyMessage]) -> list[AnyMessage]:
+    """Messages after the most recent user/message-tool boundary.
+
+    The Telegram ``message`` tool is user-visible progress or a user prompt. It
+    should reset tool-round accounting the same way a direct user message does.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return list(messages[i + 1 :])
+        if isinstance(messages[i], AIMessage) and _has_message_tool_call(messages[i]):
+            return list(messages[i + 1 :])
+    return list(messages)
+
+
 def _messages_since_last_human(messages: list[AnyMessage]) -> list[AnyMessage]:
-    """Messages after the most recent HumanMessage (the current user turn)."""
+    """Messages after the most recent HumanMessage."""
     for i in range(len(messages) - 1, -1, -1):
         if isinstance(messages[i], HumanMessage):
             return list(messages[i + 1 :])
@@ -115,7 +134,7 @@ def _detect_oscillation(signatures: list[str]) -> str | None:
 
 
 def _detect_step_budget(signatures: list[str]) -> str | None:
-    """C: too many tool rounds since the last user message."""
+    """C: too many tool rounds since the last boundary."""
     rounds = len(signatures)
     if rounds >= STEP_BUDGET_PER_TURN:
         return (
@@ -152,7 +171,8 @@ def detect_loop(messages: list[AnyMessage]) -> str | None:
 
     Detectors are ordered cheapest/most-specific first; the first hit wins.
     """
-    turn = _messages_since_last_human(messages)
+    turn = _messages_since_last_boundary(messages)
+    error_turn = _messages_since_last_human(messages)
     signatures = [
         sig
         for m in turn
@@ -163,5 +183,5 @@ def detect_loop(messages: list[AnyMessage]) -> str | None:
         _detect_duplicate(signatures)
         or _detect_oscillation(signatures)
         or _detect_step_budget(signatures)
-        or _detect_error_streak(turn)
+        or _detect_error_streak(error_turn)
     )

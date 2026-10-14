@@ -15,7 +15,49 @@ export interface GraphState extends Record<string, unknown> {
   collections: Collection[];
   mcp_tools: Tool[];
   disabled_modules: string[];
+  plan_content?: string;
+  todos?: PlanTodo[];
+  todo_id_seq?: number;
+  plan_approved?: boolean;
+  mode?: "normal" | "plan";
+  ui?: any[];
 }
+
+export interface PlanTodo {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+  note?: string;
+}
+
+export interface TodoSnapshot {
+  type: "todo_snapshot";
+  todos: PlanTodo[];
+  assigned_ids: string[];
+}
+
+export interface TodoErrorSnapshot {
+  type: "todo_error";
+  todos: PlanTodo[];
+}
+
+export interface ApprovedPlanSnapshot {
+  type: "approved_plan";
+  plan_content: string;
+  todos: PlanTodo[];
+}
+
+export interface RejectedPlanSnapshot {
+  type: "rejected_plan";
+  plan_content: string;
+  todos: PlanTodo[];
+}
+
+export type PlanningSnapshot =
+  | TodoSnapshot
+  | TodoErrorSnapshot
+  | ApprovedPlanSnapshot
+  | RejectedPlanSnapshot;
 
 type BagTemplate = {
   ConfigurableType?: Record<string, unknown>;
@@ -65,8 +107,16 @@ export interface GraphInterrupt {
     | "comment"
     | "tool_call"
     | "questions"
-    | "confirm_destructive";
+    | "confirm_destructive"
+    | "plan_approval"
+    | "subagent_approval";
   tools?: ToolCall[];
+  agent_id?: string;
+  agent_name?: string;
+  child_thread_id?: string;
+  child_run_id?: string;
+  plan_content?: string;
+  todos?: PlanTodo[];
   questions?: Question[];
   // tool_call_id вопросов ask_questions. Проставляет обёртка
   // giga_agent_experimental (во внешнем графе AI-сообщения с этим tool_call на

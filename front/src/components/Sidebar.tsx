@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  Bot,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -601,6 +602,11 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
     navigate("/scheduler");
   };
 
+  const handleAgents = () => {
+    closeSidebarOnMobile();
+    navigate("/agents");
+  };
+
   const handleNewChat = () => {
     closeSidebarOnMobile();
     navigate("/");
@@ -786,7 +792,11 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
   // Threads that belong to a project are shown under their project, not in
   // the main "Чаты" list — same as Claude.
   const visibleThreads = useMemo(
-    () => threads.filter((t) => !getThreadMeta(t).project_id),
+    () =>
+      threads.filter((t) => {
+        const metadata = getThreadMeta(t);
+        return !metadata.project_id && metadata.subagent !== true;
+      }),
     [threads],
   );
 
@@ -924,7 +934,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
       )}
       <div
         className={[
-          "sticky max-[900px]:bg-card min-[900px]:fixed align-middle items-center p-4 top-0 w-full h-[60px] flex transition-[margin] duration-300 ease-in-out",
+          "sticky max-[900px]:bg-card min-[900px]:fixed z-[12] align-middle items-center p-4 top-0 w-full h-[60px] flex pointer-events-none transition-[margin] duration-300 ease-in-out",
           settings.sideBarOpen ? "min-[900px]:ml-[270px]" : "",
         ].join(" ")}
       >
@@ -935,7 +945,7 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
         />
         <ChevronRight
           onClick={toggle}
-          className="print:hidden"
+          className="print:hidden pointer-events-auto"
           style={{
             transform: settings.sideBarOpen ? "rotate(180deg)" : "rotate(0)",
             marginLeft: "0.5rem",
@@ -1451,6 +1461,10 @@ const SidebarComponent = ({ onNewChat }: SidebarProps) => {
                 <DropdownMenuItem onSelect={handleScheduler}>
                   <Clock className="mr-2 h-4 w-4" />
                   Планировщик
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleAgents}>
+                  <Bot className="mr-2 h-4 w-4" />
+                  Суб-агенты
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleSettings}>
                   <SettingsIcon className="mr-2 h-4 w-4" />

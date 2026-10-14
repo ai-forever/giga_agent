@@ -27,7 +27,87 @@ class _FakeResponse:
         return self._json_data
 
 
+def _telegram_settings(text_mode: str = "rich"):
+    return types.SimpleNamespace(
+        giga_agent_telegram_text_mode=text_mode,
+        giga_agent_public_base_domain=None,
+        giga_agent_sandbox_port_redirect_base=None,
+    )
+
+
+def _telegram_message(
+    chat_id: int = 42,
+    *,
+    is_topic_message: bool = False,
+    message_thread_id: int | None = None,
+    business_connection_id: str | None = None,
+):
+    return types.SimpleNamespace(
+        chat=types.SimpleNamespace(id=chat_id),
+        is_topic_message=is_topic_message,
+        message_thread_id=message_thread_id,
+        business_connection_id=business_connection_id,
+        answer=AsyncMock(),
+        answer_photo=AsyncMock(),
+        answer_document=AsyncMock(),
+    )
+
+
+def _telegram_bot():
+    return types.SimpleNamespace(
+        send_rich_message=AsyncMock(),
+        send_message=AsyncMock(),
+        send_photo=AsyncMock(),
+        send_document=AsyncMock(),
+    )
+
+
 class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_media_service_collects_video_note_as_mp4_video(self):
+        bot_row = _bot_row()
+        service = TelegramMediaService(bot=types.SimpleNamespace(), bot_row=bot_row)
+        service.upload_tg_file = AsyncMock(
+            return_value={
+                "sandbox_path": "/bucket/video_note.mp4",
+                "original_name": "video_note.mp4",
+                "file_type": "video",
+                "size": 123,
+            }
+        )
+        message = types.SimpleNamespace(
+            photo=None,
+            sticker=None,
+            document=None,
+            voice=None,
+            audio=None,
+            video=None,
+            video_note=types.SimpleNamespace(file_id="video-note-file-id"),
+        )
+
+        files = await service.collect_incoming_files(
+            message,
+            token="token",
+            thread_id="thread-1",
+        )
+
+        service.upload_tg_file.assert_awaited_once_with(
+            "token",
+            "video-note-file-id",
+            "video_note.mp4",
+            "thread-1",
+        )
+        self.assertEqual(
+            files,
+            [
+                {
+                    "path": "/bucket/video_note.mp4",
+                    "original_name": "video_note.mp4",
+                    "file_type": "video",
+                    "size": 123,
+                }
+            ],
+        )
+
     async def test_thread_service_recreates_expired_thread(self):
         bot_row = _bot_row()
         service = TelegramThreadService(bot_row=bot_row, user_email="owner@example.com")
@@ -245,6 +325,148 @@ class TelegramRuntimeServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(paths, ["/bucket/recent.png"])
+
+
+class TelegramTextTransportTests(unittest.IsolatedAsyncioTestCase):
+    def _service(self, *, text_mode: str = "rich"):
+        bot = _telegram_bot()
+        service = TelegramMediaService(bot=bot, bot_row=_bot_row())
+        return service, bot, patch(
+            "giga_agent.channels.telegram.services.media.get_settings",
+            return_value=_telegram_settings(text_mode),
+        )
+
+    async def test_send_embedded_media_uses_rich_markdown_by_default(self):
+        service, bot, settings_patch = self._service()
+        message = _telegram_message()
+        markup = object()
+
+        with settings_patch:
+            sent = await service.send_embedded_media(
+                message=message,
+                token="token",
+                parts=[{"kind": "text", "value": "# Title\n\n| A | B |\n|---|---|"}],
+                reply_to_message_id=77,
+                reply_markup=markup,
+            )
+
+        self.assertTrue(sent)
+        bot.send_rich_message.assert_awaited_once()
+        args, kwargs = bot.send_rich_message.await_args
+        self.assertEqual(args[0], 42)
+        self.assertEqual(args[1].markdown, "# Title\n\n| A | B |\n|---|---|")
+        self.assertEqual(kwargs["reply_parameters"].message_id, 77)
+        self.assertIs(kwargs["reply_markup"], markup)
+        message.answer.assert_not_awaited()
+
+    async def test_rich_reply_preserves_topic_and_business_context(self):
+        service, bot, settings_patch = self._service()
+        message = _telegram_message(
+            is_topic_message=True,
+            message_thread_id=99,
+            business_connection_id="biz-1",
+        )
+
+        with settings_patch:
+            await service.send_embedded_media(
+                message=message,
+                token="token",
+                parts=[{"kind": "text", "value": "Topic reply"}],
+            )
+
+        _, kwargs = bot.send_rich_message.await_args
+        self.assertEqual(kwargs["message_thread_id"], 99)
+        self.assertEqual(kwargs["business_connection_id"], "biz-1")
+
+    async def test_send_embedded_media_legacy_mode_uses_markdown_v2(self):
+        service, bot, settings_patch = self._service(text_mode="legacy")
+        message = _telegram_message()
+
+        with settings_patch:
+            sent = await service.send_embedded_media(
+                message=message,
+                token="token",
+                parts=[{"kind": "text", "value": "**Bold**"}],
+            )
+
+        self.assertTrue(sent)
+        bot.send_rich_message.assert_not_awaited()
+        message.answer.assert_awaited_once()
+        _, kwargs = message.answer.await_args
+        self.assertEqual(kwargs["parse_mode"], "MarkdownV2")
+
+    async def test_rich_failure_falls_back_to_plain_text(self):
+        service, bot, settings_patch = self._service()
+        bot.send_rich_message.side_effect = RuntimeError("rich failed")
+        message = _telegram_message()
+
+        with settings_patch:
+            sent = await service.send_embedded_media(
+                message=message,
+                token="token",
+                parts=[{"kind": "text", "value": "# Still delivered"}],
+            )
+
+        self.assertTrue(sent)
+        message.answer.assert_awaited_once()
+        args, kwargs = message.answer.await_args
+        self.assertEqual(args[0], "# Still delivered")
+        self.assertNotIn("parse_mode", kwargs)
+
+    async def test_send_parts_to_chat_uses_rich_markdown(self):
+        service, bot, settings_patch = self._service()
+
+        with settings_patch:
+            sent = await service.send_parts_to_chat(
+                chat_id="42",
+                token="token",
+                parts=[{"kind": "text", "value": "## Report"}],
+            )
+
+        self.assertTrue(sent)
+        bot.send_rich_message.assert_awaited_once()
+        args, _ = bot.send_rich_message.await_args
+        self.assertEqual(args[0], 42)
+        self.assertEqual(args[1].markdown, "## Report")
+        bot.send_message.assert_not_awaited()
+
+    async def test_rich_mode_does_not_split_at_legacy_limit(self):
+        service, bot, settings_patch = self._service()
+        message = _telegram_message()
+        text = "a" * 5000
+
+        with settings_patch:
+            await service.send_embedded_media(
+                message=message,
+                token="token",
+                parts=[{"kind": "text", "value": text}],
+            )
+
+        bot.send_rich_message.assert_awaited_once()
+        args, _ = bot.send_rich_message.await_args
+        self.assertEqual(args[1].markdown, text)
+
+    async def test_reply_markup_stays_on_last_text_part(self):
+        service, bot, settings_patch = self._service()
+        message = _telegram_message()
+        markup = object()
+
+        with settings_patch:
+            await service.send_embedded_media(
+                message=message,
+                token="token",
+                parts=[
+                    {"kind": "text", "value": "First"},
+                    {"kind": "text", "value": "Second"},
+                ],
+                reply_markup=markup,
+            )
+
+        self.assertEqual(bot.send_rich_message.await_count, 2)
+        first_kwargs = bot.send_rich_message.await_args_list[0].kwargs
+        second_kwargs = bot.send_rich_message.await_args_list[1].kwargs
+        self.assertIsNone(first_kwargs["reply_markup"])
+        self.assertIs(second_kwargs["reply_markup"], markup)
 
 
 _SANDBOX_HEX = "ab" * 16  # 32 hex chars

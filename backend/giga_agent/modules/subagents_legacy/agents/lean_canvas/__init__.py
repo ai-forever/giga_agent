@@ -13,6 +13,7 @@ from typing_extensions import TypedDict
 
 from giga_agent.conf import get_settings
 from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.modules.subagents_legacy.runtime import (
     get_current_user_from_config,
@@ -526,7 +527,7 @@ def lean_canvas_to_html(state) -> str:
     return html
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def lean_canvas(
     theme: str = Field(description="На какую тему создаем Lean Canvas"),
     runtime: ToolRuntime = None,

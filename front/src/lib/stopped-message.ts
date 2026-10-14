@@ -22,8 +22,20 @@ const hasPayload = (message: Message): boolean => {
   return hasText || toolCalls.length > 0 || hasReasoning;
 };
 
+const hasPersistablePayload = (message: Message): boolean => {
+  if (message.type === "ai") return hasPayload(message);
+  return (
+    message.type === "tool" &&
+    Boolean(
+      (message.additional_kwargs as Record<string, unknown> | undefined)
+        ?.subagent_activity,
+    )
+  );
+};
+
 /**
- * Сохраняет частично настримленный AI-ответ после thread.stop().
+ * Сохраняет частично настримленный AI-ответ и результаты отменённых суб-агентов
+ * после thread.stop().
  *
  * Отмена рана убивает суперстеп ноды model до его завершения, поэтому
  * сообщение существует только в памяти вкладки. Ждём фактической отмены
@@ -32,12 +44,15 @@ const hasPayload = (message: Message): boolean => {
  * Best effort: при таймауте отмены или активном ране ничего не пишем,
  * чтобы не вклиниться в чужой суперстеп.
  */
-export async function persistStoppedAiMessage(
+export async function persistStoppedMessages(
   client: Client,
   threadId: string,
-  message: Message,
+  messagesToPersist: Message[],
 ): Promise<void> {
-  if (message.type !== "ai" || !message.id || !hasPayload(message)) return;
+  const candidates = messagesToPersist.filter(
+    (message) => Boolean(message.id) && hasPersistablePayload(message),
+  );
+  if (candidates.length === 0) return;
   try {
     const deadline = Date.now() + CANCEL_WAIT_TIMEOUT_MS;
     for (;;) {
@@ -53,17 +68,44 @@ export async function persistStoppedAiMessage(
     }
 
     const state = await client.threads.getState(threadId);
-    const messages =
+    const serverMessages =
       ((state.values as { messages?: Message[] })?.messages ?? []) || [];
-    if (messages.some((m) => m.id === message.id)) return;
-    // @ts-ignore
-    message.additional_kwargs.rendered = true;
+    const existingToolCallIds = new Set(
+      serverMessages
+        .map((message) => (message as any).tool_call_id)
+        .filter((id): id is string => typeof id === "string"),
+    );
+    const missing = candidates.filter(
+      (message) =>
+        !serverMessages.some((current) => current.id === message.id) &&
+        !(
+          typeof (message as any).tool_call_id === "string" &&
+          existingToolCallIds.has((message as any).tool_call_id)
+        ),
+    );
+    if (missing.length === 0) return;
+    for (const message of missing) {
+      if (message.type === "ai") {
+        message.additional_kwargs = {
+          ...message.additional_kwargs,
+          rendered: true,
+        };
+      }
+    }
 
     await client.threads.updateState(threadId, {
-      values: { messages: [message] },
+      values: { messages: missing },
       asNode: "model",
     });
   } catch {
     /* best effort — не мешаем пользователю продолжать */
   }
+}
+
+export async function persistStoppedAiMessage(
+  client: Client,
+  threadId: string,
+  message: Message,
+): Promise<void> {
+  await persistStoppedMessages(client, threadId, [message]);
 }

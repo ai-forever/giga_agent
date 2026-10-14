@@ -6,6 +6,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from pydantic import Field
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.channel import ChannelBotRepository, ChannelContact
@@ -17,6 +18,10 @@ from giga_agent.models.scheduled_task import (
 from giga_agent.memory.runtime import get_memory_tags
 from giga_agent.modules.scheduler.service import ScheduleParseError, parse_when
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
 
 
 def _owner_id(runtime: ToolRuntime) -> uuid.UUID:
@@ -32,7 +37,12 @@ def _current_memory_tags(runtime: ToolRuntime) -> list[str]:
     return get_memory_tags(config)
 
 
-def _channel_memory_tags(runtime: ToolRuntime) -> list[str]:
+async def _thread_metadata(runtime: ToolRuntime) -> dict:
+    config = getattr(runtime, "config", None)
+    return await get_thread_metadata(config, get_thread_id_from_config(config))
+
+
+async def _channel_memory_tags(runtime: ToolRuntime) -> list[str]:
     """Inherited tags plus the initiator's personal tag in group chats.
 
     In a group the run is scoped to ``tg_chat_<id>``; adding ``tg_user_<id>`` of
@@ -41,8 +51,7 @@ def _channel_memory_tags(runtime: ToolRuntime) -> list[str]:
     absent, so nothing is added.
     """
     tags = list(_current_memory_tags(runtime))
-    config = getattr(runtime, "config", None) or {}
-    metadata = config.get("metadata") or {}
+    metadata = await _thread_metadata(runtime)
     # Format mirrors channels.telegram.runtime.build_memory_tags.
     if metadata.get("channel") == "telegram":
         tg_user_id = metadata.get("telegram_user_id")
@@ -99,15 +108,14 @@ def _task_belongs_to_chat(task, current: dict) -> bool:
     return any(_target_matches(t, current) for t in (task.targets or []))
 
 
-def _caller_personal_tag(runtime: ToolRuntime) -> str | None:
+async def _caller_personal_tag(runtime: ToolRuntime) -> str | None:
     """The ``tg_user_<id>`` tag identifying who is calling, or None.
 
     A task created by a user always carries this tag in its ``memory_tags`` (see
     ``_channel_memory_tags``), so it lets us tell a user's own tasks apart from
     those of other participants in the same group chat.
     """
-    config = getattr(runtime, "config", None) or {}
-    metadata = config.get("metadata") or {}
+    metadata = await _thread_metadata(runtime)
     if metadata.get("channel") == "telegram":
         tg_user_id = metadata.get("telegram_user_id")
         if tg_user_id:
@@ -118,13 +126,13 @@ def _caller_personal_tag(runtime: ToolRuntime) -> str | None:
     return None
 
 
-def _task_belongs_to_caller(task, runtime: ToolRuntime) -> bool:
+async def _task_belongs_to_caller(task, runtime: ToolRuntime) -> bool:
     """True if the current Telegram user created this task.
 
     When we can't resolve the caller's identity (e.g. a private chat with no
     per-user tag) we fall back to True: the chat scope already isolates the task.
     """
-    personal = _caller_personal_tag(runtime)
+    personal = await _caller_personal_tag(runtime)
     if personal is None:
         return True
     return personal in (task.memory_tags or [])
@@ -168,7 +176,7 @@ async def _resolve_targets(
     return targets
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def list_task_recipients(runtime: ToolRuntime):
     """Получить возможных получателей результата фоновой задачи (одобренные контакты каналов).
 
@@ -199,7 +207,7 @@ async def list_task_recipients(runtime: ToolRuntime):
     return recipients
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def schedule_task(
     runtime: ToolRuntime,
     prompt: str = Field(
@@ -256,7 +264,7 @@ async def schedule_task(
     )
 
 
-@tool("schedule_task")
+@tool("schedule_task", extras=tool_extras(ToolEffect.WRITE))
 async def schedule_task_in_chat(
     runtime: ToolRuntime,
     prompt: str = Field(
@@ -293,7 +301,7 @@ async def schedule_task_in_chat(
             timezone=schedule["timezone"],
             run_at=schedule["run_at"],
             targets=targets,
-            memory_tags=_channel_memory_tags(runtime),
+            memory_tags=await _channel_memory_tags(runtime),
         )
     return build_widget_tool_message(
         {
@@ -317,7 +325,7 @@ def _task_summary(t) -> dict:
     }
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def list_scheduled_tasks(runtime: ToolRuntime):
     """Показать запланированные фоновые задачи пользователя."""
     owner_id = _owner_id(runtime)
@@ -328,7 +336,7 @@ async def list_scheduled_tasks(runtime: ToolRuntime):
     return [_task_summary(t) for t in tasks]
 
 
-@tool("list_scheduled_tasks")
+@tool("list_scheduled_tasks", extras=tool_extras(ToolEffect.READ))
 async def list_scheduled_tasks_in_chat(runtime: ToolRuntime):
     """Показать запланированные задачи, созданные в этом чате."""
     owner_id = _owner_id(runtime)
@@ -342,7 +350,7 @@ async def list_scheduled_tasks_in_chat(runtime: ToolRuntime):
         return [_task_summary(t) for t in tasks if _task_belongs_to_chat(t, current)]
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def cancel_scheduled_task(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -367,7 +375,7 @@ async def cancel_scheduled_task(
     return {"task_id": task_id, "status": "cancelled"}
 
 
-@tool("cancel_scheduled_task")
+@tool("cancel_scheduled_task", extras=tool_extras(ToolEffect.WRITE))
 async def cancel_scheduled_task_in_chat(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -417,7 +425,7 @@ def _apply_schedule_edit(fields: dict, when: str) -> dict | None:
     return None
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.WRITE))
 async def edit_scheduled_task(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -484,7 +492,7 @@ async def edit_scheduled_task(
     )
 
 
-@tool("edit_scheduled_task")
+@tool("edit_scheduled_task", extras=tool_extras(ToolEffect.WRITE))
 async def edit_scheduled_task_in_chat(
     runtime: ToolRuntime,
     task_id: str = Field(description="ID задачи из list_scheduled_tasks."),
@@ -516,7 +524,7 @@ async def edit_scheduled_task_in_chat(
                 "next": "Вызови list_scheduled_tasks.",
             }
         # In a group chat a user may edit only the tasks they created themselves.
-        if not _task_belongs_to_caller(task, runtime):
+        if not await _task_belongs_to_caller(task, runtime):
             return {
                 "error": "Можно редактировать только свои задачи.",
                 "next": "Вызови list_scheduled_tasks.",

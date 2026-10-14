@@ -53,6 +53,7 @@ from giga_agent.utils.thread_metadata import update_thread_metadata
 INNER_ASSISTANT_ID = "giga_agent"
 STATUS_UI_NAME = "experimental_status"
 STATUS_UI_ID = "experimental-status"
+INNER_STREAM_MODES = ["values", "messages", "updates", "custom"]
 
 POLL_INTERVAL_SEC = 2.5
 STATUS_INTERVAL_SEC = 10.0
@@ -327,12 +328,43 @@ class ExperimentalState(TypedDict, total=False):
     # обновляет сообщение на месте). Не выводим из inner_run_id — он меняется
     # после interrupt-resume, а маркер один на весь ход.
     activity_id: str
+    # UI-часть planning-state зеркалится из inner-графа, чтобы experimental
+    # frontend видел тот же режим и live todo, что и при прямом запуске.
+    mode: str
+    plan_approved: bool
+    todos: list[dict[str, Any]]
 
 
-# Ключи configurable, которые фронт кладёт на submit и которые нужно пробросить
-# в inner-ран (режим исследования, выбранные скилы). Остальное (thread_id и пр.)
-# НЕ пробрасываем — оно относится к внешнему рану.
-_FORWARDED_CONFIGURABLE_KEYS = ("deep_research_forced", "selected_skills")
+# Ключи configurable, которые чат кладёт на текущий submit и которые нужно
+# пробросить в inner-ран (plan mode, режим исследования, выбранные скилы).
+# Остальное (thread_id и пр.) НЕ пробрасываем — оно относится к внешнему рану.
+_FORWARDED_CONFIGURABLE_KEYS = (
+    "context_compaction_only",
+    "context_compaction_operation_id",
+    "deep_research_forced",
+    "plan_mode",
+    "selected_skills",
+)
+
+_PLANNING_WIDGET_TYPES = {
+    "approved_plan",
+    "rejected_plan",
+    "todo_error",
+    "todo_snapshot",
+}
+
+
+def _inner_configurable(config: Any) -> dict[str, Any]:
+    """Собрать config inner-рана только из текущего запуска внешнего графа."""
+    outer_conf = (config or {}).get("configurable") or {}
+    inner_conf: dict[str, Any] = {
+        "auto_approve": True,
+        "experimental_inner": True,
+    }
+    for key in _FORWARDED_CONFIGURABLE_KEYS:
+        if key in outer_conf:
+            inner_conf[key] = outer_conf[key]
+    return inner_conf
 
 
 # --- helpers over SDK-serialized message dicts ------------------------------
@@ -360,9 +392,47 @@ def _content_str(message: dict) -> str:
     return json.dumps(content, ensure_ascii=False)
 
 
+def _context_compaction_payload(message: dict) -> dict[str, Any] | None:
+    ak = message.get("additional_kwargs") or {}
+    namespace = ak.get("giga_agent")
+    if not isinstance(namespace, dict):
+        return None
+    payload = namespace.get("context_compaction")
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        return None
+    return payload
+
+
+def _is_context_compaction_message(message: dict) -> bool:
+    return _context_compaction_payload(message) is not None
+
+
+def _forward_context_compaction_message(message: dict) -> AnyMessage:
+    kwargs = dict(message.get("additional_kwargs") or {})
+    common: dict[str, Any] = {
+        "id": message.get("id"),
+        "content": message.get("content", ""),
+        "additional_kwargs": kwargs,
+        "name": message.get("name"),
+    }
+    if message.get("type") == "system":
+        return SystemMessage(**common)
+
+    return AIMessage(
+        **common,
+        tool_calls=list(message.get("tool_calls") or []),
+        usage_metadata=message.get("usage_metadata"),
+    )
+
+
 def _is_widget_tool(message: dict) -> bool:
     ak = message.get("additional_kwargs") or {}
+    if isinstance(ak.get("subagent_activity"), dict):
+        return True
     if ak.get("response_widget") is True:
+        return True
+    planning = ak.get("planning")
+    if isinstance(planning, dict) and planning.get("type") in _PLANNING_WIDGET_TYPES:
         return True
     atts = ak.get("tool_attachments") or []
     return any(
@@ -378,6 +448,8 @@ def _eligible_output(message: dict) -> bool:
     после resume (иначе карточка ответов моргает, пока inner-ран заново прогоняет
     тул). Поэтому его inner-ToolMessage помечается processed и не форвардится.
     """
+    if _is_context_compaction_message(message):
+        return True
     mtype = message.get("type")
     if mtype == "ai":
         return bool(strip_thinking(_content_text(message)))
@@ -458,18 +530,144 @@ def _ask_questions_messages(interrupt_value: Any, answer: Any) -> list[AnyMessag
     return [stub, tool_msg]
 
 
-def _forward_widget(message: dict) -> list[AnyMessage]:
-    """Синтезировать AI-заглушку с tool_call + пробросить ToolMessage.
+def _plan_approval_messages(interrupt_value: Any, answer: Any) -> list[AnyMessage]:
+    """Сразу зафиксировать решение по плану во внешнем графе.
 
-    Пробрасывает и виджеты, и результат ask_questions. Имя тула берём из
-    `additional_kwargs.tool_name` (у ask_questions поле `name` на ToolMessage не
-    выставлено) — иначе tool_call стаба назвался бы «widget» и попал в видимый
-    список тулов вместо отдельной карточки. Заглушке даём детерминированный id
-    (см. _stub_message_id), чтобы фронт-оптимистика склеилась с этим форвардом.
+    Frontend создаёт оптимистично ту же пару с теми же id. Поэтому первый
+    authoritative values-снапшот после resume заменяет оптимистику на серверные
+    сообщения без промежутка, пока inner-ран ещё выполняет `present_plan`.
+    """
+    if not (
+        isinstance(interrupt_value, dict)
+        and interrupt_value.get("type") == "plan_approval"
+        and isinstance(answer, dict)
+        and answer.get("action") in {"approve", "reject"}
+    ):
+        return []
+    tcid = interrupt_value.get("tool_call_id") or ""
+    if not tcid:
+        return []
+
+    plan_content = str(interrupt_value.get("plan_content") or "")
+    todos = interrupt_value.get("todos") or []
+    approved = answer.get("action") == "approve"
+    stub = AIMessage(
+        id=_stub_message_id(tcid),
+        content="",
+        tool_calls=[
+            {"id": tcid, "name": "present_plan", "args": {}, "type": "tool_call"}
+        ],
+        additional_kwargs={"rendered": True},
+    )
+    tool_msg = ToolMessage(
+        id=f"exp-toolmsg-{tcid}",
+        content="План подтверждён." if approved else "План отменён.",
+        tool_call_id=tcid,
+        name="present_plan",
+        status="success",
+        additional_kwargs={
+            "tool_name": "present_plan",
+            "response_widget": True,
+            "planning": {
+                "type": "approved_plan" if approved else "rejected_plan",
+                "plan_content": plan_content,
+                "todos": todos,
+            },
+        },
+    )
+    return [stub, tool_msg]
+
+
+def _find_tool_call_id(inner_messages: list[dict], tool_name: str) -> str | None:
+    """Найти последний вызов указанного инструмента во внутренней истории."""
+    for message in reversed(inner_messages):
+        if message.get("type") != "ai":
+            continue
+        for tool_call in reversed(message.get("tool_calls") or []):
+            if tool_call.get("name") == tool_name and tool_call.get("id"):
+                return tool_call["id"]
+    return None
+
+
+def _prepare_interrupt_value(value: Any, inner_messages: list[dict]) -> Any:
+    """Добавить correlation id там, где inner interrupt его не содержит."""
+    if not isinstance(value, dict) or value.get("tool_call_id"):
+        return value
+    if value.get("type") != "plan_approval":
+        return value
+    tcid = _find_tool_call_id(inner_messages, "present_plan")
+    return {**value, "tool_call_id": tcid} if tcid else value
+
+
+def _plan_resume_state_update(value: Any, answer: Any) -> dict[str, Any]:
+    """Синхронизировать внешний planning-state сразу после решения."""
+    if not (
+        isinstance(value, dict)
+        and value.get("type") == "plan_approval"
+        and isinstance(answer, dict)
+    ):
+        return {}
+    if answer.get("action") == "approve":
+        return {
+            "mode": "normal",
+            "plan_approved": True,
+            "todos": value.get("todos") or [],
+        }
+    if answer.get("action") == "reject":
+        return {"mode": "plan", "plan_approved": False}
+    return {}
+
+
+def _tool_name_for_message(message: dict, inner_messages: list[dict]) -> str:
+    """Вернуть реальное имя tool-call для сериализованного ToolMessage.
+
+    Planning tools не записывают `tool_name` в additional_kwargs, поэтому имя
+    восстанавливаем по исходному AIMessage с тем же tool_call_id. Это критично
+    для frontend: todo-карточки ищут именно вызовы `write_todo`, а исторический
+    план связывается с `present_plan`.
     """
     ak = message.get("additional_kwargs") or {}
+    explicit = message.get("name") or ak.get("tool_name")
+    if explicit:
+        return explicit
+
+    tcid = message.get("tool_call_id")
+    if tcid:
+        for candidate in reversed(inner_messages):
+            if candidate.get("type") != "ai":
+                continue
+            for tool_call in candidate.get("tool_calls") or []:
+                if tool_call.get("id") == tcid and tool_call.get("name"):
+                    return tool_call["name"]
+    return "widget"
+
+
+def _forward_widget(
+    message: dict, inner_messages: list[dict] | None = None
+) -> list[AnyMessage]:
+    """Синтезировать AI-заглушку с tool_call + пробросить ToolMessage.
+
+    Имя берём из самого результата/metadata, а для planning-снапшотов
+    восстанавливаем по исходному AI tool-call. Иначе стаб назвался бы `widget`,
+    и frontend не распознал бы `write_todo`/`present_plan`. Заглушке и результату
+    даём детерминированные id, чтобы повторный poll не создавал дубли.
+    """
+    ak = dict(message.get("additional_kwargs") or {})
+    subagent_activity = ak.get("subagent_activity")
+    if isinstance(subagent_activity, dict):
+        # В experimental-чате суб-агент — самостоятельный summary-виджет без
+        # доступа к внутренней переписке. Обычный `giga_agent` продолжает
+        # управлять раскрытием сам и не получает этот presentation-флаг.
+        ak["subagent_activity"] = {
+            **{
+                key: value
+                for key, value in subagent_activity.items()
+                if key != "inline_chat"
+            },
+            "summary_only": True,
+        }
     tcid = message.get("tool_call_id") or ""
-    name = message.get("name") or ak.get("tool_name") or "widget"
+    name = _tool_name_for_message(message, inner_messages or [])
     stub = AIMessage(
         id=_stub_message_id(tcid),
         content="",
@@ -477,6 +675,7 @@ def _forward_widget(message: dict) -> list[AnyMessage]:
         additional_kwargs={"rendered": True},
     )
     tool_msg = ToolMessage(
+        id=f"exp-toolmsg-{tcid}" if tcid else None,
         content=_content_str(message),
         tool_call_id=tcid,
         name=name,
@@ -484,6 +683,15 @@ def _forward_widget(message: dict) -> list[AnyMessage]:
         additional_kwargs=dict(ak),
     )
     return [stub, tool_msg]
+
+
+def _planning_state_update(values: dict[str, Any]) -> dict[str, Any]:
+    """Выбрать UI-поля planning-state для зеркалирования во внешний граф."""
+    update: dict[str, Any] = {}
+    for key in ("mode", "plan_approved", "todos"):
+        if key in values:
+            update[key] = values[key]
+    return update
 
 
 ACTIVITY_TOOL_NAME = "experimental_activity"
@@ -594,14 +802,32 @@ def _live_text_from_msg(m: dict) -> str:
     return "\n".join(parts)
 
 
-async def _consume_live(config: Any, thread_id: str, run_id: str, live: dict) -> None:
-    """Фоновая подписка на messages-стрим inner-рана.
+def _subagent_activity_from_custom(data: Any) -> dict[str, Any] | None:
+    """Извлечь subagent_activity из custom UI-события inner-графа."""
+    if not isinstance(data, dict) or data.get("name") != "subagent_activity":
+        return None
+    props = data.get("props")
+    return dict(props) if isinstance(props, dict) else None
+
+
+def _subagent_activity_ui_id(activity: dict[str, Any]) -> str:
+    tool_call_id = activity.get("tool_call_id")
+    if isinstance(tool_call_id, str) and tool_call_id:
+        return f"subagent-activity-{tool_call_id}"
+    return "subagent-activity"
+
+
+async def _consume_live(
+    config: Any, thread_id: str, run_id: str, live: dict[str, Any]
+) -> None:
+    """Фоновая подписка на messages/custom-стрим inner-рана.
 
     `join_stream` НЕ буферизован (отдаёт токены «с этого момента»), поэтому даёт
     живой прогресс во время долгого ризонинга/генерации, которого ещё нет в
     закоммиченном стейте (`get_state`). Пишем последний накопленный partial в
-    `live["text"]`, откуда его читает `_push_status`. Отмена задачи (при возврате
-    из pump) просто закрывает стрим; inner-ран НЕ отменяется
+    `live["text"]`, откуда его читает `_push_status`, и live-снапшот
+    `subagent_activity` для ретрансляции во внешний UI. Отмена задачи (при
+    возврате из pump) просто закрывает стрим; inner-ран НЕ отменяется
     (`cancel_on_disconnect=False`).
     """
     with contextlib.suppress(Exception):
@@ -609,10 +835,15 @@ async def _consume_live(config: Any, thread_id: str, run_id: str, live: dict) ->
             async for part in client.runs.join_stream(
                 thread_id,
                 run_id,
-                stream_mode="messages",
+                stream_mode=["messages", "custom"],
                 cancel_on_disconnect=False,
             ):
                 event = part.event or ""
+                if event == "custom":
+                    activity = _subagent_activity_from_custom(part.data)
+                    if activity is not None:
+                        live["subagent_activity"] = activity
+                    continue
                 if not event.startswith("messages") or not isinstance(part.data, list):
                     continue
                 # messages/partial|complete: data — список message-dict'ов
@@ -743,10 +974,16 @@ async def _sync_title_from_inner(config: Any, client, inner_thread_id: str) -> b
 
 async def kickoff(state: ExperimentalState, config) -> dict:
     """Создать/переиспользовать скрытый inner-тред и запустить фоновый ран."""
+    outer_conf = (config or {}).get("configurable") or {}
+    compaction_only = outer_conf.get("context_compaction_only") is True
     messages = state.get("messages") or []
-    human = next(
-        (m for m in reversed(messages) if getattr(m, "type", None) == "human"),
-        None,
+    human = (
+        None
+        if compaction_only
+        else next(
+            (m for m in reversed(messages) if getattr(m, "type", None) == "human"),
+            None,
+        )
     )
     human_content = human.content if human is not None else ""
     # Пробрасываем ВСЕ вложения человека (files, selected, user_input, ...) —
@@ -764,7 +1001,6 @@ async def kickoff(state: ExperimentalState, config) -> dict:
         "mcp_tools": state.get("mcp_tools") or [],
     }
     # Режим исследования / выбранные скилы + автономность.
-    outer_conf = (config or {}).get("configurable") or {}
     # Ретрай после ошибки inner-рана (флаг ставит фронт на кнопке «Повторить» в
     # пилюле активности): kickoff резюмит упавший inner-ран с чекпойнта вместо
     # старта нового хода. Флаг приходит в submit'е — durable по построению (в
@@ -773,13 +1009,7 @@ async def kickoff(state: ExperimentalState, config) -> dict:
     # experimental_inner выводит inner-ран из-под лимита активных тредов: режим
     # ограничивается по ВНЕШНЕМУ графу giga_agent_experimental, а не по этому
     # скрытому giga_agent-рану (см. modules/auth/langgraph_auth.py).
-    inner_configurable: dict[str, Any] = {
-        "auto_approve": True,
-        "experimental_inner": True,
-    }
-    for key in _FORWARDED_CONFIGURABLE_KEYS:
-        if key in outer_conf:
-            inner_configurable[key] = outer_conf[key]
+    inner_configurable = _inner_configurable(config)
 
     # Контекст проекта (инструкции + knowledge-коллекция) разворачивается в
     # giga_agent из project_id, а resolve_project_id читает его из metadata
@@ -828,18 +1058,19 @@ async def kickoff(state: ExperimentalState, config) -> dict:
                 assistant_id=INNER_ASSISTANT_ID,
                 checkpoint={"checkpoint_ns": ""},
                 config={"configurable": inner_configurable},
-                stream_mode=["values", "messages", "updates"],
+                stream_mode=INNER_STREAM_MODES,
             )
         else:
-            run = await client.runs.create(
-                inner_thread_id,
-                assistant_id=INNER_ASSISTANT_ID,
-                input=inner_input,
-                config={"configurable": inner_configurable},
+            run_kwargs: dict[str, Any] = {
+                "assistant_id": INNER_ASSISTANT_ID,
+                "config": {"configurable": inner_configurable},
                 # Объявляем режимы, чтобы pump мог join_stream'ить messages (живой
                 # прогресс) и values (закоммиченный стейт).
-                stream_mode=["values", "messages", "updates"],
-            )
+                "stream_mode": INNER_STREAM_MODES,
+            }
+            if not compaction_only:
+                run_kwargs["input"] = inner_input
+            run = await client.runs.create(inner_thread_id, **run_kwargs)
 
     push_ui_message(STATUS_UI_NAME, {"text": "Думаю"}, id=STATUS_UI_ID)
 
@@ -886,9 +1117,10 @@ async def pump(state: ExperimentalState, config) -> dict:
     outer_thread_id = _outer_thread_id(config)
     activity_id = state.get("activity_id")
     last_status = 0.0
+    last_activity_signature: str | None = None
     # Живой буфер текущего partial'а из messages-стрима (обновляется фоновой
     # задачей). Нужен, чтобы статусы обновлялись во время долгого ризонinга.
-    live: dict[str, str] = {"text": ""}
+    live: dict[str, Any] = {"text": ""}
     live_task: asyncio.Task | None = None
 
     try:
@@ -898,11 +1130,33 @@ async def pump(state: ExperimentalState, config) -> dict:
             )
             while True:
                 snap = await client.threads.get_state(thread_id)
-                inner_messages = (snap.get("values") or {}).get("messages") or []
+                inner_values = snap.get("values") or {}
+                inner_messages = inner_values.get("messages") or []
+                planning_update = _planning_state_update(inner_values)
 
                 # Копим вызовы инструментов текущего хода в лог активности.
                 if outer_thread_id:
                     await _record_tools_from_snapshot(outer_thread_id, inner_messages)
+
+                live_activity = live.get("subagent_activity")
+                if outer_thread_id and isinstance(live_activity, dict):
+                    activity_payload = {
+                        **live_activity,
+                        "summary_only": True,
+                    }
+                    activity_signature = json.dumps(
+                        activity_payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    )
+                    if activity_signature != last_activity_signature:
+                        push_ui_message(
+                            "subagent_activity",
+                            activity_payload,
+                            id=_subagent_activity_ui_id(activity_payload),
+                        )
+                        last_activity_signature = activity_signature
 
                 # Пробрасываем название треда из inner в внешний (giga_agent
                 # генерит его после первого хода; у обёртки title-middleware нет).
@@ -921,10 +1175,12 @@ async def pump(state: ExperimentalState, config) -> dict:
                         processed.append(mid)
                         continue
                     # Нашли следующий всплывающий элемент.
-                    if msg.get("type") == "ai":
+                    if _is_context_compaction_message(msg):
+                        produced = [_forward_context_compaction_message(msg)]
+                    elif msg.get("type") == "ai":
                         produced = [await _rewrite_ai(_content_text(msg))]
                     else:
-                        produced = _forward_widget(msg)
+                        produced = _forward_widget(msg, inner_messages)
                     processed_set.add(mid)
                     processed.append(mid)
                     break
@@ -940,6 +1196,7 @@ async def pump(state: ExperimentalState, config) -> dict:
                         "interrupt_value": None,
                         "done": False,
                         "title_synced": title_synced,
+                        **planning_update,
                     }
 
                 # Нет нового всплывающего элемента прямо сейчас.
@@ -951,16 +1208,21 @@ async def pump(state: ExperimentalState, config) -> dict:
                     # же статусом метит и cancel). Есть pending-interrupt →
                     # уходим в ноду `interrupt` пробрасывать его наружу.
                     snap = await client.threads.get_state(thread_id)
+                    inner_values = snap.get("values") or {}
+                    inner_messages = inner_values.get("messages") or []
+                    planning_update = _planning_state_update(inner_values)
                     interrupts = snap.get("interrupts") or []
                     if interrupts:
-                        # value уже несёт tool_call_id (ask_questions кладёт его в
-                        # payload) — просто пробрасываем наружу.
+                        interrupt_value = _prepare_interrupt_value(
+                            interrupts[0].get("value"), inner_messages
+                        )
                         return {
                             "messages": [],
                             "processed_inner_ids": processed,
-                            "interrupt_value": interrupts[0].get("value"),
+                            "interrupt_value": interrupt_value,
                             "done": False,
                             "title_synced": title_synced,
+                            **planning_update,
                         }
                     # Ран упал ошибкой (R2): НЕ бросаем исключение — помечаем
                     # активность error=true и уходим в END (внешний ран успешен).
@@ -981,9 +1243,7 @@ async def pump(state: ExperimentalState, config) -> dict:
                     # список тулов из свежего снапшота, снапшот встраивается в маркер.
                     final_marker: list[AnyMessage] = []
                     if outer_thread_id and activity_id:
-                        final_messages = (snap.get("values") or {}).get(
-                            "messages"
-                        ) or []
+                        final_messages = inner_values.get("messages") or []
                         await _record_tools_from_snapshot(
                             outer_thread_id, final_messages
                         )
@@ -1002,6 +1262,7 @@ async def pump(state: ExperimentalState, config) -> dict:
                         "interrupt_value": None,
                         "done": True,
                         "title_synced": True,
+                        **planning_update,
                     }
 
                 now = time.monotonic()
@@ -1047,12 +1308,16 @@ async def interrupt_node(state: ExperimentalState, config) -> dict:
     interrupt_value = state.get("interrupt_value")
     answer = interrupt(interrupt_value)
 
-    # Сразу коммитим ответ ask_questions во внешний граф (см. helper) — тогда его
-    # видит первый же values-снапшот после resume и карточка не моргает.
-    messages = _ask_questions_messages(interrupt_value, answer)
+    # Сразу коммитим optimistic-compatible результат во внешний граф — тогда
+    # первый values-снапшот после resume не убирает карточку, пока inner-ран
+    # заново проходит interrupting tool.
+    messages = _ask_questions_messages(
+        interrupt_value, answer
+    ) or _plan_approval_messages(interrupt_value, answer)
 
     thread_id = state["inner_thread_id"]
     old_run_id = state.get("inner_run_id")
+    inner_configurable = _inner_configurable(config)
     async with client_session(config) as client:
         run = await client.runs.create(
             thread_id,
@@ -1062,8 +1327,8 @@ async def interrupt_node(state: ExperimentalState, config) -> dict:
             # в configurable для надёжности; input не нужен — резюмим с места.
             # experimental_inner — тот же exempt от лимита, что в kickoff (иначе
             # резюм inner-рана после ask_questions мог бы упереться в лимит).
-            config={"configurable": {"auto_approve": True, "experimental_inner": True}},
-            stream_mode=["values", "messages", "updates"],
+            config={"configurable": inner_configurable},
+            stream_mode=INNER_STREAM_MODES,
         )
     # Кэш статусов ключуется по run_id — старый run завершён, чистим.
     if old_run_id:
@@ -1073,6 +1338,7 @@ async def interrupt_node(state: ExperimentalState, config) -> dict:
         "inner_run_id": run["run_id"],
         "interrupt_value": None,
         "done": False,
+        **_plan_resume_state_update(interrupt_value, answer),
     }
 
 

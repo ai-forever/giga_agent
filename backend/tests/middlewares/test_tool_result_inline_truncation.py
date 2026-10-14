@@ -2,6 +2,7 @@
 returns its ToolMessage inside a Command (which previously bypassed processing).
 """
 
+import json
 import types
 import unittest
 
@@ -18,6 +19,17 @@ def _request():
     runtime = types.SimpleNamespace(config={})
     return types.SimpleNamespace(
         tool_call={"name": "python", "id": "call1", "args": {}},
+        runtime=runtime,
+        tool=None,
+    )
+
+
+def _planning_request():
+    runtime = types.SimpleNamespace(
+        config={"configurable": {"langgraph_auth_user": {}}}
+    )
+    return types.SimpleNamespace(
+        tool_call={"name": "present_plan", "id": "plan-call", "args": {}},
         runtime=runtime,
         tool=None,
     )
@@ -60,3 +72,65 @@ class InlineTruncationTests(unittest.IsolatedAsyncioTestCase):
         msg = out.update["messages"][0]
         self.assertIn("42", msg.content)
         self.assertNotIn("обрезан", msg.content)
+
+    async def test_command_preserves_python_error_status_and_payload(self):
+        error_text = (
+            "Ошибка в строке 4, колонка 10: result = x / y\n"
+            "Error: ZeroDivisionError: division by zero"
+        )
+        command = Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content=error_text,
+                        tool_call_id="call1",
+                        status="error",
+                        additional_kwargs={
+                            "tool_name": "python",
+                            "custom_metadata": {"source": "worker"},
+                        },
+                    )
+                ]
+            }
+        )
+
+        out = await _wrap(command)
+        msg = out.update["messages"][0]
+        payload = json.loads(msg.content)
+
+        self.assertEqual(msg.status, "error")
+        self.assertEqual(payload["data"], error_text)
+        self.assertEqual(msg.additional_kwargs["custom_metadata"], {"source": "worker"})
+
+    async def test_command_preserves_planning_snapshot_and_error_status(self):
+        command = Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content="План подтверждён.",
+                        tool_call_id="plan-call",
+                        status="error",
+                        additional_kwargs={
+                            "custom_metadata": {"source": "planning"},
+                            "planning": {
+                                "type": "approved_plan",
+                                "plan_content": "# План",
+                                "todos": [],
+                            },
+                        },
+                    )
+                ]
+            }
+        )
+        middleware = ToolResultMiddleware()
+
+        async def handler(_request):
+            return command
+
+        out = await middleware.wrap_tool_call(_planning_request(), handler)
+        message = out.update["messages"][0]
+        self.assertEqual(message.status, "error")
+        self.assertEqual(message.additional_kwargs["planning"]["type"], "approved_plan")
+        self.assertEqual(
+            message.additional_kwargs["custom_metadata"], {"source": "planning"}
+        )

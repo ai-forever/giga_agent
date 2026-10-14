@@ -50,6 +50,7 @@ export interface LLMFormSubmitData {
   connector_id: string;
   llm_type: string;
   model_id: string;
+  context_window?: number;
   llm_name?: string;
   llm_settings: LLMSettings;
   is_active: boolean;
@@ -77,6 +78,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
 
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [modelId, setModelId] = useState(llm?.model_id || "");
+  const [contextWindow, setContextWindow] = useState(
+    llm?.context_window ? String(llm.context_window) : "",
+  );
   const [llmName, setLlmName] = useState(llm?.name || "");
   const [isActive, setIsActive] = useState(llm?.is_active ?? true);
   const [checkConnection, setCheckConnection] = useState(true);
@@ -340,6 +344,9 @@ export const LLMForm: React.FC<LLMFormProps> = ({
       llm_type: selectedLLMType,
       connector_id: selectedConnectorId,
       model_id: modelId,
+      context_window: contextWindow.trim()
+        ? Number.parseInt(contextWindow, 10)
+        : undefined,
       llm_name: llmName || undefined,
       llm_settings: usesDynamicSettings
         ? (compactObject(settingsValues) as LLMSettings)
@@ -353,6 +360,12 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     onSave(data);
   };
 
+  const parsedContextWindow = contextWindow.trim()
+    ? Number.parseInt(contextWindow, 10)
+    : undefined;
+  const contextWindowValid =
+    parsedContextWindow === undefined || parsedContextWindow > 0;
+
   const isSaveDisabled =
     saving ||
     !selectedLLMType ||
@@ -361,7 +374,8 @@ export const LLMForm: React.FC<LLMFormProps> = ({
     loadingLLMTypes ||
     loadingConnectors ||
     loadingModels ||
-    loadingSchema;
+    loadingSchema ||
+    !contextWindowValid;
 
   return (
     <div className="space-y-6">
@@ -453,6 +467,26 @@ export const LLMForm: React.FC<LLMFormProps> = ({
           onChange={(e) => setLlmName(e.target.value)}
           disabled={saving}
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="llm-context-window">
+          Размер контекстного окна (опционально)
+        </Label>
+        <Input
+          id="llm-context-window"
+          type="number"
+          min={1}
+          step={1}
+          placeholder="128000"
+          value={contextWindow}
+          onChange={(event) => setContextWindow(event.target.value)}
+          disabled={saving}
+        />
+        <p className="text-xs text-muted-foreground">
+          Используется для автоматического сокращения истории. Если не задано,
+          применяется конфигурация модели или 128000.
+        </p>
       </div>
 
       <div className="flex items-center justify-between rounded-md border border-border p-3">

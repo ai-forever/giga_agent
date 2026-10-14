@@ -19,6 +19,11 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool as make_tool
 from pydantic import BaseModel, Field
 
+from giga_agent.core.agent.tool_policy import (
+    ToolEffect,
+    ToolPlanMode,
+    tool_extras,
+)
 from giga_agent.core.db import get_session_factory
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.deep_research.config import DeepResearchState
@@ -58,7 +63,11 @@ class _ReflectSchema(BaseModel):
     )
 
 
-@make_tool("submit_reflection", args_schema=_ReflectSchema)
+@make_tool(
+    "submit_reflection",
+    args_schema=_ReflectSchema,
+    extras=tool_extras(ToolEffect.WRITE, plan_mode=ToolPlanMode.ALLOW),
+)
 def _submit_reflection(coverage, stop):  # type: ignore[override]
     """Submit reflection on research coverage."""
     _ = coverage, stop

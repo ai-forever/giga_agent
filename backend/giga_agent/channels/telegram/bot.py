@@ -28,14 +28,24 @@ def _normalize_aiogram_proxy(proxy: str) -> str:
     return normalized
 
 
-def create_telegram_bot(token: str) -> Bot:
+def create_telegram_bot(token: str, *, bot_row=None) -> Bot:
     proxy = _get_env_proxy("HTTPS_PROXY", "ALL_PROXY", "HTTP_PROXY")
     if proxy:
         logger.info("Telegram bot session proxy enabled")
-        return Bot(
+        bot = Bot(
             token=token, session=AiohttpSession(proxy=_normalize_aiogram_proxy(proxy))
         )
-    return Bot(token=token)
+    else:
+        bot = Bot(token=token)
+    if bot_row is not None:
+        from functools import partial
+
+        from giga_agent.channels.telegram.chat_history import archive_outgoing_request
+
+        bot.session.middleware.register(
+            partial(archive_outgoing_request, bot_row=bot_row)
+        )
+    return bot
 
 
 __all__ = ["create_telegram_bot"]

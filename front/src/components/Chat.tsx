@@ -9,7 +9,8 @@ import { uiMessageReducer } from "@langchain/langgraph-sdk/react-ui";
 import { SelectedAttachmentsProvider } from "../hooks/SelectedAttachmentsContext.tsx";
 import { useStream, UseStream } from "@langchain/langgraph-sdk/react";
 import { Client } from "@langchain/langgraph-sdk";
-import { persistStoppedAiMessage } from "@/lib/stopped-message.ts";
+import { persistStoppedMessages } from "@/lib/stopped-message.ts";
+import type { SubagentActivity } from "@/components/agents/SubagentActivityCard";
 import { useAuth } from "@/components/providers/auth.tsx";
 import { API_BASE_URL } from "@/config.ts";
 import { useExperimentalMode } from "@/hooks/useExperimentalMode.ts";
@@ -83,6 +84,35 @@ const Chat: React.FC<ChatProps> = ({
     // после остановки; rendered заставляет дорисовать хвост мгновенно.
     onStop: ({ mutate }) => {
       mutate((prev) => {
+        const stoppedAt = Date.now() / 1000;
+        const existingToolCallIds = new Set(
+          (prev.messages ?? [])
+            .filter((message) => message.type === "tool")
+            .map((message) => (message as any).tool_call_id)
+            .filter((id): id is string => typeof id === "string"),
+        );
+        const activitiesByToolCallId = new Map<string, SubagentActivity>();
+        const ui = Array.isArray(prev.ui) ? prev.ui : [];
+        const stoppedUi = ui.map((item: any) => {
+          const activity = item?.props as SubagentActivity | undefined;
+          if (item?.name !== "subagent_activity" || !activity?.tool_call_id) {
+            return item;
+          }
+
+          const cancelled: SubagentActivity =
+            activity.status === "running" || activity.status === "interrupted"
+              ? {
+                  ...activity,
+                  status: "cancelled",
+                  finished_at: activity.finished_at ?? stoppedAt,
+                  duration:
+                    activity.duration ??
+                    Math.max(0, stoppedAt - (activity.started_at ?? stoppedAt)),
+                }
+              : activity;
+          activitiesByToolCallId.set(activity.tool_call_id, cancelled);
+          return cancelled === activity ? item : { ...item, props: cancelled };
+        });
         const messages = (prev.messages ?? []).map((m) =>
           m.type === "ai" &&
           !(m.additional_kwargs as Record<string, unknown> | undefined)
@@ -93,19 +123,74 @@ const Chat: React.FC<ChatProps> = ({
               }
             : m,
         );
+        const cancelledToolMessages: any[] = [];
+        for (const message of messages) {
+          if (message.type !== "ai") continue;
+          for (const call of ((message as any).tool_calls ?? []) as any[]) {
+            if (call.name !== "subtask" || !call.id) continue;
+            if (existingToolCallIds.has(call.id)) continue;
+
+            const current = activitiesByToolCallId.get(call.id);
+            const activity: SubagentActivity = current ?? {
+              agent_id: call.args?.agent_id ?? "unknown",
+              task: call.args?.task,
+              tool_call_id: call.id,
+              status: "cancelled",
+              finished_at: stoppedAt,
+              duration: 0,
+              items: [],
+            };
+            const cancelled: SubagentActivity =
+              activity.status === "cancelled"
+                ? activity
+                : {
+                    ...activity,
+                    status: "cancelled",
+                    finished_at: activity.finished_at ?? stoppedAt,
+                    duration:
+                      activity.duration ??
+                      Math.max(
+                        0,
+                        stoppedAt - (activity.started_at ?? stoppedAt),
+                      ),
+                  };
+            activitiesByToolCallId.set(call.id, cancelled);
+            cancelledToolMessages.push({
+              type: "tool",
+              id: `subtask-cancelled-${call.id}`,
+              name: "subtask",
+              tool_call_id: call.id,
+              content: "Выполнение суб-агента было отменено.",
+              status: "error",
+              additional_kwargs: { subagent_activity: cancelled },
+            });
+          }
+        }
+        const messagesWithCancelledSubagents = [
+          ...messages,
+          ...cancelledToolMessages,
+        ];
         // Частичный AI-ответ сохраняем именно отсюда: prev — самые свежие
         // values стрима (то, что на экране); снимок в обработчике клика
         // отстаёт на чанки, прилетевшие за время отмены. Вызов идемпотентен:
-        // persistStoppedAiMessage не пишет, если сообщение уже в чекпоинте.
-        const tail = messages.at(-1);
-        if (tail?.type === "ai" && threadId) {
-          void persistStoppedAiMessage(
+        // persistStoppedMessages не пишет, если сообщения уже в чекпойнте.
+        const persistable = [
+          ...cancelledToolMessages,
+          ...(messages.at(-1)?.type === "ai" ? [messages.at(-1)] : []),
+        ];
+        if (threadId && persistable.length > 0) {
+          void persistStoppedMessages(
             threadRef.current.client as unknown as Client,
             threadId,
-            tail,
+            persistable,
           );
         }
-        return { ...prev, __interrupt__: [], messages };
+        return {
+          ...prev,
+          __interrupt__: [],
+          ui: stoppedUi,
+          messages: messagesWithCancelledSubagents,
+        };
       });
     },
   }) as unknown as UseStream<GraphState>;

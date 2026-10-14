@@ -1,7 +1,7 @@
-"""Read node — параллельное чтение найденных URL через Jina Reader + LLM-суммаризация.
+"""Read node — параллельное чтение найденных URL + LLM-суммаризация.
 
-Переиспользует приватные хелперы `modules.scraper.tool._load_via_jina_reader`,
-`_validate_url`, `_format_fetch_error` (см. решение #12 в ARCHITECTURE.md).
+Переиспользует mode-aware хелпер загрузки из `modules.scraper.tool`,
+`_validate_url` и `_format_fetch_error`.
 Свой LLM-резолвер и свой промпт суммаризации — сфокусирован на подвопросах,
 а не на общем ответе пользователю.
 """
@@ -22,7 +22,9 @@ from giga_agent.modules.deep_research.config import (
 )
 from giga_agent.modules.scraper.tool import (
     _format_fetch_error,
-    _load_via_jina_reader,
+    _get_tavily_extractor,
+    _is_tavily_mode,
+    _load_via_scraper,
     _validate_url,
 )
 from giga_agent.modules.subagents_legacy.runtime import _get_or_create_resolver
@@ -30,7 +32,7 @@ from giga_agent.modules.subagents_legacy.runtime import _get_or_create_resolver
 logger = get_logger(__name__)
 
 
-# Жёсткий локальный лимит concurrency для Jina Reader: free-tier даёт 429 при
+# Жёсткий локальный лимит concurrency для чтения страниц: free-tier даёт 429 при
 # >3 параллельных запросов. Берём min() с пользовательским scraper-settings, но
 # не позволяем выше 3.
 DEEP_RESEARCH_FETCH_CONCURRENCY_CAP = 3
@@ -39,15 +41,24 @@ FETCH_RETRY_BASE_DELAY_S = 1.2
 FETCH_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
-async def _fetch_with_retry(*, client: httpx.AsyncClient, url: str) -> dict[str, str]:
-    """Jina Reader с retry на transient-ошибках (rate-limit, 5xx).
+async def _fetch_with_retry(
+    *,
+    client: httpx.AsyncClient,
+    url: str,
+    tavily_extractor=None,
+) -> dict[str, object]:
+    """Загрузка страницы с retry на transient-ошибках.
 
     403 не ретраим — это forbidden сайт. Экспоненциальная задержка с джиттером.
     """
     last_exc: Exception | None = None
     for attempt in range(FETCH_RETRY_ATTEMPTS):
         try:
-            return await _load_via_jina_reader(client=client, url=url)
+            return await _load_via_scraper(
+                client=client,
+                url=url,
+                tavily_extractor=tavily_extractor,
+            )
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code if exc.response is not None else 0
             last_exc = exc
@@ -108,6 +119,7 @@ async def _process_one(
     client: httpx.AsyncClient,
     fetch_sem: asyncio.Semaphore,
     summarize_sem: asyncio.Semaphore,
+    tavily_extractor=None,
 ) -> dict:
     url = source.get("url", "")
     source_id = source.get("id")
@@ -119,10 +131,14 @@ async def _process_one(
         }
     try:
         async with fetch_sem:
-            page = await _fetch_with_retry(client=client, url=url)
+            page = await _fetch_with_retry(
+                client=client,
+                url=url,
+                tavily_extractor=tavily_extractor,
+            )
     except Exception as exc:
         logger.warning(
-            "deep_research.read: Jina Reader failed",
+            "deep_research.read: page extraction failed",
             url=url,
             error_type=type(exc).__name__,
         )
@@ -186,6 +202,14 @@ async def read_node(state: DeepResearchState, config: RunnableConfig):
     )
     fetch_sem = asyncio.Semaphore(fetch_concurrency)
     summarize_sem = asyncio.Semaphore(llm_parallel)
+    try:
+        tavily_extractor = _get_tavily_extractor() if _is_tavily_mode() else None
+    except Exception as exc:
+        logger.warning(
+            "deep_research.read: Tavily scraper is not configured",
+            error_type=type(exc).__name__,
+        )
+        return {}
 
     timeout = httpx.Timeout(30.0, connect=10.0)
     async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
@@ -199,6 +223,7 @@ async def read_node(state: DeepResearchState, config: RunnableConfig):
                     client=client,
                     fetch_sem=fetch_sem,
                     summarize_sem=summarize_sem,
+                    tavily_extractor=tavily_extractor,
                 )
                 for src in targets
             ],

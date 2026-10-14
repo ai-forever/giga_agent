@@ -8,6 +8,7 @@ from typing import Annotated
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.agent.tool_results import build_error_tool_message
 from giga_agent.core.agent.types import Collection
 from giga_agent.core.db import get_session_factory
@@ -35,6 +36,7 @@ def _qdrant_search_helpers():
 Используй для поиска информации из документов пользователя. Формулируй query как естественный вопрос.
 При недостатке информации делай повторные запросы с другими формулировками.
 Всегда цитируй источники (ID документа) в ответах.""",
+    extras=tool_extras(ToolEffect.READ),
 )
 async def get_documents(
     collection_uuid: Annotated[str, "UUID-коллекции"],

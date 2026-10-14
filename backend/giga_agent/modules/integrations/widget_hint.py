@@ -13,6 +13,11 @@ from typing import Any
 
 from langchain.tools import ToolRuntime
 
+from giga_agent.utils.thread_metadata import (
+    get_thread_id_from_config,
+    get_thread_metadata,
+)
+
 WIDGET_SHOWN_NOTE = (
     "Эти данные уже показаны пользователю виджетом в интерфейсе. "
     "Не пересказывай их содержимое текстом — дай только короткий комментарий, "
@@ -20,15 +25,17 @@ WIDGET_SHOWN_NOTE = (
 )
 
 
-def _renders_widget_inline(runtime: ToolRuntime) -> bool:
+async def _renders_widget_inline(runtime: ToolRuntime) -> bool:
     """True, если виджет виден пользователю прямо в чате (веб-интерфейс)."""
-    config = getattr(runtime, "config", None) or {}
-    metadata = config.get("metadata") or {}
+    config = getattr(runtime, "config", None)
+    metadata = await get_thread_metadata(config, get_thread_id_from_config(config))
     return metadata.get("channel") != "telegram"
 
 
-def with_widget_note(payload: dict[str, Any], runtime: ToolRuntime) -> dict[str, Any]:
+async def with_widget_note(
+    payload: dict[str, Any], runtime: ToolRuntime
+) -> dict[str, Any]:
     """Добавляет в payload подсказку 'не пересказывай', если ран вне Telegram."""
-    if _renders_widget_inline(runtime):
+    if await _renders_widget_inline(runtime):
         return {**payload, "note": WIDGET_SHOWN_NOTE}
     return payload

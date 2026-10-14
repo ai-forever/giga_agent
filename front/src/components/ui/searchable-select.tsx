@@ -20,6 +20,7 @@ import {
 export type Option = {
   value: string;
   label: string;
+  icon?: React.ReactNode;
   disabled?: boolean;
 };
 
@@ -176,6 +177,7 @@ function SearchableMultiSelect({
                   variant="default"
                   className="max-w-full truncate"
                 >
+                  {option.icon}
                   {option.label}
                 </Badge>
               ))}
@@ -212,12 +214,29 @@ function SearchableMultiSelect({
                     }
                   }}
                 >
-                  <Check
-                    className={cn(
-                      "mr-2 size-4",
-                      isSelected ? "opacity-100" : "opacity-0",
-                    )}
-                  />
+                  {option.icon ? (
+                    <span className="relative inline-flex size-5 shrink-0 items-center justify-center">
+                      {option.icon}
+                      {isSelected && (
+                        <span
+                          className="absolute -right-1 -top-1 inline-flex size-3 items-center justify-center rounded-full bg-emerald-500 text-white ring-2 ring-popover"
+                          aria-hidden="true"
+                        >
+                          <Check
+                            className="size-2 text-white"
+                            strokeWidth={3}
+                          />
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <Check
+                      className={cn(
+                        "mr-2 size-4",
+                        isSelected ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                  )}
                   <span className="truncate">{option.label}</span>
                 </CommandItem>
               );

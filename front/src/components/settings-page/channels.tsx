@@ -55,6 +55,8 @@ const areContactsEqual = (
       contact.last_name === other.last_name &&
       contact.is_approved === other.is_approved &&
       contact.is_default_task_recipient === other.is_default_task_recipient &&
+      contact.save_messages === other.save_messages &&
+      contact.save_messages_enabled_at === other.save_messages_enabled_at &&
       contact.created_at === other.created_at &&
       contact.updated_at === other.updated_at
     );
@@ -111,6 +113,10 @@ const ContactsSection: React.FC<{
     contact: ChannelContactResponse,
     isDefault: boolean,
   ) => Promise<void>;
+  onSaveMessagesToggle: (
+    contact: ChannelContactResponse,
+    saveMessages: boolean,
+  ) => Promise<void>;
   onDelete: (contact: ChannelContactResponse) => Promise<void>;
 }> = ({
   botId,
@@ -119,6 +125,7 @@ const ContactsSection: React.FC<{
   actionKey,
   onApproveToggle,
   onDefaultToggle,
+  onSaveMessagesToggle,
   onDelete,
 }) => {
   if (!botId) return null;
@@ -146,9 +153,13 @@ const ContactsSection: React.FC<{
         const approveKey = `approve:${contact.id}`;
         const deleteKey = `delete:${contact.id}`;
         const defaultKey = `default:${contact.id}`;
+        const historyKey = `history:${contact.id}`;
         const isApproving = actionKey === approveKey;
         const isDeleting = actionKey === deleteKey;
         const isTogglingDefault = actionKey === defaultKey;
+        const isTogglingHistory = actionKey === historyKey;
+        const supportsHistory =
+          contact.chat_type === "group" || contact.chat_type === "supergroup";
 
         return (
           <div
@@ -220,22 +231,50 @@ const ContactsSection: React.FC<{
               </div>
             </div>
             {contact.is_approved && (
-              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
-                <span className="text-xs text-muted-foreground">
-                  Получатель результатов фоновых задач по умолчанию
-                </span>
-                <div className="flex items-center gap-2">
-                  {isTogglingDefault && (
-                    <Loader2 className="size-4 animate-spin" />
-                  )}
-                  <Switch
-                    checked={contact.is_default_task_recipient}
-                    disabled={isTogglingDefault}
-                    onCheckedChange={(value) =>
-                      void onDefaultToggle(contact, value)
-                    }
-                  />
+              <div className="space-y-2 border-t border-border/60 pt-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Получатель результатов фоновых задач по умолчанию
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {isTogglingDefault && (
+                      <Loader2 className="size-4 animate-spin" />
+                    )}
+                    <Switch
+                      checked={contact.is_default_task_recipient}
+                      disabled={isTogglingDefault}
+                      onCheckedChange={(value) =>
+                        void onDefaultToggle(contact, value)
+                      }
+                    />
+                  </div>
                 </div>
+                {supportsHistory && (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs text-muted-foreground">
+                        Сохранять переписку
+                      </span>
+                      <p className="text-xs text-muted-foreground/80">
+                        Сохраняются новые сообщения, которые Telegram доставляет
+                        боту. Для полной истории нужны права бота или
+                        отключённый privacy mode.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isTogglingHistory && (
+                        <Loader2 className="size-4 animate-spin" />
+                      )}
+                      <Switch
+                        checked={contact.save_messages}
+                        disabled={isTogglingHistory}
+                        onCheckedChange={(value) =>
+                          void onSaveMessagesToggle(contact, value)
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -698,6 +737,32 @@ export const ChannelsSettings: React.FC = () => {
     }
   };
 
+  const handleSaveMessagesToggle = async (
+    contact: ChannelContactResponse,
+    saveMessages: boolean,
+  ) => {
+    if (!editingBotId) return;
+    const actionKey = `history:${contact.id}`;
+    setContactActionKey(actionKey);
+    try {
+      const search = contact.external_user_id
+        ? `?external_user_id=${encodeURIComponent(contact.external_user_id)}`
+        : "";
+      await apiClient.patch<ChannelContactResponse>(
+        `${API_AGENT_PREFIX}/channels/${editingBotId}/contacts/by-chat/${encodeURIComponent(contact.external_chat_id)}${search}`,
+        { save_messages: saveMessages },
+      );
+      toast.success(
+        saveMessages
+          ? "Сохранение переписки включено"
+          : "Сохранение переписки выключено",
+      );
+      await fetchContacts(editingBotId);
+    } finally {
+      setContactActionKey(null);
+    }
+  };
+
   const handleDeleteContact = async (contact: ChannelContactResponse) => {
     if (!editingBotId) return;
 
@@ -705,7 +770,7 @@ export const ChannelsSettings: React.FC = () => {
       !(await confirm({
         title: "Удалить контакт",
         description:
-          "Удалить этот контакт? Пользователю придется написать боту заново.",
+          "Удалить этот контакт и весь сохранённый архив переписки? Пользователю придется написать боту заново.",
         confirmText: "Удалить",
         variant: "destructive",
       }))
@@ -879,6 +944,7 @@ export const ChannelsSettings: React.FC = () => {
                           actionKey={contactActionKey}
                           onApproveToggle={handleApproveToggle}
                           onDefaultToggle={handleDefaultToggle}
+                          onSaveMessagesToggle={handleSaveMessagesToggle}
                           onDelete={handleDeleteContact}
                         />
                       </div>

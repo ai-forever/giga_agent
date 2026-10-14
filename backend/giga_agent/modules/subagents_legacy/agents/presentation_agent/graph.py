@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
 from giga_agent.conf import get_settings
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.subagents_legacy.agents.presentation_agent.config import (
     ConfigSchema,
@@ -41,7 +42,7 @@ workflow.add_edge("slides_node", END)
 graph = workflow.compile()
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.WRITE))
 async def generate_presentation(
     presentation_task: str,
     runtime: ToolRuntime,

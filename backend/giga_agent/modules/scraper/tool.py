@@ -8,19 +8,17 @@ from urllib.parse import urlparse
 
 import httpx
 from langchain.tools import InjectedState, ToolRuntime
-from langchain_core.messages import HumanMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
+from langchain_tavily import TavilyExtract
 
 from giga_agent.conf import get_settings
-from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.logging import get_logger
 from giga_agent.modules.subagents_legacy.uploads import (
     LegacyUploadFileSpec,
     resolve_upload_prefix,
     upload_files_for_runtime_user,
 )
-from giga_agent.utils.messages import filter_tool_calls
 
 logger = get_logger(__name__)
 
@@ -28,41 +26,6 @@ logger = get_logger(__name__)
 MAX_URLS_PER_CALL = 4
 TOTAL_CONTENT_THRESHOLD_CHARS = 20_000
 PER_RESULT_PREVIEW_CHARS = 5_000
-
-
-PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """Ты — опытный копирайтер-аналитик.
-Тебе предоставлены выгрузки с сайта (тексты, таблицы, изображения).
-
-**Твоя задача:**
-
-1. Проанализировать весь полученный материал.
-2. Отобрать только то, что напрямую относится к поставленной задаче.
-3. Сформировать итоговый ответ для пользователя, который:
-
-   * содержит релевантные фрагменты текста;
-   * включает нужные таблицы (с сохранением структуры);
-   * добавляет ссылки на релевантные изображения со страницы (с короткой подписью к каждой).
-
-**Требования к результату:**
-
-* Ничего лишнего: только данные, важные для решения задачи.
-* Ясные, лаконичные формулировки, без воды.
-* Если источник неясен — укажи пометку «(источник неизвестен)».
-* Соблюдай единый стиль оформления:
-
-  * заголовки — **полужирные**,
-  * подзаголовки — *курсив*,
-  * таблицы — в Markdown,
-  * ссылки на изображения давай в формате `![alt-текст](ссылка)`, только если они реально помогают ответу
-""",
-        ),
-        MessagesPlaceholder("messages"),
-    ],
-)
 
 
 def _get_jina_base_url() -> str:
@@ -107,58 +70,79 @@ async def _load_via_jina_reader(
                 pass
 
 
-async def _resolve_fast_llm(runtime: ToolRuntime):
-    resolver = RuntimeResolver.from_config(runtime.config)
-    fast_llm_runtime = await resolver.get_fast_llm_runtime()
-    parallel_calls = await resolver.get_fast_llm_parallel_calls()
-    llm = await fast_llm_runtime.get_llm()
-    return (
-        llm.bind(top_p=0.3).with_config(tags=["nostream"]),
-        parallel_calls,
+def _get_tavily_api_key() -> str:
+    return (os.getenv("TAVILY_API_KEY") or "").strip()
+
+
+def _get_tavily_extractor() -> TavilyExtract:
+    api_key = _get_tavily_api_key()
+    if not api_key:
+        raise ValueError("TAVILY_API_KEY is required when GIGA_AGENT_SCRAPER=tavily.")
+    return TavilyExtract(
+        tavily_api_key=api_key,
+        extract_depth="advanced",
+        include_images=True,
+        format="markdown",
     )
 
 
-async def _summarize_page(messages, response, llm, summarize_sem: asyncio.Semaphore):
-    extract_ch = PROMPT | llm
-    prepared_messages = list(messages or [])
-    if prepared_messages:
-        prepared_messages[-1] = filter_tool_calls(prepared_messages[-1])
+def _is_tavily_mode() -> bool:
+    return get_settings().giga_agent_scraper == "tavily"
 
-    message = HumanMessage(
-        content=f"""**Твоя задача:**
 
-1. Проанализировать материал ниже.
-2. Отобрать только то, что напрямую относится к поставленной задаче.
-3. Сформировать исходя из материала короткий ответ для пользователя, который:
+async def _load_via_tavily_extract(
+    *,
+    extractor: TavilyExtract,
+    url: str,
+) -> dict[str, object]:
+    raw_response = await extractor.ainvoke({"urls": [url]})
+    if not isinstance(raw_response, dict):
+        raise ValueError("Tavily Extract вернул ответ неизвестного формата.")
 
-   * содержит релевантные фрагменты текста;
-   * включает нужные таблицы (с сохранением структуры);
-   * если в markdown есть ссылки на релевантные изображения (в том числе относительные), добавляет их в ответ с короткой подписью.
+    if raw_response.get("error") is not None:
+        raise ValueError(str(raw_response["error"]))
 
-**Требования к результату:**
+    results = raw_response.get("results") or []
+    if not isinstance(results, list) or not results:
+        failed_results = raw_response.get("failed_results") or []
+        failure = (
+            failed_results[0]
+            if isinstance(failed_results, list) and failed_results
+            else None
+        )
+        if isinstance(failure, dict) and failure.get("error"):
+            raise ValueError(str(failure["error"]))
+        raise ValueError("Tavily Extract не вернул содержимое страницы.")
 
-* Ничего лишнего: только данные, важные для решения задачи.
-* Ясные, лаконичные формулировки, без воды.
-* Если источник неясен — укажи пометку «(источник неизвестен)».
-* Соблюдай единый стиль оформления:
+    result = results[0]
+    if not isinstance(result, dict):
+        raise ValueError("Tavily Extract вернул результат неизвестного формата.")
 
-  * заголовки — **полужирные**,
-  * подзаголовки — *курсив*,
-  * таблицы — в Markdown,
-  * ссылки на изображения — в формате ![alt-текст](ссылка), только если относятся к ответу
-  * относительные ссылки из markdown не удаляй и не переписывай
+    markdown = result.get("raw_content") or result.get("content") or ""
+    if not isinstance(markdown, str) or not markdown.strip():
+        raise ValueError("Tavily Extract вернул пустое содержимое страницы.")
 
-URL: {response["url"]}
+    response: dict[str, object] = {
+        "url": str(result.get("url") or url),
+        "markdown": markdown,
+    }
+    for field in ("images", "favicon"):
+        value = result.get(field) or raw_response.get(field)
+        if value:
+            response[field] = value
+    return response
 
-Материал
-----
-{response["markdown"]}
-----
-Дай краткую информацию исходя из материала следуя своей инструкции по форматированию ответа""",
-    )
-    async with summarize_sem:
-        resp = await extract_ch.ainvoke({"messages": prepared_messages + [message]})
-    return {"url": response["url"], "result": resp.content}
+
+async def _load_via_scraper(
+    *,
+    client: httpx.AsyncClient,
+    url: str,
+    tavily_extractor: TavilyExtract | None = None,
+) -> dict[str, object]:
+    if _is_tavily_mode():
+        extractor = tavily_extractor or _get_tavily_extractor()
+        return await _load_via_tavily_extract(extractor=extractor, url=url)
+    return await _load_via_jina_reader(client=client, url=url)
 
 
 def _format_fetch_error(url: str, exc: Exception) -> dict[str, str]:
@@ -178,33 +162,38 @@ def _format_fetch_error(url: str, exc: Exception) -> dict[str, str]:
 async def _process_url(
     *,
     url: str,
-    messages,
-    llm,
     client: httpx.AsyncClient,
-    summarize_sem: asyncio.Semaphore,
-) -> dict[str, str]:
+    tavily_extractor: TavilyExtract | None = None,
+) -> dict[str, object]:
     if not _validate_url(url):
         return {
             "url": url,
             "error": "Некорректный URL. Поддерживаются только http/https ссылки.",
         }
     try:
-        page_data = await _load_via_jina_reader(
+        page_data = await _load_via_scraper(
             client=client,
             url=url,
+            tavily_extractor=tavily_extractor,
         )
         return page_data
-        # return await _summarize_page(messages, page_data, llm, summarize_sem)
     except Exception as exc:
         logger.exception(
-            "Failed to fetch or summarize URL in scraper",
+            "Failed to fetch URL in scraper",
             url=url,
             error_type=type(exc).__name__,
         )
         return _format_fetch_error(url, exc)
 
 
-@tool(extras={"repl_skip": True, "not_compress": True, "not_process": True})
+@tool(
+    extras=tool_extras(
+        ToolEffect.READ,
+        repl_skip=True,
+        not_compress=True,
+        not_process=True,
+    )
+)
 async def get_urls(
     urls: list[str],
     runtime: ToolRuntime,
@@ -223,9 +212,8 @@ async def get_urls(
         )
         urls = urls[:MAX_URLS_PER_CALL]
 
-    llm, llm_parallel_calls = await _resolve_fast_llm(runtime)
-    summarize_sem = asyncio.Semaphore(llm_parallel_calls)
     total_concurrency = get_settings().giga_agent_scraper_total_concurrency
+    tavily_extractor = _get_tavily_extractor() if _is_tavily_mode() else None
 
     fetch_sem = asyncio.Semaphore(max(1, int(total_concurrency)))
     timeout = httpx.Timeout(30.0, connect=10.0)
@@ -235,10 +223,8 @@ async def get_urls(
             async with fetch_sem:
                 return await _process_url(
                     url=url,
-                    messages=state.get("messages", []),
-                    llm=llm,
                     client=client,
-                    summarize_sem=summarize_sem,
+                    tavily_extractor=tavily_extractor,
                 )
 
         response = await asyncio.gather(*[_bounded(u) for u in urls])

@@ -54,6 +54,18 @@ class SearchModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(instructions)
         self.assertIn("search", instructions)
 
+    async def test_module_enabled_from_runtime_resolver_for_cli_user(self):
+        module = SearchModule()
+        user = types.SimpleNamespace(search_engine_id=None)
+        config = {"configurable": {}}
+        resolver = types.SimpleNamespace(has_search_engine=True)
+
+        with patch(
+            "giga_agent.core.agent.runtime_resolver.RuntimeResolver.from_config",
+            return_value=resolver,
+        ):
+            self.assertTrue(await module.is_enabled(user=user, config=config))
+
     async def test_module_returns_no_tools_for_invalid_engine_ref(self):
         module = SearchModule()
         user = types.SimpleNamespace(id=uuid.uuid4(), search_engine_id=uuid.uuid4())

@@ -10,7 +10,7 @@
 
 | Фича                                            | researcher_agent (legacy)         | deep_research (новый)       |
 | ----------------------------------------------- | --------------------------------- | --------------------------- |
-| Чтение страниц через Jina Reader                | ❌ (только сниппеты поисковика)    | ✅                           |
+| Чтение страниц через Jina/Tavily Extract        | ❌ (только сниппеты поисковика)    | ✅                           |
 | Структурированный State (plan + sources)        | ❌ (virtual files + messages)      | ✅ (TypedDict)               |
 | Параллельный search и read                      | ❌                                 | ✅ (`asyncio.gather` + sem)  |
 | Стриминг плана/источников в UI                  | ❌                                 | ✅ (`push_ui_message`)       |
@@ -31,7 +31,7 @@
 9. **Параллелизм**: search — один батч `engine.search(all_queries)` (движок сам параллелит); read — через **локальный cap** `DEEP_RESEARCH_FETCH_CONCURRENCY_CAP = 3` (free-tier `r.jina.ai` отдаёт 429 при >3 параллельных), поверх `min(user_setting, 3)`. На `429/5xx/408/425` — retry с экспоненциальным backoff (`FETCH_RETRY_ATTEMPTS = 3`, базовая задержка 1.2с × 2^attempt × джиттер 0.5–1.5x). На 403 — не ретраим, это forbidden сайт.
 10. **Дедупликация**: по нормализованному URL (без tracking-параметров: `utm_*`, `fbclid`, `gclid`, `yclid` и т. д.) + по домену внутри одного подвопроса.
 11. **Бюджеты (дефолты)**: `max_iterations=3`, `max_subquestions=6`, `sources_per_subq=5`, `max_sources=40`.
-12. **Scraper-логика**: переиспользуем приватные хелперы из `modules.scraper.tool` (`_load_via_jina_reader`, `_process_url`, `_resolve_fast_llm`). Не вызываем `@tool get_urls` напрямую — нужен прямой путь без LLM-обёртки вокруг сам-вызова.
+12. **Scraper-логика**: переиспользуем mode-aware приватные хелперы из `modules.scraper.tool` (`_load_via_scraper`, `_process_url`). При `GIGA_AGENT_SCRAPER=tavily` используется Tavily Extract с `TAVILY_API_KEY`, иначе сохраняется Jina Reader. Не вызываем `@tool get_urls` напрямую — нужен прямой путь без LLM-обёртки вокруг сам-вызова.
 13. **Доступность tool**: `run_deep_research` регистрируется только при `user.llm_id is not None and user.search_engine_id is not None`.
 14. **Возможность продолжения**: tool принимает `thread_id`, чтобы можно было «добавь ещё, углуби такой-то подвопрос».
 15. **Tool-payload wrapping**: при возврате большого payload (>25KB по умолчанию, см. `GIGA_AGENT_TOOL_MAX_SIZE`) middleware `middlewares/tool_result.py` оборачивает его в `{data: <original>, result_path: <path>, message: <instructions>}` и сохраняет полный результат в sandbox как JSON. Frontend-рендер **должен** читать `parsedPayload.data?.plan ?? parsedPayload.plan` — иначе план/источники исчезнут на больших прогонах. Это уже реализовано в `ToolMessage.tsx` для `deepResearchFinalPlan`.
@@ -74,7 +74,7 @@ modules/deep_research/
    {"sub_questions": [{"text": "...", "queries": ["q1", "q2"]}, ...]}
    ```
 2. **search** — собирает все `queries`, одним батчем `engine.search(all_queries)`. Раскидывает результаты по `sub_question_ids`, дедуп по URL, ограничение `sources_per_subq`.
-3. **read** — параллельный Jina Reader (общий семафор `fetch_sem`) + LLM-суммаризация страниц (семафор `summarize_sem`). Пишет `Source.summary`.
+3. **read** — параллельный Jina Reader или Tavily Extract (общий семафор `fetch_sem`) + LLM-суммаризация страниц (семафор `summarize_sem`). Пишет `Source.summary`.
 4. **reflect** — LLM смотрит sources, решает `stop` или `new_queries`. В M1/M2 — заглушка со `stop=True`.
 5. **compose** — LLM генерирует markdown, привязывает `[N]`-цитаты. Сохраняется через `upload_files_for_config_user` в sandbox.
 

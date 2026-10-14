@@ -214,6 +214,17 @@ class BaseModule(Serializable):
         """
         return {}
 
+    def get_agents(self, **kwargs: Any) -> list[str]:
+        """Return paths to built-in ``AGENT.md`` manifests.
+
+        Relative paths are resolved from :attr:`module_path`.  Agent manifests
+        are definitions, not extra LangGraph entrypoints: the subagent runtime
+        executes the regular ``giga_agent`` graph with a restricted execution
+        profile.
+        """
+        _ = kwargs
+        return []
+
     async def is_enabled(
         self,
         user: "UserShort | None",

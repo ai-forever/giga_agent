@@ -108,7 +108,12 @@ const TokenUsageIndicator: React.FC<{ messages: Message[] }> = ({
   const { contextUsed, totalCost } = useMemo(() => {
     const aiMessages = messages.filter((m) => m.type === "ai");
     if (aiMessages.length === 0) {
-      return lastKnownRef.current ?? { contextUsed: 0, totalCost: 0 };
+      return (
+        lastKnownRef.current ?? {
+          contextUsed: 0,
+          totalCost: 0,
+        }
+      );
     }
 
     const lastAi = aiMessages[aiMessages.length - 1];

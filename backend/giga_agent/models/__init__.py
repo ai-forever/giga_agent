@@ -1,4 +1,14 @@
 from giga_agent.embeddings.base import AvailableEmbeddingModel, EmbeddingModelFetchError
+from giga_agent.models.agent import (
+    AgentBindingUpdate,
+    AgentConnectorBinding,
+    AgentMcpBinding,
+    AgentProfile,
+    AgentProfileCreate,
+    AgentProfileRepository,
+    AgentProfileUpdate,
+    AgentSkillBinding,
+)
 from giga_agent.llm.base import AvailableModel, ModelFetchError
 from giga_agent.models.channel import (
     ChannelBot,
@@ -10,6 +20,7 @@ from giga_agent.models.channel import (
     ChannelContact,
     ChannelContactApprovalUpdate,
     ChannelContactResponse,
+    ChatMessage,
     ChannelThread,
     ChannelThreadResponse,
     ChannelTypeMeta,
@@ -170,6 +181,15 @@ from giga_agent.models.users import (
 )
 
 __all__ = [
+    # Agents
+    "AgentProfile",
+    "AgentSkillBinding",
+    "AgentConnectorBinding",
+    "AgentMcpBinding",
+    "AgentProfileCreate",
+    "AgentProfileUpdate",
+    "AgentBindingUpdate",
+    "AgentProfileRepository",
     # Users
     "User",
     "UserBase",
@@ -305,6 +325,7 @@ __all__ = [
     "ChannelBot",
     "ChannelThread",
     "ChannelContact",
+    "ChatMessage",
     "ChannelBotBase",
     "ChannelBotCreate",
     "ChannelBotUpdate",

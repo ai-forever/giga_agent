@@ -15,6 +15,11 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from markdownify import markdownify as _md
 
+from giga_agent.core.agent.tool_policy import (
+    ToolConfirmation,
+    ToolEffect,
+    tool_extras,
+)
 from giga_agent.core.agent.tool_results import build_widget_tool_message
 from giga_agent.modules.integrations.widget_hint import with_widget_note
 from giga_agent.modules.integrations.yandex_mail.auth import (
@@ -261,7 +266,7 @@ def inbox_payload(folder: str, messages: list[dict[str, Any]]) -> dict[str, Any]
     }
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def mail_search(
     runtime: ToolRuntime,
     folder: str = "INBOX",
@@ -288,11 +293,11 @@ async def mail_search(
         _search_sync, email_addr, token, folder, limit, sender, subject
     )
     return build_widget_tool_message(
-        with_widget_note(inbox_payload(folder, items), runtime), runtime=runtime
+        await with_widget_note(inbox_payload(folder, items), runtime), runtime=runtime
     )
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def mail_read(
     runtime: ToolRuntime,
     message_id: str,
@@ -341,7 +346,13 @@ def _send_sync(
             pass
 
 
-@tool(parse_docstring=True)
+@tool(
+    parse_docstring=True,
+    extras=tool_extras(
+        ToolEffect.WRITE,
+        confirmation=ToolConfirmation.ALWAYS,
+    ),
+)
 async def mail_send(
     runtime: ToolRuntime, to: str, subject: str, body: str
 ) -> dict[str, Any]:

@@ -15,6 +15,7 @@ def collect_run_server_graphs(*, agent, base_graph_target: str) -> dict[str, str
 
     graphs: dict[str, str] = {
         "giga_agent": base_graph_target,
+        "giga_agent_subtask": base_graph_target,
         "giga_agent_channel": base_graph_target,
     }
 

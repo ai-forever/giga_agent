@@ -309,17 +309,36 @@ async def update_channel_contact_by_chat_id(
         channel_repo=channel_repo,
     )
     if data.is_approved is None and data.is_default_task_recipient is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Nothing to update",
+        # Keep this check close to the API boundary: a save toggle is only
+        # meaningful for a confirmed Telegram group contact.
+        if data.save_messages is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Nothing to update",
+            )
+    if data.save_messages is not None:
+        existing = await channel_repo.get_contact(
+            bot.id, external_chat_id, external_user_id
         )
-    updated = await channel_repo.set_contact_fields_by_external_id(
+        if (
+            existing is None
+            or not existing.is_approved
+            or existing.chat_type not in {"group", "supergroup"}
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Message history can only be enabled for approved groups",
+            )
+    updates = dict(
         bot_id=bot.id,
         external_chat_id=external_chat_id,
         external_user_id=external_user_id,
         is_approved=data.is_approved,
         is_default_task_recipient=data.is_default_task_recipient,
     )
+    if data.save_messages is not None:
+        updates["save_messages"] = data.save_messages
+    updated = await channel_repo.set_contact_fields_by_external_id(**updates)
     if updated is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

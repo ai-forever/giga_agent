@@ -3,7 +3,19 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid, delete, select
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    delete,
+    select,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -108,11 +120,57 @@ class ChannelContact(Base):
     is_default_task_recipient: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="0", nullable=False
     )
+    # Only group and supergroup contacts can enable this setting.
+    save_messages: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
+    save_messages_enabled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), server_default=func.now()
+    )
+
+
+class ChatMessage(Base):
+    """A delivered Telegram message retained for a group contact."""
+
+    __tablename__ = "core_chat_messages"
+    __table_args__ = (
+        UniqueConstraint(
+            "contact_id", "message_id", name="uq_core_chat_messages_contact_message"
+        ),
+        Index(
+            "ix_core_chat_messages_contact_created_message",
+            "contact_id",
+            "created_at",
+            "message_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "core_channel_contacts.id",
+            name="fk_core_chat_messages_contact_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # ``metadata`` is reserved by SQLAlchemy's declarative API.
+    message_metadata: Mapped[dict] = mapped_column(
+        "metadata", JSON_VARIANT(), default=dict
+    )
+    search_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
     )
 
 
@@ -156,6 +214,7 @@ class ChannelContactApprovalUpdate(BaseModel):
 
     is_approved: bool | None = None
     is_default_task_recipient: bool | None = None
+    save_messages: bool | None = None
 
 
 class ChannelThreadResponse(BaseModel):
@@ -182,6 +241,8 @@ class ChannelContactResponse(BaseModel):
     last_name: str | None = None
     is_approved: bool
     is_default_task_recipient: bool = False
+    save_messages: bool = False
+    save_messages_enabled_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -460,6 +521,7 @@ class ChannelBotRepository:
         external_user_id: str | None = None,
         is_approved: bool | None = None,
         is_default_task_recipient: bool | None = None,
+        save_messages: bool | None = None,
     ) -> ChannelContact | None:
         contact = await self.get_contact(
             bot_id=bot_id,
@@ -472,6 +534,11 @@ class ChannelBotRepository:
             contact.is_approved = is_approved
         if is_default_task_recipient is not None:
             contact.is_default_task_recipient = is_default_task_recipient
+        if save_messages is not None:
+            contact.save_messages = save_messages
+            contact.save_messages_enabled_at = (
+                datetime.now(timezone.utc) if save_messages else None
+            )
         await self.db.commit()
         await self.db.refresh(contact)
         return contact

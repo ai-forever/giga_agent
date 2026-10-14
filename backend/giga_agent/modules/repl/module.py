@@ -32,11 +32,18 @@ from giga_agent.modules.repl.prompts import (
     JUPYTER_REPL_INSTRUCTIONS,
     SECRETS_PROMPTS,
     SHELL_INSTRUCTIONS,
+    WORKER_REPL_INSTRUCTIONS,
 )
 from giga_agent.core.logging import get_logger
 from pydantic import BaseModel, Field
 
 logger = get_logger(__name__)
+
+
+def _is_python_tool_disabled(config: RunnableConfig | None) -> bool:
+    if not isinstance(config, dict):
+        return False
+    return bool(((config.get("configurable") or {}).get("no_python_tool")))
 
 
 def _is_valid_python_identifier(name: str) -> bool:
@@ -48,7 +55,7 @@ class ToolUse(BaseModel):
     parameters: str = Field(description="JSON-строка с параметрами инструмента")
 
 
-def get_user_secrets_prompt(user: UserShort):
+def get_user_secrets_prompt(user: UserShort, *, include_python: bool = True):
     user_secrets = (user.settings or {}).get("contextSecrets")
     if not user_secrets:
         return ""
@@ -64,7 +71,26 @@ def get_user_secrets_prompt(user: UserShort):
         if description:
             secret_part += f"\nОписание: {description}"
         secret_parts.append(secret_part)
-    return SECRETS_PROMPTS.format("\n".join(secret_parts))
+    if include_python:
+        access_prompt = (
+            "1. **Доступ в коде**: Все секреты доступны в инструменте `python` "
+            "через `os.environ`, а в инструменте `shell` через env-переменные процесса."
+        )
+        syntax_prompt = """2. **Синтаксис использования**:
+   ```python
+   import os
+
+   api_key = os.environ["API_KEY"]
+   token = os.environ.get("GITHUB_TOKEN", "")
+   ```"""
+    else:
+        access_prompt = (
+            "1. **Доступ в shell**: Все секреты доступны в инструменте `shell` "
+            "через env-переменные процесса."
+        )
+        syntax_prompt = """2. **Синтаксис использования**:
+   Передавай env-переменные shell-командам через `$API_KEY` или `${API_KEY}`."""
+    return SECRETS_PROMPTS.format("\n".join(secret_parts), access_prompt, syntax_prompt)
 
 
 def generate_repl_tools_description(repl_tools: List[Coroutine], tools: List[BaseTool]):
@@ -162,12 +188,16 @@ class ReplModule(BaseModule):
     async def _get_tools(
         self, user: UserShort, agent: BaseAgent, *, config=None, **kwargs
     ) -> List[BaseTool]:
-        if python.extras is None:
-            python.extras = {"repl_tools": self._repl_tools}
-        else:
-            python.extras["repl_tools"] = self._repl_tools
+        python_disabled = _is_python_tool_disabled(config)
+        if not python_disabled:
+            if python.extras is None:
+                python.extras = {"repl_tools": self._repl_tools}
+            else:
+                python.extras["repl_tools"] = self._repl_tools
 
-        tools: List[BaseTool] = [python, shell, await_shell]
+        tools: List[BaseTool] = [shell, await_shell]
+        if not python_disabled:
+            tools.insert(0, python)
 
         try:
             from giga_agent.core.agent.runtime_resolver import RuntimeResolver
@@ -198,11 +228,19 @@ class ReplModule(BaseModule):
             config=config,
             **kwargs,
         )
-        repl_instructions = (
-            CLI_JUPYTER_REPL_INSTRUCTIONS
-            if get_settings().giga_agent_runtime == "cli"
-            else JUPYTER_REPL_INSTRUCTIONS
-        )
+        python_disabled = _is_python_tool_disabled(config)
+        repl_instructions = ""
+        if not python_disabled:
+            settings = get_settings()
+            if (
+                settings.giga_agent_runtime == "cli"
+                and settings.giga_agent_cli_python_executor == "worker"
+            ):
+                repl_instructions = WORKER_REPL_INSTRUCTIONS
+            elif settings.giga_agent_runtime == "cli":
+                repl_instructions = CLI_JUPYTER_REPL_INSTRUCTIONS
+            else:
+                repl_instructions = JUPYTER_REPL_INSTRUCTIONS
         # Описываем в repl-контексте только тулы доступных пользователю модулей —
         # выключенные через disabled_modules не должны просачиваться в промпт.
         from giga_agent.core.agent.base import _disabled_module_ids
@@ -220,6 +258,10 @@ class ReplModule(BaseModule):
             repl_instructions
             + SHELL_INSTRUCTIONS
             + sandbox_prompt
-            + get_user_secrets_prompt(user)
-            + generate_repl_tools_description(self._repl_tools, all_tools)
+            + get_user_secrets_prompt(user, include_python=not python_disabled)
+            + (
+                generate_repl_tools_description(self._repl_tools, all_tools)
+                if not python_disabled
+                else ""
+            )
         )

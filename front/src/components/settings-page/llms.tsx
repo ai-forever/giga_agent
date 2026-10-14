@@ -180,6 +180,7 @@ export const LLMSettings: React.FC = () => {
       const nextType = data.llm_type;
       const nextConnectorId = data.connector_id;
       const nextModelId = data.model_id;
+      const nextContextWindow = data.context_window ?? null;
       const nextIsActive = data.is_active;
       const nextName = data.llm_name ?? null;
       const nextSettings = data.llm_settings;
@@ -187,6 +188,7 @@ export const LLMSettings: React.FC = () => {
         type: nextType,
         connector_id: nextConnectorId,
         model_id: nextModelId,
+        context_window: nextContextWindow,
         settings: nextSettings,
         is_active: nextIsActive,
         check_connection: data.check_connection,
@@ -198,6 +200,7 @@ export const LLMSettings: React.FC = () => {
           editingLLM.type !== nextType ||
           editingLLM.connector_id !== nextConnectorId ||
           editingLLM.model_id !== nextModelId ||
+          editingLLM.context_window !== nextContextWindow ||
           (editingLLM.name || null) !== nextName ||
           editingLLM.is_active !== nextIsActive ||
           stableStringify(editingLLM.settings || {}) !==

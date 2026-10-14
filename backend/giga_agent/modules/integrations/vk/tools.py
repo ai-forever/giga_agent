@@ -8,6 +8,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from pydantic import Field
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.models.users import UserRepository, UserShort
 from giga_agent.utils.langgraph_sdk import get_user_id_from_config
@@ -73,7 +74,7 @@ async def _get_vk_token(runtime: ToolRuntime) -> str:
     return legacy
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def vk_get_posts(
     runtime: ToolRuntime,
     domain: str = Field(description="Короткий адрес пользователя или сообщества."),
@@ -106,7 +107,7 @@ async def vk_get_posts(
         return posts
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def vk_get_comments(
     runtime: ToolRuntime,
     owner_id: str = Field(
@@ -166,7 +167,7 @@ async def get_page_id(domain: str, runtime: ToolRuntime) -> int:
         return -page_info["object_id"]
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def vk_get_last_comments(
     domain: str,
     runtime: ToolRuntime,

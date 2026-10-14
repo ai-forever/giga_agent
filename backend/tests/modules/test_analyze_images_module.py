@@ -18,14 +18,14 @@ class AnalyzeImagesModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools, [])
         self.assertIsNone(instructions)
 
-    async def test_module_disabled_when_runtime_cannot_analyze_image(self):
+    async def test_module_disabled_when_runtime_cannot_analyze_images(self):
         module = AnalyzeImagesModule()
         user = types.SimpleNamespace(llm_id=uuid.uuid4())
         config = {"configurable": {}}
         resolver = types.SimpleNamespace(
             has_llm=True,
             get_llm_runtime=AsyncMock(
-                return_value=types.SimpleNamespace(can_analyze_image=lambda: False)
+                return_value=types.SimpleNamespace(can_analyze_images=lambda: False)
             ),
             has_fast_llm=False,
             get_fast_llm_runtime=AsyncMock(),
@@ -43,14 +43,14 @@ class AnalyzeImagesModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tools, [])
         self.assertIsNone(instructions)
 
-    async def test_module_enabled_when_runtime_can_analyze_image(self):
+    async def test_module_enabled_when_runtime_can_analyze_images(self):
         module = AnalyzeImagesModule()
         user = types.SimpleNamespace(llm_id=uuid.uuid4())
         config = {"configurable": {}}
         resolver = types.SimpleNamespace(
             has_llm=True,
             get_llm_runtime=AsyncMock(
-                return_value=types.SimpleNamespace(can_analyze_image=lambda: True)
+                return_value=types.SimpleNamespace(can_analyze_images=lambda: True)
             ),
             has_fast_llm=False,
             get_fast_llm_runtime=AsyncMock(),

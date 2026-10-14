@@ -67,16 +67,7 @@ class SubAgentLegacyModule(BaseModule):
                 "name": "SUBAGENTS_LLM",
                 "description": "LLM для работы внутри субагентов",
                 "type": "llm_id",
-            },
-            {
-                "name": "RESEARCHER_LLM",
-                "description": (
-                    "LLM для researcher_agent. "
-                    "Для корректной работы researcher_agent требуется модель "
-                    "с поддержкой 7+ инструментов."
-                ),
-                "type": "llm_id",
-            },
+            }
         ]
 
     async def _get_tools(
@@ -97,14 +88,6 @@ class SubAgentLegacyModule(BaseModule):
                     "lean_canvas",
                 )
             )
-
-        # if caps.has_search and not is_cli:
-        #     tools.append(
-        #         _legacy_tool(
-        #             "giga_agent.modules.subagents_legacy.agents.researcher.graph",
-        #             "researcher_agent",
-        #         )
-        #     )
 
         if caps.has_twogis_token and not is_cli:
             tools.append(
@@ -171,15 +154,6 @@ class SubAgentLegacyModule(BaseModule):
                 "- **lean_canvas** — Создает lean canvas. "
                 "Полезен при проработке идей, стартапов."
             )
-
-        #         if caps.has_search and not is_cli:
-        #             instructions.append(
-        #                 """- **researcher_agent** — Агент для проведения исследования. Используй это, если пользователю нужно написать исследовательский отчет на какую-либо тему. Агент сам сделает поиск и исследует тему, тебе нужно лишь передать ему задачу.
-        # Когда пользователь задает какой-то вопрос на поиск, уточни у него, хочет ли он проводить глубокое исследование или простой поиск.
-        # В зависимости от ответа пользователя, выбирай инструмент:
-        # - search - для простых поисковых запросов
-        # - researcher_agent - если пользователь захотел глубокое исследование."""
-        #             )
 
         if caps.has_llm and caps.has_salute_speech and not is_cli:
             instructions.append(

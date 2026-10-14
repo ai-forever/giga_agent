@@ -5,13 +5,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 USER root
 
-# scikit-learn wheels require libgomp at runtime.
 # ffmpeg is required by pydub to export podcast audio to mp3.
 # kaleido requires a system Chrome/Chromium binary for image export.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     chromium \
     ffmpeg \
-    libgomp1 \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 ENV BROWSER_PATH=/usr/bin/chromium

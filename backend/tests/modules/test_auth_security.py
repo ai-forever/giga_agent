@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from giga_agent.conf import reset_settings_cache
 from giga_agent.modules.auth import security
+from giga_agent.modules.auth.langgraph_auth import LIMITED_GRAPH_IDS
 
 
 class AuthSecuritySettingsTests(unittest.TestCase):
@@ -33,3 +34,6 @@ class AuthSecuritySettingsTests(unittest.TestCase):
             token = security.create_access_token({"user_id": str(user_id)})
             decoded_user_id = security.get_user_id_from_token(token)
             self.assertEqual(decoded_user_id, user_id)
+
+    def test_subagent_graph_is_not_in_active_thread_limit(self):
+        self.assertNotIn("giga_agent_subtask", LIMITED_GRAPH_IDS)

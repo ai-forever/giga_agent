@@ -1,8 +1,10 @@
 import asyncio
+import json
 import os
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import FastAPI
@@ -76,6 +78,7 @@ class CLISubgraphsTests(unittest.TestCase):
             captured["graphs"],
             {
                 "giga_agent": "giga_agent.agents.run:graph",
+                "giga_agent_subtask": "giga_agent.agents.run:graph",
                 "giga_agent_channel": "giga_agent.agents.run:graph",
                 "landing": "giga_agent.modules.subagents_legacy.agents.landing_agent.graph:graph",
             },
@@ -87,6 +90,15 @@ class CLISubgraphsTests(unittest.TestCase):
             },
         )
         self.assertEqual(captured["kwargs"]["timeout_graceful_shutdown"], 3)
+
+    def test_static_langgraph_config_registers_subtask_graph(self):
+        config_path = Path(__file__).parents[1] / "langgraph.json"
+        config = json.loads(config_path.read_text())
+
+        self.assertEqual(
+            config["graphs"]["giga_agent_subtask"],
+            "giga_agent.agents.run:graph",
+        )
 
     def test_dev_uses_default_graph_and_app_path(self):
         graph = self._make_agent_graph(modules=[])

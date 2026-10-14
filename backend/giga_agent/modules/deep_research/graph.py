@@ -8,6 +8,7 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 from langgraph.graph.ui import push_ui_message
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.models.file import FileResponse
 from giga_agent.modules.deep_research.config import (
     ConfigSchema,
@@ -61,7 +62,7 @@ workflow.add_edge("finalize", END)
 graph = workflow.compile()
 
 
-@tool(parse_docstring=True)
+@tool(parse_docstring=True, extras=tool_extras(ToolEffect.READ))
 async def run_deep_research(
     research_topic: str,
     max_iterations: int | None = None,

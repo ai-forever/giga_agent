@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging as stdlib_logging
 import sys
+from typing import TextIO
 
 import structlog
 from giga_agent.conf import get_settings
@@ -54,7 +55,11 @@ def _resolve_log_format() -> str:
     return "pretty"
 
 
-def setup_cli_logging(level: str | int = "INFO") -> None:
+def setup_cli_logging(
+    level: str | int = "INFO",
+    *,
+    stream: TextIO | None = None,
+) -> None:
     """
     CLI-oriented logging config:
     - structlog everywhere (our code)
@@ -70,9 +75,13 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
     desired_format = _resolve_log_format()
 
     # Idempotent: if already configured with our handler, just update levels.
+    output_stream = stream or sys.stdout
     for h in root.handlers:
         if getattr(h, "_giga_agent_cli_handler", False):
-            if getattr(h, "_giga_agent_cli_format", None) == desired_format:
+            if (
+                getattr(h, "_giga_agent_cli_format", None) == desired_format
+                and getattr(h, "stream", None) is output_stream
+            ):
                 _ensure_cli_filters(h)
                 root.setLevel(stdlib_logging.WARNING)
                 stdlib_logging.getLogger("giga_agent").setLevel(str(level).upper())
@@ -80,7 +89,7 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
             break
 
     if desired_format == "json":
-        handler = stdlib_logging.StreamHandler(sys.stdout)
+        handler = stdlib_logging.StreamHandler(output_stream)
         handler._giga_agent_cli_handler = True  # type: ignore[attr-defined]
         handler._giga_agent_cli_format = "json"  # type: ignore[attr-defined]
         _ensure_cli_filters(handler)
@@ -99,7 +108,7 @@ def setup_cli_logging(level: str | int = "INFO") -> None:
             renderer,
         ]
     else:
-        handler = stdlib_logging.StreamHandler(sys.stdout)
+        handler = stdlib_logging.StreamHandler(output_stream)
         handler._giga_agent_cli_handler = True  # type: ignore[attr-defined]
         handler._giga_agent_cli_format = "pretty"  # type: ignore[attr-defined]
         _ensure_cli_filters(handler)

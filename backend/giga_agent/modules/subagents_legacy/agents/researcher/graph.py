@@ -5,6 +5,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import tool
 
+from giga_agent.core.agent.tool_policy import ToolEffect, tool_extras
 from giga_agent.core.db import get_session_factory
 from giga_agent.llm.manager import LLMManager
 from giga_agent.modules.subagents_legacy.runtime import (
@@ -168,7 +169,7 @@ def _extract_final_report(result_state: dict) -> str:
     return ""
 
 
-@tool
+@tool(extras=tool_extras(ToolEffect.READ))
 async def researcher_agent(question: str, runtime: ToolRuntime):
     """Проводит исследование и создает на его основе отчёт по запросу пользователя"""
     factory = await get_session_factory()
@@ -190,7 +191,7 @@ async def researcher_agent(question: str, runtime: ToolRuntime):
             config=runtime.config,
         )
 
-    @tool
+    @tool(extras=tool_extras(ToolEffect.READ))
     async def internet_search(
         query: str,
     ):

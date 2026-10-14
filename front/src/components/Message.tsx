@@ -93,6 +93,8 @@ interface MessageProps {
   // рендерятся отдельным блоком ПОД reasoning/content этого AI-сообщения
   // (см. MessageList).
   answeredQuestions?: QuestionsCardItem[];
+  // Вложенный child-chat только показывает interrupt-состояние без действий.
+  readOnly?: boolean;
 }
 
 // ≈ 10 строк text-xs (12px) при leading-snug (line-height 1.375): 12 * 1.375 * 10 ≈ 165
@@ -233,6 +235,7 @@ const Message: React.FC<MessageProps> = ({
   hideContent = false,
   leadingResponseWidgets,
   answeredQuestions,
+  readOnly = false,
 }) => {
   // 2) хук для постепенной «печати» чанков
   const displayedRef = useRef<string>(""); // накапливаемый текст
@@ -334,6 +337,13 @@ const Message: React.FC<MessageProps> = ({
   const { normalizedContent, inlineReasoning } = useMemo(() => {
     let md = displayed ?? "";
 
+    if (message.type === "human") {
+      return {
+        normalizedContent: md,
+        inlineReasoning: "",
+      };
+    }
+
     // 1) перед каждым ``` вставляем гарантированно пустую строку
     md = md.replace(/(^|\n)(```[^\n]*)/g, "$1\n$2");
 
@@ -363,7 +373,7 @@ const Message: React.FC<MessageProps> = ({
       normalizedContent: md.trim(),
       inlineReasoning: reasoningParts.join("\n\n").trim(),
     };
-  }, [displayed]);
+  }, [displayed, message.type]);
 
   useEffect(() => {
     onWrite();
@@ -418,6 +428,7 @@ const Message: React.FC<MessageProps> = ({
 
   const interruptType = thread?.interrupt?.value?.type;
   const isDestructiveConfirm = interruptType === "confirm_destructive";
+  const isSubagentApproval = interruptType === "subagent_approval";
   // Лейбл подтверждения по имени тула: деструктив — не только удаление
   // (mail_send — отправка). Берём из interrupt.value.tools.
   const destructiveLabel = (() => {
@@ -443,7 +454,9 @@ const Message: React.FC<MessageProps> = ({
     !hideToolCalls &&
     message.type === "ai" &&
     !!thread?.interrupt?.value &&
-    ["approve", "tool_call"].includes(thread.interrupt.value.type) &&
+    ["approve", "tool_call", "subagent_approval"].includes(
+      thread.interrupt.value.type,
+    ) &&
     // @ts-ignore
     !!message.tool_calls?.length &&
     thread?.messages.at(-1)?.id === message.id;
@@ -521,6 +534,9 @@ const Message: React.FC<MessageProps> = ({
     const id = (toolCall as any).id as string | undefined;
     return (
       toolCall.name !== "ask_questions" &&
+      toolCall.name !== "write_todo" &&
+      toolCall.name !== "present_plan" &&
+      toolCall.name !== "subtask" &&
       !isResponseWidget(id ? resultsById?.[id] : undefined)
     );
   });
@@ -596,7 +612,7 @@ const Message: React.FC<MessageProps> = ({
                 message.type === "human"
                   ? "max-w-[80%] w-auto p-4 pt-4 pb-4 rounded-[25px] bg-secondary text-foreground overflow-x-auto"
                   : "max-w-full w-full p-0 bg-transparent",
-                "markdown",
+                message.type === "human" ? "" : "markdown",
               ].join(" ")}
             >
               {hasToolContainer ? (
@@ -627,9 +643,15 @@ const Message: React.FC<MessageProps> = ({
                   {message.type === "ai" && combinedReasoning && (
                     <ReasoningBlock text={combinedReasoning} />
                   )}
-                  <TextMarkdown isStreaming={streamingThisMessage}>
-                    {normalizedContent}
-                  </TextMarkdown>
+                  {message.type === "human" ? (
+                    <div className="whitespace-pre-wrap break-words">
+                      {normalizedContent}
+                    </div>
+                  ) : (
+                    <TextMarkdown isStreaming={streamingThisMessage}>
+                      {normalizedContent}
+                    </TextMarkdown>
+                  )}
                 </>
               )}
               {message.type === "ai" &&
@@ -677,7 +699,7 @@ const Message: React.FC<MessageProps> = ({
               }
             </div>
           </div>
-          {isCurrentInterruptMessage && (
+          {isCurrentInterruptMessage && !readOnly && (
             <motion.div
               layout
               className="mt-1 mb-2 flex w-full justify-end pr-2 items-center gap-2"
@@ -685,6 +707,20 @@ const Message: React.FC<MessageProps> = ({
               {isDestructiveConfirm && (
                 <span className="mr-auto text-xs font-medium text-red-600">
                   ⚠️ Подтвердите {destructiveLabel}
+                </span>
+              )}
+              {isSubagentApproval && (
+                <span className="mr-auto max-w-[70%] text-xs font-medium text-amber-600">
+                  {`Суб-агент ${thread?.interrupt?.value?.agent_name || thread?.interrupt?.value?.agent_id} запрашивает разрешение: ${
+                    (
+                      (thread?.interrupt?.value?.tools ?? []) as {
+                        name?: string;
+                      }[]
+                    )
+                      .map((tool) => tool.name)
+                      .filter(Boolean)
+                      .join(", ") || "изменяющее действие"
+                  }`}
                 </span>
               )}
               <motion.button

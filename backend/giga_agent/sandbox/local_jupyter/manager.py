@@ -23,6 +23,7 @@ from giga_agent.core.process_supervisor import (
     get_process_supervisor,
 )
 from giga_agent.sandbox.local_jupyter.dependencies import ensure_jupyter_dependencies
+from giga_agent.sandbox.local_python_environment import LocalPythonEnvironment
 from giga_agent.sandbox.secure_exec import (
     SandboxAccessPolicy,
     SecureProcessConfig,
@@ -232,19 +233,16 @@ class LocalJupyterServerManager:
         data_dir = self._data_dir()
         runtime_dir = self._runtime_dir()
         shims_dir = self._shims_dir()
+        python_environment = self.python_environment()
         working_dir.mkdir(parents=True, exist_ok=True)
         config_dir.mkdir(parents=True, exist_ok=True)
         data_dir.mkdir(parents=True, exist_ok=True)
         runtime_dir.mkdir(parents=True, exist_ok=True)
         shims_dir.mkdir(parents=True, exist_ok=True)
-        self._write_command_shims(
-            shims_dir=shims_dir,
-            python_executable=python_executable,
-        )
+        python_environment.ensure_command_shims()
         self._write_kernel_spec(
             data_dir=data_dir,
-            shims_dir=shims_dir,
-            python_executable=python_executable,
+            python_environment=python_environment,
         )
 
         port = self._reserve_port()
@@ -262,12 +260,10 @@ class LocalJupyterServerManager:
             f"--IdentityProvider.token={token}",
             f"--ServerApp.root_dir={working_dir}",
         ]
-        env = self._jupyter_env(
+        env = python_environment.jupyter_env(
             config_dir=config_dir,
             data_dir=data_dir,
             runtime_dir=runtime_dir,
-            shims_dir=shims_dir,
-            python_executable=python_executable,
         )
 
         log_path = self._log_path()
@@ -458,36 +454,13 @@ class LocalJupyterServerManager:
         *,
         extra_envs: dict[str, str] | None = None,
     ) -> dict[str, str]:
-        """Environment dict for local shell sessions with correct pip/python."""
-        python_executable = self._python_executable()
-        shims_dir = self._shims_dir()
-        self._ensure_command_shims(
-            shims_dir=shims_dir,
-            python_executable=python_executable,
-        )
-        env = self._runtime_command_env(
-            shims_dir=shims_dir,
-            python_executable=python_executable,
-        )
-        if extra_envs:
-            env.update({str(k): str(v) for k, v in extra_envs.items()})
-        return env
+        """Environment dict for Jupyter-backed local shell sessions."""
+        return self.python_environment().shell_env(extra_envs=extra_envs)
 
-    def _ensure_command_shims(
-        self,
-        *,
-        shims_dir: Path,
-        python_executable: str,
-    ) -> None:
-        if os.name == "nt":
-            marker = shims_dir / "pip.cmd"
-        else:
-            marker = shims_dir / "pip"
-        if marker.is_file():
-            return
-        self._write_command_shims(
-            shims_dir=shims_dir,
-            python_executable=python_executable,
+    def python_environment(self) -> LocalPythonEnvironment:
+        return LocalPythonEnvironment(
+            python_executable=self._python_executable(),
+            shims_dir=self._shims_dir(),
         )
 
     def _working_dir(self) -> Path:
@@ -519,107 +492,17 @@ class LocalJupyterServerManager:
     def _kernel_spec_dir(self, *, data_dir: Path) -> Path:
         return (data_dir / "kernels" / LOCAL_JUPYTER_KERNEL_NAME).resolve()
 
-    def _python_bin_dir(self, *, python_executable: str) -> Path:
-        return Path(python_executable).expanduser().resolve().parent
-
-    def _virtual_env_dir(self, *, python_executable: str) -> Path | None:
-        python_bin_dir = self._python_bin_dir(python_executable=python_executable)
-        if python_bin_dir.name.lower() in {"bin", "scripts"}:
-            return python_bin_dir.parent.resolve()
-        return None
-
-    def _runtime_command_env(
-        self,
-        *,
-        shims_dir: Path,
-        python_executable: str,
-    ) -> dict[str, str]:
-        env = os.environ.copy()
-        python_bin_dir = self._python_bin_dir(python_executable=python_executable)
-        path_entries = [str(shims_dir), str(python_bin_dir)]
-        existing_path = env.get("PATH")
-        if existing_path:
-            path_entries.append(existing_path)
-        env["PATH"] = os.pathsep.join(path_entries)
-        venv_dir = self._virtual_env_dir(python_executable=python_executable)
-        if venv_dir is not None:
-            env["VIRTUAL_ENV"] = str(venv_dir)
-        env["PYTHONNOUSERSITE"] = "1"
-        env["PIP_REQUIRE_VIRTUALENV"] = "1"
-        return env
-
-    def _jupyter_env(
-        self,
-        *,
-        config_dir: Path,
-        data_dir: Path,
-        runtime_dir: Path,
-        shims_dir: Path,
-        python_executable: str,
-    ) -> dict[str, str]:
-        env = self._runtime_command_env(
-            shims_dir=shims_dir,
-            python_executable=python_executable,
-        )
-        # Run Jupyter with isolated config/runtime paths so global user or system
-        # extensions do not affect local sandbox startup.
-        env["JUPYTER_NO_CONFIG"] = "1"
-        env["JUPYTER_CONFIG_DIR"] = str(config_dir)
-        env["JUPYTER_DATA_DIR"] = str(data_dir)
-        env["JUPYTER_RUNTIME_DIR"] = str(runtime_dir)
-        return env
-
-    def _kernel_env(
-        self,
-        *,
-        shims_dir: Path,
-        python_executable: str,
-    ) -> dict[str, str]:
-        return self._runtime_command_env(
-            shims_dir=shims_dir,
-            python_executable=python_executable,
-        )
-
-    def _write_command_shims(
-        self,
-        *,
-        shims_dir: Path,
-        python_executable: str,
-    ) -> None:
-        shims_dir.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            shim_targets = {
-                "python.cmd": f'@"{python_executable}" %*\r\n',
-                "python3.cmd": f'@"{python_executable}" %*\r\n',
-                "pip.cmd": f'@"{python_executable}" -m pip %*\r\n',
-                "pip3.cmd": f'@"{python_executable}" -m pip %*\r\n',
-            }
-        else:
-            shim_targets = {
-                "python": f'#!/bin/sh\nexec "{python_executable}" "$@"\n',
-                "python3": f'#!/bin/sh\nexec "{python_executable}" "$@"\n',
-                "pip": f'#!/bin/sh\nexec "{python_executable}" -m pip "$@"\n',
-                "pip3": f'#!/bin/sh\nexec "{python_executable}" -m pip "$@"\n',
-            }
-
-        for name, content in shim_targets.items():
-            path = shims_dir / name
-            path.write_text(content, encoding="utf-8")
-            if os.name != "nt":
-                path.chmod(0o755)
-
     def _write_kernel_spec(
         self,
         *,
         data_dir: Path,
-        shims_dir: Path,
-        python_executable: str,
+        python_environment: LocalPythonEnvironment,
     ) -> None:
         kernel_spec_dir = self._kernel_spec_dir(data_dir=data_dir)
         kernel_spec_dir.mkdir(parents=True, exist_ok=True)
         kernel_spec = {
             "argv": [
-                python_executable,
+                python_environment.python_executable,
                 "-m",
                 "ipykernel_launcher",
                 "-f",
@@ -627,10 +510,7 @@ class LocalJupyterServerManager:
             ],
             "display_name": LOCAL_JUPYTER_KERNEL_DISPLAY_NAME,
             "language": "python",
-            "env": self._kernel_env(
-                shims_dir=shims_dir,
-                python_executable=python_executable,
-            ),
+            "env": python_environment.shell_env(),
             "metadata": {
                 "debugger": True,
             },

@@ -48,6 +48,7 @@ class LLMManagerTests(unittest.IsolatedAsyncioTestCase):
             type="openai",
             model_id="gpt-4o-mini",
             settings={"temperature": 0.2},
+            context_window=128_00
         )
         connector = types.SimpleNamespace(
             id=connector_id,

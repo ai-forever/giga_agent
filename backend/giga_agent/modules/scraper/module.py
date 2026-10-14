@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, List, Optional
 
 from langchain_core.tools import BaseTool
@@ -23,8 +24,11 @@ class ScraperModule(BaseModule):
 
     @staticmethod
     def _is_enabled(user: UserShort | None, *, config=None) -> bool:
-        if get_settings().giga_agent_scraper_disabled:
+        settings = get_settings()
+        if settings.giga_agent_scraper_disabled:
             return False
+        if settings.giga_agent_scraper == "tavily":
+            return bool((os.getenv("TAVILY_API_KEY") or "").strip())
         if config is not None:
             from giga_agent.core.agent.runtime_resolver import RuntimeResolver
 

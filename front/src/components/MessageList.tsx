@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import WellcomeMessage from "./wellcome-message.tsx";
 import ThinkingIndicator from "./ThinkingIndicator.tsx";
 import type { UseStream } from "@langchain/langgraph-sdk/react";
-import { GraphState } from "../interfaces.ts";
+import type { GraphState, PlanningSnapshot, PlanTodo } from "../interfaces.ts";
 import ChatError from "./ChatError.tsx";
 import { FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED } from "@/config";
 import { useBranches } from "@/hooks/useBranches";
@@ -22,6 +22,12 @@ import { isResponseWidget } from "./widgets/registry";
 import ResponseWidget, {
   type ResponseWidgetItem,
 } from "./widgets/ResponseWidget";
+import LivePlanApprovalCard from "./planning/LivePlanApprovalCard";
+import TodoListWidget from "./planning/TodoListWidget";
+import ContextSummaryCard, {
+  type ContextCompactionData,
+} from "./ContextSummaryCard";
+import type { SubagentActivity } from "./agents/SubagentActivityCard";
 
 const AnsweredQuestionsCard = React.lazy(
   () => import("./questions/AnsweredQuestionsCard.tsx"),
@@ -33,12 +39,17 @@ interface MessageListProps {
   threadId?: string;
   children?: React.ReactNode;
   notShowWelcomeMessage?: boolean;
+  compact?: boolean;
+  readOnly?: boolean;
   maybeAutoScroll: () => void;
   onSelectSuggestion?: (suggestion: PromptSuggestionScenario) => void;
 }
 
 const THINK_TOOL_NAME = "think";
 const ASK_QUESTIONS_TOOL_NAME = "ask_questions";
+const PRESENT_PLAN_TOOL_NAME = "present_plan";
+const WRITE_TODO_TOOL_NAME = "write_todo";
+const SUBTASK_TOOL_NAME = "subtask";
 
 const hasVisibleToolCalls = (
   m: Message_,
@@ -57,6 +68,9 @@ const hasVisibleToolCalls = (
     (c) =>
       c.name !== THINK_TOOL_NAME &&
       c.name !== ASK_QUESTIONS_TOOL_NAME &&
+      c.name !== PRESENT_PLAN_TOOL_NAME &&
+      c.name !== WRITE_TODO_TOOL_NAME &&
+      c.name !== SUBTASK_TOOL_NAME &&
       !isResponseWidget(c.id ? resultsById[c.id] : undefined),
   );
 };
@@ -93,13 +107,91 @@ const hasContentOutsideThinking = (m: Message_): boolean =>
 const collectResponseWidgets = (
   aiMessages: Message_[],
   resultsById: Record<string, Message_>,
+  liveSubagentActivities?: Map<string, SubagentActivity>,
 ): ResponseWidgetItem[] => {
   const out: ResponseWidgetItem[] = [];
   for (const m of aiMessages) {
     for (const c of ((m as any).tool_calls ?? []) as Array<any>) {
-      const result = c.id ? resultsById[c.id] : undefined;
+      const liveActivity = c.id ? liveSubagentActivities?.get(c.id) : undefined;
+      const result = liveActivity
+        ? ({
+            type: "tool",
+            id: `subtask-live-${c.id}`,
+            tool_call_id: c.id,
+            content: "",
+            additional_kwargs: {
+              subagent_activity: {
+                ...liveActivity,
+                task: liveActivity.task ?? c.args?.task,
+              },
+            },
+          } as unknown as Message_)
+        : c.id
+          ? resultsById[c.id]
+          : undefined;
       if (isResponseWidget(result)) out.push({ toolCall: c, result });
     }
+  }
+  return out;
+};
+
+const collectUnlinkedSubtaskWidgets = (
+  messages: Message_[],
+  linkedToolCallIds: Set<string>,
+): ResponseWidgetItem[] => {
+  const out: ResponseWidgetItem[] = [];
+  for (const message of messages) {
+    if (message.type !== "tool") continue;
+    const activity = (message.additional_kwargs as any)?.subagent_activity as
+      | SubagentActivity
+      | undefined;
+    if (!activity) continue;
+    const toolCallId = (message as any).tool_call_id as string | undefined;
+    if (toolCallId && linkedToolCallIds.has(toolCallId)) continue;
+    out.push({
+      toolCall: {
+        id: toolCallId ?? message.id ?? `subtask-${out.length}`,
+        name: SUBTASK_TOOL_NAME,
+        args: { task: activity.task, agent_id: activity.agent_id },
+      } as any,
+      result: message,
+    });
+  }
+  return out;
+};
+
+// После resume у `present_plan` результат иногда приходит без доступного
+// AI-tool-call с тем же id. Карточка live-interrupt к этому моменту уже снята,
+// поэтому решение по плану нужно взять непосредственно из персистентного
+// ToolMessage. При штатном сопоставлении не добавляем его повторно.
+const collectUnlinkedPlanWidgets = (
+  messages: Message_[],
+  linkedToolCallIds: Set<string>,
+): ResponseWidgetItem[] => {
+  const out: ResponseWidgetItem[] = [];
+  for (const message of messages) {
+    if (message.type !== "tool") continue;
+    const planning = (message.additional_kwargs as any)?.planning as
+      | PlanningSnapshot
+      | undefined;
+    if (
+      planning?.type !== "approved_plan" &&
+      planning?.type !== "rejected_plan"
+    ) {
+      continue;
+    }
+
+    const toolCallId = (message as any).tool_call_id as string | undefined;
+    if (toolCallId && linkedToolCallIds.has(toolCallId)) continue;
+
+    out.push({
+      toolCall: {
+        id: toolCallId ?? message.id ?? `plan-decision-${out.length}`,
+        name: PRESENT_PLAN_TOOL_NAME,
+        args: {},
+      } as any,
+      result: message,
+    });
   }
   return out;
 };
@@ -109,6 +201,12 @@ const collectResponseWidgets = (
 export interface QuestionsCardItem {
   id: string;
   data: QuestionsResult;
+}
+
+interface TodoCallItem {
+  messageId?: string;
+  toolCallId?: string;
+  key: string;
 }
 
 const collectAnsweredQuestions = (
@@ -128,12 +226,23 @@ const collectAnsweredQuestions = (
 
 type RenderItem =
   | { kind: "single"; message: Message_; hideToolCalls?: boolean }
+  | {
+      kind: "context-summary";
+      message: Message_;
+      data: ContextCompactionData;
+    }
   | { kind: "run"; aiMessages: Message_[]; key: string }
   // Standalone block emitted when ask_questions / a response-widget tool is
   // called in parallel with a visible tool: the visible tool stays in the run,
   // the card/widget renders right after it as its own block (see items grouping).
   | { kind: "questions"; cards: QuestionsCardItem[]; key: string }
-  | { kind: "response"; items: ResponseWidgetItem[]; key: string };
+  | { kind: "response"; items: ResponseWidgetItem[]; key: string }
+  | {
+      kind: "todo";
+      toolCallId?: string;
+      key: string;
+      isLatest: boolean;
+    };
 
 const MessageList: React.FC<MessageListProps> = ({
   messages: messagesProp,
@@ -141,6 +250,8 @@ const MessageList: React.FC<MessageListProps> = ({
   threadId: routeThreadId,
   children,
   notShowWelcomeMessage,
+  compact = false,
+  readOnly = false,
   maybeAutoScroll,
   onSelectSuggestion,
 }) => {
@@ -150,6 +261,15 @@ const MessageList: React.FC<MessageListProps> = ({
   const messages = branches.isViewingNonHead
     ? branches.activeMessages
     : messagesProp;
+  const liveSubagentActivities = useMemo(() => {
+    const map = new Map<string, SubagentActivity>();
+    for (const item of (thread?.values?.ui ?? []) as any[]) {
+      if (item?.name === "subagent_activity" && item?.props?.tool_call_id) {
+        map.set(item.props.tool_call_id, item.props as SubagentActivity);
+      }
+    }
+    return map;
+  }, [thread?.values?.ui]);
   const resultsById = useMemo(() => {
     const map: Record<string, Message_> = {};
     for (const m of messages) {
@@ -171,10 +291,79 @@ const MessageList: React.FC<MessageListProps> = ({
     [messages],
   );
 
+  const writeTodoCalls = useMemo<TodoCallItem[]>(() => {
+    const calls: TodoCallItem[] = [];
+    for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+      const message = messages[messageIndex];
+      if (message.type !== "ai") continue;
+      for (const [callIndex, call] of (
+        ((message as any).tool_calls ?? []) as Array<{
+          id?: string;
+          name?: string;
+        }>
+      ).entries()) {
+        if (call.name !== WRITE_TODO_TOOL_NAME) continue;
+        calls.push({
+          messageId: message.id,
+          toolCallId: call.id,
+          key: `todo-${call.id ?? `${message.id ?? messageIndex}-${callIndex}`}`,
+        });
+      }
+    }
+    return calls;
+  }, [messages]);
+
+  const latestTodoSnapshot = useMemo<PlanTodo[] | undefined>(() => {
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const planning = (messages[index].additional_kwargs as any)?.planning as
+        | PlanningSnapshot
+        | undefined;
+      if (planning?.type === "todo_snapshot") return planning.todos;
+    }
+    return undefined;
+  }, [messages]);
+
+  const unlinkedPlanWidgets = useMemo(() => {
+    const linkedToolCallIds = new Set<string>();
+    for (const message of renderable) {
+      for (const toolCall of ((message as any).tool_calls ?? []) as Array<{
+        id?: string;
+      }>) {
+        const result = toolCall.id ? resultsById[toolCall.id] : undefined;
+        if (toolCall.id && isResponseWidget(result)) {
+          linkedToolCallIds.add(toolCall.id);
+        }
+      }
+    }
+    return [
+      ...collectUnlinkedPlanWidgets(messages, linkedToolCallIds),
+      ...collectUnlinkedSubtaskWidgets(messages, linkedToolCallIds),
+    ];
+  }, [messages, renderable, resultsById]);
+
   const items: RenderItem[] = useMemo(() => {
     const out: RenderItem[] = [];
     let buffer: Message_[] = [];
     let bufferHasVisibleToolCalls = false;
+    let bufferTodoCalls: TodoCallItem[] = [];
+    const todoCallsByMessageId = new Map<string, TodoCallItem[]>();
+    for (const call of writeTodoCalls) {
+      if (!call.messageId) continue;
+      const calls = todoCallsByMessageId.get(call.messageId) ?? [];
+      calls.push(call);
+      todoCallsByMessageId.set(call.messageId, calls);
+    }
+    const latestTodoKey = writeTodoCalls.at(-1)?.key;
+    const appendTodoCards = (calls: TodoCallItem[]) => {
+      for (const call of calls) {
+        out.push({
+          kind: "todo",
+          toolCallId: call.toolCallId,
+          key: call.key,
+          isLatest: call.key === latestTodoKey,
+        });
+      }
+    };
     const flush = () => {
       if (buffer.length) {
         if (bufferHasVisibleToolCalls) {
@@ -188,17 +377,41 @@ const MessageList: React.FC<MessageListProps> = ({
             out.push({ kind: "single", message });
           }
         }
+        appendTodoCards(bufferTodoCalls);
         buffer = [];
         bufferHasVisibleToolCalls = false;
+        bufferTodoCalls = [];
       }
     };
+    const getContextCompaction = (
+      message: Message_,
+    ): ContextCompactionData | undefined => {
+      const namespace = (message.additional_kwargs as any)?.giga_agent;
+      const payload = namespace?.context_compaction;
+      return payload?.version === 1 ? payload : undefined;
+    };
     for (const m of renderable) {
+      const contextCompaction = getContextCompaction(m);
+      if (contextCompaction) {
+        flush();
+        out.push({
+          kind: "context-summary",
+          message: m,
+          data: contextCompaction,
+        });
+        continue;
+      }
       if (hasToolCalls(m)) {
         // ask_questions и response-widget-результаты прерывают ран.
         const questionCards = collectAnsweredQuestions([m], resultsById);
-        const responseWidgets = collectResponseWidgets([m], resultsById);
+        const responseWidgets = collectResponseWidgets(
+          [m],
+          resultsById,
+          liveSubagentActivities,
+        );
         const hasCard = questionCards.length > 0 || responseWidgets.length > 0;
         const hasVisible = hasVisibleToolCalls(m, resultsById);
+        const todoCalls = m.id ? (todoCallsByMessageId.get(m.id) ?? []) : [];
 
         // Pure card step (no other visible tool): render the message standalone
         // with its card/widget under its reasoning/content (attached via the
@@ -206,6 +419,7 @@ const MessageList: React.FC<MessageListProps> = ({
         if (hasCard && !hasVisible) {
           flush();
           out.push({ kind: "single", message: m });
+          appendTodoCards(todoCalls);
           continue;
         }
 
@@ -219,6 +433,13 @@ const MessageList: React.FC<MessageListProps> = ({
         }
         buffer.push(m);
         bufferHasVisibleToolCalls = bufferHasVisibleToolCalls || hasVisible;
+        bufferTodoCalls.push(...todoCalls);
+
+        // `write_todo` — самостоятельный исторический снимок: не ждём конца
+        // всего AgentRun, иначе несколько обновлений окажутся одной пачкой внизу.
+        if (todoCalls.length) {
+          flush();
+        }
 
         // Parallel call: the visible tool stays in the run; close the run right
         // after this message and emit the card(s)/widget(s) as their own block —
@@ -247,8 +468,21 @@ const MessageList: React.FC<MessageListProps> = ({
       }
     }
     flush();
+    if (unlinkedPlanWidgets.length) {
+      out.push({
+        kind: "response",
+        items: unlinkedPlanWidgets,
+        key: "unlinked-plan-decisions",
+      });
+    }
     return out;
-  }, [renderable, resultsById]);
+  }, [
+    renderable,
+    resultsById,
+    unlinkedPlanWidgets,
+    writeTodoCalls,
+    liveSubagentActivities,
+  ]);
 
   // Response-widget-результаты рендерятся под контентом того AI-сообщения,
   // которое их породило (pure-card "single" — оно прерывает ран, см. группировку
@@ -260,11 +494,15 @@ const MessageList: React.FC<MessageListProps> = ({
       if (it.kind !== "single" || it.message.type !== "ai" || !it.message.id) {
         continue;
       }
-      const widgets = collectResponseWidgets([it.message], resultsById);
+      const widgets = collectResponseWidgets(
+        [it.message],
+        resultsById,
+        liveSubagentActivities,
+      );
       if (widgets.length) map.set(it.message.id, widgets);
     }
     return map;
-  }, [items, resultsById]);
+  }, [items, resultsById, liveSubagentActivities]);
 
   // Answered-questions cards render on the AI message that issued ask_questions —
   // that message is always a split-point "single" (it interrupts the run, see
@@ -311,6 +549,7 @@ const MessageList: React.FC<MessageListProps> = ({
     ((thread as any)?.threadId as string | undefined) ??
     undefined;
   const canShowFollowUps =
+    !compact &&
     FOLLOW_UP_PROMPT_SUGGESTIONS_ENABLED &&
     Boolean(activeThreadId) &&
     Boolean(lastAiId) &&
@@ -380,7 +619,7 @@ const MessageList: React.FC<MessageListProps> = ({
 
   return (
     <div
-      className="flex-1 p-5 max-[900px]:p-0"
+      className={`flex-1 ${compact ? "p-2" : "p-5 max-[900px]:p-0"}`}
       style={{ overflowAnchor: "none" }}
     >
       {children}
@@ -460,6 +699,44 @@ const MessageList: React.FC<MessageListProps> = ({
             </div>
           );
         }
+        if (item.kind === "context-summary") {
+          return (
+            <div
+              key={item.message.id ?? `context-summary-${idx}`}
+              className="px-[20px] mb-[20px]"
+            >
+              <ContextSummaryCard
+                summary={getMessageText(item.message)}
+                data={item.data}
+              />
+            </div>
+          );
+        }
+        if (item.kind === "todo") {
+          const result = item.toolCallId
+            ? resultsById[item.toolCallId]
+            : undefined;
+          const planning = (result?.additional_kwargs as any)?.planning as
+            | PlanningSnapshot
+            | undefined;
+          const isError = planning?.type === "todo_error";
+          const todos =
+            planning?.type === "todo_snapshot" ||
+            planning?.type === "todo_error"
+              ? planning.todos
+              : item.isLatest && !branches.isViewingNonHead
+                ? (thread?.values?.todos ?? latestTodoSnapshot)
+                : undefined;
+          return todos ? (
+            <div key={item.key} className="px-[20px] mb-[20px]">
+              <TodoListWidget
+                todos={todos}
+                active={item.isLatest && !!thread?.isLoading}
+                error={isError}
+              />
+            </div>
+          ) : null;
+        }
         return (
           <Message
             key={item.message.id ?? idx}
@@ -483,13 +760,22 @@ const MessageList: React.FC<MessageListProps> = ({
                 ? answeredQuestionsByAiId.get(item.message.id)
                 : undefined
             }
+            readOnly={readOnly}
           />
         );
       })}
-      <LiveQuestionsForm
-        key={`questions-${lastAiId ?? "none"}`}
-        thread={thread}
-      />
+      {!readOnly && (
+        <>
+          <LiveQuestionsForm
+            key={`questions-${lastAiId ?? "none"}`}
+            thread={thread}
+          />
+          <LivePlanApprovalCard
+            key={`plan-approval-${lastAiId ?? "none"}`}
+            thread={thread}
+          />
+        </>
+      )}
       {canShowFollowUps && followUpSuggestions.length > 0 && (
         <div className="px-[20px]">
           <motion.div

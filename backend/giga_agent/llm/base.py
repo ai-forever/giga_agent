@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import abc
 import base64
-from typing import Any, ClassVar, Type
+from typing import Any, ClassVar, Type, TypedDict
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -28,6 +28,13 @@ class AvailableModel(BaseModel):
     owned_by: str | None = None
 
 
+class ImageInput(TypedDict):
+    """Normalized image payload passed to a multimodal LLM runtime."""
+
+    image_bytes: bytes
+    mime_type: str
+
+
 class BaseLLMRuntime(BaseModel, abc.ABC):
     """LLM runtime contract used by routes and repositories."""
 
@@ -35,10 +42,12 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
 
     connector: BaseConnector
     model_id: str
+    context_window: int | None = None
 
     _runtime_fields: ClassVar[set[str]] = {
         "connector",
         "model_id",
+        "context_window",
     }
     _registered_llm_type: ClassVar[str] = ""
 
@@ -118,29 +127,30 @@ class BaseLLMRuntime(BaseModel, abc.ABC):
         llm = await self.get_llm()
         await llm.ainvoke("ping")
 
-    def can_analyze_image(self) -> bool:
+    def can_analyze_images(self) -> bool:
         return True
 
-    async def analyze_image(
+    async def analyze_images(
         self,
         *,
         prompt: str,
-        image_bytes: bytes,
-        mime_type: str = "image/jpg",
+        images: list[ImageInput],
     ) -> str:
-        image_b64 = base64.b64encode(image_bytes).decode("ascii")
-        image_url = f"data:{mime_type};base64,{image_b64}"
+        if not images:
+            raise ValueError("At least one image is required for analysis.")
+
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for image in images:
+            image_b64 = base64.b64encode(image["image_bytes"]).decode("ascii")
+            image_url = f"data:{image['mime_type']};base64,{image_b64}"
+            content.append(
+                {"type": "image_url", "image_url": {"url": image_url}}
+            )
+
         llm = await self.get_llm()
         llm = llm.with_config(tags=["nostream"])
         response = await llm.ainvoke(
-            [
-                HumanMessage(
-                    content=[
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ]
-                )
-            ]
+            [HumanMessage(content=content)]
         )
         return response.text
 

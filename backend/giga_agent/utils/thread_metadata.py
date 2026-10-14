@@ -44,6 +44,19 @@ def _config_metadata(config: RunnableConfig) -> dict[str, Any]:
     return dict(config.get("metadata") or {})
 
 
+def get_thread_id_from_config(config: RunnableConfig | None) -> str | None:
+    if not isinstance(config, dict):
+        return None
+    for source in ("metadata", "configurable"):
+        section = config.get(source) or {}
+        if not isinstance(section, dict):
+            continue
+        thread_id = section.get("thread_id")
+        if isinstance(thread_id, str) and thread_id.strip():
+            return thread_id.strip().strip("/")
+    return None
+
+
 def _key(thread_id: str) -> str:
     return _CACHE_KEY.format(thread_id=thread_id)
 

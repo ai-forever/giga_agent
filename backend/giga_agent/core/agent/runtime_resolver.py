@@ -27,11 +27,14 @@ _CLI_USER_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 class RuntimeResolver:
     """Lazily resolves and caches runtime dependencies for the current user."""
 
-    __slots__ = ("_user", "_cache")
+    __slots__ = ("_user", "_cache", "_llm_override_id")
 
-    def __init__(self, user: UserShort) -> None:
+    def __init__(
+        self, user: UserShort, *, llm_override_id: uuid.UUID | None = None
+    ) -> None:
         self._user = user
         self._cache: dict[str, Any] = {}
+        self._llm_override_id = llm_override_id
 
     # ------------------------------------------------------------------
     # Factory helpers
@@ -50,11 +53,43 @@ class RuntimeResolver:
             raise ValueError("langgraph_auth_user.identity is missing from config")
         user_uuid = uuid.UUID(identity) if isinstance(identity, str) else identity
         factory = await get_session_factory()
+        llm_override_id = None
         async with factory() as session:
             user = await UserRepository.get_cached_or_db(user_uuid, session=session)
+            subagent_ref = str(
+                (config.get("configurable") or {}).get("subagent_id") or ""
+            )
+            if subagent_ref.startswith("db:"):
+                from giga_agent.models.agent import AgentProfileRepository
+                from giga_agent.models.llm import LLMRepository
+
+                try:
+                    profile_id = uuid.UUID(subagent_ref.removeprefix("db:"))
+                except ValueError:
+                    profile_id = None
+                profile = (
+                    await AgentProfileRepository(session).get_for_owner(
+                        profile_id, user_uuid
+                    )
+                    if profile_id is not None
+                    else None
+                )
+                if (
+                    profile is None
+                    or profile.source != "custom"
+                    or not profile.is_enabled
+                ):
+                    raise ValueError("Subagent profile is unavailable")
+                if profile.llm_id is not None:
+                    readable = await LLMRepository(session).get_by_id_readable(
+                        profile.llm_id, user_id=user_uuid
+                    )
+                    if readable is None or not readable.is_active:
+                        raise ValueError("Subagent LLM is unavailable")
+                    llm_override_id = profile.llm_id
         if user is None:
             raise ValueError(f"User {user_uuid} not found")
-        return cls(user)
+        return cls(user, llm_override_id=llm_override_id)
 
     @classmethod
     def from_config(cls, config: RunnableConfig) -> RuntimeResolver:
@@ -116,7 +151,7 @@ class RuntimeResolver:
 
     @property
     def has_llm(self) -> bool:
-        return self._user.llm_id is not None
+        return (self._llm_override_id or self._user.llm_id) is not None
 
     @property
     def has_fast_llm(self) -> bool:
@@ -150,7 +185,7 @@ class RuntimeResolver:
         cached: BaseLLMRuntime | None = self._cache.get("llm")
         if cached is not None:
             return cached
-        llm_id = self._user.llm_id
+        llm_id = self._llm_override_id or self._user.llm_id
         if llm_id is None:
             raise ValueError("User has no llm_id configured")
         factory = await get_session_factory()
@@ -292,7 +327,7 @@ class RuntimeResolver:
 class CliRuntimeResolver(RuntimeResolver):
     """Runtime resolver for CLI mode — loads runtimes from giga_agent.conf.json."""
 
-    __slots__ = ("_user", "_cache", "_conf")
+    __slots__ = ("_conf",)
 
     def __init__(self, user: UserShort, conf) -> None:
         super().__init__(user)
@@ -398,6 +433,7 @@ class CliRuntimeResolver(RuntimeResolver):
         return runtime_cls(
             connector=connector_runtime,
             model_id=conf_llm.model_id,
+            context_window=conf_llm.context_window,
             **validated_settings,
         )
 
@@ -515,6 +551,9 @@ class CliRuntimeResolver(RuntimeResolver):
         provider_settings = {}
         cli_cwd_raw = (settings.giga_agent_cli_cwd or "").strip()
         if self._conf.sandbox in {"local_jupyter", "local_jupyter_sandbox"}:
+            provider_settings["python_executor"] = (
+                settings.giga_agent_cli_python_executor
+            )
             if not settings.giga_agent_cli_no_sandbox:
                 provider_settings["safe_execution"] = True
                 if cli_cwd_raw:

@@ -5,6 +5,7 @@ API Routes для Giga Agent.
 from fastapi import APIRouter
 from giga_agent.conf import GIGA_AGENT_PREFIX_API, GIGA_AGENT_RUNTIME_LOCAL
 from giga_agent.routes.agent import router as agent_router
+from giga_agent.routes.agents import router as agents_router
 from giga_agent.routes.channels import router as channels_router
 from giga_agent.routes.connectors import router as connectors_router
 from giga_agent.routes.embeddings import router as embeddings_router
@@ -24,6 +25,7 @@ from giga_agent.routes.threads import router as threads_router
 
 router = APIRouter(prefix=GIGA_AGENT_PREFIX_API)
 router.include_router(agent_router)
+router.include_router(agents_router)
 router.include_router(channels_router)
 router.include_router(connectors_router)
 router.include_router(embeddings_router)
@@ -48,6 +50,7 @@ if GIGA_AGENT_RUNTIME_LOCAL:
 __all__ = [
     "router",
     "agent_router",
+    "agents_router",
     "channels_router",
     "connectors_router",
     "embeddings_router",

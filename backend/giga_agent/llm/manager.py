@@ -54,5 +54,6 @@ class LLMManager:
         return runtime_cls(
             connector=connector_runtime,
             model_id=llm.model_id,
+            context_window=llm.context_window,
             **validated_settings,
         )

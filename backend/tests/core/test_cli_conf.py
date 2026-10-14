@@ -265,6 +265,9 @@ class TestCliRuntimeResolver(unittest.IsolatedAsyncioTestCase):
                 resolved = await resolver.get_sandbox()
                 self.assertEqual(resolved.provider.type, "local_jupyter")
                 self.assertEqual(resolved.sandbox.status, "pending")
+                self.assertEqual(
+                    resolved.provider.settings["python_executor"], "worker"
+                )
             finally:
                 os.chdir(orig_cwd)
 
@@ -295,6 +298,33 @@ class TestCliRuntimeResolver(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     resolved.provider.settings["write_dirs"],
                     [str(cwd_path.resolve())],
+                )
+            finally:
+                os.chdir(orig_cwd)
+
+    async def test_get_sandbox_uses_worker_executor_from_cli_environment(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            self._write_conf(tmp_path, SAMPLE_CONF)
+            orig_cwd = os.getcwd()
+            os.chdir(tmp_path)
+            try:
+                from giga_agent.conf import reset_settings_cache
+                from giga_agent.core.agent.runtime_resolver import CliRuntimeResolver
+
+                with patch.dict(
+                    os.environ,
+                    {"GIGA_AGENT_CLI_PYTHON_EXECUTOR": "worker"},
+                ):
+                    reset_settings_cache()
+                    resolver = await CliRuntimeResolver.create({})
+                    resolved = await resolver.get_sandbox()
+                reset_settings_cache()
+
+                self.assertEqual(
+                    resolved.provider.settings["python_executor"], "worker"
                 )
             finally:
                 os.chdir(orig_cwd)

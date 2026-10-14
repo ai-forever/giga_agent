@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import types
 import unittest
@@ -40,6 +41,50 @@ class LocalJupyterSandboxTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(MissingDependenciesError):
                 await LocalJupyterSandbox.validate_settings({})
+
+    async def test_worker_validation_and_startup_do_not_require_jupyter(self):
+        with patch(
+            "giga_agent.sandbox.local_jupyter.runtime.ensure_jupyter_dependencies",
+            side_effect=AssertionError("worker must not require Jupyter"),
+        ):
+            validated = await LocalJupyterSandbox.validate_settings(
+                {"python_executor": "worker"}
+            )
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                python_executor="worker",
+            )
+            await runtime.up()
+
+        self.assertEqual(validated, {})
+        self.assertTrue(await runtime.is_up())
+
+    async def test_worker_run_code_uses_persistent_local_worker(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                python_executor="worker",
+                default_cwd=tmp_dir,
+                safe_execution=False,
+            )
+            try:
+                first = [
+                    chunk
+                    async for chunk in runtime.run_code(
+                        "counter = 41\ncounter + 1", kernel_id="worker-kernel"
+                    )
+                ]
+                second = [
+                    chunk
+                    async for chunk in runtime.run_code(
+                        "counter + 2", kernel_id="worker-kernel"
+                    )
+                ]
+            finally:
+                await runtime.stop()
+
+        self.assertEqual(first[-1]["data"]["text/plain"], "42")
+        self.assertEqual(second[-1]["data"]["text/plain"], "43")
 
     async def test_legacy_settings_fields_are_ignored(self):
         with (
@@ -762,6 +807,50 @@ class LocalJupyterShellTests(unittest.IsolatedAsyncioTestCase):
                 result = await runtime.run_shell("echo $PATH", block_until_ms=5000)
 
             self.assertIn(shims_dir, result.output)
+
+    async def test_worker_shell_uses_worker_python_environment(self):
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            self._patched_env({"GIGA_AGENT_PROJECT_ROOT": tmp_dir}, clear=False),
+        ):
+            manager = types.SimpleNamespace(
+                _working_dir=Mock(return_value=Path(tmp_dir)),
+                _shell_sessions_root=Mock(
+                    return_value=Path(tmp_dir) / "shell_sessions"
+                ),
+                get_shell_env=Mock(
+                    side_effect=AssertionError(
+                        "worker shell must not use the Jupyter environment"
+                    )
+                ),
+            )
+            runtime = LocalJupyterSandbox(
+                owner_id=uuid.uuid4(),
+                python_executor="worker",
+                default_cwd=tmp_dir,
+            )
+            supervisor = Mock(
+                register_process=Mock(),
+                unregister_process=Mock(),
+                list_processes=Mock(return_value=[]),
+            )
+
+            with (
+                patch(
+                    "giga_agent.sandbox.local_jupyter.shell.get_local_jupyter_server_manager",
+                    return_value=manager,
+                ),
+                patch(
+                    "giga_agent.sandbox.local_jupyter.shell.get_process_supervisor",
+                    return_value=supervisor,
+                ),
+            ):
+                result = await runtime.run_shell(
+                    "python -c 'import sys; print(sys.executable)' && pip --version"
+                )
+
+        self.assertEqual(result.status, "completed")
+        self.assertIn(sys.executable, result.output)
 
     async def test_run_shell_empty_command_raises(self):
         runtime = LocalJupyterSandbox(owner_id=uuid.uuid4())

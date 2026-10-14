@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 
 from giga_agent.conf import get_settings
 
@@ -37,6 +37,7 @@ class CliLLMConf(BaseModel):
     connector: CliConnectorConf
     type: str = Field(alias="__type")
     model_id: str
+    context_window: PositiveInt | None = None
 
     @property
     def settings(self) -> dict[str, Any]:

@@ -59,7 +59,7 @@ class TelegramBotApp:
     def __init__(self, bot_row: ChannelBot, user_email: str):
         self.bot_row = bot_row
         self.user_email = user_email
-        self.bot = create_telegram_bot(get_bot_token(bot_row))
+        self.bot = create_telegram_bot(get_bot_token(bot_row), bot_row=bot_row)
         self.dp = Dispatcher()
         self._task: asyncio.Task | None = None
         # media_group_id -> {"messages": [...], "task": asyncio.Task}
@@ -92,6 +92,31 @@ class TelegramBotApp:
         self._register_handlers()
 
     def _register_handlers(self) -> None:
+        async def _archive_incoming(handler, event, data):
+            from giga_agent.channels.telegram.chat_history import (
+                archive_telegram_message,
+            )
+
+            await archive_telegram_message(
+                bot_row=self.bot_row, message=event, direction="incoming"
+            )
+            return await handler(event, data)
+
+        async def _archive_edited(handler, event, data):
+            from giga_agent.channels.telegram.chat_history import (
+                archive_telegram_message,
+            )
+
+            await archive_telegram_message(
+                bot_row=self.bot_row, message=event, direction="incoming", edited=True
+            )
+            return await handler(event, data)
+
+        # Outer middleware runs before command and mention filters, so history
+        # retains every Telegram update the bot was actually delivered.
+        self.dp.message.outer_middleware(_archive_incoming)
+        self.dp.edited_message.outer_middleware(_archive_edited)
+
         @self.dp.message(Command("new"))
         async def _on_new(message: tg_types.Message):
             await self.message_handlers.handle_new(message)
@@ -107,6 +132,11 @@ class TelegramBotApp:
         @self.dp.callback_query()
         async def _on_callback_query(callback: tg_types.CallbackQuery):
             await self.callback_handlers.handle_callback_query(callback)
+
+        @self.dp.edited_message()
+        async def _on_edited_message(message: tg_types.Message):
+            # Edits update the archive but must never start an agent run.
+            _ = message
 
         @self.dp.message()
         async def _on_message(message: tg_types.Message):

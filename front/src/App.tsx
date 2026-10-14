@@ -32,6 +32,7 @@ import ProtectedRoute from "@/components/auth/ProtectedRoute.tsx";
 import SettingsPage from "@/components/settings-page";
 import AdminPanelPage from "@/components/admin-panel";
 import SchedulerPage from "@/components/scheduler";
+import AgentsPage from "@/components/agents";
 import { runtimeConfig } from "@/config";
 import OnboardingWizard from "@/components/onboarding/OnboardingWizard";
 import FunctionalityOnboarding from "@/components/onboarding/FunctionalityOnboarding";
@@ -181,6 +182,7 @@ const AppRoutes: React.FC<{
         <Route path="/rag" element={<RAGInterface />} />
         <Route path="/memories" element={<MemoriesPage />} />
         <Route path="/scheduler" element={<SchedulerPage />} />
+        <Route path="/agents/*" element={<AgentsPage />} />
         <Route path="/projects/:projectId" element={<ProjectPage />} />
         <Route path="/demo/settings" element={<DemoSettings />} />
         <Route

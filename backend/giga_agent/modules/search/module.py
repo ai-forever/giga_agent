@@ -23,7 +23,14 @@ class SearchModule(BaseModule):
     async def is_enabled(
         self, user: UserShort | None, *, config=None, **kwargs: Any
     ) -> bool:
-        _ = config, kwargs
+        _ = kwargs
+        if config is not None:
+            try:
+                from giga_agent.core.agent.runtime_resolver import RuntimeResolver
+
+                return RuntimeResolver.from_config(config).has_search_engine
+            except (ValueError, RuntimeError):
+                pass
         return user is not None and user.search_engine_id is not None
 
     async def _resolve_runtime_cls(

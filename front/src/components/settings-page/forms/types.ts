@@ -63,6 +63,7 @@ export interface LLMResponse {
   type: string;
   connector_id: string;
   model_id: string;
+  context_window: number | null;
   name: string | null;
   parallel_calls: number;
   settings: LLMSettings;
@@ -209,6 +210,8 @@ export interface ChannelContactResponse {
   last_name: string | null;
   is_approved: boolean;
   is_default_task_recipient: boolean;
+  save_messages: boolean;
+  save_messages_enabled_at: string | null;
   created_at: string;
   updated_at: string;
 }
